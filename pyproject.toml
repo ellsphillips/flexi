@@ -1,6 +1,50 @@
-[build-system]
-requires = ["setuptools>=42.0", "wheel"]
-build-backend = "setuptools.build_meta"
+[tool.poetry]
+name = "flexi"
+version = "0.1.0"
+description = "Manage your time, flexibly."
+license = "MIT"
+authors = ["Elliott Phillips <elliott.phillips.dev@gmail.com>"]
+maintainers = ["Elliott Phillips <elliott.phillips.dev@gmail.com>"]
+readme = "README.md"
+repository = "https://github.com/ellsphillips/flexi"
+classifiers = [
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+packages = [
+    { include = "src/flexi" },
+]
+exclude = [
+    ".github",
+    ".flake8",
+    ".pylintrc",
+    "mypy.ini",
+    ".coveragerc",
+    "Makefile",
+    "scripts",
+    "tests"
+]
+
+[tool.poetry.dependencies]
+python = ">=3.7,<4.0"
+
+
+[tool.poetry.dev-dependencies]
+pytest-cov = "^3.0.0"
+pre-commit = "^2.20.0"
+flake8 = "^5.0.4"
+mypy = "^0.971"
+isort = "^5.10.1"
+black = {version = "^22.6.0", allow-prereleases = true}
 
 [tool.pytest.ini_options]
 addopts = "--cov=flexi"
