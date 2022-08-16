@@ -1,13 +1,12 @@
 [build-system]
-requires = ["setuptools>=42.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry >= 0.12, <1"]
+build-backend = "poetry.masonry.api"
 
 [tool.poetry]
 name = "flexi"
 version = "0.1.0"
 description = "Manage your time, flexibly."
 license = "MIT"
-license_file = "LICENSE"
 authors = ["Elliott Phillips <elliott.phillips.dev@gmail.com>"]
 maintainers = ["Elliott Phillips <elliott.phillips.dev@gmail.com>"]
 readme = "README.md"
