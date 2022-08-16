@@ -21,7 +21,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 packages = [
-    { include = "src/flexi" },
+    { include = "flexi" },
 ]
 exclude = [
     ".github",
@@ -37,7 +37,6 @@ exclude = [
 [tool.poetry.dependencies]
 python = ">=3.7,<4.0"
 
-
 [tool.poetry.dev-dependencies]
 pytest-cov = "^3.0.0"
 pre-commit = "^2.20.0"
@@ -46,6 +45,9 @@ mypy = "^0.971"
 isort = "^5.10.1"
 black = {version = "^22.6.0", allow-prereleases = true}
 
+[tool.poetry.plugins."console_scripts"]
+flexi = "flexi.io:main"
+
 [tool.pytest.ini_options]
 addopts = "--cov=flexi"
 testpaths = [
@@ -53,7 +55,7 @@ testpaths = [
 ]
 
 [tool.mypy]
-mypy_path = "src"
+mypy_path = "flexi"
 check_untyped_defs = true
 disallow_any_generics = true
 ignore_missing_imports = true
