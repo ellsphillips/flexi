@@ -124,7 +124,10 @@ def _install(session: nox.Session, *args: str) -> None:
 
 
 def _run(
-    session: nox.Session, target: str, *args: str, silent: bool = SILENT_DEFAULT
+    session: nox.Session,
+    target: str,
+    *args: str,
+    silent: bool = SILENT_DEFAULT,
 ) -> None:
     session.run(RUNNER, "run", target, *args, external=True, silent=silent)
 
