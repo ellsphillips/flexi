@@ -5,7 +5,7 @@ description = "A command line tool to help manage your time, flexibly."
 documentation = "https://flexi.readthedocs.io"
 authors = ["Elliott Phillips <elliott.phillips.dev@gmail.com>"]
 readme = "README.md"
-packages = [{ include = "flexi", from = "src" }]
+packages = [{ include = "flexi" }]
 license = "MIT"
 repository = "https://github.com/ellsphillips/flexi"
 keywords = ["flexi", "time", "management"]
@@ -41,7 +41,7 @@ sphinx-autodoc-typehints = "^1.22"
 
 
 [tool.coverage.paths]
-source = ["src"]
+source = ["flexi"]
 
 [tool.coverage.run]
 branch = true
@@ -59,6 +59,8 @@ skip_gitignore = true
 
 [tool.mypy]
 strict = true
+exclude = ["noxfile.py", "tests/"]
+explicit_package_bases = true
 
 
 [tool.ruff]

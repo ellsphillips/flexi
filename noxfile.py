@@ -16,7 +16,7 @@ SILENT_CODE_MODIFIERS = False
 RUNNER = "poetry"
 
 # targets
-PACKAGE_LOCATION = "./src"
+PACKAGE_LOCATION = "."
 CODE_LOCATIONS = PACKAGE_LOCATION, "./tests", "./noxfile.py"
 LEGACY_PYTHON_VERSIONS = ["3.6", "3.7", "3.8"]
 PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "pypy3"]
