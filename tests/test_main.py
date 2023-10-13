@@ -17,7 +17,9 @@ def test_main_succeeds(runner: click.testing.CliRunner) -> None:
 
 
 @pytest.mark.e2e()
-def test_main_succeeds_in_production_env(runner: click.testing.CliRunner) -> None:
+def test_main_succeeds_in_production_env(
+    runner: click.testing.CliRunner,
+) -> None:
     """It exits with a status code of zero (end-to-end)."""
     result = runner.invoke(main)
     assert result.exit_code == 0
@@ -26,4 +28,4 @@ def test_main_succeeds_in_production_env(runner: click.testing.CliRunner) -> Non
 def test_main_prints_title(runner: click.testing.CliRunner) -> None:
     """It prints the flexi welcome title."""
     result = runner.invoke(main)
-    assert "flexi  v" in result.output
+    assert result.output.startswith(" flexi ")
