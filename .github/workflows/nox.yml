@@ -8,8 +8,8 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
-        os: [ubuntu-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        os: [ubuntu-latest, windows-latest]
 
     name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:

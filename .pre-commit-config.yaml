@@ -24,18 +24,13 @@ repos:
         entry: poetry run ruff check .
         language: system
         types: [python]
-      - id: isort
-        name: isort
-        entry: poetry run isort
-        language: system
-        types: [python]
       - id: flake8
         name: flake8
         entry: poetry run flake8
         language: system
         types: [python]
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.3.0
+    hooks:
       - id: mypy
-        name: mypy
-        entry: poetry run mypy .
-        language: system
-        types: [python]
+        args: [--config-file=.github/linters/.mypy.ini]
