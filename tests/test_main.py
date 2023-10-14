@@ -4,6 +4,7 @@ import click.testing
 import pytest
 
 from flexi.__main__ import flexi
+from flexi.constants import Clock
 
 
 @pytest.fixture()
@@ -56,3 +57,24 @@ def test_flexi_prints_version_given_version_flag(
     """It prints the version when given the version flag."""
     result = runner.invoke(flexi, args=args)
     assert expected.match(result.output)
+
+
+def test_clock_succeeds(runner: click.testing.CliRunner) -> None:
+    """It exits with a status code of zero."""
+    result = runner.invoke(flexi, args=["clock", "in"])
+    assert result.exit_code == 0
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        (["clock", "in"], Clock.IN),
+        (["clock", "out"], Clock.OUT),
+    ],
+)
+def test_clock_prints_action_status(
+    runner: click.testing.CliRunner, args: list[str], expected: Clock
+) -> None:
+    """It exits with a status code of zero."""
+    result = runner.invoke(flexi, args=args)
+    assert f" {expected.name} " in result.output
