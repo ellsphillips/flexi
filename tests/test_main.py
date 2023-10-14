@@ -29,3 +29,11 @@ def test_flexi_prints_title(runner: click.testing.CliRunner) -> None:
     """It prints the flexi welcome title."""
     result = runner.invoke(flexi)
     assert result.output.startswith(" flexi ")
+
+
+def test_flexi_prints_help_given_help_flag(
+    runner: click.testing.CliRunner,
+) -> None:
+    """It prints the help message when given the help flag."""
+    result = runner.invoke(flexi, args=["--help"])
+    assert "Usage: flexi [OPTIONS] COMMAND [ARGS]..." in result.output
