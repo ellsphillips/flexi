@@ -1,7 +1,7 @@
 import click.testing
 import pytest
 
-from flexi.__main__ import main
+from flexi.__main__ import flexi
 
 
 @pytest.fixture()
@@ -10,22 +10,22 @@ def runner() -> click.testing.CliRunner:
     return click.testing.CliRunner()
 
 
-def test_main_succeeds(runner: click.testing.CliRunner) -> None:
+def test_flexi_succeeds(runner: click.testing.CliRunner) -> None:
     """It exits with a status code of zero."""
-    result = runner.invoke(main)
+    result = runner.invoke(flexi)
     assert result.exit_code == 0
 
 
 @pytest.mark.e2e()
-def test_main_succeeds_in_production_env(
+def test_flexi_succeeds_in_production_env(
     runner: click.testing.CliRunner,
 ) -> None:
     """It exits with a status code of zero (end-to-end)."""
-    result = runner.invoke(main)
+    result = runner.invoke(flexi)
     assert result.exit_code == 0
 
 
-def test_main_prints_title(runner: click.testing.CliRunner) -> None:
+def test_flexi_prints_title(runner: click.testing.CliRunner) -> None:
     """It prints the flexi welcome title."""
-    result = runner.invoke(main)
+    result = runner.invoke(flexi)
     assert result.output.startswith(" flexi ")

@@ -11,16 +11,16 @@ from flexi.utils import print_help_msg
 
 @click.group(no_args_is_help=False, invoke_without_command=True)
 @click.version_option(None, "-v", "--version", message=__version__)
-def main() -> None:
+def flexi() -> None:  # pragma: no cover
     """`flexi` entry point."""
     print_welcome()
 
     if not len(sys.argv) > 1:
-        print_help_msg(main)
+        print_help_msg(flexi)
         return
 
 
-@main.command()
+@flexi.command()
 @click.argument(
     "clock",
     type=click.Choice(list(Clock), case_sensitive=False),
