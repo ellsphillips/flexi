@@ -2,9 +2,12 @@ import sys
 import time
 
 import click
+import rich
 
 from flexi import __version__
+from flexi.config.home import HOME_DIR
 from flexi.constants import Clock
+from flexi.core import Flexi
 from flexi.ui import print_welcome
 from flexi.utils import print_help_msg
 
@@ -18,6 +21,14 @@ def flexi() -> None:  # pragma: no cover
     if not len(sys.argv) > 1:
         print_help_msg(flexi)
         return
+
+
+@flexi.command()
+def init() -> None:
+    """Initialize flexi."""
+    f = Flexi()
+    f.initialize()
+    rich.print(f"Successfully initialized flexi at [b cyan]{HOME_DIR}[/].")
 
 
 @flexi.command()

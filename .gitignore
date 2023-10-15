@@ -1,5 +1,6 @@
 app/
 out/
+.flexi/
 
 
 # Byte-compiled / optimized / DLL files
