@@ -20,7 +20,7 @@ PACKAGE_LOCATION = "."
 CODE_LOCATIONS = PACKAGE_LOCATION, "./noxfile.py"
 LEGACY_PYTHON_VERSIONS = ["3.6", "3.7", "3.8"]
 PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "pypy3"]
-LATEST_PYTHON = PYTHON_VERSIONS[-1]
+LATEST_PYTHON = "3.12"
 
 
 @nox.session(python=PYTHON_VERSIONS, tags=["test"])
