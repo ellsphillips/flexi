@@ -78,3 +78,9 @@ def test_clock_prints_action_status(
     """It exits with a status code of zero."""
     result = runner.invoke(flexi, args=args)
     assert f" {expected.name} " in result.output
+
+
+def test_init_succeeds(runner: click.testing.CliRunner) -> None:
+    """It exits with a status code of zero."""
+    result = runner.invoke(flexi, args=["init"])
+    assert result.exit_code == 0
