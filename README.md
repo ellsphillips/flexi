@@ -27,7 +27,7 @@ A command line tool to help manage your time, flexibly.
         </td>
         <td>
             <a href="https://github.com/ellsphillips/flexi/actions?workflow=Tests">
-                <img src="https://github.com/ellsphillips/flexi/workflows/Tests/badge.svg" alt="Tests status">
+                <img src="https://github.com/ellsphillips/flexi/workflows/tests/badge.svg" alt="Tests status">
             </a>
             <a href="https://flexi.readthedocs.io/">
                 <img src="https://readthedocs.org/projects/flexi/badge/" alt="Documentation status">
