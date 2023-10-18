@@ -26,6 +26,7 @@ jobs:
       - name: Install Poetry
         run: |
           pip install poetry==1.4.2
+          poetry run poetry install
           pip install -e .
 
       - name: Add system path to Poetry
