@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flexi"
-version = "0.0.1"
+version = "0.0.2"
 description = "A command line tool to help manage your time, flexibly."
 documentation = "https://flexi.readthedocs.io"
 authors = ["Elliott Phillips <elliott.phillips.dev@gmail.com>"]
