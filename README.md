@@ -33,7 +33,7 @@ A command line tool to help manage your time, flexibly.
                 <img src="https://readthedocs.org/projects/flexi/badge/" alt="Documentation status">
             </a>
             <a href="https://codecov.io/gh/ellsphillips/flexi">
-                <img src="https://codecov.io/gh/ellsphillips/flexi/branch/master/graph/badge.svg" alt="Coverage status">
+                <img src="https://codecov.io/gh/ellsphillips/flexi/branch/main/graph/badge.svg" alt="Coverage status">
             </a>
         </td>
     </tr>
