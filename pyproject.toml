@@ -116,7 +116,8 @@ ignore = [
     "B024", # forces abstract classes to have at least one abstract method, but sometimes a class is virtually abstract
     "D100", # Missing docstring in public module
     "D105", # docstrings on magic methods, useless docstrings are well known
-    "E501" # line size, but bug-bear already set it with a tolerance of 10% (B950)
+    "E501", # line size, but bug-bear already set it with a tolerance of 10% (B950)
+    "UP007" # ignore or-wise typing for py3.9 support
 ]
 
 [tool.ruff.per-file-ignores]
