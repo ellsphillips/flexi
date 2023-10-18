@@ -20,7 +20,7 @@ jobs:
           pip install nox==2022.11.21 install poetry==1.4.2
 
       - name: run coverage with nox
-        run: nox --sessions coverage-3.11
+        run: nox --sessions coverage-pypy3
 
       - name: upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
