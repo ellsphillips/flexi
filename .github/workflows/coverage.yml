@@ -14,18 +14,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: install dependencies
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install nox==2022.11.21 install poetry==1.4.2
 
-      - name: run coverage with nox
+      - name: Run coverage with nox
         run: nox --sessions coverage-3.12
 
-      - name: upload coverage reports to Codecov
+      - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           name: codecov-umbrella
           fail_ci_if_error: true
           verbose: true
