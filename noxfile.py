@@ -16,10 +16,11 @@ SILENT_CODE_MODIFIERS = False
 RUNNER = "poetry"
 
 # targets
-PACKAGE_LOCATION = "./src"
-CODE_LOCATIONS = PACKAGE_LOCATION, "./tests", "./noxfile.py"
+PACKAGE_LOCATION = "."
+CODE_LOCATIONS = PACKAGE_LOCATION, "./noxfile.py"
 LEGACY_PYTHON_VERSIONS = ["3.6", "3.7", "3.8"]
-PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12", "pypy3"]
+PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12"]
+PYPY3_VERSION = "pypy3"
 LATEST_PYTHON = PYTHON_VERSIONS[-1]
 
 
@@ -63,7 +64,7 @@ def isort(session: nox.Session) -> None:
     _run_code_modifier(session, "isort", *args)
 
 
-@nox.session(python=LATEST_PYTHON, tags=["security"])
+@nox.session(python=PYPY3_VERSION, tags=["security"])
 def safety(session: nox.Session) -> None:
     """Scan dependencies for insecure packages."""
     # not within poetry because it conflicts with black
@@ -124,7 +125,10 @@ def _install(session: nox.Session, *args: str) -> None:
 
 
 def _run(
-    session: nox.Session, target: str, *args: str, silent: bool = SILENT_DEFAULT
+    session: nox.Session,
+    target: str,
+    *args: str,
+    silent: bool = SILENT_DEFAULT,
 ) -> None:
     session.run(RUNNER, "run", target, *args, external=True, silent=silent)
 
