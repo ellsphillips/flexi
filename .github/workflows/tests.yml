@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/tests.yml"
+      - "flexi/**/*.py"
+      - "tests/**/*.py"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.9
+
+      - name: Install Poetry
+        run: |
+          pip install poetry==1.4.2
+          poetry run poetry install
+          pip install -e .
+
+      - name: Add system path to Poetry
+        run: echo $HOME/.poetry/bin >> $GITHUB_PATH
+
+      - name: Run Pytest
+        run: poetry run pytest --cov=flexi --cov-report=term-missing --cov-report=xml tests

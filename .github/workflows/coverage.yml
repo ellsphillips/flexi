@@ -1,0 +1,32 @@
+name: coverage
+
+on: [push, workflow_dispatch]
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install nox==2022.11.21 install poetry==1.4.2
+
+      - name: Run coverage with nox
+        run: nox --sessions coverage-3.12
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          name: codecov-umbrella
+          fail_ci_if_error: true
+          verbose: true
