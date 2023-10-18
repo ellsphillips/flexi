@@ -1,3 +1,4 @@
+import pathlib
 import sys
 import time
 
@@ -5,7 +6,7 @@ import click
 import rich
 
 from flexi import __version__
-from flexi.config.home import HOME_DIR
+from flexi.config import HOME_DIR
 from flexi.constants import Clock
 from flexi.core import Flexi
 from flexi.ui import print_welcome
@@ -24,11 +25,19 @@ def flexi() -> None:  # pragma: no cover
 
 
 @flexi.command()
-def init() -> None:
+@click.option(
+    "-d",
+    "--directory",
+    type=pathlib.Path,
+    required=False,
+    default=HOME_DIR,
+    help="Specify flexi's config folder. Defaults to the user's home.",
+)
+def init(directory: pathlib.Path) -> None:
     """Initialize flexi."""
     f = Flexi()
-    f.initialize()
-    rich.print(f"Successfully initialized flexi at [b cyan]{HOME_DIR}[/].")
+    f.initialize(directory)
+    rich.print(f"Successfully initialized flexi at [b cyan]{directory}[/].")
 
 
 @flexi.command()
