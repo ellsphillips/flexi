@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Optional
 
 import pydantic
 
+from flexi.log.exceptions import DayNotFoundError
+
 if TYPE_CHECKING:
     from flexi.types import Leave
 
@@ -45,3 +47,11 @@ class Log(pydantic.BaseModel):
     """All flexi history for the user."""
 
     days: list[Day]
+
+    def __getitem__(self, date: str) -> Day:
+        """Get a day by date."""
+        for day in self.days:
+            if day.date == date:
+                return day
+
+        raise DayNotFoundError(date)
