@@ -19,6 +19,13 @@ class Day(pydantic.BaseModel):
     corrections: list[Correction] = pydantic.Field(default_factory=list)
     leave: Optional[Leave] = None
 
+    @pydantic.validator("leave")
+    @classmethod
+    def clear_sessions_if_on_leave(cls, leave: Optional[Leave]) -> None:
+        """Validate sessions."""
+        if leave is not None:
+            cls.sessions = []
+
 
 class Session(pydantic.BaseModel):
     """Continuous work period."""
