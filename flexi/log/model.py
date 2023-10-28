@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import pydantic
 
-from flexi.log.exceptions import DayNotFoundError
-
-if TYPE_CHECKING:
-    from flexi.types import Leave
+from flexi.types import Leave
 
 
 class Day(pydantic.BaseModel):
@@ -61,4 +58,6 @@ class Log(pydantic.BaseModel):
             if day.date == date:
                 return day
 
-        raise DayNotFoundError(date)
+        self.days.append(Day(date=date))
+
+        return self[date]
