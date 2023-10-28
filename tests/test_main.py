@@ -63,6 +63,8 @@ def test_clock_succeeds(runner: click.testing.CliRunner) -> None:
     """It exits with a status code of zero."""
     result = runner.invoke(flexi, args=["clock", "in"])
     assert result.exit_code == 0
+    result = runner.invoke(flexi, args=["clock", "out"])
+    assert result.exit_code == 0
 
 
 @pytest.mark.parametrize(

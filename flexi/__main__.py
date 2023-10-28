@@ -6,8 +6,7 @@ import click
 import rich
 
 from flexi import __version__
-from flexi.config import HOME_DIR
-from flexi.constants import Clock
+from flexi.constants import HOME_DIR, Clock
 from flexi.core import Flexi
 from flexi.ui import print_welcome
 from flexi.utils import print_help_msg
