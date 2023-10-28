@@ -1,4 +1,6 @@
+import json
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +25,23 @@ class Registrar(ABC):
     def record_leave(self, leave: Leave) -> None:
         """Record a leave action."""
         raise NotImplementedError
+
+
+@dataclass
+class JSONRegistrar:
+    """Registrar that stores the log as JSON."""
+
+    path: Path
+    log: Log
+
+    def record_clock(self, clock: Clock) -> None:
+        """Record a session action."""
+        arrive(self.log) if clock is Clock.IN else depart(self.log)
+
+        self.log.days.sort(key=lambda d: d.date)
+
+        with Path.open(self.path, "w") as f:
+            json.dump([d.model_dump() for d in self.log.days], f, indent=2, default=str)
 
 
 def currently_clocked_in(day: Day) -> bool:
