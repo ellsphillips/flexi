@@ -1,4 +1,8 @@
 from enum import Enum
+from pathlib import Path
+
+HOME_DIR = Path.home() / ".flexi/"
+DEV_HOME_DIR = Path().cwd() / ".flexi"
 
 
 class Clock(str, Enum):

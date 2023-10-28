@@ -1,8 +1,4 @@
-from pathlib import Path
-
 from flexi.config.types import Config
-
-HOME_DIR = Path.home() / ".flexi/"
 
 DEFAULT_CONFIG = Config(
     contract="full_time",
