@@ -24,11 +24,6 @@ repos:
         entry: poetry run ruff check .
         language: system
         types: [python]
-      - id: flake8
-        name: flake8
-        entry: poetry run flake8
-        language: system
-        types: [python]
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.3.0
     hooks:
