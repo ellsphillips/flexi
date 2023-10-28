@@ -16,7 +16,7 @@ class Day(pydantic.BaseModel):
     corrections: list[Correction] = pydantic.Field(default_factory=list)
     leave: Optional[Leave] = None
 
-    @pydantic.validator("leave")
+    @pydantic.field_validator("leave")
     @classmethod
     def clear_sessions_if_on_leave(cls, leave: Optional[Leave]) -> None:
         """Validate sessions."""
@@ -30,10 +30,13 @@ class Session(pydantic.BaseModel):
     clock_in: str
     clock_out: str
 
-    @pydantic.computed_field  # type: ignore # noqa: PGH003
+    @pydantic.computed_field(repr=False)  # type: ignore # noqa: PGH003
     @property
     def duration(self) -> dt.timedelta:
         """Duration of the session."""
+        if not all([self.clock_in, self.clock_out]):
+            return dt.timedelta()
+
         fmt = "%H:%M"
         clock_out = dt.datetime.strptime(self.clock_out, fmt).astimezone()
         clock_in = dt.datetime.strptime(self.clock_in, fmt).astimezone()
