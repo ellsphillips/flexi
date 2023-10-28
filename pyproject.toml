@@ -15,6 +15,7 @@ python = "^3.9"
 click = "^8.1.3"
 rich = "^13.6.0"
 toml = "^0.10.2"
+pydantic = "^2.4.2"
 
 [tool.poetry.scripts]
 flexi = "flexi.__main__:flexi"
@@ -118,7 +119,8 @@ ignore = [
     "D100", # Missing docstring in public module
     "D105", # docstrings on magic methods, useless docstrings are well known
     "E501", # line size, but bug-bear already set it with a tolerance of 10% (B950)
-    "UP007" # ignore or-wise typing for py3.9 support
+    "UP007", # ignore or-wise typing for py3.9 support
+    "TCH001", # ignore import only for type-checking in "if TYPE_CHECKING" blocks
 ]
 
 [tool.ruff.per-file-ignores]
