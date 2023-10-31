@@ -1,4 +1,4 @@
-class DayNotFoundError(Exception):
+class DayNotFoundError(Exception):  # pragma: no cover
     """Raised when a day is not found in the flexi log."""
 
     def __init__(self, date: str) -> None:
