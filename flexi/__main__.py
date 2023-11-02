@@ -5,7 +5,7 @@ import click
 import rich
 
 from flexi import __version__
-from flexi.constants import DEV_HOME_DIR, HOME_DIR, Clock
+from flexi.constants import HOME_DIR, Clock
 from flexi.core import Flexi
 from flexi.log.core import load_log
 from flexi.log.model import Log
@@ -21,7 +21,7 @@ def flexi(ctx: click.Context) -> None:  # pragma: no cover
     """`flexi` entry point."""
     print_welcome()
 
-    ctx.obj = load_log(DEV_HOME_DIR / "log.json")
+    ctx.obj = load_log(HOME_DIR / "log.json")
 
     if not len(sys.argv) > 1:
         print_help_msg(flexi)
@@ -53,6 +53,6 @@ def init(directory: pathlib.Path) -> None:
 @click.pass_obj
 def clock(log: Log, clock: Clock) -> None:
     """Clock in or out."""
-    registrar = JSONRegistrar(DEV_HOME_DIR / "log.json", log)
+    registrar = JSONRegistrar(HOME_DIR / "log.json", log)
 
     registrar.record_clock(clock)
