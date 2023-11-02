@@ -68,18 +68,18 @@ def test_clock_succeeds(runner: click.testing.CliRunner) -> None:
 
 
 @pytest.mark.parametrize(
-    ("args", "expected"),
+    ("action", "stdout_msg"),
     [
-        (["clock", "in"], Clock.IN),
-        (["clock", "out"], Clock.OUT),
+        (Clock.IN, " IN "),
+        (Clock.OUT, "No active session found. Please clock in first."),
     ],
 )
-def test_clock_prints_action_status(
-    runner: click.testing.CliRunner, args: list[str], expected: Clock
+def test_clock_prints_in_action_status(
+    runner: click.testing.CliRunner, action: Clock, stdout_msg: str
 ) -> None:
     """It exits with a status code of zero."""
-    result = runner.invoke(flexi, args=args)
-    assert f" {expected.name} " in result.output
+    result = runner.invoke(flexi, args=["clock", action.value])
+    assert stdout_msg in result.output
 
 
 def test_init_succeeds(runner: click.testing.CliRunner) -> None:
