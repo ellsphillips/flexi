@@ -46,12 +46,16 @@ class JSONRegistrar:
 
 def currently_clocked_in(day: Day) -> bool:
     """Check if the user is able to clock in."""
-    sessions_exist = len(day.sessions) > 0
-
-    if not sessions_exist:
-        return False
-
-    return not day.sessions[-1].clock_out
+    return all(
+        [
+            # Check there are sessions initiated yet today.
+            day.sessions,
+            # Check if the latest session has a clock in time.
+            day.sessions and day.sessions[-1].clock_in,
+            # Check if the latest session has no clock out time.
+            day.sessions and not day.sessions[-1].clock_out,
+        ]
+    )
 
 
 def currently_clocked_out(day: Day) -> bool:
