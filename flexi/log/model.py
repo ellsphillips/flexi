@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
+from typing import Optional, TypedDict
 
 import pydantic
 
 from flexi.types import Leave
+
+
+class TDay(TypedDict):
+    """A day of work."""
+
+    date: str
+    sessions: list[Session]
+    corrections: list[Correction]
+    leave: Optional[Leave]
 
 
 class Day(pydantic.BaseModel):
@@ -16,12 +25,31 @@ class Day(pydantic.BaseModel):
     corrections: list[Correction] = pydantic.Field(default_factory=list)
     leave: Optional[Leave] = None
 
+    model_config = pydantic.ConfigDict(
+        validate_assignment=True,
+        use_enum_values=True,
+    )
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def clear_sessions_if_on_leave(cls, values: TDay) -> TDay:
+        """Update the updated_at field."""
+        leave = values.get("leave")
+        if leave is not None:
+            values["sessions"] = []
+        return values
+
+    @pydantic.field_validator("sessions")
+    @classmethod
+    def validate_sessions(cls, v: list[Session]) -> list[Session]:
+        """Validate sessions."""
+        return v
+
     @pydantic.field_validator("leave")
     @classmethod
-    def clear_sessions_if_on_leave(cls, leave: Optional[Leave]) -> None:
+    def validate_leave(cls, v: Leave) -> Leave:
         """Validate sessions."""
-        if leave is not None:
-            cls.sessions = []
+        return v
 
 
 class Session(pydantic.BaseModel):
