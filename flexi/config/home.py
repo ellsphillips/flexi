@@ -11,6 +11,9 @@ def create_home_dir(directory: Path) -> None:
     """Create the flexi home directory."""
     directory.mkdir(exist_ok=True)
 
+    with Path.open(directory / "log.json", "w") as f:
+        f.write("[]")
+
 
 def create_basic_user_config(home: Path) -> None:
     """Create a basic user config file."""
