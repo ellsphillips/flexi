@@ -21,7 +21,18 @@ def flexi(ctx: click.Context) -> None:  # pragma: no cover
     """`flexi` entry point."""
     print_welcome()
 
-    ctx.obj = load_log(HOME_DIR / "log.json")
+    try:
+        ctx.obj = load_log(HOME_DIR / "log.json")
+    except FileNotFoundError:
+        rich.print(
+            "\n".join(
+                [
+                    "[red b]Error:[/] flexi has not been initialized yet.",
+                    "Run [cyan b]flexi init[/] to get started.",
+                ]
+            )
+        )
+        return
 
     if not len(sys.argv) > 1:
         print_help_msg(flexi)
