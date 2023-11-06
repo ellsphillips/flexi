@@ -58,24 +58,24 @@ def test_if_currently_clocked_out(
 def test_arrive(
     mocked_clock_status: Mock,
     capsys: pytest.CaptureFixture[str],
-    model: Log,
+    log: Log,
 ) -> None:
     """Test arriving at work."""
     mocked_clock_status.return_value = True
-    arrive(model)
+    arrive(log)
 
     assert "You are already clocked in." in capsys.readouterr().out
 
 
 def test_depart(
     capsys: pytest.CaptureFixture[str],
-    model: Log,
+    log: Log,
 ) -> None:
     """Test departing work."""
-    model[datetime.date.today().isoformat()].sessions = [
+    log[datetime.date.today().isoformat()].sessions = [
         Session(clock_in="09:00", clock_out="")
     ]
-    depart(model)
+    depart(log)
 
     assert "Successfully clocked  OUT " in capsys.readouterr().out
 
@@ -84,10 +84,10 @@ def test_depart(
 def test_depart_if_clocked_out(
     mocked_clock_status: Mock,
     capsys: pytest.CaptureFixture[str],
-    model: Log,
+    log: Log,
 ) -> None:
     """Test departing work."""
     mocked_clock_status.return_value = True
-    depart(model)
+    depart(log)
 
     assert "No active session found. Please clock in first." in capsys.readouterr().out
