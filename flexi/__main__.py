@@ -1,5 +1,4 @@
 import pathlib
-import sys
 
 import click
 import rich
@@ -34,9 +33,8 @@ def flexi(ctx: click.Context) -> None:  # pragma: no cover
         )
         return
 
-    if not len(sys.argv) > 1:
+    if ctx.invoked_subcommand is None:
         print_help_msg(flexi)
-        return
 
 
 @flexi.command()
