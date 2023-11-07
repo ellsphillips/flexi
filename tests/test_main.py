@@ -1,10 +1,14 @@
+import pathlib
 import re
+from unittest.mock import Mock, patch
 
 import click.testing
 import pytest
 
 from flexi.__main__ import flexi
 from flexi.constants import Clock
+from flexi.log.registrar import JSONRegistrar
+from tests.conftest import TEST_LOG
 
 
 @pytest.fixture()
@@ -59,28 +63,37 @@ def test_flexi_prints_version_given_version_flag(
     assert expected.match(result.output)
 
 
-def test_clock_succeeds(runner: click.testing.CliRunner) -> None:
-    """It exits with a status code of zero."""
-    result = runner.invoke(flexi, args=["clock", "in"])
-    assert result.exit_code == 0
-
-
-@pytest.mark.parametrize(
-    ("args", "expected"),
-    [
-        (["clock", "in"], Clock.IN),
-        (["clock", "out"], Clock.OUT),
-    ],
-)
-def test_clock_prints_action_status(
-    runner: click.testing.CliRunner, args: list[str], expected: Clock
-) -> None:
-    """It exits with a status code of zero."""
-    result = runner.invoke(flexi, args=args)
-    assert f" {expected.name} " in result.output
-
-
+@patch("flexi.core.Flexi.initialize", Mock())
 def test_init_succeeds(runner: click.testing.CliRunner) -> None:
     """It exits with a status code of zero."""
     result = runner.invoke(flexi, args=["init"])
     assert result.exit_code == 0
+
+
+@pytest.mark.parametrize(
+    ("clock"),
+    [Clock.IN, Clock.OUT],
+)
+@patch("flexi.log.registrar.JSONRegistrar.record_clock", Mock())
+def test_clock_succeeds(clock: Clock, runner: click.testing.CliRunner) -> None:
+    """It exits with a status code of zero."""
+    result = runner.invoke(flexi, args=["clock", clock.value])
+    assert result.exit_code == 0
+
+
+@patch("flexi.__main__.load_log", Mock(return_value=TEST_LOG))
+def test_clock_prints_in_action_status(
+    runner: click.testing.CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It prints the in action status."""
+    monkeypatch.setattr(
+        "flexi.log.registrar.JSONRegistrar",
+        JSONRegistrar(pathlib.Path.cwd(), TEST_LOG),
+    )
+
+    with patch.object(pathlib.Path, "open") as _:
+        result = runner.invoke(flexi, args=["clock", "in"])
+        assert "clocked  IN  at" in result.output
+        result = runner.invoke(flexi, args=["clock", "out"])
+        assert "clocked  OUT  at" in result.output

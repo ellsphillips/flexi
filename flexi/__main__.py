@@ -1,27 +1,40 @@
 import pathlib
-import sys
-import time
 
 import click
 import rich
 
 from flexi import __version__
-from flexi.config import HOME_DIR
-from flexi.constants import Clock
+from flexi.constants import HOME_DIR, Clock
 from flexi.core import Flexi
+from flexi.log.core import load_log
+from flexi.log.model import Log
+from flexi.log.registrar import JSONRegistrar
 from flexi.ui import print_welcome
 from flexi.utils import print_help_msg
 
 
 @click.group(no_args_is_help=False, invoke_without_command=True)
 @click.version_option(None, "-v", "--version", message=__version__)
-def flexi() -> None:  # pragma: no cover
+@click.pass_context
+def flexi(ctx: click.Context) -> None:  # pragma: no cover
     """`flexi` entry point."""
     print_welcome()
 
-    if not len(sys.argv) > 1:
-        print_help_msg(flexi)
+    try:
+        ctx.obj = load_log(HOME_DIR / "log.json")
+    except FileNotFoundError:
+        rich.print(
+            "\n".join(
+                [
+                    "[red b]Error:[/] flexi has not been initialized yet.",
+                    "Run [cyan b]flexi init[/] to get started.",
+                ]
+            )
+        )
         return
+
+    if ctx.invoked_subcommand is None:
+        print_help_msg(flexi)
 
 
 @flexi.command()
@@ -46,11 +59,9 @@ def init(directory: pathlib.Path) -> None:
     type=click.Choice(list(Clock), case_sensitive=False),
     required=False,
 )
-def clock(clock: Clock) -> None:
+@click.pass_obj
+def clock(log: Log, clock: Clock) -> None:
     """Clock in or out."""
-    colour = "green" if clock is Clock.IN else "red"
-    badge = click.style(f" {clock.name} ", fg="white", bg=colour)
-    click.secho(
-        f"Successfully clocked {badge} at {time.strftime('%Y-%m-%d %H:%M')}.",
-        bold=True,
-    )
+    registrar = JSONRegistrar(HOME_DIR / "log.json", log)
+
+    registrar.record_clock(clock)
