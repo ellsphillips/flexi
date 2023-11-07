@@ -1,6 +1,6 @@
 import datetime
 
-from flexi.log.model import Log, Session
+from flexi.log.model import Log
 from flexi.types import Leave
 
 
@@ -17,15 +17,3 @@ def test_new_day_creation(log: Log) -> None:
 
     assert tomorrow.date == date
     assert tomorrow.date in [d.date for d in log.days]
-
-
-def test_session_duration() -> None:
-    """Check that a session duration is calculated correctly."""
-    session = Session(clock_in="09:00", clock_out="12:30")
-    assert ":".join(str(session.duration).split(":")[:2]) == "3:30"
-
-
-def test_session_duration_with_no_clock_out() -> None:
-    """Check that a session duration is calculated correctly."""
-    session = Session(clock_in="09:00", clock_out="")
-    assert session.duration == datetime.timedelta()

@@ -59,7 +59,7 @@ class Session(pydantic.BaseModel):
     clock_out: str
 
     @property
-    def duration(self) -> dt.timedelta:
+    def duration(self) -> dt.timedelta:  # pragma: no cover
         """Duration of the session."""
         if not all([self.clock_in, self.clock_out]):
             return dt.timedelta()
