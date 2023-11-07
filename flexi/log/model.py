@@ -8,6 +8,18 @@ import pydantic
 from flexi.types import Leave
 
 
+def format_clock_time(
+    time: str, day: Optional[dt.date] = None, fmt: str = "%H:%M"
+) -> dt.datetime:
+    """Format a datetime object as a clock time."""
+    if day is None:
+        day = dt.datetime.today()  # noqa: DTZ002
+
+    return dt.datetime.combine(
+        day, dt.datetime.strptime(time, fmt).time()  # noqa: DTZ007
+    )
+
+
 class TDay(TypedDict):
     """A day of work."""
 
@@ -59,14 +71,14 @@ class Session(pydantic.BaseModel):
     clock_out: str
 
     @property
-    def duration(self) -> dt.timedelta:  # pragma: no cover
+    def duration(self) -> dt.timedelta:
         """Duration of the session."""
         if not all([self.clock_in, self.clock_out]):
             return dt.timedelta()
 
-        fmt = "%H:%M"
-        clock_out = dt.datetime.strptime(self.clock_out, fmt).astimezone()
-        clock_in = dt.datetime.strptime(self.clock_in, fmt).astimezone()
+        clock_out = format_clock_time(self.clock_out)
+        clock_in = format_clock_time(self.clock_in)
+
         return clock_out - clock_in
 
 
