@@ -58,7 +58,6 @@ class Session(pydantic.BaseModel):
     clock_in: str
     clock_out: str
 
-    @pydantic.computed_field(repr=False)  # type: ignore # noqa: PGH003
     @property
     def duration(self) -> dt.timedelta:
         """Duration of the session."""
