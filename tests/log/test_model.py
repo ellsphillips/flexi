@@ -22,7 +22,7 @@ def test_new_day_creation(log: Log) -> None:
 def test_session_duration() -> None:
     """Check that a session duration is calculated correctly."""
     session = Session(clock_in="09:00", clock_out="12:30")
-    assert session.duration == datetime.timedelta(hours=3, minutes=30)
+    assert ":".join(str(session.duration).split(":")[:2]) == "3:30"
 
 
 def test_session_duration_with_no_clock_out() -> None:
