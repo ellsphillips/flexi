@@ -39,3 +39,4 @@ repos:
             --exclude,
             "migrations|tests|dist|build|typings",
           ]
+        additional_dependencies: ["typing-extensions", "types-requests"]

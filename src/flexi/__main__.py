@@ -1,5 +1,23 @@
-from flexi.components.ui.welcome import print_welcome
+import click
+
+import flexi
+from flexi.components import ui
+from flexi.versioning import get_pypi_version, needs_update
 
 
-def flexi() -> None:
-    print_welcome()
+@click.group(invoke_without_command=True)  # type: ignore[misc]
+def cli() -> None:
+    """Flexi CLI."""
+    ui.welcome()
+
+    if needs_update():
+        pypi = get_pypi_version()
+        click.secho(
+            f"New version available ({flexi.__version__} -> {pypi})! Update with:",
+            fg="yellow",
+        )
+        click.secho(f"\n{' ' * 4} uv tool upgrade flexi", fg="cyan")
+
+
+if __name__ == "__main__":
+    cli()

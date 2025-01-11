@@ -1,27 +1,30 @@
 [project]
 name = "flexi"
-version = "0.1.0"
+version = "0.0.0"
 description = "A command line tool to help manage your time, flexibly."
 readme = "README.md"
 requires-python = ">=3.12"
 keywords = ["flexi", "time", "management"]
 dependencies = [
     "click>=8.1.8",
+    "pip>=24.3.1",
+    "requests>=2.32.3",
 ]
 
 [project.scripts]
-flexi = "flexi.__main__:flexi"
+flexi = "flexi.__main__:cli"
 
 [dependency-groups]
 dev = [
-    "mypy",
-    "pre-commit",
-    "pygments",
-    "pytest",
-    "pytest-cov",
-    "pytest-mock",
-    "ruff",
-    "typing-extensions",
+    "mypy>=1.14.1",
+    "pre-commit>=4.0.1",
+    "pygments>=2.19.1",
+    "pytest>=8.3.4",
+    "pytest-cov>=6.0.0",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.9.1",
+    "types-requests>=2.32.0.20241016",
+    "typing-extensions>=4.12.2",
 ]
 
 [tool.uv]
@@ -38,7 +41,7 @@ source = ["src"]
 show_missing = true
 fail_under = 100
 
-[tool.lint.mypy]
+[tool.mypy]
 strict = true
 exclude = "migrations|tests|dist|build|typings"
 explicit_package_bases = true
