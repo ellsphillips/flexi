@@ -5,7 +5,8 @@ from flexi.components import ui
 from flexi.versioning import get_pypi_version, needs_update
 
 
-@click.group(invoke_without_command=True)  # type: ignore[misc]
+@click.group(invoke_without_command=True)
+@click.version_option(None, "-v", "--version", message=flexi.__version__)
 def cli() -> None:
     """Flexi CLI."""
     ui.welcome()
