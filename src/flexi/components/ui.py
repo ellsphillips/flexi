@@ -3,7 +3,7 @@ import click
 import flexi
 
 
-def print_welcome() -> None:
+def welcome() -> None:
     """Print the flexi welcome title."""
     badge = click.style(" flexi ", fg="white", bg="cyan")
     strapline = click.style(flexi.__doc__, fg="bright_black")
