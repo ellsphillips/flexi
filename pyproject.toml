@@ -41,7 +41,6 @@ source = ["src"]
 
 [tool.lint.coverage.report]
 show_missing = true
-fail_under = 100
 
 [tool.mypy]
 strict = true

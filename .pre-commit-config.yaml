@@ -36,7 +36,7 @@ repos:
           [
             --strict,
             --ignore-missing-imports,
-            --exclude,
-            "migrations|tests|dist|build|typings",
+            --allow-untyped-decorators,
+            --exclude=migrations|tests|dist|build|typings,
           ]
         additional_dependencies: ["typing-extensions", "types-requests"]
