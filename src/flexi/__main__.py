@@ -1,7 +1,7 @@
 import click
 
 import flexi
-from flexi.components import ui
+from flexi.app import App
 from flexi.versioning import get_pypi_version, needs_update
 
 
@@ -9,8 +9,6 @@ from flexi.versioning import get_pypi_version, needs_update
 @click.version_option(None, "-v", "--version", message=flexi.__version__)
 def cli() -> None:
     """Flexi CLI."""
-    ui.welcome()
-
     if needs_update():
         pypi = get_pypi_version()
         click.secho(
@@ -18,6 +16,9 @@ def cli() -> None:
             fg="yellow",
         )
         click.secho(f"\n{' ' * 4} uv tool upgrade flexi", fg="cyan")
+
+    app = App()
+    app.run()
 
 
 if __name__ == "__main__":
