@@ -25,100 +25,22 @@ Rule {
   color: $primary-background;
 }
 
-Button {
-  width: auto;
-  height: auto;
-  background: transparent;
-  color: $text;
-  min-width: 0;
-  border: none;
-  text-style: none;
-
-  &:focus {
-    text-style: bold reverse;
-  }
-
-  &:hover {
-    background: $panel-darken-2;
-    color: $text;
-  }
-
-  &.-active {
-    background: $panel;
-    tint: $background 30%;
-  }
-}
-
 .base-page {
   padding: 0 1;
 }
 
-/* ---------------------------------- */
-/*              Home page             */
-/* ---------------------------------- */
-
-/* --------------- top -------------- */
-
-#welcome-container {
-  border: round $accent-darken-3;
-  width: 100%;
-  height: 35;
-  layout: horizontal;
+.island {
+  width: 1fr;
+  border: round $panel-lighten-2;
+  padding-left: 1;
+  padding-right: 1;
 
   &:focus {
     border: round $accent;
   }
 
-  .bagel-container {
-    height: 15;
-    width: 30;
-
-    #bagel {
-      color: $accent-lighten-3;
-    }
-  }
-
-  .text-container {
-    padding: 1 0;
-    width: 1fr;
-
-    Markdown {
-      background: $background;
-
-      &:focus {
-        background-tint: transparent;
-      }
-    }
-
-    MarkdownViewer {
-      width: 1fr;
-      background: $background;
-    }
-
-    MarkdownH1 {
-      color: $primary;
-      content-align: left middle;
-      margin: 0;
-    }
-
-    MarkdownH2 {
-      color: $primary;
-      margin: 0 0 1 0;
-    }
-
-    MarkdownHorizontalRule {
-      margin: 0;
-      border-top: heavy $primary-background-lighten-1;
-      border-bottom: none;
-    }
-
-    MarkdownBullet {
-      color: $accent;
-    }
-
-    MarkdownBlockQuote {
-      border-left: outer $accent;
-    }
+  &:focus-within {
+    border: round $accent;
   }
 }
 

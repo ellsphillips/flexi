@@ -9,6 +9,9 @@ class FilePaths:
     DATABASE = "db.db"
 
 
+STATIC_DIRECTORY = Path(__file__).parent / "static"
+
+
 def app_directory(root: Path) -> Path:
     """Create and return the application directory."""
     directory = root / FilePaths.APP_DIRECTORY
