@@ -1,0 +1,35 @@
+#status-container {
+  layout: horizontal;
+  width: 1fr;
+  height: auto;
+
+  Button {
+    width: auto;
+    height: auto;
+    background: transparent;
+    color: $text;
+    min-width: 0;
+    border: none;
+    text-style: none;
+
+    &:focus {
+      text-style: bold reverse;
+    }
+
+    &:hover {
+      background: $panel-darken-2;
+      color: $text;
+    }
+
+    &.-active {
+      background: $panel;
+      tint: $background 30%;
+    }
+
+    &* {
+      padding: 0 1;
+      text-align: center;
+      width: 1fr;
+    }
+  }
+}
