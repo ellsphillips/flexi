@@ -37,10 +37,52 @@ Rule {
 
   &:focus {
     border: round $accent;
+    border-title-color: $primary;
+    border-subtitle-color: $primary;
   }
 
   &:focus-within {
     border: round $accent;
+    border-title-color: $primary;
+    border-subtitle-color: $primary;
+  }
+}
+
+/* ---------------------------------- */
+/*             Components             */
+/* ---------------------------------- */
+
+Button {
+  width: 100%;
+  height: auto;
+  background: transparent;
+  color: $text;
+  min-width: 0;
+  border: none;
+  text-style: none;
+
+  &:focus {
+    text-style: bold;
+  }
+
+  &:hover {
+    background: $panel-darken-2;
+  }
+}
+
+Button {
+  width: 50%;
+  text-align: center;
+  color: white;
+
+  &.-active {
+    color: $primary;
+  }
+
+  &.selected {
+    color: white;
+    text-style: bold;
+    background: $secondary;
   }
 }
 
@@ -59,4 +101,8 @@ Rule {
   width: 1fr;
   padding-top: 2;
   text-align: center;
+}
+
+.highlight {
+  color: $primary;
 }
