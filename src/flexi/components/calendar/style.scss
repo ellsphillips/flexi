@@ -1,0 +1,64 @@
+#calendar-container {
+  width: 1fr;
+  height: 11;
+
+  .month-selector {
+    height: 2;
+    layout: horizontal;
+    align: center middle;
+
+    Button {
+      width: auto;
+    }
+
+    #prev-month {
+      dock: left;
+      color: $primary-background-lighten-3;
+    }
+
+    #next-month {
+      dock: right;
+      color: $primary-background-lighten-3;
+    }
+  }
+  .calendar {
+    height: 6;
+    width: 20;
+    offset-x: 2;
+
+    .calendar-row {
+      height: 1;
+
+      Label {
+        width: 3;
+      }
+      .not_current_month {
+        color: $panel-lighten-1;
+      }
+    }
+
+    .calendar-dotw-row {
+      height: 1;
+
+      Label {
+        width: 3;
+        color: $primary-background-lighten-3;
+        text-style: italic;
+      }
+    }
+
+    .target_month {
+      background: $panel 20%;
+    }
+
+    .target_week,
+    .target {
+      background: $panel 40%;
+    }
+
+    .today {
+      color: $primary;
+      text-style: bold underline;
+    }
+  }
+}
