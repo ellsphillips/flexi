@@ -13,7 +13,7 @@ class Welcome(Static):
     can_focus = True
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(classes="island")
         file_path = STATIC_DIRECTORY / "welcome.md"
         with open(file_path, "r") as file:
             self.welcome_text = file.read()

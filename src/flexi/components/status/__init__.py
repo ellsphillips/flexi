@@ -5,15 +5,16 @@ from textual.containers import Container
 from textual.widget import Widget
 from textual.widgets import Button, Static
 
+from flexi.constants import StatusOption
 from flexi.util.style import load_css
 
 
 class Parent(Protocol):
     """Interface for this component's parent."""
 
-    arrived: bool
+    status: StatusOption
 
-    def action_toggle_status(self) -> None: ...
+    def action_set_status(self, status: StatusOption) -> None: ...
 
 
 class Status(Static):
@@ -22,10 +23,8 @@ class Status(Static):
     DEFAULT_CSS = load_css(__file__)
 
     def __init__(self, parent: Parent, *args: Any, **kwargs: Any) -> None:
-        super().__init__(
-            *args, **kwargs, id="incomemode-container", classes="module-container"
-        )
-        super().__setattr__("border_title", "Arrive / Depart")
+        super().__init__(*args, **kwargs, classes="island")
+        super().__setattr__("border_title", "Status")
         super().__setattr__("border_subtitle", "/")
         self.page_parent = parent
 
@@ -33,16 +32,20 @@ class Status(Static):
         self.rebuild()
 
     def rebuild(self) -> None:
-        arrive_button: Button | Widget = self.query_one("#arrive-button")
-        depart_button: Button | Widget = self.query_one("#depart-button")
-        arrived = self.page_parent.arrived
-        arrive_button.classes = "selected" if not arrived else ""
-        depart_button.classes = "selected" if arrived else ""
+        buttons: dict[StatusOption, Widget] = {
+            StatusOption.ARRIVE: self.query_one("#arrive-button"),
+            StatusOption.DEPART: self.query_one("#depart-button"),
+        }
+
+        for status, button in buttons.items():
+            button.classes = "selected" if self.page_parent.status is status else ""
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.page_parent.action_toggle_status()
+        if (name := event.button.name) is not None:
+            state = StatusOption.from_str(name)
+            self.page_parent.action_set_status(state)
 
     def compose(self) -> ComposeResult:
-        with Container(id="status-container", classes="island"):
-            yield Button("Arrive", id="arrive-button")
-            yield Button("Depart", id="depart-button")
+        with Container(id="status-container"):
+            yield Button("Arrive", id="arrive-button", name="arrive")
+            yield Button("Depart", id="depart-button", name="depart")

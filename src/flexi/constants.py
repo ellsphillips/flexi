@@ -3,14 +3,14 @@ from __future__ import annotations
 from enum import StrEnum, auto
 
 
-class Clock(StrEnum):
+class StatusOption(StrEnum):
     """Actions for clocking in or out."""
 
-    IN = auto()
-    OUT = auto()
+    ARRIVE = auto()
+    DEPART = auto()
 
     @classmethod
-    def from_str(cls, action: str) -> Clock:
+    def from_str(cls, action: str) -> StatusOption:
         """Convert a clock action to its equivalent Enum.
 
         Args:
@@ -27,4 +27,4 @@ class Clock(StrEnum):
             >>> Clock.from_str("o") is Clock.OUT
             True
         """
-        return cls.OUT if action.lower().startswith("o") else cls.IN
+        return cls.ARRIVE if action.lower().startswith("a") else cls.DEPART

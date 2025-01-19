@@ -2,34 +2,14 @@
   layout: horizontal;
   width: 1fr;
   height: auto;
+}
 
-  Button {
-    width: auto;
-    height: auto;
-    background: transparent;
-    color: $text;
-    min-width: 0;
-    border: none;
-    text-style: none;
+Button {
+  width: 50%;
+  text-align: center;
+  color: $primary;
 
-    &:focus {
-      text-style: bold reverse;
-    }
-
-    &:hover {
-      background: $panel-darken-2;
-      color: $text;
-    }
-
-    &.-active {
-      background: $panel;
-      tint: $background 30%;
-    }
-
-    &* {
-      padding: 0 1;
-      text-align: center;
-      width: 1fr;
-    }
+  &:focus {
+    background: $accent 10%;
   }
 }
