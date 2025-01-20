@@ -1,0 +1,19 @@
+.header {
+  layout: horizontal;
+  height: auto;
+  padding: 1 2;
+
+  .title {
+    color: $primary;
+  }
+
+  .version {
+    color: $accent-lighten-3 60%;
+    margin-left: 1;
+  }
+
+  .user {
+    color: $primary-background-lighten-3;
+    dock: right;
+  }
+}

@@ -1,17 +1,17 @@
 import pytest
 
-from flexi.constants import Clock
+from flexi.constants import StatusOption
 
 
 @pytest.mark.parametrize(
-    ("clock", "expected"),
+    ("status", "expected"),
     [
-        ("in", Clock.IN),
-        ("out", Clock.OUT),
-        ("i", Clock.IN),
-        ("o", Clock.OUT),
+        ("arrive", StatusOption.ARRIVE),
+        ("depart", StatusOption.DEPART),
+        ("a", StatusOption.ARRIVE),
+        ("d", StatusOption.DEPART),
     ],
 )
-def test_clock(clock: str, expected: Clock) -> None:
-    """It clocks in or out."""
-    assert Clock.from_str(clock) == expected
+def test_StatusOption(status: str, expected: StatusOption) -> None:
+    """It StatusOptions in or out."""
+    assert StatusOption.from_str(status) == expected

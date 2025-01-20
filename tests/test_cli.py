@@ -12,26 +12,6 @@ def runner() -> click.testing.CliRunner:
     return click.testing.CliRunner()
 
 
-def test_flexi_succeeds(runner: click.testing.CliRunner) -> None:
-    result = runner.invoke(cli)
-    assert result.exit_code == 0
-
-
-@pytest.mark.e2e()
-def test_flexi_succeeds_in_production_env(
-    runner: click.testing.CliRunner,
-) -> None:
-    """It exits with a status code of zero (end-to-end)."""
-    result = runner.invoke(cli)
-    assert result.exit_code == 0
-
-
-def test_flexi_prints_title(runner: click.testing.CliRunner) -> None:
-    """It prints the flexi welcome title."""
-    result = runner.invoke(cli)
-    assert result.output.startswith(" flexi ")
-
-
 @pytest.mark.parametrize(
     ("args", "expected"),
     [

@@ -1,6 +1,6 @@
 [project]
 name = "flexi"
-version = "0.0.0"
+version = "0.1.0"
 description = "A command line tool to help manage your time, flexibly."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -9,7 +9,9 @@ dependencies = [
     "click>=8.1.8",
     "pip>=24.3.1",
     "requests>=2.32.3",
+    "rich>=13.9.4",
     "sqlalchemy>=2.0.37",
+    "textual>=1.0.0",
     "xdg-base-dirs>=6.0.2",
 ]
 
@@ -25,6 +27,7 @@ dev = [
     "pytest-cov>=6.0.0",
     "pytest-mock>=3.14.0",
     "ruff>=0.9.1",
+    "textual-dev>=1.7.0",
     "types-requests>=2.32.0.20241016",
     "typing-extensions>=4.12.2",
 ]
