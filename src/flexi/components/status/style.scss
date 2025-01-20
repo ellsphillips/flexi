@@ -1,0 +1,15 @@
+#status-container {
+  layout: horizontal;
+  width: 1fr;
+  height: auto;
+}
+
+Button {
+  width: 50%;
+  text-align: center;
+  color: $primary;
+
+  &:focus {
+    background: $accent 10%;
+  }
+}

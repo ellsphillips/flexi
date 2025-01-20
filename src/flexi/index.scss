@@ -1,0 +1,108 @@
+/* ---------------------------------- */
+/*                Base                */
+/* ---------------------------------- */
+
+* {
+  scrollbar-color: $accent 30%;
+  scrollbar-color-hover: $accent 80%;
+  scrollbar-color-active: $accent;
+  scrollbar-background: $surface-darken-1;
+  scrollbar-background-hover: $surface-darken-1;
+  scrollbar-background-active: $surface-darken-1;
+  scrollbar-size-vertical: 1;
+
+  &:focus {
+    scrollbar-color: $accent 55%;
+  }
+}
+
+Screen {
+  background: $background;
+}
+
+Rule {
+  margin: 0;
+  color: $primary-background;
+}
+
+.base-page {
+  padding: 0 1;
+}
+
+.island {
+  width: 1fr;
+  border: round $panel-lighten-2;
+  padding-left: 1;
+  padding-right: 1;
+
+  &:focus {
+    border: round $accent;
+    border-title-color: $primary;
+    border-subtitle-color: $primary;
+  }
+
+  &:focus-within {
+    border: round $accent;
+    border-title-color: $primary;
+    border-subtitle-color: $primary;
+  }
+}
+
+/* ---------------------------------- */
+/*             Components             */
+/* ---------------------------------- */
+
+Button {
+  width: 100%;
+  height: auto;
+  background: transparent;
+  color: $text;
+  min-width: 0;
+  border: none;
+  text-style: none;
+
+  &:focus {
+    text-style: bold;
+  }
+
+  &:hover {
+    background: $panel-darken-2;
+  }
+}
+
+Button {
+  width: 50%;
+  text-align: center;
+  color: white;
+
+  &.-active {
+    color: $primary;
+  }
+
+  &.selected {
+    color: white;
+    text-style: bold;
+    background: $secondary;
+  }
+}
+
+/* ---------------------------------- */
+/*               Utility              */
+/* ---------------------------------- */
+
+.hidden {
+  visibility: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+.label-empty {
+  color: $accent;
+  width: 1fr;
+  padding-top: 2;
+  text-align: center;
+}
+
+.highlight {
+  color: $primary;
+}
