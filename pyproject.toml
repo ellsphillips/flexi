@@ -6,12 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 keywords = ["flexi", "time", "management"]
 dependencies = [
+    "alembic>=1.13.0",
     "click>=8.1.8",
+    "httpx>=0.27.0",
     "pip>=24.3.1",
-    "requests>=2.32.3",
     "rich>=13.9.4",
     "sqlalchemy>=2.0.37",
-    "textual>=1.0.0",
+    "textual>=8.2,<9",
     "xdg-base-dirs>=6.0.2",
 ]
 
@@ -25,15 +26,16 @@ dev = [
     "pygments>=2.19.1",
     "pytest>=8.3.4",
     "pytest-cov>=6.0.0",
+    "pytest-asyncio>=0.23.0",
     "pytest-mock>=3.14.0",
     "ruff>=0.9.1",
     "textual-dev>=1.7.0",
-    "types-requests>=2.32.0.20241016",
     "typing-extensions>=4.12.2",
 ]
 
 [tool.uv]
 package = true
+
 
 [tool.lint.coverage.paths]
 source = ["src"]
