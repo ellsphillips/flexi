@@ -75,3 +75,38 @@ class BankHolidayCache(Base):
     date: Mapped[date_type] = mapped_column(Date())
     title: Mapped[str] = mapped_column(String(100))
     fetched_at: Mapped[datetime] = mapped_column(DateTime())
+
+
+class ClockEvent(Base):
+    """An immutable clock-in or clock-out event."""
+
+    __tablename__ = "clock_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    action: Mapped[ClockAction] = mapped_column(Enum(ClockAction))
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(20), default="user")
+
+
+class WorkSession(Base):
+    """A work session linking a clock-in to an optional clock-out.
+
+    ``work_date`` is the *local* date of the clock-in, so a session that runs
+    past midnight belongs to the day it started — which is how a person thinks
+    about a late finish, and how a weekly total has to add up.
+    """
+
+    __tablename__ = "work_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    clock_in_id: Mapped[int] = mapped_column(ForeignKey("clock_events.id"))
+    clock_out_id: Mapped[int | None] = mapped_column(
+        ForeignKey("clock_events.id"), nullable=True
+    )
+    work_date: Mapped[date_type] = mapped_column(Date())
+    auto_closed: Mapped[bool] = mapped_column(Boolean(), default=False)
+
+    clock_in_event: Mapped[ClockEvent] = relationship(foreign_keys=[clock_in_id])
+    clock_out_event: Mapped[ClockEvent | None] = relationship(
+        foreign_keys=[clock_out_id]
+    )
