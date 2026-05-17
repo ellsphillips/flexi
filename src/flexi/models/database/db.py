@@ -110,3 +110,19 @@ class WorkSession(Base):
     clock_out_event: Mapped[ClockEvent | None] = relationship(
         foreign_keys=[clock_out_id]
     )
+
+
+class AbsenceDay(Base):
+    """An absence covering a whole day, or one half of one.
+
+    Two half-days of *different* types may share a date — a sick morning and an
+    annual afternoon is a real thing that happens — so the uniqueness constraint
+    is on the pair. A full day cannot coexist with either half; that rule is
+    enforced in :class:`~flexi.services.absence.AbsenceService`, because SQLite
+    cannot express it as a constraint.
+    """
+
+    __tablename__ = "absence_days"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    date: Mapped[date_type] = mapped_column(Date(), unique=True)
+    absence_type: Mapped[AbsenceType] = mapped_column(Enum(AbsenceType))
