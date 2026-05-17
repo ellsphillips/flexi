@@ -33,3 +33,10 @@ def config_file() -> Path:
 
 def database_file() -> Path:
     return data_directory() / FilePaths.DATABASE
+
+
+def backups_directory() -> Path:
+    """Create and return the backups directory under XDG data."""
+    directory = data_directory() / "backups"
+    directory.mkdir(exist_ok=True, parents=True)
+    return directory
