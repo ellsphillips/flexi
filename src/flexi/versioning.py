@@ -1,4 +1,6 @@
-import requests
+from __future__ import annotations
+
+import httpx
 from packaging import version
 
 import flexi
@@ -7,10 +9,11 @@ import flexi
 def get_pypi_version() -> str | None:
     """Fetch the latest version from PyPI."""
     try:
-        response = requests.get("https://pypi.org/pypi/flexi/json")
+        response = httpx.get("https://pypi.org/pypi/flexi/json", timeout=5.0)
+        response.raise_for_status()
         pypi_version = response.json()["info"]["version"]
         return str(pypi_version)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
