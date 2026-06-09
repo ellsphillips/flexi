@@ -16,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from flexi.constants import AbsenceType, ClockAction
+from flexi.constants import AbsenceType, ClockAction, Portion
 
 DEFAULT_CONTRACTED_MINUTES = 444
 """7h24 — the standard day these figures are all measured against.
@@ -50,6 +50,15 @@ class Settings(Base):
     working_days: Mapped[str] = mapped_column(String(27))  # "0,1,2,3,4"
     bank_holiday_division: Mapped[str] = mapped_column(String(30))
     auto_close_time: Mapped[str] = mapped_column(String(5))  # "HH:MM"
+    contracted_minutes: Mapped[int] = mapped_column(
+        Integer(), default=DEFAULT_CONTRACTED_MINUTES, server_default="444"
+    )
+    day_window_start: Mapped[str] = mapped_column(
+        String(5), default=DEFAULT_WINDOW_START, server_default=DEFAULT_WINDOW_START
+    )
+    day_window_end: Mapped[str] = mapped_column(
+        String(5), default=DEFAULT_WINDOW_END, server_default=DEFAULT_WINDOW_END
+    )
 
 
 class LeaveEntitlement(Base):
@@ -105,6 +114,12 @@ class WorkSession(Base):
     )
     work_date: Mapped[date_type] = mapped_column(Date())
     auto_closed: Mapped[bool] = mapped_column(Boolean(), default=False)
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    voided: Mapped[bool] = mapped_column(
+        Boolean(), default=False, server_default="0"
+    )
+    """A corrected session. Clock events are immutable, so a correction inserts
+    a replacement pair and marks the original voided rather than editing it."""
 
     clock_in_event: Mapped[ClockEvent] = relationship(foreign_keys=[clock_in_id])
     clock_out_event: Mapped[ClockEvent | None] = relationship(
@@ -123,6 +138,12 @@ class AbsenceDay(Base):
     """
 
     __tablename__ = "absence_days"
+    __table_args__ = (UniqueConstraint("date", "portion", name="uq_date_portion"),)
+
     id: Mapped[int] = mapped_column(primary_key=True)
-    date: Mapped[date_type] = mapped_column(Date(), unique=True)
+    date: Mapped[date_type] = mapped_column(Date())
     absence_type: Mapped[AbsenceType] = mapped_column(Enum(AbsenceType))
+    portion: Mapped[Portion] = mapped_column(
+        Enum(Portion), default=Portion.FULL, server_default="FULL"
+    )
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)

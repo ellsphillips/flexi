@@ -13,6 +13,9 @@ The rules that are not obvious:
   into recording a lie.
 * **A half day may be booked over existing work in the other half.** Someone who
   worked the morning and went home ill at lunch has to be able to record both.
+* **TOIL warns, it does not block.** An annual allowance is a hard limit set by
+  someone else; a flexi balance is your own arithmetic, and going into deficit is
+  a decision rather than an error.
 """
 
 from __future__ import annotations
@@ -180,6 +183,7 @@ class AbsenceService:
         portion: Portion = Portion.FULL,
         *,
         note: str | None = None,
+        available_toil_days: float | None = None,
     ) -> AbsenceResult:
         """Book an absence, or say why not.
 
@@ -188,6 +192,8 @@ class AbsenceService:
             absence_type: What kind of absence.
             portion: A whole day, a morning or an afternoon.
             note: Required for :attr:`~flexi.constants.AbsenceType.OTHER`.
+            available_toil_days: The flexi balance in days, when the caller knows
+                it. Used only to *warn* on a TOIL booking that would overdraw.
         """
         refusal = self._refusal(day, absence_type, portion, note)
         if refusal is not None:
@@ -206,6 +212,7 @@ class AbsenceService:
             success=True,
             message=f"{absence_type.label} booked for {day.strftime('%a %-d %b')}",
             absence=absence,
+            warning=self._toil_warning(absence_type, portion, available_toil_days),
         )
 
     def _refusal(
@@ -256,6 +263,20 @@ class AbsenceService:
                     f"Not enough annual leave — {short:g} day short of the request",
                 )
         return None
+
+    def _toil_warning(
+        self,
+        absence_type: AbsenceType,
+        portion: Portion,
+        available_toil_days: float | None,
+    ) -> str | None:
+        """A note about overdrawing the flexi balance, which is allowed."""
+        if not absence_type.draws_down_balance or available_toil_days is None:
+            return None
+        if available_toil_days >= portion.days:
+            return None
+        overdraft = portion.days - available_toil_days
+        return f"Booked, but this takes the flexi balance {overdraft:g} day into deficit"
 
     def change_type(
         self,

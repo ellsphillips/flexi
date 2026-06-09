@@ -155,7 +155,7 @@ class TestRejections:
 
         result = absence.mark_absence(d, AbsenceType.ANNUAL)
         assert result.success is False
-        assert "work sessions" in result.message
+        assert "recorded work" in result.message
 
 
 # ---------- removal ----------
@@ -211,7 +211,7 @@ class TestBalance:
         d2 = _next_weekday(date(2026, 6, 15), 1)
         result = svc.mark_absence(d2, AbsenceType.ANNUAL)
         assert result.success is False
-        assert "Insufficient" in result.message
+        assert "Not enough annual leave" in result.message
 
 
 # ---------- counts ----------
