@@ -721,7 +721,7 @@ LoadingIndicator {
     width: 1fr;
     height: 1fr;
     min-height: 3;
-    hatch: right $c-line-soft;
+    hatch: right $c-hatch-empty 60%;
     content-align: center middle;
     color: $c-ash;
 }
@@ -828,7 +828,7 @@ JumpOverlay {
     width: 1fr;
     background: $c-accent-deep;
     color: $c-accent-lift;
-    hatch: right $c-ink;
+    hatch: right $c-hatch-jump 40%;
 }
 
 #textual-jump-info Label {

@@ -89,6 +89,22 @@ def theme_variables() -> dict[str, str]:
     variables = dict(palette())
     variables.update(
         {
+            # Theme-only, and deliberately NOT declared in flexi.tcss.
+            #
+            # Textual 8 mis-parses `hatch:` when its colour variable is both
+            # declared in the stylesheet and supplied through the theme — the
+            # value is substituted twice and the property sees four tokens where
+            # it wants two or three. Every other property survives it, which is
+            # why this looks arbitrary until you hit it.
+            #
+            # Derived from the palette rather than written out again, so the
+            # PALETTE block stays the single place a colour is chosen.
+            "c-hatch-empty": colour("c-line-soft", "#232019"),
+            "c-hatch-jump": colour("c-ink"),
+        }
+    )
+    variables.update(
+        {
             "block-cursor-text-style": "none",
             "block-cursor-background": colour("c-accent-deep"),
             "block-cursor-foreground": colour("c-cream"),
