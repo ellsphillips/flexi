@@ -1,0 +1,845 @@
+/* ==========================================================================
+   flexi — the design system
+   ==========================================================================
+
+   The single source of truth for Flexi's terminal palette. `flexi.theme.palette()`
+   parses the PALETTE block below and hands it to the Textual `Theme`, which
+   republishes every name as an app-wide CSS variable. That indirection exists
+   because Textual scopes variables declared inside a stylesheet to *that
+   stylesheet only* — a `$c-accent` written here would be invisible to
+   `styles/dashboard.tcss`. Going through the theme means every screen can use
+   these names without re-declaring them, and there is still exactly one place a
+   colour is written down.
+
+   Add a colour to the PALETTE block and every screen gets it. Do not declare
+   `$` variables outside that block; they will not travel.
+
+   Flexi looks like a time card. Warm graphite grounds, hairlines instead of
+   boxes, an overline above every figure, and one accent — teal, because TOIL is
+   the application's own currency and it wears the house colour. Surplus green,
+   deficit red and warning amber are *state*: they appear where something is
+   genuinely ahead, behind, or unactioned, never as decoration.
+
+   Every value below is a fixed OKLCH hue rendered at a chosen lightness and
+   chroma, not an eyeballed hex. The three day-type colours that carry series
+   identity in a chart — toil, annual, sick — pass the dataviz validator's
+   all-pairs CVD check. See docs/DESIGN-SYSTEM.md §3 before changing any of them.
+   ========================================================================== */
+
+
+/* -- PALETTE --------------------------------------------------------------
+   Parsed by `flexi.theme.palette()`. Literal values only: a value containing
+   `$` is skipped, because the parser does no substitution and a half-resolved
+   colour is worse than a missing one.
+   ------------------------------------------------------------------------- */
+
+/* Grounds — warm graphite. Terminals are dark; a warm ground gives the cool
+   accent something to sit against, and it is not the blue-black every other
+   terminal app defaults to. */
+$c-ink: #0F0E0D;
+$c-surface: #171614;
+$c-raised: #201E1B;
+
+/* Hairlines. Editorial layouts are ruled, not boxed. */
+$c-line: #2E2B27;
+$c-line-soft: #232019;
+
+/* Type. Cream for display, paper for body, muted and ash for everything else. */
+$c-cream: #FAF8F4;
+$c-paper: #EDE9E3;
+$c-muted: #9C948A;
+$c-ash: #7A736A;
+
+/* Teal — THE accent. `lift` reads on dark grounds, `deep` is for fills. */
+$c-accent: #02A6AD;
+$c-accent-lift: #4CDBE3;
+$c-accent-deep: #003032;
+
+/* Balance state. The one number, and the only place these appear. */
+$c-surplus: #2E9E52;
+$c-surplus-lift: #76CF8A;
+$c-surplus-deep: #002D0F;
+$c-deficit: #CE3E57;
+$c-deficit-lift: #FA7F8C;
+$c-deficit-deep: #460915;
+$c-warning: #C38406;
+$c-warning-lift: #F5B34C;
+$c-warning-deep: #3A2400;
+
+/* Day types. toil/annual/sick are the validated chart scale; the other three
+   are deliberately quieter, because a bank holiday should not compete with a
+   sick day for attention. */
+$c-toil: #02A6AD;
+$c-toil-lift: #4CDBE3;
+$c-toil-deep: #003032;
+$c-annual: #8459C3;
+$c-annual-lift: #BE9DF7;
+$c-annual-deep: #2B1844;
+$c-sick: #D56326;
+$c-sick-lift: #FE9F73;
+$c-sick-deep: #411904;
+$c-other: #C06099;
+$c-other-lift: #EE97C9;
+$c-other-deep: #3A142C;
+$c-unpaid: #8B7E6D;
+$c-unpaid-lift: #B9AC99;
+$c-unpaid-deep: #272017;
+$c-holiday: #557EA8;
+$c-holiday-lift: #89AFD6;
+$c-holiday-deep: #0D2339;
+
+
+
+/* -- Ground ---------------------------------------------------------------
+   Every screen sits on ink. A screen does not set its own background; a region
+   that needs to feel different uses `.module` or `.card` inside.
+   ------------------------------------------------------------------------- */
+
+Screen {
+    background: $c-ink;
+    color: $c-paper;
+    layers: base overlay textual-jump;
+    /* Nothing here is read by scrolling sideways, and a screen that can scroll
+       horizontally grows a scrollbar docked along its bottom edge — directly
+       over the footer. */
+    overflow-x: hidden;
+}
+
+
+/* -- .module --------------------------------------------------------------
+   The titled panel, inherited from the reference application because it is the one part of its
+   look worth keeping and its users will recognise it.
+
+   The border is ALWAYS present and only its colour changes on focus. A border
+   occupies layout space, so adding one on `:focus` reflows the panel by two
+   cells — a wobble that reads as a rendering fault.
+
+   The title is set from Python and is a live data slot: the clock module writes
+   its elapsed time into the subtitle, which removes a whole summary row.
+   ------------------------------------------------------------------------- */
+
+.module {
+    width: 1fr;
+    height: auto;
+    border: round $c-line;
+    border-title-color: $c-muted;
+    border-subtitle-color: $c-ash;
+    background: $c-surface;
+    padding: 0 1;
+}
+
+.module:focus,
+.module:focus-within {
+    border: round $c-accent;
+    border-title-color: $c-accent-lift;
+    border-subtitle-color: $c-muted;
+}
+
+/* A module carrying a warning rather than an emphasis. */
+.module.-warn {
+    border: round $c-warning;
+    border-title-color: $c-warning-lift;
+}
+
+
+/* -- .card ----------------------------------------------------------------
+   A discrete repeated item inside a module. Quiet, relying on hover and focus
+   to show it is interactive.
+   ------------------------------------------------------------------------- */
+
+.card {
+    background: $c-raised;
+    padding: 0 1;
+    height: auto;
+    margin: 0 0 1 0;
+}
+
+.card:hover {
+    background: $c-line-soft;
+}
+
+
+/* -- Type -----------------------------------------------------------------
+   Five roles, and no sixth. Write `.overline` text in upper case in the source:
+   terminal CSS has no text-transform.
+   ------------------------------------------------------------------------- */
+
+.overline {
+    color: $c-muted;
+    text-style: bold;
+    height: 1;
+}
+
+.headline {
+    color: $c-cream;
+    text-style: bold;
+    height: auto;
+}
+
+.figure {
+    color: $c-cream;
+    text-style: bold;
+}
+
+.caption {
+    color: $c-ash;
+}
+
+.muted {
+    color: $c-muted;
+}
+
+.accent {
+    color: $c-accent-lift;
+}
+
+.surplus {
+    color: $c-surplus-lift;
+}
+
+.deficit {
+    color: $c-deficit-lift;
+}
+
+
+/* -- .stat ----------------------------------------------------------------
+   Overline label, figure, optional caption. Width is left to the caller: a row
+   of stats wants `1fr` each, a sidebar wants `auto`.
+   ------------------------------------------------------------------------- */
+
+.stat {
+    height: auto;
+    width: 1fr;
+    padding: 0 1;
+}
+
+.stat-value {
+    color: $c-cream;
+    text-style: bold;
+}
+
+.stat-note {
+    color: $c-ash;
+}
+
+
+/* -- .pill ----------------------------------------------------------------
+   Inline state, one or two words. Never interactive — a pill reports, it does
+   not act. Tone classes are mutually exclusive; `Pill.set_state()` swaps them.
+   ------------------------------------------------------------------------- */
+
+.pill {
+    height: 1;
+    width: auto;
+    min-width: 6;
+    padding: 0 1;
+    background: $c-line;
+    color: $c-muted;
+    text-align: center;
+}
+
+.pill--ok {
+    background: $c-surplus-deep;
+    color: $c-surplus-lift;
+}
+
+.pill--warn {
+    background: $c-warning-deep;
+    color: $c-warning-lift;
+}
+
+.pill--err {
+    background: $c-deficit-deep;
+    color: $c-deficit-lift;
+}
+
+.pill--accent {
+    background: $c-accent-deep;
+    color: $c-accent-lift;
+}
+
+
+/* -- .rule ----------------------------------------------------------------
+   A hairline, optionally labelled. This is how sections separate: whitespace
+   and one line, never a box.
+   ------------------------------------------------------------------------- */
+
+.rule {
+    height: auto;
+    width: 1fr;
+    color: $c-muted;
+    border-bottom: solid $c-line;
+    margin: 0 0 1 0;
+}
+
+.rule--accent {
+    border-bottom: solid $c-accent;
+    color: $c-accent-lift;
+}
+
+
+/* -- .kbd and KeyHint -----------------------------------------------------
+   A key as it appears on a keyboard. Teal, because a key is the one thing on
+   screen the reader is being asked to press.
+   ------------------------------------------------------------------------- */
+
+.kbd {
+    height: 1;
+    width: auto;
+    padding: 0 1;
+    background: $c-line;
+    color: $c-accent-lift;
+    text-style: bold;
+}
+
+KeyHint {
+    width: auto;
+    height: 1;
+    margin: 0 2 0 0;
+}
+
+.key-hint-action {
+    width: auto;
+    height: 1;
+    padding: 0 0 0 1;
+    color: $c-muted;
+}
+
+
+/* -- Gauge ----------------------------------------------------------------
+   A track, a fill, and a marker where the target sits. The wallet's allowance
+   bars. Component classes are read by `Gauge.get_component_rich_style`.
+   ------------------------------------------------------------------------- */
+
+Gauge {
+    height: 2;
+    width: 1fr;
+}
+
+Gauge > .gauge--label {
+    color: $c-muted;
+    text-style: bold;
+}
+
+Gauge > .gauge--readout {
+    color: $c-cream;
+    text-style: bold;
+}
+
+Gauge > .gauge--track {
+    color: $c-line;
+}
+
+Gauge > .gauge--target {
+    color: $c-muted;
+}
+
+Gauge > .gauge--good {
+    color: $c-surplus-lift;
+}
+
+Gauge > .gauge--warn {
+    color: $c-warning-lift;
+}
+
+Gauge > .gauge--bad {
+    color: $c-deficit-lift;
+}
+
+Gauge > .gauge--readout-only {
+    color: $c-accent-lift;
+}
+
+
+/* -- PunchStrip -----------------------------------------------------------
+   The signature. One row of cells across the working-day window, filled where
+   the wearer was on the clock. Colours are read through component classes so
+   the same widget draws a table cell and a full-width expanded row.
+   ------------------------------------------------------------------------- */
+
+PunchStrip {
+    height: 1;
+    width: 1fr;
+}
+
+PunchStrip > .punch--off {
+    color: $c-line;
+}
+
+PunchStrip > .punch--on {
+    color: $c-accent;
+}
+
+PunchStrip > .punch--live {
+    color: $c-accent-lift;
+    text-style: bold;
+}
+
+PunchStrip > .punch--break {
+    color: $c-ash;
+}
+
+PunchStrip > .punch--target {
+    color: $c-muted;
+}
+
+PunchStrip > .punch--holiday {
+    color: $c-holiday;
+}
+
+PunchStrip > .punch--annual {
+    color: $c-annual;
+}
+
+PunchStrip > .punch--sick {
+    color: $c-sick;
+}
+
+PunchStrip > .punch--toil {
+    color: $c-toil;
+}
+
+PunchStrip > .punch--unpaid {
+    color: $c-unpaid;
+}
+
+PunchStrip > .punch--other {
+    color: $c-other;
+}
+
+
+/* -- Chrome: header, nav, status bar, key strip ---------------------------
+   Docked top and bottom on every screen. The wordmark never moves, so the
+   application always looks like the same application; everything to its right
+   is context.
+   ------------------------------------------------------------------------- */
+
+AppHeader {
+    dock: top;
+    height: 3;
+    padding: 1 2 0 2;
+    background: $c-ink;
+    border-bottom: solid $c-line;
+}
+
+Wordmark {
+    width: auto;
+    height: 1;
+}
+
+.wordmark-name {
+    color: $c-cream;
+    text-style: bold;
+    width: auto;
+}
+
+.wordmark-dot {
+    color: $c-accent;
+    width: auto;
+    padding: 0 1 0 0;
+}
+
+NavBar {
+    width: auto;
+    height: 1;
+    padding: 0 2;
+}
+
+.nav-item {
+    width: auto;
+    height: 1;
+    padding: 0 2;
+    color: $c-muted;
+}
+
+.nav-item:hover {
+    color: $c-paper;
+    background: $c-surface;
+}
+
+.nav-item.-active {
+    color: $c-accent-lift;
+    text-style: bold;
+}
+
+.header-context {
+    width: 1fr;
+    height: 1;
+    color: $c-muted;
+    text-align: right;
+}
+
+/* Two rows and not one more: the status line and the key strip. */
+AppFooter {
+    dock: bottom;
+    height: 2;
+    background: $c-ink;
+}
+
+StatusBar {
+    height: 1;
+    padding: 0 2;
+    background: $c-ink;
+}
+
+.status-message {
+    width: 1fr;
+    height: 1;
+    color: $c-muted;
+}
+
+/* Textual's footer is a scrollable container, so a key strip wider than the
+   terminal grows a scrollbar of its own on a one-row widget. `KeyStrip`
+   measures before it composes, so there should be nothing left to clip. */
+Footer {
+    background: $c-surface;
+    height: 1;
+    overflow-x: hidden;
+}
+
+FooterKey {
+    background: $c-surface;
+}
+
+FooterKey:hover {
+    background: $c-raised;
+}
+
+FooterKey .footer-key--key {
+    color: $c-accent-lift;
+    background: $c-surface;
+}
+
+FooterKey .footer-key--description {
+    color: $c-muted;
+}
+
+/* "+3 more". Ash rather than muted: it is a footnote about the strip, not one
+   of the things on it, and it must not read as a key that can be pressed. */
+OverflowLabel {
+    color: $c-ash;
+    background: $c-surface;
+}
+
+
+/* -- Controls -------------------------------------------------------------
+   Textual's own widgets, brought onto the palette. Inputs are ruled rather
+   than boxed; the focused one gains a teal underline, which is the only moving
+   accent on the screen.
+   ------------------------------------------------------------------------- */
+
+Input {
+    background: $c-raised;
+    color: $c-paper;
+    border: none;
+    border-bottom: solid $c-line;
+    padding: 0 1;
+    height: 2;
+}
+
+Input:focus {
+    border-bottom: solid $c-accent;
+}
+
+Input.-invalid {
+    border-bottom: solid $c-deficit;
+}
+
+Button {
+    background: $c-raised;
+    color: $c-paper;
+    border: none;
+    height: 1;
+    min-width: 8;
+    padding: 0 2;
+    text-style: none;
+}
+
+Button:hover {
+    background: $c-line;
+}
+
+Button:focus {
+    text-style: bold;
+    background: $c-line;
+}
+
+Button.-primary {
+    background: $c-accent;
+    color: $c-ink;
+    text-style: bold;
+}
+
+Button.-primary:hover {
+    background: $c-accent-lift;
+}
+
+/* Quiet is quiet, not absent: `$c-line` is the hairline the rest of the
+   application is ruled with, so a quiet button has the same edge weight as a
+   rule and stays a step below the accent. */
+Button.-quiet {
+    background: $c-line;
+    color: $c-paper;
+}
+
+Button.-quiet:hover {
+    background: $c-ash;
+    color: $c-ink;
+}
+
+Switch {
+    background: $c-raised;
+    border: none;
+    height: 1;
+    padding: 0;
+}
+
+Switch > .switch--slider {
+    background: $c-line;
+    color: $c-ash;
+}
+
+Switch.-on > .switch--slider {
+    color: $c-accent;
+}
+
+Switch:focus > .switch--slider {
+    background: $c-line-soft;
+    color: $c-accent-lift;
+}
+
+Select {
+    height: 2;
+    background: $c-raised;
+    color: $c-paper;
+}
+
+SelectCurrent {
+    border: none;
+    border-bottom: solid $c-line;
+    background: $c-raised;
+    padding: 0 1;
+    height: 2;
+}
+
+Select:focus > SelectCurrent,
+Select.-expanded SelectCurrent {
+    border-bottom: solid $c-accent;
+}
+
+Select > SelectOverlay {
+    background: $c-raised;
+    border: none;
+    border-left: wide $c-accent;
+    padding: 0 1;
+    max-height: 12;
+}
+
+Select > SelectOverlay > .option-list--option-highlighted {
+    background: $c-accent-deep;
+    color: $c-paper;
+}
+
+ListView {
+    background: $c-surface;
+    height: auto;
+    max-height: 12;
+}
+
+ListItem {
+    background: $c-surface;
+    padding: 0 1;
+    color: $c-paper;
+}
+
+ListItem:hover {
+    background: $c-raised;
+}
+
+ListView > ListItem.--highlight {
+    background: $c-accent-deep;
+    color: $c-paper;
+}
+
+DataTable {
+    background: $c-surface;
+    scrollbar-size-vertical: 1;
+}
+
+DataTable > .datatable--header {
+    background: $c-surface;
+    color: $c-muted;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: $c-accent-deep;
+    color: $c-cream;
+}
+
+DataTable > .datatable--hover {
+    background: $c-raised;
+}
+
+DataTable > .datatable--even-row {
+    background: $c-surface;
+}
+
+DataTable > .datatable--odd-row {
+    background: $c-surface;
+}
+
+Digits {
+    color: $c-cream;
+    width: auto;
+    height: 3;
+}
+
+Toast {
+    background: $c-raised;
+    color: $c-paper;
+}
+
+Tooltip {
+    background: $c-raised;
+    color: $c-paper;
+    padding: 0 1;
+}
+
+LoadingIndicator {
+    background: $c-surface;
+    color: $c-accent;
+}
+
+
+/* -- Empty states ---------------------------------------------------------
+   An empty screen is an invitation to act, not a blank. Hatched so it reads as
+   a region that has nothing in it rather than as a rendering failure.
+   ------------------------------------------------------------------------- */
+
+.empty-indicator {
+    width: 1fr;
+    height: 1fr;
+    min-height: 3;
+    hatch: right $c-hatch-empty 60%;
+    content-align: center middle;
+    color: $c-ash;
+}
+
+
+/* -- Scrollbars -----------------------------------------------------------
+   Present but nearly silent until the pointer is on them, because a bright
+   scrollbar competes with the accent and this application only has one.
+   ------------------------------------------------------------------------- */
+
+* {
+    scrollbar-background: $c-ink;
+    scrollbar-background-hover: $c-ink;
+    scrollbar-background-active: $c-ink;
+    scrollbar-color: $c-line;
+    scrollbar-color-hover: $c-ash;
+    scrollbar-color-active: $c-accent;
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 1;
+}
+
+/* The `*` above is an application stylesheet, and an application stylesheet
+   beats a widget's DEFAULT_CSS whatever the specificity — so it silently
+   re-enables the scrollbars these widgets turn off for themselves, each of
+   which is one row tall in the place the bar then lands. `Input` is the one
+   that matters: given a bar, it docks along the bottom of the widget's
+   scrollable region, which on a two-row input with a bottom rule is the same
+   row as the text. */
+Input,
+Footer,
+Markdown {
+    scrollbar-size: 0 0;
+}
+
+
+/* -- Modals ---------------------------------------------------------------
+   The ground behind is dimmed rather than hidden, so the user keeps their place.
+   ------------------------------------------------------------------------- */
+
+ModalScreen {
+    align: center middle;
+    background: $c-ink 70%;
+}
+
+.modal {
+    width: 64;
+    max-width: 90%;
+    height: auto;
+    max-height: 80%;
+    background: $c-surface;
+    border-left: wide $c-accent;
+    padding: 1 2;
+}
+
+.modal-title {
+    color: $c-cream;
+    text-style: bold;
+    height: 1;
+    margin: 0 0 1 0;
+}
+
+.modal-error {
+    color: $c-deficit-lift;
+    height: auto;
+    margin: 1 0 0 0;
+}
+
+.modal-actions {
+    height: 1;
+    align-horizontal: right;
+    margin: 1 0 0 0;
+}
+
+.modal-actions Button {
+    margin: 0 0 0 2;
+}
+
+
+/* -- Jump mode ------------------------------------------------------------
+   Press the key, land on the panel. The badges sit on their own layer above
+   everything, and the two bars at the bottom explain the mode without needing
+   to have been read before.
+   ------------------------------------------------------------------------- */
+
+JumpOverlay {
+    background: $c-ink 55%;
+}
+
+.textual-jump-label {
+    layer: textual-jump;
+    dock: top;
+    text-style: bold;
+    color: $c-ink;
+    background: $c-accent-lift;
+    padding: 0 1;
+    width: auto;
+    height: 1;
+}
+
+#textual-jump-info {
+    margin-bottom: 1;
+    dock: bottom;
+    height: 1;
+    width: 1fr;
+    background: $c-accent-deep;
+    color: $c-accent-lift;
+    hatch: right $c-hatch-jump 40%;
+}
+
+#textual-jump-info Label {
+    width: auto;
+    padding: 0 1;
+    background: $c-accent-deep;
+}
+
+#textual-jump-dismiss {
+    dock: bottom;
+    height: 1;
+    background: transparent;
+    color: $c-ash;
+}
