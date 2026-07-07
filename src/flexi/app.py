@@ -1,37 +1,271 @@
-from textual import events
+"""The application shell: theme, services, screens, jump mode.
+
+Three decisions shape this module.
+
+**The theme is registered in ``__init__``, not ``on_mount``.** Setting
+``App.theme`` raises if ``register_theme`` has not run, and Flexi can push the
+setup screen before ``on_mount`` finishes. Registering during construction takes
+the ordering question off the table.
+
+**``/`` is bound with ``priority=True``.** It has to work from any screen with
+any widget focused — except inside an ``Input``, where Textual's own focus rules
+give the key to the field, which is correct: typing a date into "go to day" must
+be able to contain a slash.
+
+**Jump targets come from the live screen.** the reference application keeps one application-wide
+dict listing container ids from every screen, and a target naming something that
+is not mounted is silently dropped. Asking ``screen.jump_targets()`` means a
+target can only ever name something that is there.
+"""
+
+from __future__ import annotations
+
+from typing import Any, ClassVar, cast
+
+import flexi
+from textual import events, log
+from textual import work as textual_work
 from textual.app import App as TextualApp
 from textual.app import ComposeResult
-from textual.geometry import Size
+from textual.binding import Binding, BindingType
+from textual.css.query import NoMatches
 from textual.reactive import Reactive, reactive
-from textual.widgets import Footer
+from textual.widget import Widget
+from textual.widgets import Input, TextArea
 
-from flexi.components.header import Header
-from flexi.pages.home import Home
-from flexi.theme import THEME
+from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, AppHeader, NavBar
+from flexi.components.jump_overlay import JumpOverlay
+from flexi.components.jumper import Jumper
+from flexi.config import CONFIG
+from flexi.models.database.app import create_db_engine, get_session
+from flexi.provider import FlexiCommands
+from flexi.screens.dashboard import DashboardScreen
+from flexi.screens.help import HelpScreen, collect_bindings
+from flexi.screens.settings import SettingsScreen
+from flexi.screens.setup import SetupScreen
+from flexi.services.registry import Services
+from flexi.theme import THEME_NAME, flexi_theme
 
 
-class App(TextualApp[None]):
-    CSS_PATH = "index.scss"
-    ENABLE_COMMAND_PALETTE = False
-    BINDINGS = [
-        ("ctrl+q", "quit", "Quit"),
+class FlexiApp(TextualApp[None]):
+    """Flexi."""
+
+    CSS_PATH = [
+        "theme/flexi.tcss",
+        "styles/dashboard.tcss",
     ]
 
-    layout: Reactive[str] = reactive("flex-col")
+    COMMANDS: ClassVar[set[Any]] = {FlexiCommands}
 
-    def __init__(self) -> None:
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding(
+            CONFIG.hotkeys.clock_toggle,
+            "clock_toggle",
+            "Clock",
+            show=True,
+            priority=True,
+        ),
+        Binding(CONFIG.hotkeys.toggle_jump_mode, "toggle_jump_mode", "Jump", show=True),
+        Binding(CONFIG.hotkeys.help, "help", "Help", show=True),
+        *[
+            Binding(item.key, f"go_to('{item.screen}')", item.label, show=True)
+            for item in NAV_ITEMS
+        ],
+        Binding("ctrl+q", "quit", "Quit", show=False),
+    ]
+
+    nav: Reactive[str] = reactive("dashboard", init=False)
+    """Which destination is current, read by the nav bar when it composes."""
+
+    context_label: Reactive[str] = reactive("", init=False)
+    """The right-hand slot of the header: today's date and the shown period."""
+
+    _jumping: Reactive[bool] = reactive(False, init=False, bindings=True)
+    """True while the jump overlay is open."""
+
+    def __init__(self, *, db_path: Any = None) -> None:
         super().__init__()
+        self._engine = create_db_engine(db_path) if db_path else create_db_engine()
+        self._session = get_session(self._engine)
+        self.services = Services.build(self._session)
+        # Before anything can be pushed: `App.theme = x` raises if the theme has
+        # not been registered, and setup is pushed from `on_mount`.
+        self.register_theme(flexi_theme())
+        self.theme = THEME_NAME
+        self.jumper: Jumper | None = None
 
-    def on_mount(self) -> None:
-        self.register_theme(THEME)
-        self.theme = "flexi"
-
-    def on_resize(self, event: events.Resize) -> None:
-        console_size: Size = event.size
-        aspect_ratio = (console_size.width / 2) / console_size.height
-        self.layout = "flex-col" if aspect_ratio < 1 else "flex-row"
+    # -- lifecycle ---------------------------------------------------------
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        yield Home()
-        yield Footer()
+        return iter(())
+
+    def on_mount(self) -> None:
+        if self.services.settings.is_setup_complete():
+            self.push_screen(DashboardScreen(self.services, id="dashboard"))
+        else:
+            self.push_screen(SetupScreen(self.services), callback=self._on_setup_done)
+        self._check_for_updates()
+
+    def _on_setup_done(self, completed: bool | None) -> None:
+        if not completed:
+            self.exit()
+            return
+        # Rebuild: the division and the working pattern are chosen during setup,
+        # and the services were wired before either existed.
+        self.services = Services.build(self._session)
+        self.push_screen(DashboardScreen(self.services, id="dashboard"))
+
+    def on_unmount(self) -> None:
+        self._session.close()
+        self._engine.dispose()
+
+    @textual_work(thread=True)
+    def _check_for_updates(self) -> None:
+        """Ask PyPI whether there is a newer Flexi, and say nothing if not."""
+        try:
+            from flexi.versioning import get_pypi_version, needs_update
+
+            if needs_update():
+                pypi = get_pypi_version()
+                if pypi:
+                    self.notify(
+                        f"Update available: {flexi.__version__} → {pypi}\n"
+                        f"Run: uv tool upgrade flexi",
+                        severity="information",
+                        timeout=10,
+                    )
+        except Exception:  # noqa: BLE001 - an update check may never break launch
+            pass
+
+    # -- navigation --------------------------------------------------------
+
+    def action_go_to(self, name: str) -> None:
+        """Move to a destination from the one navigation table."""
+        if name == self.nav:
+            return
+        if name == "settings":
+            self.push_screen(
+                SettingsScreen(self.services), callback=self._on_settings_saved
+            )
+            return
+        if name == "dashboard":
+            # Insights is a pushed screen, so returning to the dashboard means
+            # leaving it. Without this, f1 set the nav label and nothing else,
+            # and escape was the only way back.
+            self.nav = name
+            self._sync_nav()
+            return
+        item = NAV_BY_SCREEN.get(name)
+        self.notify(
+            f"{item.label if item else name} is not built yet.",
+            severity="information",
+            timeout=3,
+        )
+
+    def _back(self, _result: object = None) -> None:
+        """Leaving a pushed screen returns the nav bar to where the user is."""
+        self._pushed = None
+        self.nav = "dashboard"
+        self._sync_nav()
+
+    def _on_settings_saved(self, saved: bool | None) -> None:
+        if not saved:
+            return
+        self.services = Services.build(self._session)
+        self.services.invalidate()
+        screen = self._dashboard()
+        if screen is not None:
+            from flexi.messages import Scope
+
+            screen.refresh_modules(Scope.ALL)
+
+    def _sync_nav(self) -> None:
+        for header in self.query(AppHeader):
+            header.set_active(self.nav)
+        for bar in self.query(NavBar):
+            bar.active = self.nav
+
+    def _dashboard(self) -> DashboardScreen | None:
+        for screen in self.screen_stack:
+            if isinstance(screen, DashboardScreen):
+                return screen
+        return None
+
+    # -- clocking ----------------------------------------------------------
+
+    def action_clock_toggle(self) -> None:
+        """One key, from anywhere. The dashboard owns the confirmation."""
+        screen = self._dashboard()
+        if screen is None:
+            return
+        screen.toggle_clock()
+
+    # -- help --------------------------------------------------------------
+
+    def action_help(self) -> None:
+        self.push_screen(HelpScreen(collect_bindings(self.screen)))
+
+    # -- jump mode ---------------------------------------------------------
+
+    def action_toggle_jump_mode(self) -> None:
+        self._jumping = not self._jumping
+
+    def watch__jumping(self, jumping: bool) -> None:
+        del jumping
+        focused_before = self.focused
+        if focused_before is not None:
+            self.set_focus(None, scroll_visible=False)
+
+        self.jumper = Jumper(
+            self._jump_targets(),
+            screen=self.screen,
+            extra=getattr(self.screen, "jump_overlays", None),
+        )
+
+        def handle(target: str | Widget | None) -> None:
+            if isinstance(target, str):
+                self._jump_to_id(target)
+            elif isinstance(target, Widget):
+                self.set_focus(target)
+            elif focused_before is not None:
+                # Escape. Put focus back exactly where it was — a mode you can
+                # leave without consequence is one people will keep using.
+                self.set_focus(focused_before, scroll_visible=False)
+
+        self.clear_notifications()
+        self.push_screen(JumpOverlay(self.jumper), callback=handle)
+
+    def _jump_targets(self) -> dict[str, str]:
+        getter = getattr(self.screen, "jump_targets", None)
+        return dict(getter()) if callable(getter) else {}
+
+    def _jump_to_id(self, target: str) -> None:
+        """Focus the target, or click it if it cannot take focus.
+
+        A row key lands here too: the records table owns the cursor rather than
+        the focus, so a `d-` key moves the cursor and focuses the table.
+        """
+        from flexi.components.expandable import DAY, ExpandableTable
+
+        if target.startswith(DAY):
+            for table in self.screen.query(ExpandableTable):
+                table.focus_key(target)
+                self.set_focus(table)
+                return
+            return
+
+        try:
+            widget = self.screen.query_one(f"#{target}")
+        except NoMatches:
+            log.warning(f"jump target #{target} is not on {self.screen!r}")
+            return
+        if widget.focusable:
+            self.set_focus(widget)
+        else:
+            # Not focusable: a button, say. the reference application's trick — synthesise the click
+            # the pointer would have made, so a jump can press things too.
+            widget.post_message(events.Click(widget, 0, 0, 0, 0, 0, False, False, False))
+
+
+App = FlexiApp
+"""The v1 name, kept so ``flexi.__main__`` and older tests keep importing."""
