@@ -1,0 +1,312 @@
+/* ==========================================================================
+   The dashboard's layout
+   ==========================================================================
+   Terminal CSS has no media query, so the class is the query: `mark_width`
+   puts `-narrow` and `-tiny` on the screen and the rules below say what those
+   mean here. Driven by the terminal's width, never by a widget's own, which is
+   what keeps a fold from changing the measurement that caused it.
+   ========================================================================== */
+
+#dashboard-body {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#dashboard-controls {
+    width: 34;
+    height: 1fr;
+    padding: 0 1 0 0;
+}
+
+#dashboard-records {
+    width: 1fr;
+    height: 1fr;
+}
+
+/* Under 100 columns the two columns stop being worth reading side by side:
+   the control column is fixed at 34, which leaves the records table too little
+   for a strip and four figures. Stack instead. */
+DashboardScreen.-narrow #dashboard-body {
+    layout: vertical;
+}
+
+/* A definite height, not `auto`. Side by side, the three panels are different
+   heights, and `auto` leaves the shorter ones with a hole underneath — which is
+   what the ground showing through looked like. `100%` on the children only
+   means anything against a parent that knows its own height. */
+DashboardScreen.-narrow #dashboard-controls {
+    width: 1fr;
+    height: 9;
+    layout: horizontal;
+}
+
+DashboardScreen.-narrow #dashboard-controls .module {
+    width: 1fr;
+    height: 100%;
+}
+
+DashboardScreen.-narrow #calendar-module {
+    display: none;
+}
+
+/* Under 64 columns only the records table survives. Everything else is one
+   jump away, which is what jump mode is for. */
+DashboardScreen.-tiny #dashboard-controls {
+    height: 8;
+}
+
+DashboardScreen.-tiny #wallet-module,
+DashboardScreen.-tiny #balance-module {
+    display: none;
+}
+
+
+/* -- Clock ---------------------------------------------------------------- */
+
+#clock-module {
+    margin: 0;
+}
+
+#clock-state {
+    height: 1;
+}
+
+#clock-state Pill {
+    width: 1fr;
+    text-align: left;
+    background: transparent;
+    min-width: 0;
+    padding: 0;
+}
+
+#clock-switch {
+    width: auto;
+    dock: right;
+}
+
+#clock-strip {
+    height: 1;
+}
+
+#clock-detail {
+    height: 1;
+    margin: 0 0 1 0;
+}
+
+/* The sidebar has four modules and 32 rows to put them in. Every blank line
+   here is one the calendar does not get, so the modules are packed and the
+   separation comes from their borders rather than from margins. */
+
+#clock-button {
+    width: 1fr;
+}
+
+
+/* -- Balance -------------------------------------------------------------- */
+
+#balance-module {
+    margin: 0;
+    align-horizontal: center;
+}
+
+#balance-digits {
+    width: auto;
+    height: 3;
+}
+
+#balance-digits.surplus {
+    color: $c-surplus-lift;
+}
+
+#balance-digits.deficit {
+    color: $c-deficit-lift;
+}
+
+#balance-digits.muted {
+    color: $c-muted;
+}
+
+#balance-label,
+#balance-detail {
+    width: 1fr;
+    text-align: center;
+}
+
+
+
+
+/* -- Wallet --------------------------------------------------------------- */
+
+#wallet-module {
+    margin: 0;
+}
+
+#wallet-module Gauge.-hidden {
+    display: none;
+}
+
+#wallet-module Gauge {
+    margin: 0;
+}
+
+
+/* -- Calendar ------------------------------------------------------------- */
+
+#calendar-module {
+    margin: 0;
+}
+
+.month-selector {
+    layout: horizontal;
+    height: 1;
+}
+
+.month-selector Button {
+    width: 3;
+    min-width: 3;
+    padding: 0;
+}
+
+.current-filter-label {
+    width: 1fr;
+    text-align: center;
+    color: $c-cream;
+    text-style: bold;
+}
+
+.calendar {
+    height: auto;
+}
+
+.calendar-dotw-row {
+    height: 1;
+}
+
+.calendar-dotw-row Label {
+    width: 1fr;
+    text-align: center;
+    color: $c-ash;
+}
+
+.calendar-row {
+    height: 1;
+}
+
+.calendar-row Label {
+    width: 1fr;
+    text-align: center;
+    color: $c-paper;
+}
+
+/* The period tints the ground; the selection reverses one cell; today is
+   underlined in the cell's own text. Three different devices, so all three can
+   be true of one cell and it still reads. */
+.calendar-row.in-period {
+    background: $c-accent-deep 40%;
+}
+
+.calendar-row Label.in-period {
+    background: $c-accent-deep 40%;
+}
+
+.calendar-row Label.selected {
+    background: $c-accent;
+    color: $c-ink;
+    text-style: bold;
+}
+
+.calendar-row Label.not-current-month {
+    color: $c-line;
+}
+
+.calendar-row Label.day-holiday {
+    color: $c-holiday-lift;
+}
+
+.calendar-row Label.day-weekend {
+    color: $c-ash;
+}
+
+.calendar-row Label.day-worked {
+    color: $c-accent-lift;
+}
+
+.calendar-row Label.absence-annual {
+    color: $c-annual-lift;
+}
+
+.calendar-row Label.absence-sick {
+    color: $c-sick-lift;
+}
+
+.calendar-row Label.absence-toil {
+    color: $c-toil-lift;
+}
+
+.calendar-row Label.absence-unpaid {
+    color: $c-unpaid-lift;
+}
+
+.calendar-row Label.absence-other {
+    color: $c-other-lift;
+}
+
+
+/* -- Records -------------------------------------------------------------- */
+
+#records-module {
+    height: 1fr;
+}
+
+#records-table {
+    height: 1fr;
+    background: $c-surface;
+}
+
+#records-empty {
+    height: 1fr;
+}
+
+RecordsModule > .record--sub {
+    color: $c-muted;
+}
+
+RecordsModule > .record--total {
+    color: $c-cream;
+    text-style: bold;
+}
+
+RecordsModule > .record--absent {
+    color: $c-annual-lift;
+}
+
+RecordsModule > .record--holiday {
+    color: $c-holiday-lift;
+}
+
+RecordsModule > .record--surplus {
+    color: $c-surplus-lift;
+}
+
+RecordsModule > .record--deficit {
+    color: $c-deficit-lift;
+}
+
+RecordsModule > .record--muted {
+    color: $c-ash;
+}
+
+
+/* -- Help ----------------------------------------------------------------- */
+
+#help-modal {
+    width: 72;
+    height: auto;
+    max-height: 90%;
+}
+
+#help-body {
+    height: auto;
+    max-height: 28;
+}
+
