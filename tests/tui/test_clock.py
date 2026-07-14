@@ -1,0 +1,106 @@
+"""Feature 1: clocking in and out is one key, and it is recorded."""
+
+from __future__ import annotations
+
+import pytest
+from textual.widgets import Button, Input, Switch
+
+from flexi.components.modules.clock import ClockModule
+from flexi.messages import Scope
+from tests.tui.conftest import WIDE, dashboard, status_text
+
+pytestmark = pytest.mark.usefixtures("_frozen")
+
+
+async def test_slash_clocks_out_and_back_in(app_factory) -> None:
+    """It toggles, from the dashboard, with one unshifted key."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        assert app.services.clock.is_clocked_in()  # the seed leaves a session open
+
+        await pilot.press("slash")
+        await pilot.pause()
+        assert not app.services.clock.is_clocked_in()
+        assert "Clocked out" in status_text(app)
+
+        await pilot.press("slash")
+        await pilot.pause()
+        assert app.services.clock.is_clocked_in()
+        assert "Clocked in" in status_text(app)
+
+
+async def test_the_button_does_the_same_thing(app_factory) -> None:
+    """It works for a pointer, because the point of Textual is that one works."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        button = app.screen.query_one("#clock-button", Button)
+        assert str(button.label) == "Depart"
+
+        await pilot.click("#clock-button")
+        await pilot.pause()
+        assert not app.services.clock.is_clocked_in()
+        assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
+
+
+async def test_the_switch_reflects_the_truth_without_looping(app_factory) -> None:
+    """It writes the switch back on every redraw without treating that as input.
+
+    A naive handler acts on the write, clocks straight back out, redraws, and
+    does it again — a loop that ends in a toast on every tick.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        switch = app.screen.query_one("#clock-switch", Switch)
+        assert switch.value is True
+
+        await pilot.press("slash")
+        await pilot.pause()
+        assert app.screen.query_one("#clock-switch", Switch).value is False
+        assert not app.services.clock.is_clocked_in()
+
+        # A redraw writes the switch back from the database. If that write were
+        # treated as a user action the clock would flip again here.
+        dashboard(app).refresh_modules(Scope.ALL)
+        await pilot.pause()
+        assert not app.services.clock.is_clocked_in()
+
+
+async def test_clocking_in_twice_is_refused_not_raised(app_factory) -> None:
+    """It reports the refusal on the status bar and carries on."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        result = app.services.clock.clock_in()
+        assert not result.success
+        assert "Already clocked in" in result.message
+        await pilot.pause()
+
+
+async def test_slash_does_not_reach_a_focused_input(app_factory) -> None:
+    """It gives the key to the field, so a typed date can contain a slash."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("g")  # go-to-date modal
+        await pilot.pause()
+        field = app.screen.query_one("#goto-input", Input)
+        field.focus()
+        await pilot.pause()
+
+        before = app.services.clock.is_clocked_in()
+        await pilot.press("slash")
+        await pilot.pause()
+
+        assert app.services.clock.is_clocked_in() is before
+        assert "/" in field.value
+
+
+async def test_the_elapsed_time_is_in_the_border_subtitle(app_factory) -> None:
+    """It puts the live figure in the module's data slot, not in a whole row."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        clock = app.screen.query_one(ClockModule)
+        assert ":" in str(clock.border_subtitle)
+
+        await pilot.press("slash")  # clock out
+        await pilot.pause()
+        assert str(app.screen.query_one(ClockModule).border_subtitle) == "/"
