@@ -33,6 +33,7 @@ from rich.console import RenderableType
 from textual.binding import Binding, BindingType
 from textual.message import Message
 from textual.widgets import DataTable
+from textual.widgets.data_table import RowDoesNotExist
 
 DAY = "d-"
 SESSION = "s-"
@@ -157,7 +158,7 @@ class ExpandableTable(DataTable[RenderableType]):
             return
         try:
             self.move_cursor(row=self.get_row_index(key))
-        except KeyError:
+        except RowDoesNotExist:
             if self.row_count:
                 self.move_cursor(row=min(self.cursor_row, self.row_count - 1))
 
@@ -183,7 +184,7 @@ class ExpandableTable(DataTable[RenderableType]):
         """Put the cursor on a row by key, if it is visible."""
         try:
             self.move_cursor(row=self.get_row_index(key))
-        except KeyError:
+        except RowDoesNotExist:
             return
 
     # -- expansion ---------------------------------------------------------
@@ -208,10 +209,14 @@ class ExpandableTable(DataTable[RenderableType]):
         if group is None or not group.expandable:
             return False
         parent = group.parent.key
+        # Was the cursor inside the group being toggled? Only then should it move
+        # to the parent — collapsing a group the cursor is in has nowhere else to
+        # put it, but toggling some *other* row must leave the cursor alone.
+        cursor_inside = self._group_at_cursor() is group
         expanded = parent not in self.expanded
         self.expanded.symmetric_difference_update({parent})
         self._redraw()
-        if expanded:
+        if cursor_inside:
             self.focus_key(parent)
         self.post_message(self.Expanded(parent, expanded=expanded))
         return expanded
