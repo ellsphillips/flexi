@@ -68,11 +68,6 @@ class Defaults(BaseModel):
 
     period: str = "week"
     first_day_of_week: int = 0
-    confirm_clock_out_before: str = "16:00"
-    """Departing earlier than this asks first. An accidental `/` at 11:00
-    silently ends the morning, and that is the one clock action worth a
-    question."""
-
     tick_seconds: int = 1
     """How often the live readout refreshes while a session is open. A minute
     would make an elapsed clock jump in 60-second steps, which looks broken."""

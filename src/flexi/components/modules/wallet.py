@@ -15,12 +15,10 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from textual.app import ComposeResult
-from textual.binding import Binding, BindingType
 from textual.message import Message
 
 from flexi.components.common import Gauge, Tone
 from flexi.components.modules.base import Module
-from flexi.config import CONFIG
 from flexi.constants import AbsenceType
 from flexi.domain.format import days, delta, signed_days
 from flexi.messages import Scope
@@ -60,20 +58,12 @@ class WalletModule(Module):
 
     WATCHES: ClassVar[Scope] = Scope.ABSENCE | Scope.CLOCK | Scope.SETTINGS | Scope.PERIOD
 
-    BINDINGS: ClassVar[list[BindingType]] = [
-        Binding(CONFIG.hotkeys.book_annual, "book('annual')", "Annual leave", show=False),
-        Binding(CONFIG.hotkeys.book_sick, "book('sick')", "Sickness", show=False),
-        Binding(CONFIG.hotkeys.book_toil, "book('flexi')", "TOIL day", show=False),
-        Binding(CONFIG.hotkeys.book_unpaid, "book('unpaid')", "Unpaid leave", show=False),
-        Binding(CONFIG.hotkeys.book_other, "book('other')", "Other absence", show=False),
-    ]
-
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(id="wallet-module", title="Wallet", **kwargs)
 
     def compose(self) -> ComposeResult:
         for kind in TRACKED:
-            yield Gauge(kind.label.upper(), id=f"gauge-{kind.token}")
+            yield Gauge(kind.short, id=f"gauge-{kind.token}")
 
     def on_mount(self) -> None:
         self.rebuild()
@@ -137,19 +127,17 @@ class WalletModule(Module):
         track says nothing that an absent row does not say better.
         """
         if not allowance.used:
-            gauge.show(None, readout="none", total=1.0, tone=Tone.NEUTRAL)
+            gauge.display = False
             return
+        gauge.display = True
         occasions = "occasion" if allowance.occurrences == 1 else "occasions"
         gauge.show(
             None,
-            readout=f"{days(allowance.used)}d over {allowance.occurrences} {occasions}",
+            readout=f"{days(allowance.used)}d · {allowance.occurrences} {occasions}",
             total=1.0,
             tone=Tone.NEUTRAL,
+            compact=True,
         )
-
-    def action_book(self, kind: str) -> None:
-        """Ask the screen to open the booking modal for one absence type."""
-        self.post_message(BookRequested(AbsenceType(kind)))
 
 def _pace_tone(allowance: Allowance) -> Tone:
     """Amber when an entitlement is being spent faster than the year is passing.
