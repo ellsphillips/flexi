@@ -19,6 +19,7 @@ from typing import Any, ClassVar
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
+from textual.geometry import Offset
 from textual.message import Message
 from textual.widgets import Static
 
@@ -31,6 +32,7 @@ from flexi.components.expandable import (
     Row,
     RowGroup,
 )
+from flexi.components.jumper import JumpInfo
 from flexi.components.modules.base import Module
 from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.domain.punch import cell_count
@@ -48,6 +50,15 @@ CELL_PADDING = 8
 """Two columns of padding on each of the four cells — DataTable's own default."""
 MAX_JUMP_ROWS = 9
 
+BRANCH = "├"
+LAST = "└"
+
+BADGE_WIDTH = 3
+"""A jump badge is one character with a column of padding either side.
+
+The row badges sit against the table's right edge rather than its left. A badge
+over the left edge covers the day name, which is the one thing on the row you
+need in order to choose which badge to press."""
 
 
 class BookHere(Message):
@@ -178,9 +189,9 @@ class RecordsModule(Module):
                 Row(
                     key=f"{ABSENCE}{slice_.absence_id}",
                     cells=(
-                        Text(f"  {slice_.label}", style=sub),
-                        Text(slice_.note or "", style=sub),
-                        Text("—", style=sub),
+                        Text("", style=sub),
+                        Text(f"  {BRANCH} {detail}", style=sub),
+                        Text("—", style=sub, justify="right"),
                         Text("", style=sub),
                     ),
                 )
@@ -194,8 +205,11 @@ class RecordsModule(Module):
                 Row(
                     key=f"{SESSION}{segment.session_id}",
                     cells=(
-                        Text(f"  {clock(segment.start)} → {finish}", style=sub),
-                        Text(note, style=sub),
+                        Text("", style=sub),
+                        Text(
+                            f"  {BRANCH} {clock(segment.start)} → {finish}  {note}",
+                            style=sub,
+                        ),
                         Text(hm(segment.duration(self.now)), style=sub, justify="right"),
                         Text("", style=sub),
                     ),
@@ -208,8 +222,8 @@ class RecordsModule(Module):
                         Row(
                             key=f"{SESSION}{segment.session_id}-break",
                             cells=(
-                                Text("  break", style=sub),
                                 Text("", style=sub),
+                                Text(f"  {BRANCH} break", style=sub),
                                 Text(hm(gap), style=sub, justify="right"),
                                 Text("", style=sub),
                             ),
@@ -222,8 +236,8 @@ class RecordsModule(Module):
                 Row(
                     key=f"{TOTAL}{ledger.date.isoformat()}",
                     cells=(
-                        Text("  expected", style=total),
                         Text("", style=total),
+                        Text(f"  {LAST} expected", style=total),
                         Text(hm(ledger.expected), style=total, justify="right"),
                         self._delta_cell(ledger),
                     ),
@@ -303,6 +317,39 @@ class RecordsModule(Module):
     def table(self) -> ExpandableTable:
         """The table itself, for the screen's jump targets and actions."""
         return self.query_one("#records-table", ExpandableTable)
+
+    def jump_row_targets(self) -> dict[Offset, JumpInfo]:
+        """A number key over each of the first nine visible day rows.
+
+        Flexi's extension to the reference application's jump mode, and the reason jump mode is worth
+        having in a table-heavy application: `v` then `4` lands on the fourth day
+        without leaving the home row.
+
+        A row is not a widget, so it cannot be found by walking the DOM the way a
+        panel is. The offsets are computed from the table's own geometry instead,
+        and a row scrolled out of view is simply not offered.
+        """
+        table = self.table
+        region = table.region
+        if not region.area:
+            return {}
+        header = table.header_height if table.show_header else 0
+        scroll = int(table.scroll_offset.y)
+        targets: dict[Offset, JumpInfo] = {}
+        numbered = 0
+        for index, row in enumerate(table.visible_rows()):
+            if row.kind != DAY:
+                continue
+            numbered += 1
+            if numbered > MAX_JUMP_ROWS:
+                break
+            y = region.y + header + index - scroll
+            if not (region.y + header <= y < region.y + region.height):
+                continue
+            targets[Offset(region.x + region.width - BADGE_WIDTH, y)] = JumpInfo(
+                str(numbered), row.key
+            )
+        return targets
 
     def selected_date(self) -> str | None:
         """The ISO date of the day under the cursor, whatever row it is on."""

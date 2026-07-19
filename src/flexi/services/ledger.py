@@ -18,7 +18,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from flexi.constants import DayKind
 from flexi.domain.balance import (
@@ -169,8 +169,16 @@ class LedgerService:
     def _sessions(
         self, start: date, end: date
     ) -> defaultdict[date, list[WorkSession]]:
+        # Eager-load both events. They are what a segment is made of, so a lazy
+        # relationship turns "three queries for a period" into three plus two per
+        # session — 34 round trips for a month, which is the shape this service
+        # exists to avoid.
         stmt = (
             select(WorkSession)
+            .options(
+                selectinload(WorkSession.clock_in_event),
+                selectinload(WorkSession.clock_out_event),
+            )
             .where(
                 WorkSession.work_date >= start,
                 WorkSession.work_date <= end,

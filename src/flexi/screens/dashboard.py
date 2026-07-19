@@ -13,7 +13,7 @@ a fifth meant editing a method in a different file.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime
 from typing import Any, ClassVar
 
 from textual.app import ComposeResult
@@ -25,7 +25,7 @@ from textual.screen import Screen
 from textual.timer import Timer
 
 from flexi.components.chrome import AppFooter, AppHeader
-from flexi.components.common import Tone, mark_width
+from flexi.components.common import TINY_COLUMNS, Tone, mark_width
 from flexi.components.expandable import ABSENCE, DAY, SESSION
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.balance import BalanceModule
@@ -34,8 +34,10 @@ from flexi.components.modules.calendar import CalendarModule
 from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.records import BookHere, DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
+from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType
+from flexi.domain.format import clock as clock_time
 from flexi.domain.period import Granularity, Period
 from flexi.messages import DataChanged, DateSelected, Scope
 from flexi.screens.modals import AbsenceBooking, AbsenceModal, ConfirmModal, GoToDateModal
@@ -100,6 +102,10 @@ class DashboardScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield AppHeader()
+        # Not docked. Two widgets docked to the same edge both land on the same
+        # row and the later one wins, so the rails simply flow: the header is
+        # docked above them and the footer below, which leaves exactly one row.
+        yield TimeProgress(id="time-progress")
         with Horizontal(id="dashboard-body"):
             with VerticalScroll(id="dashboard-controls"):
                 yield ClockModule()
@@ -112,10 +118,12 @@ class DashboardScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self._sync_header()
+        self._refresh_progress()
         self._start_tick_if_open()
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)
+        self._refresh_progress()
 
     def jump_targets(self) -> dict[str, str]:
         """The panels, by widget id."""
@@ -170,6 +178,24 @@ class DashboardScreen(Screen[None]):
             self._services.invalidate()
         for module in self.query(Module):
             module.rebuild_if(scope)
+        self._refresh_progress()
+
+    def _refresh_progress(self) -> None:
+        """The two rails under the header: today, and the shown period."""
+        today = self.now.date()
+        day = self._services.ledger.day(today, now=self.now)
+        period = self._services.ledger.summary(
+            self.period.start, self.period.end, now=self.now
+        )
+        for rails in self.query(TimeProgress):
+            rails.show(
+                day_done=day.worked,
+                day_total=day.expected,
+                period_label=self.period.granularity.label,
+                period_done=period.worked,
+                period_total=period.expected,
+                compact=self.size.width < TINY_COLUMNS,
+            )
 
     def on_data_changed(self, event: DataChanged) -> None:
         event.stop()
@@ -204,6 +230,7 @@ class DashboardScreen(Screen[None]):
         for module in (ClockModule, BalanceModule):
             for widget in self.query(module):
                 widget.rebuild()
+        self._refresh_progress()
 
     def on_unmount(self) -> None:
         if self._tick is not None:
@@ -216,29 +243,23 @@ class DashboardScreen(Screen[None]):
         self.toggle_clock()
 
     def toggle_clock(self) -> None:
-        """Clock in, or ask before clocking out unusually early."""
+        """Clock in, or clock out. It never asks.
+
+        An earlier draft confirmed a clock-out before four in the afternoon, to
+        catch an accidental `/`. It fired at lunchtime every single day, because
+        clocking out for lunch is the normal thing this application is for.
+
+        The right guard is not a question but a receipt. Clock events are
+        immutable and a second `/` opens a new session, so a mistaken press costs
+        one visible break and nothing else — and the status bar says exactly what
+        was recorded, at what time, so the mistake is seen at the moment it is
+        made rather than at the end of the month.
+        """
         clock = self._services.clock
-        if not clock.is_clocked_in():
-            self._report(clock.clock_in())
-            return
-
-        cutoff = time.fromisoformat(CONFIG.defaults.confirm_clock_out_before)
-        if datetime.now().time() >= cutoff:
+        if clock.is_clocked_in():
             self._report(clock.clock_out())
-            return
-
-        def confirm(answer: bool | None) -> None:
-            if answer:
-                self._report(clock.clock_out())
-
-        self.app.push_screen(
-            ConfirmModal(
-                f"It is before {CONFIG.defaults.confirm_clock_out_before}. "
-                "Clock out and end the session?",
-                title="Depart early?",
-            ),
-            callback=confirm,
-        )
+        else:
+            self._report(clock.clock_in())
 
     # -- absence -----------------------------------------------------------
 
@@ -321,7 +342,7 @@ class DashboardScreen(Screen[None]):
     def _report(self, result: object, scope: Scope = Scope.CLOCK) -> None:
         """Put a service result on the status bar, and redraw if it wrote."""
         success = bool(getattr(result, "success", False))
-        message = str(getattr(result, "message", ""))
+        message = _with_time(str(getattr(result, "message", "")), result)
         warning = getattr(result, "warning", None)
         if success and warning:
             self.status(str(warning), Tone.WARN)

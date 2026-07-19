@@ -41,6 +41,7 @@ from flexi.models.database.app import create_db_engine, get_session
 from flexi.provider import FlexiCommands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings
+from flexi.screens.insights import InsightsScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.registry import Services
@@ -93,6 +94,12 @@ class FlexiApp(TextualApp[None]):
         self.register_theme(flexi_theme())
         self.theme = THEME_NAME
         self.jumper: Jumper | None = None
+        self._pushed: InsightsScreen | None = None
+        """The screen `action_go_to` pushed, so `f1` can dismiss it.
+
+        Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
+        is typed as `Screen[object]` and narrowing it against a `Screen[None]`
+        gives mypy `Never`."""
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -148,10 +155,22 @@ class FlexiApp(TextualApp[None]):
                 SettingsScreen(self.services), callback=self._on_settings_saved
             )
             return
+        if name == "insights":
+            board = self._dashboard()
+            period = board.period if board else None
+            if period is None:
+                return
+            self.nav = name
+            self._pushed = InsightsScreen(self.services, period)
+            self.push_screen(self._pushed, callback=self._back)
+            return
         if name == "dashboard":
             # Insights is a pushed screen, so returning to the dashboard means
             # leaving it. Without this, f1 set the nav label and nothing else,
             # and escape was the only way back.
+            if self._pushed is not None:
+                self._pushed.dismiss(None)
+                self._pushed = None
             self.nav = name
             self._sync_nav()
             return
@@ -192,6 +211,21 @@ class FlexiApp(TextualApp[None]):
         return None
 
     # -- clocking ----------------------------------------------------------
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Stand `/` down while somebody is typing.
+
+        The binding is `priority=True` so it works from any screen with any
+        widget focused — but priority means it runs *before* the focused widget,
+        so a bare `priority` binding would eat the slash out of a date being
+        typed into "go to date". Returning `False` here skips the binding and
+        lets the key carry on to the field, which is the behaviour
+        `docs/KEYMAP.md` promises.
+        """
+        del parameters
+        if action == "clock_toggle" and isinstance(self.focused, (Input, TextArea)):
+            return False
+        return True
 
     def action_clock_toggle(self) -> None:
         """One key, from anywhere. The dashboard owns the confirmation."""
@@ -259,8 +293,12 @@ class FlexiApp(TextualApp[None]):
         except NoMatches:
             log.warning(f"jump target #{target} is not on {self.screen!r}")
             return
-        if widget.focusable:
-            self.set_focus(widget)
+        focus_on: Widget = widget
+        chooser = getattr(widget, "focus_target", None)
+        if callable(chooser):
+            focus_on = cast("Widget", chooser())
+        if focus_on.focusable:
+            self.set_focus(focus_on)
         else:
             # Not focusable: a button, say. the reference application's trick — synthesise the click
             # the pointer would have made, so a jump can press things too.

@@ -186,12 +186,23 @@ class WalletService:
     # -- convenience for the absence modal ---------------------------------
 
     def available_toil_days(self, today: date | None = None) -> float:
-        """How many days of TOIL could be taken without going into deficit."""
+        """How many days of TOIL could still be taken without going into deficit.
+
+        The running balance only accumulates up to *today*, so TOIL already
+        booked for next month is invisible to it. Subtracting those bookings is
+        what stops the interface cheerfully accepting an unlimited number of
+        future TOIL days and only mentioning the deficit once they arrive.
+        """
         today = today or date.today()
         contracted = self._settings.get_contracted()
         if not contracted:
             return 0.0
-        return self._ledger.balance(today).delta / contracted
+        banked = self._ledger.balance(today).delta / contracted
+        _, year_end = self._absence.leave_year_bounds(today)
+        committed = self._absence.count_days(
+            AbsenceType.FLEXI, start=today + timedelta(days=1), end=year_end
+        )
+        return banked - committed
 
 
 def _fraction_elapsed(start: date, end: date, today: date) -> float:
