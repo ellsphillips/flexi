@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, TYPE_CHECKING, ClassVar, cast
 
+from textual.widget import Widget
 from textual.widgets import Static
 
 from flexi.domain.period import Granularity, Period
@@ -81,6 +82,15 @@ class Module(Static):
     def announce(self, scope: Scope) -> None:
         """Tell the screen that something was written."""
         self.post_message(DataChanged(scope))
+
+    def focus_target(self) -> Widget:
+        """The widget a jump to this module should focus.
+
+        Usually the module itself. A module whose content is a table wants the
+        table — landing on the panel and then needing a second key to get into
+        the rows is exactly the friction jump mode exists to remove.
+        """
+        return self
 
     def set_subtitle(self, text: str) -> None:
         """Write into the border subtitle — the module's live data slot."""
