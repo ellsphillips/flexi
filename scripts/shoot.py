@@ -61,7 +61,20 @@ async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> 
             await pilot.pause()
         await pilot.pause()
         app.save_screenshot(str(SHOTS / f"{name}.svg"))
+        # A plain-text twin. An SVG has to be rendered before it can be read,
+        # and a font without box-drawing coverage turns every strip into a row
+        # of tofu — which looks like a Flexi bug and is not one. The text dump
+        # is what alignment is actually checked against.
+        (SHOTS / f"{name}.txt").write_text(screen_text(app), encoding="utf-8")
     print(f"  {name}.svg  {size[0]}x{size[1]}")  # noqa: T201
+
+
+def screen_text(app: FlexiApp) -> str:
+    """Whatever the compositor would put on the terminal, as characters."""
+    strips = app.screen._compositor.render_strips()  # noqa: SLF001
+    return "\n".join(
+        "".join(segment.text for segment in strip).rstrip() for strip in strips
+    )
 
 
 async def main() -> None:
