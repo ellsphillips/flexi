@@ -1,0 +1,386 @@
+"""Charts, drawn as characters.
+
+Four forms, each chosen because the data has that job — not because a chart
+library offered it:
+
+* :class:`DivergingBars` — a signed quantity around a baseline. The flexi
+  balance, week by week, with surplus above the line and deficit below.
+* :class:`Burndown` — one series against a reference line. Annual leave
+  remaining against the pace an even spread would set.
+* :class:`WeekRibbon` — small multiples of the punch strip on a shared time
+  axis. The signature element, scaled up to a whole period.
+* :class:`YearHeatmap` — a calendar grid on a diverging ramp, so a year of
+  short days and long ones is one picture.
+
+Rules these follow, and a future chart should too:
+
+**Series colour comes from the three validated slots only** — TOIL, annual,
+sick. A fourth series folds into a neutral. **Sequential is one hue, light to
+dark; diverging is two hues with a grey midpoint, never a rainbow.** **Text
+wears text tokens, never the series colour**: a coloured mark sits beside a
+label, it does not replace it. And **no chart is the only way to read its
+numbers** — every one of these has the figure written next to it.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, timedelta
+from typing import Any, ClassVar, Final
+
+from rich.style import Style
+from rich.text import Text
+from textual.app import RenderResult
+from textual.widget import Widget
+
+from flexi.components.punch import PUNCH_CLASSES, render_strip
+from flexi.domain.format import MINUS, delta, days as fmt_days, hm
+from flexi.domain.ledger import DayLedger
+from flexi.domain.punch import Window
+
+# Eighths, so a bar can be read to a fraction of a cell rather than rounding a
+# week's overtime away.
+UP_BLOCKS: Final = " ▁▂▃▄▅▆▇█"
+DOWN_BLOCKS: Final = " ▔🮂🮃▀🮄🮅🮆█"
+BLOCK: Final = "█"
+BASELINE: Final = "─"
+FULL: Final = "█"
+HEAT: Final = "■"
+EMPTY: Final = "·"
+
+DIVERGING_STEPS: Final = 4
+"""Steps per arm of the heatmap ramp. Four is as many as a reader can rank by
+eye without a legend they have to keep consulting."""
+
+
+@dataclass(frozen=True, slots=True)
+class Column:
+    """One bar: a label, a signed value, and the figure to write beside it."""
+
+    label: str
+    value: float
+    readout: str = ""
+
+
+class DivergingBars(Widget):
+    """A signed series around a zero line.
+
+    Two hues and a neutral baseline, which is the whole grammar of a diverging
+    chart: a bar above the line means one thing and a bar below means its
+    opposite, and the reader never has to look up which colour is which because
+    the side of the line already said it.
+    """
+
+    COMPONENT_CLASSES: ClassVar[set[str]] = {
+        "chart--surplus",
+        "chart--deficit",
+        "chart--baseline",
+        "chart--label",
+        "chart--figure",
+    }
+
+    def __init__(self, *, height: int = 7, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.columns: tuple[Column, ...] = ()
+        self.rows = max(3, height)
+
+    def show(self, columns: list[Column]) -> None:
+        self.columns = tuple(columns)
+        self.refresh()
+
+    def render(self) -> RenderResult:
+        label = self.get_component_rich_style("chart--label")
+        if not self.columns:
+            return Text("Nothing recorded yet", style=label)
+
+        shown, gap = self._fit()
+        up, down = self._arms(shown)
+        surplus = self.get_component_rich_style("chart--surplus")
+        deficit = self.get_component_rich_style("chart--deficit")
+
+        lines = [
+            self._band(shown, gap, level, up, self._high(shown), surplus, above=True)
+            for level in range(up, 0, -1)
+        ]
+        lines.append(self._baseline(shown, gap))
+        lines.extend(
+            self._band(shown, gap, level, down, self._low(shown), deficit, above=False)
+            for level in range(1, down + 1)
+        )
+        lines.append(self._caption(shown))
+        return Text("\n").join(lines)
+
+    def _arms(self, shown: tuple[Column, ...]) -> tuple[int, int]:
+        """How many rows each side of the baseline gets.
+
+        Split in proportion to the data, not down the middle. A series with no
+        deficit weeks does not need four rows of empty negative axis, and a
+        series that is all deficit should not be squashed into two.
+        """
+        rows = max(2, self.rows - 1)
+        high, low = self._high(shown), self._low(shown)
+        if not low:
+            return rows - 1, 1
+        if not high:
+            return 1, rows - 1
+        share = high / (high + low)
+        up = max(1, min(rows - 1, round(share * rows)))
+        return up, rows - up
+
+    @staticmethod
+    def _high(shown: tuple[Column, ...]) -> float:
+        return max((column.value for column in shown), default=0.0) or 0.0
+
+    @staticmethod
+    def _low(shown: tuple[Column, ...]) -> float:
+        return -min((column.value for column in shown), default=0.0) or 0.0
+
+    def _fit(self) -> tuple[tuple[Column, ...], int]:
+        """The bars that fit, most recent first, and whether they get a gap.
+
+        Trimmed from the *left*: a year of weeks will not fit a half-width panel,
+        and the weeks worth dropping are the oldest.
+        """
+        width = max(1, self.content_size.width)
+        if len(self.columns) * 2 <= width:
+            return self.columns, 1
+        return self.columns[-width:], 0
+
+    def _band(
+        self,
+        shown: tuple[Column, ...],
+        gap: int,
+        level: int,
+        arm: int,
+        extent: float,
+        style: Style,
+        *,
+        above: bool,
+    ) -> Text:
+        """One row of the chart, at a fixed distance from the baseline."""
+        text = Text(no_wrap=True, end="")
+        span = extent or 1.0
+        for column in shown:
+            value = column.value if above else -column.value
+            reach = max(0.0, value) / span * arm
+            text.append(BLOCK if reach >= level - 0.5 else " ", style)
+            text.append(" " * gap)
+        return text
+
+    def _baseline(self, shown: tuple[Column, ...], gap: int) -> Text:
+        style = self.get_component_rich_style("chart--baseline")
+        return Text(BASELINE * (len(shown) * (1 + gap)), style=style, no_wrap=True)
+
+    def _caption(self, shown: tuple[Column, ...]) -> Text:
+        """The extremes, named. A bar chart nobody can read a value off is a mood.
+
+        Direct-labelling every bar would be unreadable at 52 weeks, so the two
+        that matter are labelled and the rest are shape.
+        """
+        label = self.get_component_rich_style("chart--label")
+        if not shown:
+            return Text("", style=label)
+        best = max(shown, key=lambda item: item.value)
+        worst = min(shown, key=lambda item: item.value)
+        if best is worst:
+            return Text(f"{best.label}: {best.readout}", style=label)
+        return Text(
+            f"best {best.label} {best.readout} · worst {worst.label} {worst.readout}",
+            style=label,
+        )
+
+
+class Burndown(Widget):
+    """One series against a reference line.
+
+    A single series needs no legend — the title names it — and the reference is
+    drawn as a rule rather than a second series, because "where you should be"
+    is not a thing that happened.
+    """
+
+    COMPONENT_CLASSES: ClassVar[set[str]] = {
+        "chart--series",
+        "chart--reference",
+        "chart--label",
+        "chart--figure",
+    }
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.remaining: float | None = None
+        self.total: float = 0.0
+        self.pace: float | None = None
+
+    def show(self, remaining: float | None, total: float, pace: float | None) -> None:
+        self.remaining, self.total, self.pace = remaining, total, pace
+        self.refresh()
+
+    def render(self) -> RenderResult:
+        label = self.get_component_rich_style("chart--label")
+        if self.remaining is None or self.total <= 0:
+            return Text("No entitlement recorded", style=label)
+
+        width = max(12, self.content_size.width)
+        spent = self.total - self.remaining
+        track = [EMPTY] * width
+        filled = int(round(spent / self.total * width))
+        for index in range(min(filled, width)):
+            track[index] = FULL
+
+        marker = (
+            None
+            if self.pace is None
+            else min(width - 1, max(0, int(round(self.pace / self.total * width))))
+        )
+        if marker is not None:
+            track[marker] = "┃"
+
+        # Glyphs first, then spans: rebuilding a Text to swap a character drops
+        # the base style it was built with.
+        text = Text("".join(track))
+        text.stylize(self.get_component_rich_style("chart--series"), 0, width)
+        if marker is not None:
+            text.stylize(
+                self.get_component_rich_style("chart--reference"), marker, marker + 1
+            )
+
+        text.append("\n")
+        text.append(
+            f"{fmt_days(spent)} taken · {fmt_days(self.remaining)} left"
+            f" · pace {fmt_days(round(self.pace or 0, 1))}",
+            label,
+        )
+        return text
+
+
+class WeekRibbon(Widget):
+    """Punch strips stacked on one time axis, a week to a row.
+
+    The signature element scaled up. A table of weekly totals says how much; this
+    says *when*, and the shape of a month of mornings is not something a column
+    of numbers can show.
+    """
+
+    COMPONENT_CLASSES: ClassVar[set[str]] = {*PUNCH_CLASSES, "chart--label"}
+
+    def __init__(self, *, window: Window | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.ledgers: tuple[DayLedger, ...] = ()
+        self.window = window or Window()
+
+    def show(self, ledgers: list[DayLedger], window: Window | None = None) -> None:
+        self.ledgers = tuple(ledgers)
+        if window is not None:
+            self.window = window
+        self.refresh()
+
+    def render(self) -> RenderResult:
+        label = self.get_component_rich_style("chart--label")
+        if not self.ledgers:
+            return Text("Nothing recorded yet", style=label)
+
+        gutter = 8
+        width = max(12, self.content_size.width - gutter)
+        lines: list[Text] = []
+        for ledger in self.ledgers:
+            row = Text(f"{ledger.date.strftime('%a %d')}".ljust(gutter), style=label)
+            row.append(
+                render_strip(ledger, width, self.window, self.get_component_rich_style)
+            )
+            lines.append(row)
+        return Text("\n").join(lines)
+
+
+class YearHeatmap(Widget):
+    """A calendar grid coloured by how each day went.
+
+    Weekday down, week across — the shape every contribution graph uses, because
+    it puts "my Fridays are short" and "March was heavy" in the same picture.
+
+    Colour carries magnitude on a diverging ramp; the *glyph* carries day type,
+    so the two encodings never fight over the same cell.
+    """
+
+    COMPONENT_CLASSES: ClassVar[set[str]] = {
+        "chart--label",
+        "chart--neutral",
+        *(f"chart--surplus-{step}" for step in range(1, DIVERGING_STEPS + 1)),
+        *(f"chart--deficit-{step}" for step in range(1, DIVERGING_STEPS + 1)),
+    }
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.ledgers: dict[date, DayLedger] = {}
+        self.scale = timedelta(hours=2)
+
+    def show(self, ledgers: list[DayLedger]) -> None:
+        self.ledgers = {item.date: item for item in ledgers}
+        worst = max(
+            (abs(item.balance_effect) for item in ledgers), default=timedelta(hours=2)
+        )
+        # A floor on the scale: without one, a fortnight of near-perfect days
+        # would be drawn as violently as a fortnight of disasters.
+        self.scale = max(worst, timedelta(hours=2))
+        self.refresh()
+
+    def render(self) -> RenderResult:
+        label = self.get_component_rich_style("chart--label")
+        if not self.ledgers:
+            return Text("Nothing recorded yet", style=label)
+
+        start = min(self.ledgers)
+        start -= timedelta(days=start.weekday())
+        end = max(self.ledgers)
+        weeks = ((end - start).days // 7) + 1
+
+        lines: list[Text] = []
+        for weekday, initial in enumerate("MTWTFSS"):
+            row = Text(f"{initial} ", style=label)
+            for week in range(weeks):
+                when = start + timedelta(weeks=week, days=weekday)
+                row.append(*self._cell(when))
+            lines.append(row)
+        lines.append(self._legend())
+        return Text("\n").join(lines)
+
+    def _cell(self, when: date) -> tuple[str, Style]:
+        ledger = self.ledgers.get(when)
+        if ledger is None:
+            return " ", Style()
+        if not ledger.is_working_day or ledger.is_holiday:
+            return EMPTY, self.get_component_rich_style("chart--neutral")
+        effect = ledger.balance_effect
+        if effect == timedelta():
+            return HEAT, self.get_component_rich_style("chart--neutral")
+        share = min(1.0, abs(effect) / self.scale)
+        step = max(1, min(DIVERGING_STEPS, int(round(share * DIVERGING_STEPS))))
+        arm = "surplus" if effect > timedelta() else "deficit"
+        return HEAT, self.get_component_rich_style(f"chart--{arm}-{step}")
+
+    def _legend(self) -> Text:
+        """Never colour alone: the ramp is drawn with its two ends named."""
+        label = self.get_component_rich_style("chart--label")
+        text = Text(f"{MINUS}{hm(self.scale)} ", style=label)
+        for step in range(DIVERGING_STEPS, 0, -1):
+            text.append(HEAT, self.get_component_rich_style(f"chart--deficit-{step}"))
+        text.append(HEAT, self.get_component_rich_style("chart--neutral"))
+        for step in range(1, DIVERGING_STEPS + 1):
+            text.append(HEAT, self.get_component_rich_style(f"chart--surplus-{step}"))
+        text.append(f" +{hm(self.scale)}", label)
+        return text
+
+
+def week_columns(ledgers: list[DayLedger]) -> list[Column]:
+    """Group a run of days into one bar per week, for :class:`DivergingBars`."""
+    buckets: dict[date, timedelta] = {}
+    for ledger in ledgers:
+        monday = ledger.date - timedelta(days=ledger.date.weekday())
+        buckets[monday] = buckets.get(monday, timedelta()) + ledger.balance_effect
+    return [
+        Column(
+            label=monday.strftime("%-d"),
+            value=total.total_seconds() / 3600,
+            readout=delta(total),
+        )
+        for monday, total in sorted(buckets.items())
+    ]
