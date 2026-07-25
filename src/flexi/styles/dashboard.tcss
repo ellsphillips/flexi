@@ -267,6 +267,54 @@ DashboardScreen.-tiny #balance-module {
     height: 1fr;
 }
 
+/* Component classes are scoped to the widget type that declares them, so the
+   `PunchStrip > .punch--*` rules in flexi.tcss do not reach the strips this
+   module paints into table cells. Same tokens, restated for this owner. */
+RecordsModule > .punch--off {
+    color: $c-line;
+}
+
+RecordsModule > .punch--on {
+    color: $c-accent;
+}
+
+RecordsModule > .punch--live {
+    color: $c-accent-lift;
+    text-style: bold;
+}
+
+RecordsModule > .punch--break {
+    color: $c-ash;
+}
+
+RecordsModule > .punch--target {
+    color: $c-muted;
+}
+
+RecordsModule > .punch--holiday {
+    color: $c-holiday;
+}
+
+RecordsModule > .punch--annual {
+    color: $c-annual;
+}
+
+RecordsModule > .punch--sick {
+    color: $c-sick;
+}
+
+RecordsModule > .punch--toil {
+    color: $c-toil;
+}
+
+RecordsModule > .punch--unpaid {
+    color: $c-unpaid;
+}
+
+RecordsModule > .punch--other {
+    color: $c-other;
+}
+
 RecordsModule > .record--sub {
     color: $c-muted;
 }
@@ -309,4 +357,115 @@ RecordsModule > .record--muted {
     height: auto;
     max-height: 28;
 }
+
+
+/* ==========================================================================
+   Insights
+   ==========================================================================
+   Four panels, each answering one question. The ramps below are the only
+   sequential and diverging scales in the application; see docs/DESIGN-SYSTEM.md
+   §3 before adding a fifth colour to either arm.
+   ========================================================================== */
+
+#insights-body {
+    height: 1fr;
+    padding: 0 1;
+}
+
+.insights-row {
+    height: auto;
+    width: 1fr;
+}
+
+.insights-row > .module {
+    height: auto;
+    margin: 0;
+}
+
+InsightsScreen.-narrow .insights-row {
+    layout: vertical;
+}
+
+#balance-bars {
+    height: 11;
+    width: 1fr;
+}
+
+#leave-bar {
+    height: 3;
+    width: 1fr;
+}
+
+#ribbon {
+    height: auto;
+    min-height: 8;
+    width: 1fr;
+}
+
+#heatmap {
+    height: 9;
+    width: 1fr;
+}
+
+/* -- chart tokens --------------------------------------------------------- */
+
+DivergingBars > .chart--surplus,
+YearHeatmap > .chart--surplus-4 {
+    color: $c-surplus-lift;
+}
+
+DivergingBars > .chart--deficit,
+YearHeatmap > .chart--deficit-4 {
+    color: $c-deficit-lift;
+}
+
+DivergingBars > .chart--baseline {
+    color: $c-line;
+}
+
+DivergingBars > .chart--label,
+Burndown > .chart--label,
+WeekRibbon > .chart--label,
+YearHeatmap > .chart--label {
+    color: $c-muted;
+}
+
+DivergingBars > .chart--figure,
+Burndown > .chart--figure {
+    color: $c-cream;
+    text-style: bold;
+}
+
+Burndown > .chart--series {
+    color: $c-annual;
+}
+
+Burndown > .chart--reference {
+    color: $c-cream;
+}
+
+/* The punch strip's tokens again, for the widget that paints strips itself.
+   Component classes are scoped to the type that declares them. */
+WeekRibbon > .punch--off { color: $c-line; }
+WeekRibbon > .punch--on { color: $c-accent; }
+WeekRibbon > .punch--live { color: $c-accent-lift; text-style: bold; }
+WeekRibbon > .punch--break { color: $c-ash; }
+WeekRibbon > .punch--target { color: $c-muted; }
+WeekRibbon > .punch--holiday { color: $c-holiday; }
+WeekRibbon > .punch--annual { color: $c-annual; }
+WeekRibbon > .punch--sick { color: $c-sick; }
+WeekRibbon > .punch--toil { color: $c-toil; }
+WeekRibbon > .punch--unpaid { color: $c-unpaid; }
+WeekRibbon > .punch--other { color: $c-other; }
+
+/* The diverging ramp: two hues, a grey midpoint, four steps an arm. Generated
+   as fixed OKLCH hues at rising lightness and validated for monotonic steps and
+   contrast against the surface — not eyeballed. Never a rainbow. */
+YearHeatmap > .chart--neutral { color: $c-line; }
+YearHeatmap > .chart--deficit-1 { color: #744246; }
+YearHeatmap > .chart--deficit-2 { color: #9e4b54; }
+YearHeatmap > .chart--deficit-3 { color: #c95463; }
+YearHeatmap > .chart--surplus-1 { color: #345d3e; }
+YearHeatmap > .chart--surplus-2 { color: #317a45; }
+YearHeatmap > .chart--surplus-3 { color: #25984d; }
 
