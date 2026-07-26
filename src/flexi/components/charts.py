@@ -38,12 +38,15 @@ from flexi.domain.format import MINUS, delta, days as fmt_days, hm
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window
 
-# Eighths, so a bar can be read to a fraction of a cell rather than rounding a
-# week's overtime away.
-UP_BLOCKS: Final = " ▁▂▃▄▅▆▇█"
-DOWN_BLOCKS: Final = " ▔🮂🮃▀🮄🮅🮆█"
 BLOCK: Final = "█"
 BASELINE: Final = "─"
+"""Whole cells only, both arms.
+
+An earlier draft drew eighths, which reads beautifully upward — `▁▂▃▄▅▆▇` are
+everywhere — and needs U+1FB0x Symbols for Legacy Computing to do the same
+downward. Those are missing from most terminal fonts, so half the chart rendered
+as tofu on the machines it was drawn for. Whole cells cost a quarter of a bar's
+precision and the exact figure is printed underneath anyway."""
 FULL: Final = "█"
 HEAT: Final = "■"
 EMPTY: Final = "·"
