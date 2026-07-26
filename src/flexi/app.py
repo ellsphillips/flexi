@@ -212,21 +212,6 @@ class FlexiApp(TextualApp[None]):
 
     # -- clocking ----------------------------------------------------------
 
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Stand `/` down while somebody is typing.
-
-        The binding is `priority=True` so it works from any screen with any
-        widget focused — but priority means it runs *before* the focused widget,
-        so a bare `priority` binding would eat the slash out of a date being
-        typed into "go to date". Returning `False` here skips the binding and
-        lets the key carry on to the field, which is the behaviour
-        `docs/KEYMAP.md` promises.
-        """
-        del parameters
-        if action == "clock_toggle" and isinstance(self.focused, (Input, TextArea)):
-            return False
-        return True
-
     def action_clock_toggle(self) -> None:
         """One key, from anywhere. The dashboard owns the confirmation."""
         screen = self._dashboard()
