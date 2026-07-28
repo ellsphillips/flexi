@@ -53,10 +53,18 @@ class BalanceHistory(Module):
 
     def rebuild(self) -> None:
         period = self.period
-        ledgers = self.services.ledger.days(period.start, period.end, now=self.now)
+        # Stop at today. Every working day after it expects hours and has none
+        # recorded, so charting the rest of a leave year draws a cliff of
+        # deficits for days nobody has lived yet.
+        end = min(period.end, self.now.date())
+        if end < period.start:
+            self.query_one("#balance-bars", DivergingBars).show([])
+            self.set_subtitle("not started")
+            return
+        ledgers = self.services.ledger.days(period.start, end, now=self.now)
         self.query_one("#balance-bars", DivergingBars).show(week_columns(ledgers))
-        total = self.services.ledger.summary(period.start, period.end, now=self.now)
-        self.set_subtitle(f"{delta(total.delta)} over {period.label.lower()}")
+        total = self.services.ledger.summary(period.start, end, now=self.now)
+        self.set_subtitle(f"{delta(total.delta)} to {end.strftime('%-d %b')}")
 
 
 class LeaveBurndown(Module):
@@ -203,7 +211,13 @@ class InsightsScreen(Screen[None]):
         self.set_period(self.period.zoom(self.period.granularity.next()))
 
     def action_back(self) -> None:
-        self.app.pop_screen()
+        """Dismiss, rather than pop.
+
+        `pop_screen` removes the screen without running the callback that
+        `push_screen` was given, so the nav bar would keep pointing at Insights
+        after the user had left it.
+        """
+        self.dismiss(None)
 
     def status(self, message: str, tone: Tone = Tone.NEUTRAL) -> None:
         for footer in self.query(AppFooter):
