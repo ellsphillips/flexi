@@ -6,7 +6,7 @@ actually was. Every decision below comes from that.
 
 The structure is the design reference's: warm graphite grounds, hairlines instead of boxes,
 an overline above every figure, exactly one accent. The identity is Flexi's own:
-a teal accent, a categorical day-type scale, and one signature element.
+a blue accent, a categorical day-type scale, and one signature element.
 
 ---
 
@@ -66,7 +66,11 @@ lightness and chroma, and the day-type scale is validated with the
 ```css
 /* Grounds — warm graphite. Terminals are dark; a warm ground gives the cool
    accent something to sit against, and it is not the blue-black every other
-   terminal app defaults to. */
+   terminal app defaults to.
+
+   `ink` is the page AND the modules: a panel is a rounded rule drawn *on* the
+   page, not a lighter rectangle floating above it. `surface` and `raised` are
+   for the few things that genuinely lift — a modal, a hover, a field. */
 $c-ink: #0F0E0D;
 $c-surface: #171614;
 $c-raised: #201E1B;
@@ -74,6 +78,7 @@ $c-raised: #201E1B;
 /* Hairlines. Editorial layouts are ruled, not boxed. */
 $c-line: #2E2B27;
 $c-line-soft: #232019;
+$c-rule: #443F38;
 
 /* Type. Cream for display, paper for body, muted and ash for everything else. */
 $c-cream: #FAF8F4;
@@ -81,46 +86,48 @@ $c-paper: #EDE9E3;
 $c-muted: #9C948A;
 $c-ash: #7A736A;
 
-/* Teal — THE accent. `lift` reads on dark grounds, `deep` is for fills. */
-$c-accent: #02A6AD;
-$c-accent-lift: #4CDBE3;
-$c-accent-deep: #003032;
+/* Blue — THE accent. `lift` reads on dark grounds, `deep` is for fills. */
+$c-accent: #3986E4;
+$c-accent-lift: #91C1FF;
+$c-accent-deep: #07294F;
 
-/* Balance state. The one number, and the only place these appear. */
+/* Balance state. Green for ahead, red for behind — the one number, and the only
+   place these appear. */
 $c-surplus: #2E9E52;
 $c-surplus-lift: #76CF8A;
-$c-surplus-deep: #002D0F;
-$c-deficit: #CE3E57;
-$c-deficit-lift: #FA7F8C;
-$c-deficit-deep: #460915;
+$c-surplus-deep: #003010;
+$c-deficit: #CE3E5D;
+$c-deficit-lift: #FE7B90;
+$c-deficit-deep: #4B0519;
 $c-warning: #C38406;
 $c-warning-lift: #F5B34C;
 $c-warning-deep: #3A2400;
 
-/* Day types. toil/annual/sick are the validated chart scale; the other three
-   are deliberately quieter, because a bank holiday should not compete with a
-   sick day for attention. */
-$c-toil: #02A6AD;
-$c-toil-lift: #4CDBE3;
-$c-toil-deep: #003032;
-$c-annual: #8459C3;
-$c-annual-lift: #BE9DF7;
-$c-annual-deep: #2B1844;
-$c-sick: #D56326;
-$c-sick-lift: #FE9F73;
-$c-sick-deep: #411904;
-$c-other: #C06099;
-$c-other-lift: #EE97C9;
-$c-other-deep: #3A142C;
+/* Day types. toil/annual/sick are the validated chart scale — blue, magenta and
+   orange, which clear an all-pairs colour-vision check. The other three are
+   deliberately quieter, because a bank holiday should not compete with a sick
+   day for attention. */
+$c-toil: #3986E4;
+$c-toil-lift: #91C1FF;
+$c-toil-deep: #07294F;
+$c-annual: #AD3D9A;
+$c-annual-lift: #E78DD4;
+$c-annual-deep: #3F1037;
+$c-sick: #DB703B;
+$c-sick-lift: #FFA47A;
+$c-sick-deep: #471800;
+$c-other: #079A94;
+$c-other-lift: #55D1CA;
+$c-other-deep: #012D2B;
 $c-unpaid: #8B7E6D;
-$c-unpaid-lift: #B9AC99;
-$c-unpaid-deep: #272017;
-$c-holiday: #557EA8;
-$c-holiday-lift: #89AFD6;
-$c-holiday-deep: #0D2339;
+$c-unpaid-lift: #BDAF9D;
+$c-unpaid-deep: #2A2319;
+$c-holiday: #647D97;
+$c-holiday-lift: #97B1CD;
+$c-holiday-deep: #142537;
 ```
 
-**One accent per region.** If a panel already carries a teal rule, its button is
+**One accent per region.** If a panel already carries a blue rule, its button is
 quiet. Surplus green, deficit red and warning amber are *state* — they appear
 where something is genuinely ahead, behind, or unactioned, and never as
 decoration.
@@ -369,7 +376,7 @@ and a half-resolved colour is worse than an absent one. Add a colour to the
 `PALETTE` block and every screen gets it; there is exactly one place a colour is
 written down.
 
-Two traps, both from the research notes:
+Three traps:
 
 - **An undefined variable fails at startup**, during CSS parse, not at render.
   Anything a stylesheet references must be in the `PALETTE` block or in
@@ -377,7 +384,14 @@ Two traps, both from the research notes:
 - **`App.theme = "flexi"` raises `InvalidThemeError` if `register_theme` has not
   run.** Register in `__init__`, not `on_mount` — Flexi pushes the setup screen
   early and `on_mount` is too late.
-
+- **`hatch:` breaks on a variable that is both declared in the stylesheet and
+  published through the theme.** On Textual 8.2.8 the value is substituted twice
+  and the property sees four tokens where it wants two or three; every other
+  property survives it, which is why it looks arbitrary until you hit it. So the
+  two hatch colours are **theme-only** tokens — `$c-hatch-empty` and
+  `$c-hatch-jump`, derived from the palette in `theme_variables()` and
+  deliberately absent from `flexi.tcss`. A new `hatch:` rule needs the same
+  treatment.
 
 Flexi ships one theme. `ENABLE_COMMAND_PALETTE` stays **on** (the current app
 turns it off, which also disables Textual's theme provider) so the palette can

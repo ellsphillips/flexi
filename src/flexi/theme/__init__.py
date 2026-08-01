@@ -46,10 +46,10 @@ _FALLBACK: Final[dict[str, str]] = {
     "c-paper": "#EDE9E3",
     "c-cream": "#FAF8F4",
     "c-muted": "#9C948A",
-    "c-accent": "#02A6AD",
-    "c-accent-lift": "#4CDBE3",
+    "c-accent": "#3986E4",
+    "c-accent-lift": "#91C1FF",
     "c-surplus": "#2E9E52",
-    "c-deficit": "#CE3E57",
+    "c-deficit": "#CE3E5D",
     "c-warning": "#C38406",
 }
 
@@ -105,9 +105,18 @@ def theme_variables() -> dict[str, str]:
     )
     variables.update(
         {
+            # Textual always paints a foreground on the cursor row, so a
+            # highlighted row loses its cells' own colours — which in the
+            # records table is the punch strip and the signed delta, the two
+            # things the reader is looking at. It cannot be prevented, so it is
+            # made quiet instead: a faint band when the table is not focused, a
+            # teal one when it is.
             "block-cursor-text-style": "none",
             "block-cursor-background": colour("c-accent-deep"),
             "block-cursor-foreground": colour("c-cream"),
+            "block-cursor-blurred-background": colour("c-line-soft", "#232019"),
+            "block-cursor-blurred-foreground": colour("c-muted"),
+            "block-cursor-blurred-text-style": "none",
             "footer-key-foreground": colour("c-accent-lift"),
             "footer-description-foreground": colour("c-muted"),
             "input-selection-background": f"{colour('c-accent')} 35%",
@@ -134,10 +143,12 @@ def flexi_theme() -> Theme:
     return Theme(
         name=THEME_NAME,
         primary=colour("c-accent"),
-        secondary=colour("c-muted"),
+        # Green: Textual reaches for `secondary` on a handful of widget accents,
+        # and the second colour Flexi actually means is the one a surplus wears.
+        secondary=colour("c-surplus", "#2E9E52"),
         accent=colour("c-accent-lift"),
         warning=colour("c-warning"),
-        error=colour("c-deficit", "#CE3E57"),
+        error=colour("c-deficit", "#CE3E5D"),
         success=colour("c-surplus", "#2E9E52"),
         foreground=colour("c-paper"),
         background=colour("c-ink"),
