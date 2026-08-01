@@ -679,9 +679,11 @@ DataTable > .datatable--header {
     text-style: bold;
 }
 
+/* Background only. A foreground here would win over the per-cell `Text` styles,
+   and the row under the cursor is exactly the row whose punch strip and signed
+   delta the reader is looking at — losing their colour is losing the row. */
 DataTable > .datatable--cursor {
     background: $c-accent-deep;
-    color: $c-cream;
 }
 
 DataTable > .datatable--hover {

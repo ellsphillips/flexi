@@ -105,9 +105,18 @@ def theme_variables() -> dict[str, str]:
     )
     variables.update(
         {
+            # Textual always paints a foreground on the cursor row, so a
+            # highlighted row loses its cells' own colours — which in the
+            # records table is the punch strip and the signed delta, the two
+            # things the reader is looking at. It cannot be prevented, so it is
+            # made quiet instead: a faint band when the table is not focused, a
+            # teal one when it is.
             "block-cursor-text-style": "none",
             "block-cursor-background": colour("c-accent-deep"),
             "block-cursor-foreground": colour("c-cream"),
+            "block-cursor-blurred-background": colour("c-line-soft", "#232019"),
+            "block-cursor-blurred-foreground": colour("c-muted"),
+            "block-cursor-blurred-text-style": "none",
             "footer-key-foreground": colour("c-accent-lift"),
             "footer-description-foreground": colour("c-muted"),
             "input-selection-background": f"{colour('c-accent')} 35%",
