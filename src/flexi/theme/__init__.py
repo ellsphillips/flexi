@@ -46,10 +46,10 @@ _FALLBACK: Final[dict[str, str]] = {
     "c-paper": "#EDE9E3",
     "c-cream": "#FAF8F4",
     "c-muted": "#9C948A",
-    "c-accent": "#02A6AD",
-    "c-accent-lift": "#4CDBE3",
+    "c-accent": "#3986E4",
+    "c-accent-lift": "#91C1FF",
     "c-surplus": "#2E9E52",
-    "c-deficit": "#CE3E57",
+    "c-deficit": "#CE3E5D",
     "c-warning": "#C38406",
 }
 
@@ -134,10 +134,12 @@ def flexi_theme() -> Theme:
     return Theme(
         name=THEME_NAME,
         primary=colour("c-accent"),
-        secondary=colour("c-muted"),
+        # Green: Textual reaches for `secondary` on a handful of widget accents,
+        # and the second colour Flexi actually means is the one a surplus wears.
+        secondary=colour("c-surplus", "#2E9E52"),
         accent=colour("c-accent-lift"),
         warning=colour("c-warning"),
-        error=colour("c-deficit", "#CE3E57"),
+        error=colour("c-deficit", "#CE3E5D"),
         success=colour("c-surplus", "#2E9E52"),
         foreground=colour("c-paper"),
         background=colour("c-ink"),
