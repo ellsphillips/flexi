@@ -254,6 +254,7 @@ class Gauge(Widget):
         self.target: float | None = None
         self.readout = ""
         self.tone = Tone.NEUTRAL
+        self.compact = False
 
     def show(
         self,
@@ -263,43 +264,70 @@ class Gauge(Widget):
         total: float | None = None,
         target: float | None = None,
         tone: Tone = Tone.NEUTRAL,
+        compact: bool = False,
     ) -> None:
         """Draw a reading. ``None`` leaves the track empty rather than at zero.
 
         An unmeasured allowance and an allowance measured at zero are not the
         same thing, and a gauge that drew them identically would say a fresh
         install had spent nothing when it does not yet know.
+
+        ``compact`` drops the bar and keeps the line. A track with nothing in it
+        is not information — it is a row of hyphens that costs a line of a
+        sidebar that has four other things to say.
         """
         self.value = value
         self.readout = readout
         self.target = target
         self.tone = tone
+        self.compact = compact
         if total is not None:
             self.total = total
+        self.styles.height = 1 if compact else 2
         self.refresh()
 
     def render(self) -> RenderResult:
         width = max(self.content_size.width, MIN_GAUGE_WIDTH)
+        if self.compact:
+            return self._headline(width)
         return Text("\n").join([self._headline(width), self._bar(width)])
 
     def _headline(self, width: int) -> Text:
+        """Label left, figure right, and the label gives way first.
+
+        `no_wrap` matters: a wrapped headline costs the row the bar was going to
+        be drawn in, so a narrow wallet loses its gauges rather than its words.
+        """
         readout = self.readout or ("—" if self.value is None else f"{self.value:g}")
-        gap = max(width - len(self.label) - len(readout), 1)
-        return Text.assemble(
-            (self.label, self.get_component_rich_style("gauge--label")),
-            " " * gap,
-            (readout, self.get_component_rich_style("gauge--readout")),
-        )
+        label = self.label[: max(0, width - len(readout) - 1)]
+        gap = max(width - len(label) - len(readout), 1)
+        text = Text(no_wrap=True, end="", overflow="ellipsis")
+        text.append(label, self.get_component_rich_style("gauge--label"))
+        text.append(" " * gap)
+        text.append(readout, self.get_component_rich_style("gauge--readout"))
+        return text
 
     def _bar(self, width: int) -> Text:
-        bar = Text(TRACK * width, style=self.get_component_rich_style("gauge--track"))
+        """The glyphs first, then the styles.
+
+        Building the string before styling it matters: `Text(plain, spans=...)`
+        drops the *base* style of the text it was rebuilt from, so styling first
+        and swapping a character in afterwards silently left the whole track in
+        the default foreground — a bright line across a dark panel.
+        """
+        glyphs = [TRACK] * width
+        marker = self._position(self.target, width)
+        if marker is not None:
+            glyphs[marker] = MARKER
+
+        bar = Text("".join(glyphs))
+        bar.stylize(self.get_component_rich_style("gauge--track"), 0, width)
         if (filled := self._position(self.value, width)) is not None:
             bar.stylize(self._fill_style(), 0, filled + 1)
-        if (marker := self._position(self.target, width)) is not None:
-            bar.stylize(self.get_component_rich_style("gauge--target"), marker, marker + 1)
-            plain = list(bar.plain)
-            plain[marker] = MARKER
-            return Text("".join(plain), spans=bar.spans)
+        if marker is not None:
+            bar.stylize(
+                self.get_component_rich_style("gauge--target"), marker, marker + 1
+            )
         return bar
 
     def _fill_style(self) -> Style:
