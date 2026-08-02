@@ -469,3 +469,52 @@ YearHeatmap > .chart--surplus-1 { color: #345d3e; }
 YearHeatmap > .chart--surplus-2 { color: #317a45; }
 YearHeatmap > .chart--surplus-3 { color: #25984d; }
 
+
+/* -- The progress rails ---------------------------------------------------
+   Docked under the header, where the eye lands first, because "am I nearly
+   done" is the question people open this at half past three to ask.
+   ------------------------------------------------------------------------- */
+
+#time-progress {
+    height: 1;
+    padding: 0 2;
+    margin: 0 0 1 0;
+}
+
+#time-progress ProgressRail {
+    width: 1fr;
+    height: 1;
+}
+
+#rail-period {
+    padding-left: 4;
+}
+
+/* Below 100 columns the two rails leave each other about twenty cells, which is
+   a label, a figure and no bar. The period rail goes; the records table's own
+   subtitle already carries its totals. */
+DashboardScreen.-narrow #rail-period {
+    display: none;
+}
+
+ProgressRail > .rail--label {
+    color: $c-muted;
+    text-style: bold;
+}
+
+ProgressRail > .rail--track {
+    color: $c-line;
+}
+
+ProgressRail > .rail--fill {
+    color: $c-accent;
+}
+
+ProgressRail > .rail--over {
+    color: $c-surplus-lift;
+    text-style: bold;
+}
+
+ProgressRail > .rail--figure {
+    color: $c-muted;
+}

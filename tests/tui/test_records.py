@@ -9,6 +9,7 @@ from sqlalchemy import event
 
 from flexi.components.expandable import DAY, SESSION, ExpandableTable
 from flexi.components.modules.records import RecordsModule
+from flexi.components.progress import ProgressRail, TimeProgress
 from tests.tui.conftest import WIDE, dashboard
 
 pytestmark = pytest.mark.usefixtures("_frozen")
@@ -119,6 +120,41 @@ async def test_loading_a_period_costs_the_same_whatever_its_length(app_factory) 
             return len(statements)
 
         assert count_queries(28) == count_queries(7)
+
+
+async def test_the_rails_say_how_far_through_the_day_and_the_period(
+    app_factory,
+) -> None:
+    """It answers 'am I nearly done' without reading a table."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        rails = app.screen.query_one(TimeProgress)
+        day = rails.query_one("#rail-day", ProgressRail)
+        period = rails.query_one("#rail-period", ProgressRail)
+
+        assert day.label == "TODAY"
+        assert 0.0 < day.share < 1.0, "the seed's today is part-worked"
+        assert period.label == "WEEK"
+        assert period.share > 1.0, "the seed's week is over its expected hours"
+
+
+async def test_the_period_rail_follows_the_granularity(app_factory) -> None:
+    """It relabels itself rather than always saying WEEK."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("m")
+        await pilot.pause()
+        assert app.screen.query_one("#rail-period", ProgressRail).label == "MONTH"
+
+
+async def test_the_period_rail_gives_way_when_there_is_no_room(app_factory) -> None:
+    """Below 100 columns two rails leave each other no bar, so one goes."""
+    app = app_factory()
+    async with app.run_test(size=(84, 28)) as pilot:
+        await pilot.pause()
+        assert app.screen.query_one("#rail-day", ProgressRail).display is True
+        assert app.screen.query_one("#rail-period", ProgressRail).display is False
 
 
 async def test_the_period_total_is_in_the_border_subtitle(app_factory) -> None:
