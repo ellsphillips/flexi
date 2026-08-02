@@ -93,6 +93,35 @@ async def test_slash_does_not_reach_a_focused_input(app_factory) -> None:
         assert "/" in field.value
 
 
+async def test_the_switch_moves_through_its_watcher_so_it_animates(
+    app_factory,
+) -> None:
+    """It sets the reactive rather than writing past it.
+
+    `set_reactive` puts the value in without running the watcher, and the
+    watcher is what slides the slider — the clock moved and the switch sat
+    still. Asserting on the animation itself would be asserting on a tween, so
+    this asserts on the thing that drives it: the reactive changed, and the
+    widget's own watcher saw it.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        switch = app.screen.query_one("#clock-switch", Switch)
+        seen: list[bool] = []
+        original = switch.watch_value
+
+        def record(value: bool) -> None:
+            seen.append(value)
+            original(value)
+
+        switch.watch_value = record  # type: ignore[method-assign]
+
+        await pilot.press("slash")
+        await pilot.pause()
+
+        assert seen == [False], "the watcher should have run exactly once, with the new value"
+
+
 async def test_the_elapsed_time_is_in_the_border_subtitle(app_factory) -> None:
     """It puts the live figure in the module's data slot, not in a whole row."""
     app = app_factory()

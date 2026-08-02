@@ -61,9 +61,14 @@ class ClockModule(Module):
             Tone.ACCENT if on_clock else Tone.NEUTRAL,
         )
 
-        switch = self.query_one("#clock-switch", Switch)
-        switch.set_reactive(Switch.value, on_clock)
-        switch.refresh()
+        # Plain assignment, so the slider animates. `set_reactive` writes the
+        # value without running the watcher, and the watcher is the animation —
+        # pressing `/` moved the clock and left the switch sitting still.
+        #
+        # The Changed event this posts is safe: `_ledger` was refreshed from the
+        # database a few lines above, so `on_switch_changed` sees the switch and
+        # the truth already agreeing and does nothing.
+        self.query_one("#clock-switch", Switch).value = on_clock
 
         button = self.query_one("#clock-button", Button)
         button.label = "Depart" if on_clock else "Arrive"
@@ -97,8 +102,9 @@ class ClockModule(Module):
             parts.append(f"go home {clock(leave_at)}")
         else:
             parts.append(f"worked {hm(ledger.worked)}")
-        if ledger.break_total():
-            parts.append(f"break {hm(ledger.break_total())}")
+        # Break time is deliberately not here. The line has thirty columns and
+        # loses its last word at thirty-one; the breakdown is one `space` away
+        # in the records table, where there is room to say it properly.
         return " · ".join(parts)
 
     # -- interaction -------------------------------------------------------
