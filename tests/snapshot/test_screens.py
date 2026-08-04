@@ -79,6 +79,9 @@ async def test_screen_matches_its_committed_render(
 
     with time_machine.travel(NOW, tick=False):
         app = FlexiApp(db_path=demo_db)
+        # Matches scripts/shoot.py. See the note there: an animating widget
+        # renders whatever frame the capture happens to land on.
+        app.animation_level = "none"
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
             for key in keys:

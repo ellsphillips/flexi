@@ -39,6 +39,8 @@ SHOOTS: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
     ("jump-mode", WIDE, ["v"]),
     ("help", WIDE, ["question_mark"]),
     ("absence-modal", WIDE, ["A"]),
+    ("insights", WIDE, ["f2"]),
+    ("insights-tall", (120, 44), ["f2"]),
     ("dashboard-narrow", NARROW, []),
     ("dashboard-tiny", TINY, []),
 )
@@ -54,6 +56,11 @@ def build_database(path: Path) -> Session:
 
 async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> None:
     app = FlexiApp(db_path=db)
+    # A capture that lands mid-tween is a capture nobody can reproduce, and
+    # these are what the snapshot tests compare against. Per-instance, because
+    # textual reads TEXTUAL_ANIMATIONS at import time and pytest has already
+    # imported it by the time any conftest runs.
+    app.animation_level = "none"
     async with app.run_test(size=size) as pilot:
         await pilot.pause()
         for key in keys:
