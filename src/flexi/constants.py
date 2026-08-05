@@ -62,6 +62,15 @@ class AbsenceType(enum.Enum):
         return _ABSENCE_LABELS[self]
 
     @property
+    def short(self) -> str:
+        """A one-word name, for a gauge label in a narrow sidebar.
+
+        "Sickness" truncated to fit is "Sicknes", which reads as a typo rather
+        than as an abbreviation.
+        """
+        return _ABSENCE_SHORT[self]
+
+    @property
     def token(self) -> str:
         """The stem of this type's CSS colour tokens, e.g. ``annual``."""
         return _ABSENCE_TOKENS[self]
@@ -88,6 +97,14 @@ _ABSENCE_LABELS: dict[AbsenceType, str] = {
     AbsenceType.FLEXI: "TOIL",
     AbsenceType.UNPAID: "Unpaid leave",
     AbsenceType.OTHER: "Other",
+}
+
+_ABSENCE_SHORT: dict[AbsenceType, str] = {
+    AbsenceType.ANNUAL: "ANNUAL",
+    AbsenceType.SICK: "SICK",
+    AbsenceType.FLEXI: "TOIL",
+    AbsenceType.UNPAID: "UNPAID",
+    AbsenceType.OTHER: "OTHER",
 }
 
 # `flexi` is stored, `toil` is displayed and themed: the database value is
