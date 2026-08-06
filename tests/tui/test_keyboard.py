@@ -14,8 +14,9 @@ from importlib import import_module
 import pytest
 
 import flexi.screens
-from flexi.components.chrome import footer_key_cost, keys_that_fit
+from flexi.components.chrome import NavItemLabel, footer_key_cost, keys_that_fit
 from flexi.screens.help import HelpScreen, collect_bindings
+from flexi.screens.insights import InsightsScreen
 from flexi.screens.modals import FlexiModal
 from tests.tui.conftest import WIDE
 
@@ -124,6 +125,51 @@ def test_every_modal_binds_escape_and_enter(modal: type[FlexiModal]) -> None:
     keys = {binding.key for binding in modal.BINDINGS}
     assert "escape" in keys
     assert "enter" in keys
+
+
+# -- the pointer -----------------------------------------------------------
+
+
+async def test_clicking_a_tab_navigates(app_factory) -> None:
+    """Every nav item is a widget with a hover state so a pointer works.
+
+    It did not, for a while: `NavItemLabel` posted `NavBar.Selected` and nothing
+    listened, so the tabs looked clickable and were not. The keys and the
+    pointer have to arrive at the same place.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        insights = next(
+            label
+            for label in app.screen.query(NavItemLabel)
+            if label.item.screen == "insights"
+        )
+        await pilot.click(insights)
+        await pilot.pause()
+        assert isinstance(app.screen, InsightsScreen)
+
+        dashboard = next(
+            label
+            for label in app.screen.query(NavItemLabel)
+            if label.item.screen == "dashboard"
+        )
+        await pilot.click(dashboard)
+        await pilot.pause()
+        assert not isinstance(app.screen, InsightsScreen)
+
+
+async def test_the_active_tab_is_marked(app_factory) -> None:
+    """It says where you are, not only where you can go."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        active = [
+            label.item.screen
+            for label in app.screen.query(NavItemLabel)
+            if label.has_class("-active")
+        ]
+        assert active == ["dashboard"]
 
 
 # -- help ------------------------------------------------------------------

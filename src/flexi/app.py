@@ -181,6 +181,16 @@ class FlexiApp(TextualApp[None]):
             timeout=3,
         )
 
+    def on_nav_bar_selected(self, event: NavBar.Selected) -> None:
+        """A tab was clicked. The keys and the pointer arrive at one place.
+
+        `NavItemLabel` is a widget with a hover state rather than a line of
+        markup, so that a pointer works — which it does not until somebody
+        handles the message it posts.
+        """
+        event.stop()
+        self.action_go_to(event.item.screen)
+
     def _back(self, _result: object = None) -> None:
         """Leaving a pushed screen returns the nav bar to where the user is."""
         self._pushed = None
@@ -211,6 +221,21 @@ class FlexiApp(TextualApp[None]):
         return None
 
     # -- clocking ----------------------------------------------------------
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Stand `/` down while somebody is typing.
+
+        The binding is `priority=True` so it works from any screen with any
+        widget focused — but priority means it runs *before* the focused widget,
+        so a bare `priority` binding would eat the slash out of a date being
+        typed into "go to date". Returning `False` here skips the binding and
+        lets the key carry on to the field, which is the behaviour
+        `docs/KEYMAP.md` promises.
+        """
+        del parameters
+        if action == "clock_toggle" and isinstance(self.focused, (Input, TextArea)):
+            return False
+        return True
 
     def action_clock_toggle(self) -> None:
         """One key, from anywhere. The dashboard owns the confirmation."""

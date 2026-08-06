@@ -80,6 +80,24 @@ async def test_escape_returns_to_the_dashboard(app_factory) -> None:
         assert app.nav == "dashboard"
 
 
+async def test_f1_returns_to_the_dashboard(app_factory) -> None:
+    """It leaves Insights, not just relabels the nav bar.
+
+    Insights is a pushed screen, so `f1` has to dismiss it. Setting `nav` alone
+    left escape as the only way back.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f2")
+        await pilot.pause()
+        assert isinstance(app.screen, InsightsScreen)
+
+        await pilot.press("f1")
+        await pilot.pause()
+        assert not isinstance(app.screen, InsightsScreen)
+        assert app.nav == "dashboard"
+
+
 async def test_all_four_charts_draw(app_factory) -> None:
     """It renders every panel with data rather than an empty state."""
     app = app_factory()
