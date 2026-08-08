@@ -10,9 +10,18 @@ from flexi.services.startup import run_startup_cleanup
 
 @click.group(invoke_without_command=True)
 @click.version_option(None, "-v", "--version", message=flexi.__version__)
+@click.option(
+    "--demo",
+    is_flag=True,
+    help="Run against a throwaway database seeded with six weeks of a working life.",
+)
 @click.pass_context
-def cli(ctx: click.Context) -> None:
+def cli(ctx: click.Context, demo: bool = False) -> None:
     """Flexi CLI."""
+    if demo:
+        _run_demo()
+        return
+
     run_migrations()
 
     ctx.ensure_object(dict)
@@ -28,6 +37,29 @@ def cli(ctx: click.Context) -> None:
     app = App()
     app.run()
 
+
+def _run_demo() -> None:
+    """Launch against a temporary database holding the sample data.
+
+    The same seed the screenshots and the regression tests use, so what a new
+    user is shown, what a reviewer looks at, and what CI compares against are all
+    the same six weeks.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from flexi.models.database.db import Base
+    from flexi.services.samples import seed_demo
+
+    with tempfile.TemporaryDirectory(prefix="flexi-demo-") as directory:
+        path = Path(directory) / "demo.db"
+        engine = create_db_engine(path)
+        Base.metadata.create_all(engine)
+        session = get_session(engine)
+        seed_demo(session)
+        session.close()
+        engine.dispose()
+        App(db_path=path).run()
 
 
 @cli.group()
