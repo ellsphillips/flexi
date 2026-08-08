@@ -170,6 +170,11 @@ One table. The app builds its bindings from it, `NavBar` builds its clickable
 items from it, and `FlexiCommands` builds palette entries from it. Adding a
 screen is one line.
 
+`NavItemLabel` posts `NavBar.Selected` on click and `FlexiApp` handles it by
+calling the same `action_go_to` the function keys call. Both halves are needed:
+a nav item is a widget with a hover state precisely so that a pointer works, and
+for a while it looked clickable and was not because nobody listened.
+
 `ENABLE_COMMAND_PALETTE` is **on**. `FlexiCommands(Provider)` supplies:
 clock in/out, book each absence type, go to date, jump to each period
 granularity, export CSV, open settings, and Textual's own theme list. The palette

@@ -215,13 +215,23 @@ records table has expandable rows.
 
 ## 6. Migrations
 
-v2 adds four migrations on top of `0005_absence_days`:
+v2 adds three migrations on top of `0005_absence_days`:
 
 | Revision | Change |
 |---|---|
-| `0006_settings_contracted` | `settings.contracted_minutes`, `day_window_start`, `day_window_end`. |
-| `0007_absence_portion` | `absence_days.portion` (default `full`), `absence_days.note`. |
-| `0008_session_note` | `work_sessions.note`, `work_sessions.voided`. |
-| `0009_absence_types` | Widens the `absence_type` enum with `unpaid` and `other`. |
+| `0006_settings_contracted` | `settings.contracted_minutes`, `day_window_start`, `day_window_end`, backfilled to 444 / 07:00 / 19:00. |
+| `0007_absence_portion` | `absence_days.portion` (default `FULL`), `absence_days.note`, and the two new absence types. Moves uniqueness from `date` to `(date, portion)`. |
+| `0008_session_note` | `work_sessions.note`, `work_sessions.voided` (default false). |
+
+`0007` rebuilds the table rather than altering it: the v1 schema put `UNIQUE` on
+the `date` column itself and SQLite cannot drop a column constraint in place.
+The enum widening rides along in the same rebuild — SQLAlchemy renders an `Enum`
+on SQLite as a plain `VARCHAR` with no check constraint, so it needs no storage
+change, but writing the new definition out keeps the schema and the model
+agreeing on paper as well as in practice.
+
+Its `downgrade` **drops** half-days and the two new types rather than coercing
+them. A morning of sickness silently becoming a whole day off is a worse outcome
+than losing the row, and a downgrade is a deliberate act rather than an accident.
 
 Every migration is reversible. See [`TESTING.md`](TESTING.md).

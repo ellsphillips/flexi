@@ -111,14 +111,32 @@ features:
 
 ## 4. Snapshot tests
 
-`pytest-textual-snapshot` renders the app to SVG and compares against a
-committed file. It is the only thing that catches "the wallet gauge overflows at
-80 columns".
+`tests/snapshot/test_screens.py` drives eleven screens and compares what the
+compositor produced against the text committed in `docs/shots/`.
 
-- **Freeze time**, or the diff is the clock.
-- **Three widths, every time**: 120×36, 84×28, 64×22.
-- **Update deliberately**: `uv run pytest --snapshot-update`, then look at the
-  report before committing.
+**Text, not SVG.** `pytest-textual-snapshot` is installed and compares rendered
+SVGs, which are only readable as pictures — a CI failure becomes a file you have
+to download before you can tell whether the change was intended. Comparing
+characters means a failure prints a unified diff of two screens, in the terminal,
+where whoever caused it is already looking:
+
+```
+-  │ ANNUAL LEAVE  20.5 left of 25 │
++  │ ANNUAL LEAVE  19.5 left of 25 │
+```
+
+The SVGs are still written and are still what a reviewer looks at; they are just
+not what the test asserts on.
+
+Rules that keep them useful rather than noisy:
+
+- **Freeze time.** Every case runs inside `time_machine.travel` at
+  `flexi.services.samples.NOW` against the seeded database, otherwise the diff is
+  the clock.
+- **Three widths, every time**: 120×36 (wide), 84×28 (narrow), 64×22 (tiny). The
+  responsive rules in `DESIGN-SYSTEM.md` §6 only exist if all three are pinned.
+- **Update deliberately**: `uv run python scripts/shoot.py` regenerates both the
+  SVGs and the text, and the diff is what you review before committing it.
 
 ## 5. Screenshots for review
 

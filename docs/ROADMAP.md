@@ -6,11 +6,14 @@ order — later slices assume the earlier ones.
 
 Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
+Slices 1–11 are done. Deviations from the plan as written are recorded
+under each slice; the plan was not retro-fitted to the code.
+
 ---
 
 ## Phase 1 — Foundations
 
-### `[ ]` 1. Upgrade and re-plumb
+### `[x]` 1. Upgrade and re-plumb
 
 Textual `1.0.0` → `8.2.x`; add `pydantic`, `pyyaml`, `time-machine`,
 `pytest-textual-snapshot`. Add `flexi/config.py` and the `Services` registry.
@@ -21,7 +24,7 @@ anyway).
 **Done when:** the existing 111 tests pass on Textual 8, `flexi` launches,
 `tests/test_layering.py` exists and passes.
 
-### `[ ]` 2. The domain package
+### `[x]` 2. The domain package
 
 `domain/period.py`, `domain/ledger.py`, `domain/balance.py`, `domain/format.py`.
 Move the arithmetic out of `WalletService`, and out of the private helpers
@@ -33,7 +36,7 @@ things).
 against a hand-worked six-week fixture; `domain/` imports neither Textual nor
 SQLAlchemy.
 
-### `[ ]` 3. Schema
+### `[x]` 3. Schema
 
 Migrations `0006`–`0009` from [`DOMAIN.md`](DOMAIN.md) §6: contracted minutes and
 day window on `settings`; `portion` and `note` on `absence_days`; `note` and
@@ -44,8 +47,11 @@ half-days and the two new types.
 and a PM absence of different types coexist on one date; booking a full day over
 either is refused.
 
+*Landed as three migrations, not four:* the enum widening is a `VARCHAR` no-op on
+SQLite and rides along in `0007`'s table rebuild rather than earning its own
+revision. See [`DOMAIN.md`](DOMAIN.md) §6.
 
-### `[ ]` 4. Theme and chrome
+### `[x]` 4. Theme and chrome
 
 `theme/flexi.tcss` with the validated palette, `theme/__init__.py` with the
 `palette()` parser, `styles/*.tcss`. Port `common.py` (`Tone`, `Pill`,
@@ -63,7 +69,7 @@ read at all).
 
 ## Phase 2 — The six features
 
-### `[ ]` 5. Clock — *feature 1*
+### `[x]` 5. Clock — *feature 1*
 
 `ClockModule`: state pill, a `Switch` and two buttons, the live elapsed subtitle,
 the one-second tick. `/` bound at app level with `priority=True`. Early-departure
@@ -73,7 +79,7 @@ confirmation. Status-bar reporting of every result.
 `Input`; clocking in twice is refused with a message, not an exception; the
 elapsed time advances every second and the timer is torn down on clock-out.
 
-### `[ ]` 6. Punch strip — *the signature*
+### `[x]` 6. Punch strip — *the signature*
 
 `domain/punch.py` (pure bucketing) and `components/punch.py` (`PunchStrip`).
 Adaptive resolution, the seven glyph states, the contracted-hours tick, the live
@@ -83,7 +89,7 @@ edge.
 a day with three sessions and a half-day absence renders correctly; the strip
 never exceeds the width it is given.
 
-### `[ ]` 7. Records table — *feature 3*
+### `[x]` 7. Records table — *feature 3*
 
 `ExpandableTable` over the stock `DataTable`, `RecordsModule`, the row-key
 scheme, the child rows, the period footer row. `LedgerService` with per-rebuild
@@ -94,8 +100,13 @@ pass over the period rather than a query per day (assert the query count with an
 `event.listen` counter); the table redraws inside the one-second tick budget at
 31 rows.
 
+*Deviation:* strips are painted into cells with `render_strip` rather than
+mounted as `PunchStrip` widgets — thirty-one widgets would cost a layout pass per
+redraw on the one widget that redraws every second. `RecordsModule` therefore
+declares the punch component classes itself; component classes are scoped to the
+widget type that declares them, so `PunchStrip`'s rules do not reach its cells.
 
-### `[ ]` 8. Calendar — *feature 4*
+### `[x]` 8. Calendar — *feature 4*
 
 `CalendarModule` on the new `Period` model: `d`/`w`/`m`/`y`, `[`/`]`, `t`, `g`,
 `,`/`.`. Day-type markers from the validated scale. The current period is
@@ -106,7 +117,7 @@ today and *selected* must be distinguishable when they are different days.
 week); the period label reads `Week of 8 Jun` / `June 2026` / `2026/27`; future
 periods are reachable (the v1 code bells instead).
 
-### `[ ]` 9. Wallet — *feature 2*
+### `[x]` 9. Wallet — *feature 2*
 
 `WalletModule`: a `Gauge` per allowance — annual drawn down against entitlement,
 TOIL against the accrued balance, sick and unpaid as counts with occurrence
@@ -118,7 +129,7 @@ refused with the shortfall named; a TOIL day that would take the balance
 negative warns but proceeds; deleting an absence restores the allowance; the
 gauges agree with `tests/services/test_wallet.py`.
 
-### `[ ]` 10. Jump mode and the keyboard — *features 5 and 6*
+### `[x]` 10. Jump mode and the keyboard — *features 5 and 6*
 
 `jumper.py`, `jump_overlay.py`, `jump.tcss`, `jump_targets()` on every screen,
 row targets in the records table. The help screen. `FlexiCommands` provider.
@@ -129,12 +140,17 @@ previous focus exactly; `v` then `4` lands on the fourth day row; every action
 named by a binding resolves; `?` lists every binding including those the strip
 dropped.
 
+*Two things the first screenshots caught:* a jump to a module landed on the panel
+rather than on its table, so `Module.focus_target()` now names what a jump should
+focus; and the five booking keys were declared on the wallet, where they only
+fired when the wallet had focus — they belong on the screen, as this document
+already said.
 
 ---
 
 ## Phase 3 — Beyond the brief
 
-### `[ ]` 11. Insights
+### `[x]` 11. Insights
 
 Only after 1–10 are green and screenshotted. The charts are earned by the data
 model, not bolted on:
@@ -153,7 +169,13 @@ model, not bolted on:
   ramp — surplus and deficit poles, neutral grey midpoint — with day type shown
   by the glyph, not the colour, so the two encodings do not fight.
 
+*Landed as four charts, all hand-drawn.* The day-of-week profile is not built;
+the week ribbon answers most of what it would have. `plotext` went unused —
+every form here is a few dozen characters wide and drawing them directly gave
+control over the palette and the glyph set that a plotting library would have
+taken back. It stays in the dependencies for the day a real line chart is wanted.
 
+*Two things worth knowing before adding a fifth chart:*
 
 - **Whole cells, both arms.** Eighths read beautifully upward (`▁▂▃▄▅▆▇`) and
   need U+1FB0x Symbols for Legacy Computing to do the same downward. Those are

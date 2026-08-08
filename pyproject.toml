@@ -13,6 +13,9 @@ dependencies = [
     "rich>=13.9.4",
     "sqlalchemy>=2.0.37",
     "textual>=8.2,<9",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "plotext>=5.0,<6.0",
     "xdg-base-dirs>=6.0.2",
 ]
 
@@ -30,12 +33,22 @@ dev = [
     "pytest-mock>=3.14.0",
     "ruff>=0.9.1",
     "textual-dev>=1.7.0",
+    "pytest-textual-snapshot>=1.1.0",
+    "time-machine>=2.16.0",
+    "types-pyyaml>=6.0",
     "typing-extensions>=4.12.2",
 ]
 
 [tool.uv]
 package = true
 
+[tool.pytest.ini_options]
+# `auto` so a Pilot test is just an `async def` — the alternative is a decorator
+# on every one of them, and the one somebody forgets is silently skipped rather
+# than failed, which is the worst way for a test to be wrong.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
 
 [tool.lint.coverage.paths]
 source = ["src"]

@@ -6,7 +6,7 @@ actually was. Every decision below comes from that.
 
 The structure is the design reference's: warm graphite grounds, hairlines instead of boxes,
 an overline above every figure, exactly one accent. The identity is Flexi's own:
-a blue accent, a categorical day-type scale, and one signature element.
+a cyan accent, a categorical day-type scale, and one signature element.
 
 ---
 
@@ -86,10 +86,10 @@ $c-paper: #EDE9E3;
 $c-muted: #9C948A;
 $c-ash: #7A736A;
 
-/* Blue — THE accent. `lift` reads on dark grounds, `deep` is for fills. */
-$c-accent: #3986E4;
-$c-accent-lift: #91C1FF;
-$c-accent-deep: #07294F;
+/* Cyan — THE accent. `lift` reads on dark grounds, `deep` is for fills. */
+$c-accent: #00AAAD;
+$c-accent-lift: #4CDCDF;
+$c-accent-deep: #003031;
 
 /* Balance state. Green for ahead, red for behind — the one number, and the only
    place these appear. */
@@ -103,22 +103,22 @@ $c-warning: #C38406;
 $c-warning-lift: #F5B34C;
 $c-warning-deep: #3A2400;
 
-/* Day types. toil/annual/sick are the validated chart scale — blue, magenta and
+/* Day types. toil/annual/sick are the validated chart scale — cyan, violet and
    orange, which clear an all-pairs colour-vision check. The other three are
    deliberately quieter, because a bank holiday should not compete with a sick
    day for attention. */
-$c-toil: #3986E4;
-$c-toil-lift: #91C1FF;
-$c-toil-deep: #07294F;
-$c-annual: #AD3D9A;
-$c-annual-lift: #E78DD4;
-$c-annual-deep: #3F1037;
+$c-toil: #00AAAD;
+$c-toil-lift: #4CDCDF;
+$c-toil-deep: #003031;
+$c-annual: #8451C9;
+$c-annual-lift: #C4A4FE;
+$c-annual-deep: #2E194B;
 $c-sick: #DB703B;
 $c-sick-lift: #FFA47A;
 $c-sick-deep: #471800;
-$c-other: #079A94;
-$c-other-lift: #55D1CA;
-$c-other-deep: #012D2B;
+$c-other: #BE5BAC;
+$c-other-lift: #EA97D8;
+$c-other-deep: #3D1436;
 $c-unpaid: #8B7E6D;
 $c-unpaid-lift: #BDAF9D;
 $c-unpaid-deep: #2A2319;
@@ -127,7 +127,7 @@ $c-holiday-lift: #97B1CD;
 $c-holiday-deep: #142537;
 ```
 
-**One accent per region.** If a panel already carries a blue rule, its button is
+**One accent per region.** If a panel already carries a cyan rule, its button is
 quiet. Surplus green, deficit red and warning amber are *state* — they appear
 where something is genuinely ahead, behind, or unactioned, and never as
 decoration.
@@ -220,6 +220,8 @@ stylesheet.
 | `Rule(label, accent=False)` | — | A hairline with an optional label above it. This is how sections separate. Distinct from `textual.widgets.Rule`. |
 | `Gauge(label, low, high, mode)` | `.show(value, target)` | Adapted from the design reference's `Meter`. A track, a fill, and a marker where the target sits, coloured by distance from it. The wallet's allowance bars. |
 | `PunchStrip(ledger, window)` | `.set_ledger()` | §1. |
+| `ProgressRail(label)` | `.show(done, total, compact=)` | One bar: how much of an expectation is met. Overshoot is *drawn*, not clipped — a ten-hour day against a seven-hour contract is the most interesting thing this application can tell you, and a bar that stopped at full would say it was ordinary. |
+| `TimeProgress` | `.show(...)` | The two rails under the header: today, and the shown period. |
 
 `flexi/components/chrome.py` — the frame, adapted from the design reference:
 `Wordmark`, `NavBar` (+`NavItem` table, the single place a screen is registered),
