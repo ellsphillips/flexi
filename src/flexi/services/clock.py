@@ -1,23 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 
 
 def _naive(moment: datetime) -> datetime:
-    """A timestamp with its zone stripped, for comparing against another one.
+    """A moment as local wall time, without a zone.
 
-    SQLite has no timestamp type, so a `DateTime(timezone=True)` column reads
-    back naive whatever went in — and subtracting an aware datetime from a naive
-    one raises rather than being wrong quietly.
+    Flexi stores the time a person lived, not an instant on a global timeline,
+    because that is what a timesheet is. An aware value can still arrive from a
+    caller or from a row written by an older version, and it is converted rather
+    than stripped: 08:44+00:00 is 09:44 to somebody on BST, and stripping the
+    zone would record it as 08:44 and lose them an hour.
     """
-    return moment.replace(tzinfo=None) if moment.tzinfo else moment
+    if moment.tzinfo is None:
+        return moment
+    return moment.astimezone().replace(tzinfo=None)
 
 
 SECONDS_PER_MINUTE = 60
@@ -83,9 +88,9 @@ class ClockService:
             return ClockResult(success=False, message="Already clocked in")
 
         if now is None:
-            now = datetime.now(tz=UTC)
+            now = wallclock.now()
 
-        work_date = now.astimezone().date()
+        work_date = _naive(now).date()
 
         # Block clocking on bank holidays (if data available)
         from flexi.services.bank_holidays import BankHolidayService
@@ -103,7 +108,7 @@ class ClockService:
                 success=False, message="Cannot clock in on an absence day"
             )
 
-        event = ClockEvent(action=ClockAction.IN, timestamp=now, source=source)
+        event = ClockEvent(action=ClockAction.IN, timestamp=_naive(now), source=source)
         self._session.add(event)
         self._session.flush()
 
@@ -133,9 +138,9 @@ class ClockService:
             return ClockResult(success=False, message="Not clocked in")
 
         if now is None:
-            now = datetime.now(tz=UTC)
+            now = wallclock.now()
 
-        event = ClockEvent(action=ClockAction.OUT, timestamp=now, source=source)
+        event = ClockEvent(action=ClockAction.OUT, timestamp=_naive(now), source=source)
         self._session.add(event)
         self._session.flush()
 
