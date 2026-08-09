@@ -6,7 +6,7 @@ unavailable validation, title lookup.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, Base
 from flexi.services.bank_holidays import BankHolidayService
 
 SAMPLE_RESPONSE = {
@@ -36,14 +36,14 @@ SAMPLE_RESPONSE = {
 }
 
 
-@pytest.fixture()
+@pytest.fixture
 def engine(tmp_path: Path):
     eng = create_db_engine(tmp_path / "test.db")
     Base.metadata.create_all(eng)
     return eng
 
 
-@pytest.fixture()
+@pytest.fixture
 def session(engine):
     s = get_session(engine)
     yield s
@@ -52,7 +52,7 @@ def session(engine):
 
 def _seed_cache(session, division: str = "england-and-wales") -> None:
     """Insert sample bank holidays directly into the cache table."""
-    now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
     for ev in SAMPLE_RESPONSE.get(division, {}).get("events", []):
         session.add(
             BankHolidayCache(
@@ -91,7 +91,7 @@ class TestCacheHit:
 class TestStaleRefresh:
     def test_stale_cache_triggers_refresh(self, session) -> None:
         # Insert old entries
-        old = datetime.now(tz=timezone.utc) - timedelta(days=10)
+        old = datetime.now(tz=UTC) - timedelta(days=10)
         session.add(
             BankHolidayCache(
                 division="england-and-wales",

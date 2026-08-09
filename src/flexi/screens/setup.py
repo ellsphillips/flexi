@@ -82,7 +82,9 @@ class SetupScreen(Screen[bool]):
 
             with Horizontal(classes="setup-row"):
                 yield Label("Working days (indices)")
-                yield Input("0,1,2,3,4", id="input-working-days", placeholder="0,1,2,3,4")
+                yield Input(
+                    "0,1,2,3,4", id="input-working-days", placeholder="0,1,2,3,4"
+                )
 
             with Horizontal(classes="setup-row"):
                 yield Label("Bank holiday region")

@@ -6,14 +6,14 @@ removal, type change, invalid markers, and balance checks.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from flexi.constants import AbsenceType
 from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, Base
 from flexi.services.absence import AbsenceService
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.clock import ClockService
@@ -28,21 +28,21 @@ def _next_weekday(start: date, weekday: int) -> date:
     return start + timedelta(days=days_ahead)
 
 
-@pytest.fixture()
+@pytest.fixture
 def engine(tmp_path: Path):
     eng = create_db_engine(tmp_path / "test.db")
     Base.metadata.create_all(eng)
     return eng
 
 
-@pytest.fixture()
+@pytest.fixture
 def session(engine):
     s = get_session(engine)
     yield s
     s.close()
 
 
-@pytest.fixture()
+@pytest.fixture
 def settings(session) -> SettingsService:
     svc = SettingsService(session)
     svc.save_settings(
@@ -55,9 +55,9 @@ def settings(session) -> SettingsService:
     return svc
 
 
-@pytest.fixture()
+@pytest.fixture
 def bank_holidays(session) -> BankHolidayService:
-    now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
     session.add(
         BankHolidayCache(
             division="england-and-wales",
@@ -70,7 +70,7 @@ def bank_holidays(session) -> BankHolidayService:
     return BankHolidayService(session, "england-and-wales")
 
 
-@pytest.fixture()
+@pytest.fixture
 def absence(session, settings, bank_holidays) -> AbsenceService:
     return AbsenceService(session, settings, bank_holidays)
 
@@ -136,7 +136,9 @@ class TestRejections:
             svc = AbsenceService(
                 session, settings, BankHolidayService(session, "england-and-wales")
             )
-            result = svc.mark_absence(_next_weekday(date(2026, 6, 8), 0), AbsenceType.ANNUAL)
+            result = svc.mark_absence(
+                _next_weekday(date(2026, 6, 8), 0), AbsenceType.ANNUAL
+            )
         finally:
             session.close()
             engine.dispose()
@@ -149,7 +151,7 @@ class TestRejections:
     ) -> None:
         d = _next_weekday(date(2026, 7, 6), 0)  # A Monday in future
         clock = ClockService(session)
-        now = datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc)
+        now = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
         clock.clock_in(now=now)
         clock.clock_out(now=now + timedelta(hours=8))
 
@@ -201,9 +203,7 @@ class TestBalance:
         remaining = absence.get_remaining_annual_leave()
         assert remaining == 24.0
 
-    def test_reject_when_insufficient(
-        self, session, bank_holidays, settings
-    ) -> None:
+    def test_reject_when_insufficient(self, session, bank_holidays, settings) -> None:
         settings.save_entitlement(2026, 1.0)
         svc = AbsenceService(session, settings, bank_holidays)
         d1 = _next_weekday(date(2026, 6, 8), 0)

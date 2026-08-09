@@ -101,7 +101,10 @@ def test_a_bank_holiday_covers_the_whole_strip() -> None:
 def test_a_full_day_absence_covers_the_whole_strip() -> None:
     """It fills every cell an absence covers."""
     booked = (AbsenceSlice(1, AbsenceType.ANNUAL, Portion.FULL),)
-    assert render(strip(ledger(absences=booked, expected=timedelta()), 12)) == "############"
+    assert (
+        render(strip(ledger(absences=booked, expected=timedelta()), 12))
+        == "############"
+    )
 
 
 def test_a_morning_absence_covers_only_the_morning() -> None:
@@ -124,7 +127,9 @@ def test_work_overrides_a_booked_half_day() -> None:
     """
     booked = (AbsenceSlice(1, AbsenceType.ANNUAL, Portion.AM),)
     worked = (Segment(1, at(9), at(11)),)
-    strip_ = strip(ledger(absences=booked, segments=worked, expected=CONTRACTED / 2), 12)
+    strip_ = strip(
+        ledger(absences=booked, segments=worked, expected=CONTRACTED / 2), 12
+    )
     assert render(strip_) == "##XX#|------"
 
 

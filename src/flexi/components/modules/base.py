@@ -8,7 +8,7 @@ kinds of change are worth redrawing for. It never calls another module's
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from textual.widget import Widget
 from textual.widgets import Static

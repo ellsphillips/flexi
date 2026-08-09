@@ -35,15 +35,20 @@ from flexi.components.expandable import (
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.base import Module
 from flexi.components.punch import PUNCH_CLASSES, render_strip
-from flexi.domain.punch import cell_count
 from flexi.config import CONFIG
 from flexi.constants import DayKind
 from flexi.domain.format import clock, delta, hm
 from flexi.domain.ledger import DayLedger
 from flexi.domain.period import Granularity
+from flexi.domain.punch import cell_count
 from flexi.messages import Scope
 
-COLUMNS: tuple[tuple[str, int] | str, ...] = (("Day", 7), ("strip", 36), ("Worked", 7), ("±", 6))
+COLUMNS: tuple[tuple[str, int] | str, ...] = (
+    ("Day", 7),
+    ("strip", 36),
+    ("Worked", 7),
+    ("±", 6),
+)
 STRIP_WIDTH_FLOOR = 12
 FIXED_COLUMNS = 7 + 7 + 6
 CELL_PADDING = 8
@@ -104,7 +109,9 @@ class RecordsModule(Module):
 
     def compose(self) -> ComposeResult:
         yield ExpandableTable(id="records-table", zebra_stripes=False)
-        yield Static("No days in this period", id="records-empty", classes="empty-indicator")
+        yield Static(
+            "No days in this period", id="records-empty", classes="empty-indicator"
+        )
 
     def on_mount(self) -> None:
         self.query_one("#records-table", ExpandableTable).set_columns(*COLUMNS)
@@ -210,7 +217,9 @@ class RecordsModule(Module):
                             f"  {BRANCH} {clock(segment.start)} → {finish}  {note}",
                             style=sub,
                         ),
-                        Text(hm(segment.duration(self.now)), style=sub, justify="right"),
+                        Text(
+                            hm(segment.duration(self.now)), style=sub, justify="right"
+                        ),
                         Text("", style=sub),
                     ),
                 )
@@ -251,7 +260,11 @@ class RecordsModule(Module):
         worked = sum((item.worked for item in ledgers), start=timedelta())
         expected = sum((item.expected for item in ledgers), start=timedelta())
         toil = sum((item.toil_taken for item in ledgers), start=timedelta())
-        label = "Day" if self.period.granularity is Granularity.DAY else self.period.granularity.label
+        label = (
+            "Day"
+            if self.period.granularity is Granularity.DAY
+            else self.period.granularity.label
+        )
         return RowGroup(
             Row(
                 key=f"{TOTAL}period",

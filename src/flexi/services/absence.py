@@ -82,8 +82,10 @@ class RangeResult:
         if not self.booked and not self.skipped:
             return "Nothing to do"
         if not self.booked:
-            return self.reasons[0] if len(self.reasons) == 1 else (
-                f"Nothing {what}: " + "; ".join(self.reasons)
+            return (
+                self.reasons[0]
+                if len(self.reasons) == 1
+                else (f"Nothing {what}: " + "; ".join(self.reasons))
             )
         days = f"{len(self.booked)} day" + ("" if len(self.booked) == 1 else "s")
         if not self.skipped:
@@ -324,7 +326,9 @@ class AbsenceService:
         if available_toil_days >= portion.days:
             return None
         overdraft = portion.days - available_toil_days
-        return f"Booked, but this takes the flexi balance {overdraft:g} day into deficit"
+        return (
+            f"Booked, but this takes the flexi balance {overdraft:g} day into deficit"
+        )
 
     def book_range(
         self,

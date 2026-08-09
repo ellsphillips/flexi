@@ -124,7 +124,9 @@ class AppHeader(Horizontal):
     context: reactive[str] = reactive("", init=False)
 
     def compose(self) -> ComposeResult:
-        self.set_reactive(AppHeader.context, str(getattr(self.app, "context_label", "")))
+        self.set_reactive(
+            AppHeader.context, str(getattr(self.app, "context_label", ""))
+        )
         yield Wordmark()
         yield NavBar()
         yield Static(self.context, classes="header-context", id="header-context")
@@ -150,7 +152,9 @@ class StatusBar(Horizontal):
         yield Static("", classes="status-message", id="status-message")
         yield Pill("", id="status-pill")
 
-    def set_status(self, message: str, tone: Tone = Tone.NEUTRAL, *, pill: str = "") -> None:
+    def set_status(
+        self, message: str, tone: Tone = Tone.NEUTRAL, *, pill: str = ""
+    ) -> None:
         if not self.is_mounted:
             return
         self.query_one("#status-message", Static).update(message)
@@ -290,5 +294,7 @@ class AppFooter(Vertical):
         # footer would add a second entry for it.
         yield KeyStrip(compact=True, show_command_palette=False)
 
-    def set_status(self, message: str, tone: Tone = Tone.NEUTRAL, *, pill: str = "") -> None:
+    def set_status(
+        self, message: str, tone: Tone = Tone.NEUTRAL, *, pill: str = ""
+    ) -> None:
         self.query_one(StatusBar).set_status(message, tone, pill=pill)

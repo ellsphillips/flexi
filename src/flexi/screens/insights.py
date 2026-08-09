@@ -178,7 +178,9 @@ class InsightsScreen(Screen[None]):
     def on_mount(self) -> None:
         for header in self.query(AppHeader):
             header.set_active("insights")
-            header.context = f"{date.today().strftime('%a %-d %b')} · {self.period.label}"
+            header.context = (
+                f"{date.today().strftime('%a %-d %b')} · {self.period.label}"
+            )
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)

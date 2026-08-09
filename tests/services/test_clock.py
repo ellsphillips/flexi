@@ -6,7 +6,7 @@ rejected actions write nothing, DB rollback leaves no partial state.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,21 +19,21 @@ from flexi.models.database.db import Base, ClockEvent, WorkSession
 from flexi.services.clock import ClockService
 
 
-@pytest.fixture()
+@pytest.fixture
 def engine(tmp_path: Path):
     eng = create_db_engine(tmp_path / "test.db")
     Base.metadata.create_all(eng)
     return eng
 
 
-@pytest.fixture()
+@pytest.fixture
 def session(engine):
     s = get_session(engine)
     yield s
     s.close()
 
 
-@pytest.fixture()
+@pytest.fixture
 def svc(session) -> ClockService:
     return ClockService(session)
 
@@ -63,9 +63,7 @@ class TestClockIn:
 
 
 class TestClockOut:
-    def test_creates_event_and_closes_session(
-        self, svc: ClockService, session
-    ) -> None:
+    def test_creates_event_and_closes_session(self, svc: ClockService, session) -> None:
         svc.clock_in()
         result = svc.clock_out()
         assert result.success is True
@@ -91,9 +89,7 @@ class TestRejections:
         events = session.execute(select(ClockEvent)).scalars().all()
         assert len(events) == 1
 
-    def test_clock_out_without_open_session(
-        self, svc: ClockService, session
-    ) -> None:
+    def test_clock_out_without_open_session(self, svc: ClockService, session) -> None:
         result = svc.clock_out()
         assert result.success is False
         assert result.event is None
@@ -145,7 +141,7 @@ class TestSessionsForDate:
     def test_returns_sessions(self, svc: ClockService) -> None:
         # A real session, with time in it. Clocking in and straight back out is
         # a slip of the finger and is discarded — see test_short_sessions.py.
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         svc.clock_in(now=now)
         svc.clock_out(now=now + timedelta(minutes=30))
         sessions = svc.get_sessions_for_date(date.today())

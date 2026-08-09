@@ -9,7 +9,7 @@ import pytest
 
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, Base
 from flexi.services.registry import Services
 
 MONDAY = date(2026, 8, 10)
@@ -18,7 +18,7 @@ NEXT_FRIDAY = date(2026, 8, 21)
 BANK_HOLIDAY = date(2026, 8, 31)
 
 
-@pytest.fixture()
+@pytest.fixture
 def session(tmp_path: Path):
     engine = create_db_engine(tmp_path / "test.db")
     Base.metadata.create_all(engine)
@@ -27,7 +27,7 @@ def session(tmp_path: Path):
     opened.close()
 
 
-@pytest.fixture()
+@pytest.fixture
 def services(session) -> Services:
     built = Services.build(session)
     built.settings.save_settings(

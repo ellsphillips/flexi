@@ -138,7 +138,9 @@ class YearCalendar(ScrollView, can_focus=True):
         cell wider than its neighbour.
         """
         base, extra = divmod(self._available, DAYS_IN_WEEK)
-        return tuple(base + (1 if index < extra else 0) for index in range(DAYS_IN_WEEK))
+        return tuple(
+            base + (1 if index < extra else 0) for index in range(DAYS_IN_WEEK)
+        )
 
     @property
     def cell(self) -> int:
@@ -294,7 +296,8 @@ class YearCalendar(ScrollView, can_focus=True):
         style = self.get_component_rich_style("cal--weekday")
         initials = weekday_initials(self.first_weekday)
         text = "".join(
-            initial.center(width) for initial, width in zip(initials, self.columns)
+            initial.center(width)
+            for initial, width in zip(initials, self.columns, strict=False)
         )
         return Strip([Segment(text, style)], self.grid_width)
 
@@ -308,7 +311,7 @@ class YearCalendar(ScrollView, can_focus=True):
     def _week_strip(self, block: MonthBlock, row: int) -> Strip:
         empty = self.get_component_rich_style("cal--empty")
         segments: list[Segment] = []
-        for cell, width in zip(block.rows[row], self.columns):
+        for cell, width in zip(block.rows[row], self.columns, strict=False):
             if cell.date is None:
                 segments.append(Segment(BLANK * width, empty))
                 continue
@@ -347,7 +350,11 @@ class YearCalendar(ScrollView, can_focus=True):
             return "part day"
         slice_ = ledger.absences[0]
         word = slice_.type.short.lower()
-        return word if slice_.portion is Portion.FULL else f"{word} {PORTION_GLYPH[slice_.portion]}"
+        return (
+            word
+            if slice_.portion is Portion.FULL
+            else f"{word} {PORTION_GLYPH[slice_.portion]}"
+        )
 
     def _marker(self, ledger: DayLedger | None) -> str:
         """The glyph says how much of the day; the colour says what kind."""

@@ -14,7 +14,7 @@ sum. It can be read, explained, and removed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -66,9 +66,7 @@ class AdjustmentService:
 
     # -- writing -----------------------------------------------------------
 
-    def record(
-        self, when: date, amount: timedelta, reason: str
-    ) -> AdjustmentResult:
+    def record(self, when: date, amount: timedelta, reason: str) -> AdjustmentResult:
         """Store a correction.
 
         Rounded to whole minutes, because that is the resolution every figure in
@@ -86,7 +84,7 @@ class AdjustmentService:
             date=when,
             minutes=minutes,
             reason=reason.strip(),
-            created_at=datetime.now(tz=timezone.utc).replace(tzinfo=None),
+            created_at=datetime.now(tz=UTC).replace(tzinfo=None),
         )
         self._session.add(row)
         self._session.commit()

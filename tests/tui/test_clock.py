@@ -119,7 +119,9 @@ async def test_the_switch_moves_through_its_watcher_so_it_animates(
         await pilot.press("slash")
         await pilot.pause()
 
-        assert seen == [False], "the watcher should have run exactly once, with the new value"
+        assert seen == [False], (
+            "the watcher should have run exactly once, with the new value"
+        )
 
 
 async def test_the_elapsed_time_is_in_the_border_subtitle(app_factory) -> None:

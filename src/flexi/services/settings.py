@@ -87,7 +87,9 @@ class SettingsService:
         disagrees with the sum of its own rows.
         """
         settings = self.get_settings()
-        minutes = settings.contracted_minutes if settings else DEFAULT_CONTRACTED_MINUTES
+        minutes = (
+            settings.contracted_minutes if settings else DEFAULT_CONTRACTED_MINUTES
+        )
         return timedelta(minutes=minutes)
 
     def get_day_window(self) -> tuple[str, str]:

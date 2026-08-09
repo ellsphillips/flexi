@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-import flexi
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 
+import flexi
 from flexi.locations import backups_directory, database_file
 from flexi.models.database.app import create_db_engine
 
@@ -36,7 +36,7 @@ def backup_database(db_path: Path | None = None) -> Path | None:
         return None
 
     backup_dir = backups_directory()
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_path = backup_dir / f"{db_path.stem}_{timestamp}.bak"
     shutil.copy2(db_path, backup_path)
     return backup_path

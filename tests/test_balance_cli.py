@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -16,7 +16,7 @@ from flexi.services.registry import Services
 YESTERDAY = date.today() - timedelta(days=1)
 
 
-@pytest.fixture()
+@pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A database somewhere harmless, with a short day recorded on it."""
     db = tmp_path / "db.db"
@@ -32,7 +32,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         bank_holiday_division="england-and-wales",
         auto_close_time="18:00",
     )
-    start = datetime.combine(YESTERDAY, datetime.min.time(), tzinfo=timezone.utc)
+    start = datetime.combine(YESTERDAY, datetime.min.time(), tzinfo=UTC)
     services.clock.clock_in(now=start.replace(hour=9))
     services.clock.clock_out(now=start.replace(hour=11))
     session.close()
@@ -102,7 +102,7 @@ def test_zero_is_refused_twice(home: Path) -> None:
 
 
 def test_the_line_can_be_taken_back(home: Path) -> None:
-    """log names the row, undo removes it, and the balance returns."""
+    """Log names the row, undo removes it, and the balance returns."""
     runner = CliRunner()
     runner.invoke(cli, ["balance", "zero", "--yes"])
 

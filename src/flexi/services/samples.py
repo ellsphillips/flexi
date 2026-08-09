@@ -12,7 +12,7 @@ any machine on any day, which is what a committed SVG snapshot requires.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
@@ -67,7 +67,14 @@ def seed_demo(session: Session, *, anchor: date = ANCHOR) -> None:
 
 
 def _wipe(session: Session) -> None:
-    for model in (WorkSession, ClockEvent, AbsenceDay, BankHolidayCache, LeaveEntitlement, Settings):
+    for model in (
+        WorkSession,
+        ClockEvent,
+        AbsenceDay,
+        BankHolidayCache,
+        LeaveEntitlement,
+        Settings,
+    ):
         session.execute(delete(model))
     session.commit()
 
@@ -170,12 +177,10 @@ def _open_session(session: Session, when: date, index: int) -> None:
     _session(session, when, time(13, 20), None)
 
 
-def _session(
-    session: Session, when: date, start: time, end: time | None
-) -> None:
+def _session(session: Session, when: date, start: time, end: time | None) -> None:
     clock_in = ClockEvent(
         action=ClockAction.IN,
-        timestamp=datetime.combine(when, start, tzinfo=timezone.utc),
+        timestamp=datetime.combine(when, start, tzinfo=UTC),
         source="user",
     )
     session.add(clock_in)
@@ -185,7 +190,7 @@ def _session(
     if end is not None:
         clock_out = ClockEvent(
             action=ClockAction.OUT,
-            timestamp=datetime.combine(when, end, tzinfo=timezone.utc),
+            timestamp=datetime.combine(when, end, tzinfo=UTC),
             source="user",
         )
         session.add(clock_out)

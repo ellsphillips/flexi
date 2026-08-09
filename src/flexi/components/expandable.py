@@ -117,7 +117,9 @@ class ExpandableTable(DataTable[RenderableType]):
                 label, width = spec
                 # A column can be keyed and still be headless: `strip` is a name
                 # for the code, not a word for the reader.
-                self.add_column("" if label == "strip" else label, width=width, key=label)
+                self.add_column(
+                    "" if label == "strip" else label, width=width, key=label
+                )
             else:
                 self.add_column(spec, key=spec or None)
 

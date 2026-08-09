@@ -15,7 +15,7 @@ resize costs nothing.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -173,9 +173,7 @@ class LedgerService:
                 segments=segments,
             )
 
-    def _sessions(
-        self, start: date, end: date
-    ) -> defaultdict[date, list[WorkSession]]:
+    def _sessions(self, start: date, end: date) -> defaultdict[date, list[WorkSession]]:
         # Eager-load both events. They are what a segment is made of, so a lazy
         # relationship turns "three queries for a period" into three plus two per
         # session — 34 round trips for a month, which is the shape this service
@@ -280,4 +278,4 @@ def _date_range(start: date, end: date) -> list[date]:
 
 def utc_now() -> datetime:
     """The current moment, aware, for anything being written to the database."""
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)

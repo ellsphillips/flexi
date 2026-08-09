@@ -75,9 +75,7 @@ class BankHolidayCache(Base):
     """Cached bank holiday entries from GOV.UK."""
 
     __tablename__ = "bank_holiday_cache"
-    __table_args__ = (
-        UniqueConstraint("division", "date", name="uq_division_date"),
-    )
+    __table_args__ = (UniqueConstraint("division", "date", name="uq_division_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     division: Mapped[str] = mapped_column(String(30))
@@ -115,9 +113,7 @@ class WorkSession(Base):
     work_date: Mapped[date_type] = mapped_column(Date())
     auto_closed: Mapped[bool] = mapped_column(Boolean(), default=False)
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    voided: Mapped[bool] = mapped_column(
-        Boolean(), default=False, server_default="0"
-    )
+    voided: Mapped[bool] = mapped_column(Boolean(), default=False, server_default="0")
     """A corrected session. Clock events are immutable, so a correction inserts
     a replacement pair and marks the original voided rather than editing it."""
 

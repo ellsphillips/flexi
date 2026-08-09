@@ -54,12 +54,12 @@ class Granularity(StrEnum):
         """The name shown to a reader."""
         return self.value.capitalize()
 
-    def next(self) -> "Granularity":
+    def next(self) -> Granularity:
         """The next granularity in the cycle ``day → week → month → year → day``."""
         order: list[Granularity] = list(Granularity)
         return order[(order.index(self) + 1) % len(order)]
 
-    def previous(self) -> "Granularity":
+    def previous(self) -> Granularity:
         """The previous granularity in the cycle."""
         order: list[Granularity] = list(Granularity)
         return order[(order.index(self) - 1) % len(order)]

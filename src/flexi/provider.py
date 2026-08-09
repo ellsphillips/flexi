@@ -50,7 +50,9 @@ class FlexiCommands(Provider):
             "Toggle the clock. Bound to /",
             getattr(app, "action_clock_toggle", _noop),
         )
-        yield _Command("Help", "Every binding on this screen", getattr(app, "action_help", _noop))
+        yield _Command(
+            "Help", "Every binding on this screen", getattr(app, "action_help", _noop)
+        )
 
         for item in NAV_ITEMS:
             yield _Command(
@@ -68,8 +70,12 @@ class FlexiCommands(Provider):
                 f"Show one {granularity.value} at a time",
                 partial(screen.action_zoom, granularity.value),
             )
-        yield _Command("Go to today", "Return to the current period", screen.action_today)
-        yield _Command("Go to date…", "Jump the view to a date", screen.action_go_to_date)
+        yield _Command(
+            "Go to today", "Return to the current period", screen.action_today
+        )
+        yield _Command(
+            "Go to date…", "Jump the view to a date", screen.action_go_to_date
+        )
 
         yield _Command(
             "Book leave…",

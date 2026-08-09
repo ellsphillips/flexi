@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, Base
 from flexi.services.registry import Services
 
 MONDAY = date(2026, 6, 8)
@@ -18,7 +18,7 @@ THURSDAY = date(2026, 6, 11)
 CONTRACTED = timedelta(minutes=444)
 
 
-@pytest.fixture()
+@pytest.fixture
 def session(tmp_path: Path):
     engine = create_db_engine(tmp_path / "test.db")
     Base.metadata.create_all(engine)
@@ -27,7 +27,7 @@ def session(tmp_path: Path):
     opened.close()
 
 
-@pytest.fixture()
+@pytest.fixture
 def services(session) -> Services:
     """A configured application: 25 days' leave, no holidays.
 
@@ -59,9 +59,7 @@ def services(session) -> Services:
 
 
 def work(services: Services, when: date, hours: float) -> None:
-    start = datetime.combine(when, datetime.min.time(), tzinfo=timezone.utc).replace(
-        hour=9
-    )
+    start = datetime.combine(when, datetime.min.time(), tzinfo=UTC).replace(hour=9)
     services.clock.clock_in(now=start)
     services.clock.clock_out(now=start + timedelta(hours=hours))
     services.invalidate()

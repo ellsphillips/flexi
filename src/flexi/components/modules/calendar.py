@@ -116,16 +116,16 @@ class CalendarModule(Module):
             cell = self.query_one(f"#calendar-cell-{week}-{column}", Label)
             ledger = ledgers.get(when)
             cell.update(self._cell_text(when, ledger, period, today))
-            cell.set_classes(
-                " ".join(self._cell_classes(when, ledger, period, today))
-            )
+            cell.set_classes(" ".join(self._cell_classes(when, ledger, period, today)))
 
         for week in range(WEEKS):
             row = self.query_one(f"#calendar-row-{week}")
             covered = any(
                 period.contains(grid[week * DAYS + column]) for column in range(DAYS)
             )
-            row.set_class(covered and period.granularity is Granularity.WEEK, "in-period")
+            row.set_class(
+                covered and period.granularity is Granularity.WEEK, "in-period"
+            )
 
         self.set_subtitle(period.label)
 

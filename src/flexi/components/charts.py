@@ -34,7 +34,8 @@ from textual.app import RenderResult
 from textual.widget import Widget
 
 from flexi.components.punch import PUNCH_CLASSES, render_strip
-from flexi.domain.format import MINUS, delta, days as fmt_days, hm
+from flexi.domain.format import MINUS, delta, hm
+from flexi.domain.format import days as fmt_days
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window
 

@@ -179,7 +179,9 @@ def balance_zero(
     result = services.zero_balance(when, reason=reason or OPENING_BALANCE)
     click.secho(result.message, fg="green" if result.success else "red")
     if result.success:
-        click.echo(f"balance now   {delta(services.ledger.balance(date.today()).delta)}")
+        click.echo(
+            f"balance now   {delta(services.ledger.balance(date.today()).delta)}"
+        )
     _close(ctx)
     if not result.success:
         ctx.exit(1)
@@ -189,9 +191,9 @@ def balance_zero(
 @click.pass_context
 def balance_log(ctx: click.Context) -> None:
     """List every correction ever recorded."""
-    from flexi.domain.format import delta
     from datetime import timedelta
 
+    from flexi.domain.format import delta
     from flexi.services.registry import Services
 
     services = Services.build(ctx.obj["session"])

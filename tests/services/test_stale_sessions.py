@@ -6,7 +6,7 @@ Covers: stale close once, system audit event, count toward worked time,
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
@@ -19,26 +19,26 @@ from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
 
 
-@pytest.fixture()
+@pytest.fixture
 def engine(tmp_path: Path):
     eng = create_db_engine(tmp_path / "test.db")
     Base.metadata.create_all(eng)
     return eng
 
 
-@pytest.fixture()
+@pytest.fixture
 def session(engine):
     s = get_session(engine)
     yield s
     s.close()
 
 
-@pytest.fixture()
+@pytest.fixture
 def svc(session) -> ClockService:
     return ClockService(session)
 
 
-@pytest.fixture()
+@pytest.fixture
 def _settings(session):
     s = SettingsService(session)
     s.save_settings(
@@ -52,7 +52,7 @@ def _settings(session):
 
 class TestStaleSessionClose:
     def test_closes_previous_day(self, svc: ClockService) -> None:
-        yesterday = datetime.now(tz=timezone.utc) - timedelta(days=1)
+        yesterday = datetime.now(tz=UTC) - timedelta(days=1)
         svc.clock_in(now=yesterday)
         closed = close_stale_sessions(svc._session, time(18, 0))
         assert len(closed) == 1
@@ -65,7 +65,7 @@ class TestStaleSessionClose:
         assert svc.is_clocked_in() is True
 
     def test_system_audit_event(self, svc: ClockService) -> None:
-        yesterday = datetime.now(tz=timezone.utc) - timedelta(days=1)
+        yesterday = datetime.now(tz=UTC) - timedelta(days=1)
         svc.clock_in(now=yesterday)
         closed = close_stale_sessions(svc._session, time(18, 0))
         assert closed[0].clock_out_event is not None
@@ -73,13 +73,13 @@ class TestStaleSessionClose:
         assert closed[0].clock_out_event.action is ClockAction.OUT
 
     def test_auto_closed_flag_set(self, svc: ClockService) -> None:
-        yesterday = datetime.now(tz=timezone.utc) - timedelta(days=1)
+        yesterday = datetime.now(tz=UTC) - timedelta(days=1)
         svc.clock_in(now=yesterday)
         closed = close_stale_sessions(svc._session, time(18, 0))
         assert closed[0].auto_closed is True
 
     def test_closes_only_once(self, svc: ClockService) -> None:
-        yesterday = datetime.now(tz=timezone.utc) - timedelta(days=1)
+        yesterday = datetime.now(tz=UTC) - timedelta(days=1)
         svc.clock_in(now=yesterday)
         close_stale_sessions(svc._session, time(18, 0))
         second = close_stale_sessions(svc._session, time(18, 0))
@@ -95,7 +95,7 @@ class TestFallbackTo2359:
         yesterday_8pm = datetime.combine(
             date.today() - timedelta(days=1),
             time(20, 0),
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         )
         svc.clock_in(now=yesterday_8pm)
         closed = close_stale_sessions(svc._session, time(18, 0))
@@ -109,7 +109,7 @@ class TestCountsTowardWorkedTime:
         yesterday_9am = datetime.combine(
             date.today() - timedelta(days=1),
             time(9, 0),
-            tzinfo=timezone.utc,
+            tzinfo=UTC,
         )
         svc.clock_in(now=yesterday_9am)
         closed = close_stale_sessions(svc._session, time(18, 0))

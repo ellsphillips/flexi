@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -80,7 +80,7 @@ class ClockService:
             return ClockResult(success=False, message="Already clocked in")
 
         if now is None:
-            now = datetime.now(tz=timezone.utc)
+            now = datetime.now(tz=UTC)
 
         work_date = now.astimezone().date()
 
@@ -136,7 +136,7 @@ class ClockService:
             return ClockResult(success=False, message="Not clocked in")
 
         if now is None:
-            now = datetime.now(tz=timezone.utc)
+            now = datetime.now(tz=UTC)
 
         event = ClockEvent(action=ClockAction.OUT, timestamp=now, source=source)
         self._session.add(event)

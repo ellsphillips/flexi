@@ -15,7 +15,7 @@ never writes ``"pill--ok"`` as a string and gets it wrong.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, TYPE_CHECKING, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 from rich.text import Text
 from textual.app import ComposeResult, RenderResult
@@ -102,7 +102,9 @@ class Pill(Static):
     label: reactive[str] = reactive("", init=False)
     tone: reactive[Tone] = reactive(Tone.NEUTRAL, init=False)
 
-    def __init__(self, label: str = "", tone: Tone = Tone.NEUTRAL, **kwargs: Any) -> None:
+    def __init__(
+        self, label: str = "", tone: Tone = Tone.NEUTRAL, **kwargs: Any
+    ) -> None:
         super().__init__(label, **kwargs)
         self.set_reactive(Pill.label, label)
         self.set_reactive(Pill.tone, tone)
@@ -134,7 +136,8 @@ class Pill(Static):
 
     def _apply_tone(self) -> None:
         """Tone classes are mutually exclusive, so removing all of them first is
-        cheaper to reason about than tracking which one is on."""
+        cheaper to reason about than tracking which one is on.
+        """
         self.remove_class(*_ALL_TONE_CLASSES)
         if applied := TONE_CLASSES[self.tone]:
             self.add_class(applied)
@@ -152,7 +155,9 @@ class StatCard(Vertical):
     value: reactive[str] = reactive("", init=False)
     note: reactive[str] = reactive("", init=False)
 
-    def __init__(self, label: str, value: str = "", note: str = "", **kwargs: Any) -> None:
+    def __init__(
+        self, label: str, value: str = "", note: str = "", **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
         self._label = label
         self.set_reactive(StatCard.value, value)

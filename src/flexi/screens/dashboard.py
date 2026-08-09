@@ -40,7 +40,12 @@ from flexi.constants import AbsenceType
 from flexi.domain.format import clock as clock_time
 from flexi.domain.period import Granularity, Period
 from flexi.messages import DataChanged, DateSelected, Scope
-from flexi.screens.modals import AbsenceBooking, AbsenceModal, ConfirmModal, GoToDateModal
+from flexi.screens.modals import (
+    AbsenceBooking,
+    AbsenceModal,
+    ConfirmModal,
+    GoToDateModal,
+)
 from flexi.services.registry import Services
 
 GRANULARITY_KEYS = {
@@ -75,11 +80,17 @@ class DashboardScreen(Screen[None]):
         # Shifted, so they never collide with the record table's letters, and on
         # the screen rather than the wallet so one keystroke books leave from
         # anywhere on the dashboard.
-        Binding(CONFIG.hotkeys.book_annual, "book('annual')", "Annual leave", show=False),
+        Binding(
+            CONFIG.hotkeys.book_annual, "book('annual')", "Annual leave", show=False
+        ),
         Binding(CONFIG.hotkeys.book_sick, "book('sick')", "Sickness", show=False),
         Binding(CONFIG.hotkeys.book_toil, "book('flexi')", "TOIL day", show=False),
-        Binding(CONFIG.hotkeys.book_unpaid, "book('unpaid')", "Unpaid leave", show=False),
-        Binding(CONFIG.hotkeys.book_other, "book('other')", "Other absence", show=False),
+        Binding(
+            CONFIG.hotkeys.book_unpaid, "book('unpaid')", "Unpaid leave", show=False
+        ),
+        Binding(
+            CONFIG.hotkeys.book_other, "book('other')", "Other absence", show=False
+        ),
     ]
 
     def action_book(self, kind: str) -> None:

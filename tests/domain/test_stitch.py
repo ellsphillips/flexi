@@ -94,7 +94,11 @@ def test_a_span_inside_one_month_is_one_block() -> None:
 def test_a_span_across_a_year_end() -> None:
     blocks = stitch(date(2026, 11, 1), date(2027, 2, 1))
     assert [(b.year, b.month) for b in blocks] == [
-        (2026, 11), (2026, 12), (2027, 1), (2027, 2)]
+        (2026, 11),
+        (2026, 12),
+        (2027, 1),
+        (2027, 2),
+    ]
 
 
 def test_a_block_knows_its_own_bounds() -> None:
@@ -138,7 +142,7 @@ def test_extending_keeps_the_anchor() -> None:
 
 
 def test_extending_backwards_does_not_invert() -> None:
-    """start and end are ordered however the head got there."""
+    """Start and end are ordered however the head got there."""
     selection = Selection.at(MONDAY).extend(-3)
     assert selection.start == MONDAY - timedelta(days=3)
     assert selection.end == MONDAY

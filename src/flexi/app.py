@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, cast
 
-import flexi
 from textual import events, log
 from textual import work as textual_work
 from textual.app import App as TextualApp
@@ -33,6 +32,7 @@ from textual.reactive import Reactive, reactive
 from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
+import flexi
 from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, AppHeader, NavBar
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import Jumper
@@ -316,7 +316,9 @@ class FlexiApp(TextualApp[None]):
         else:
             # Not focusable: a button, say. the reference application's trick — synthesise the click
             # the pointer would have made, so a jump can press things too.
-            widget.post_message(events.Click(widget, 0, 0, 0, 0, 0, False, False, False))
+            widget.post_message(
+                events.Click(widget, 0, 0, 0, 0, 0, False, False, False)
+            )
 
 
 App = FlexiApp

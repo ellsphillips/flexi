@@ -56,7 +56,9 @@ class BookRequested(Message):
 class WalletModule(Module):
     """One gauge per allowance, plus the period's own figures."""
 
-    WATCHES: ClassVar[Scope] = Scope.ABSENCE | Scope.CLOCK | Scope.SETTINGS | Scope.PERIOD
+    WATCHES: ClassVar[Scope] = (
+        Scope.ABSENCE | Scope.CLOCK | Scope.SETTINGS | Scope.PERIOD
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(id="wallet-module", title="Wallet", **kwargs)
@@ -87,7 +89,7 @@ class WalletModule(Module):
             return
         self._draw_counted(gauge, allowance)
 
-    def _draw_toil(self, gauge: Gauge, data: WalletData) -> None:  # noqa: D401
+    def _draw_toil(self, gauge: Gauge, data: WalletData) -> None:
         """TOIL has no entitlement — it has a balance, which can go negative.
 
         The track shows the balance against a nominal five days either way, so a
@@ -138,6 +140,7 @@ class WalletModule(Module):
             tone=Tone.NEUTRAL,
             compact=True,
         )
+
 
 def _pace_tone(allowance: Allowance) -> Tone:
     """Amber when an entitlement is being spent faster than the year is passing.

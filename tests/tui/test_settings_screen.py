@@ -14,14 +14,14 @@ from flexi.models.database.db import Base
 from flexi.services.settings import SettingsService
 
 
-@pytest.fixture()
+@pytest.fixture
 def engine(tmp_path: Path):
     eng = create_db_engine(tmp_path / "test.db")
     Base.metadata.create_all(eng)
     return eng
 
 
-@pytest.fixture()
+@pytest.fixture
 def session(engine):
     s = get_session(engine)
     yield s

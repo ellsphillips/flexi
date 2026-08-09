@@ -22,15 +22,26 @@ from datetime import date, timedelta
 
 DAYS_IN_WEEK = 7
 MONTH_NAMES = (
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 )
 
 
 @dataclass(frozen=True, slots=True)
 class Cell:
     """One position in the grid. ``date`` is ``None`` where a month has not
-    started yet or has already ended — the blanks at a seam."""
+    started yet or has already ended — the blanks at a seam.
+    """
 
     date: date | None
 
@@ -57,7 +68,9 @@ class MonthBlock:
 
     @property
     def last(self) -> date:
-        return date(self.year, self.month, calendar.monthrange(self.year, self.month)[1])
+        return date(
+            self.year, self.month, calendar.monthrange(self.year, self.month)[1]
+        )
 
     def contains(self, when: date) -> bool:
         return (when.year, when.month) == (self.year, self.month)

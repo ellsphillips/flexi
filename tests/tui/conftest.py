@@ -25,13 +25,13 @@ from flexi.services.samples import NOW, seed_demo
 WIDE = (120, 36)
 
 
-@pytest.fixture()
+@pytest.fixture
 def _frozen() -> Iterator[None]:
     with time_machine.travel(NOW, tick=False):
         yield
 
 
-@pytest.fixture()
+@pytest.fixture
 def seeded_db(tmp_path: Path, _frozen: None) -> Path:
     """A database holding the demo's six weeks of a working life."""
     path = tmp_path / "flexi.db"
@@ -44,7 +44,7 @@ def seeded_db(tmp_path: Path, _frozen: None) -> Path:
     return path
 
 
-@pytest.fixture()
+@pytest.fixture
 def app_factory(seeded_db: Path) -> Callable[[], FlexiApp]:
     def build() -> FlexiApp:
         return FlexiApp(db_path=seeded_db)
@@ -54,7 +54,7 @@ def app_factory(seeded_db: Path) -> Callable[[], FlexiApp]:
 
 def dashboard(app: FlexiApp) -> DashboardScreen:
     """The dashboard, wherever it is on the stack."""
-    found = app._dashboard()  # noqa: SLF001 - the test is the caller it exists for
+    found = app._dashboard()
     assert found is not None, "the dashboard should be mounted"
     return found
 
@@ -68,5 +68,5 @@ def status_text(app: FlexiApp) -> str:
 
 def screen_text(app: FlexiApp) -> str:
     """The rendered characters, for assertions about what is actually drawn."""
-    strips = app.screen._compositor.render_strips()  # noqa: SLF001
+    strips = app.screen._compositor.render_strips()
     return "\n".join("".join(segment.text for segment in strip) for strip in strips)

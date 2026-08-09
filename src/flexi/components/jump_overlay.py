@@ -79,7 +79,9 @@ class JumpOverlay(ModalScreen[str | Widget | None]):
 
     def _sync(self) -> None:
         self.overlays = self.jumper.get_overlays()
-        self.keys_to_widgets = {info.key: info.widget for info in self.overlays.values()}
+        self.keys_to_widgets = {
+            info.key: info.widget for info in self.overlays.values()
+        }
 
     def compose(self) -> ComposeResult:
         self._sync()

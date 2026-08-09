@@ -15,8 +15,8 @@ from tests.tui.conftest import WIDE, status_text
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
-TODAY = date(2026, 6, 11)          # a Thursday
-FREE_MONDAY = date(2026, 6, 22)    # nothing booked on it in the seed
+TODAY = date(2026, 6, 11)  # a Thursday
+FREE_MONDAY = date(2026, 6, 22)  # nothing booked on it in the seed
 
 
 def calendar(app) -> YearCalendar:
@@ -143,7 +143,9 @@ async def test_one_key_books_a_range(app_factory) -> None:
         await pilot.press("A")
         await pilot.pause()
 
-        booked = app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY + timedelta(days=6))
+        booked = app.services.absence.in_range(
+            FREE_MONDAY, FREE_MONDAY + timedelta(days=6)
+        )
         assert len(booked) == 5
         assert "5 days" in status_text(app)
 
@@ -226,7 +228,14 @@ async def test_removing_a_lot_asks_first(app_factory) -> None:
         await pilot.press("x")
         await pilot.pause()
         assert isinstance(app.screen, ConfirmModal)
-        assert len(app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY + timedelta(days=6))) == 5
+        assert (
+            len(
+                app.services.absence.in_range(
+                    FREE_MONDAY, FREE_MONDAY + timedelta(days=6)
+                )
+            )
+            == 5
+        )
 
 
 async def test_removing_nothing_says_so(app_factory) -> None:

@@ -23,7 +23,9 @@ pytestmark = pytest.mark.usefixtures("_frozen")
 CONTRACTED = timedelta(minutes=444)
 
 
-def ledger(when: date, worked: timedelta, expected: timedelta = CONTRACTED) -> DayLedger:
+def ledger(
+    when: date, worked: timedelta, expected: timedelta = CONTRACTED
+) -> DayLedger:
     return DayLedger(
         date=when,
         kind=DayKind.WORKING,

@@ -22,19 +22,19 @@ from flexi.models.database.migrate import (
 )
 
 
-@pytest.fixture()
+@pytest.fixture
 def db_path(tmp_path: Path) -> Path:
     return tmp_path / "test.db"
 
 
-@pytest.fixture()
+@pytest.fixture
 def engine(db_path: Path):
     eng = create_db_engine(db_path)
     Base.metadata.create_all(eng)
     return eng
 
 
-@pytest.fixture()
+@pytest.fixture
 def session(engine):
     s = get_session(engine)
     yield s
@@ -137,20 +137,14 @@ class TestBackupRetention:
 
 
 class TestBackupFailure:
-    def test_run_migrations_raises_when_backup_fails(
-        self, db_path: Path
-    ) -> None:
+    def test_run_migrations_raises_when_backup_fails(self, db_path: Path) -> None:
         # Create a DB so it exists
         run_migrations(db_path)
         # Patch backup to return None (simulate failure)
         with (
-            patch(
-                "flexi.models.database.migrate.backup_database", return_value=None
-            ),
+            patch("flexi.models.database.migrate.backup_database", return_value=None),
             # Force current != head so backup path is taken
-            patch(
-                "flexi.models.database.migrate.MigrationContext"
-            ) as mock_ctx_cls,
+            patch("flexi.models.database.migrate.MigrationContext") as mock_ctx_cls,
         ):
             mock_ctx_cls.configure.return_value.get_current_revision.return_value = (
                 "fake_old"

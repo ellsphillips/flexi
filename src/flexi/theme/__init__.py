@@ -67,7 +67,9 @@ def palette(path: Path = THEME_PATH) -> dict[str, str]:
         source = path.read_text(encoding="utf-8")
     except OSError:
         return dict(_FALLBACK)
-    found = {name: value.strip() for name, value in _PALETTE_DECLARATION.findall(source)}
+    found = {
+        name: value.strip() for name, value in _PALETTE_DECLARATION.findall(source)
+    }
     return found or dict(_FALLBACK)
 
 
@@ -159,4 +161,11 @@ def flexi_theme() -> Theme:
     )
 
 
-__all__ = ["THEME_NAME", "THEME_PATH", "colour", "flexi_theme", "palette", "theme_variables"]
+__all__ = [
+    "THEME_NAME",
+    "THEME_PATH",
+    "colour",
+    "flexi_theme",
+    "palette",
+    "theme_variables",
+]

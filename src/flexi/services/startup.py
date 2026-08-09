@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -42,9 +42,7 @@ def close_stale_sessions(
         if effective_close <= clock_in_time:
             effective_close = time(23, 59)
 
-        close_dt = datetime.combine(
-            ws.work_date, effective_close, tzinfo=timezone.utc
-        )
+        close_dt = datetime.combine(ws.work_date, effective_close, tzinfo=UTC)
         event = ClockEvent(
             action=ClockAction.OUT,
             timestamp=close_dt,

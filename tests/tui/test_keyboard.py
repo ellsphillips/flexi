@@ -186,7 +186,9 @@ async def test_question_mark_lists_flexi_bindings_only(app_factory) -> None:
         groups = collect_bindings(app.screen_stack[-2])
         assert "Anywhere" in groups
         assert "VerticalScroll" not in groups
-        actions = [description for entries in groups.values() for _, description in entries]
+        actions = [
+            description for entries in groups.values() for _, description in entries
+        ]
         assert "Clock" in actions
         assert "Scroll Up" not in actions
 

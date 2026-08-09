@@ -149,9 +149,7 @@ class WalletService:
             period=period,
             today=self._ledger.day(today, now=now),
             contracted=contracted,
-            allowances=self._allowances(
-                year_start, year_end, elapsed, balance_days
-            ),
+            allowances=self._allowances(year_start, year_end, elapsed, balance_days),
         )
 
     def _allowances(

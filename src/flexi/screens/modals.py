@@ -176,7 +176,9 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         except ValueError as error:
             raise ValueError(str(error)) from error
 
-        kind = AbsenceType(_selected_name(self, "#absence-type", AbsenceType.ANNUAL.value))
+        kind = AbsenceType(
+            _selected_name(self, "#absence-type", AbsenceType.ANNUAL.value)
+        )
         portion = Portion(_selected_name(self, "#absence-portion", Portion.FULL.value))
         note = self.query_one("#absence-note", Input).value.strip() or None
 
