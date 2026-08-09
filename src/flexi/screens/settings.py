@@ -9,6 +9,7 @@ from textual.widgets import Button, Footer, Input, Label, Select, Static
 
 from flexi import wallclock
 from flexi.services.registry import Services
+from flexi.services.settings import parse_month_day
 
 DIVISIONS = [
     ("England & Wales", "england-and-wales"),
@@ -140,8 +141,6 @@ class SettingsScreen(Screen[bool]):
             self.notify("Select a bank holiday region", severity="error")
             return
 
-        from flexi.services.settings import parse_month_day
-
         try:
             parse_month_day(leave_start)
         except ValueError as e:
@@ -155,13 +154,22 @@ class SettingsScreen(Screen[bool]):
             auto_close_time=auto_close,
         )
 
-        # Save entitlement updates
-        for ent in self._svc.all_entitlements():
+        rejected: list[str] = []
+        for entitlement in self._svc.all_entitlements():
+            field = self.query_one(f"#ent-{entitlement.year}", Input)
             try:
-                inp = self.query_one(f"#ent-{ent.year}", Input)
-                self._svc.save_entitlement(ent.year, float(inp.value))
-            except Exception:  # noqa: BLE001
-                pass
+                days = float(field.value)
+            except ValueError:
+                rejected.append(str(entitlement.year))
+                continue
+            self._svc.save_entitlement(entitlement.year, days)
+
+        if rejected:
+            self.notify(
+                f"Leave for {', '.join(rejected)} must be a number of days",
+                severity="error",
+            )
+            return
 
         self.dismiss(True)
 

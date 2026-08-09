@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
-from flexi.models.database.db import ClockEvent, WorkSession
+from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 
 
 def _naive(moment: datetime) -> datetime:
@@ -94,17 +94,11 @@ class ClockService:
                 success=False, message="Cannot clock in on a bank holiday"
             )
 
-        # Block clocking on absence-marked dates (table may not exist yet)
-        try:
-            from flexi.models.database.db import AbsenceDay
-
-            stmt = select(AbsenceDay).where(AbsenceDay.date == work_date)
-            if self._session.execute(stmt).scalar_one_or_none() is not None:
-                return ClockResult(
-                    success=False, message="Cannot clock in on an absence day"
-                )
-        except Exception:  # noqa: BLE001
-            pass  # absence table may not exist yet
+        stmt = select(AbsenceDay).where(AbsenceDay.date == work_date)
+        if self._session.execute(stmt).scalar_one_or_none() is not None:
+            return ClockResult(
+                success=False, message="Cannot clock in on an absence day"
+            )
 
         event = ClockEvent(action=ClockAction.IN, timestamp=now, source=source)
         self._session.add(event)

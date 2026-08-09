@@ -20,6 +20,7 @@ target can only ever name something that is there.
 
 from __future__ import annotations
 
+from pathlib import PurePath
 from typing import Any, ClassVar, cast
 
 from textual import events, log
@@ -47,12 +48,15 @@ from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.registry import Services
 from flexi.theme import THEME_NAME, flexi_theme
+from flexi.versioning import available_update
+
+UPDATE_NOTICE_SECONDS = 10
 
 
 class FlexiApp(TextualApp[None]):
     """Flexi."""
 
-    CSS_PATH = [
+    CSS_PATH: ClassVar[list[str | PurePath]] = [
         "theme/flexi.tcss",
         "styles/dashboard.tcss",
         "styles/leave.tcss",
@@ -131,20 +135,15 @@ class FlexiApp(TextualApp[None]):
     @textual_work(thread=True)
     def _check_for_updates(self) -> None:
         """Ask PyPI whether there is a newer Flexi, and say nothing if not."""
-        try:
-            from flexi.versioning import get_pypi_version, needs_update
-
-            if needs_update():
-                pypi = get_pypi_version()
-                if pypi:
-                    self.notify(
-                        f"Update available: {flexi.__version__} → {pypi}\n"
-                        f"Run: uv tool upgrade flexi",
-                        severity="information",
-                        timeout=10,
-                    )
-        except Exception:  # noqa: BLE001 - an update check may never break launch
-            pass
+        latest = available_update()
+        if latest is None:
+            return
+        self.notify(
+            f"Update available: {flexi.__version__} → {latest}\n"
+            f"Run: uv tool upgrade flexi",
+            severity="information",
+            timeout=UPDATE_NOTICE_SECONDS,
+        )
 
     # -- navigation --------------------------------------------------------
 
