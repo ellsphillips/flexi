@@ -110,6 +110,11 @@ class LeaveScreen(Screen[None]):
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)
+        # The selection line reads differently narrow — one line carrying what
+        # three panels carry at width — and the class is only set here, after
+        # the first draw.
+        if self.is_mounted:
+            self._draw_selection()
 
     def jump_targets(self) -> dict[str, str]:
         return {
@@ -227,6 +232,11 @@ class LeaveScreen(Screen[None]):
                     kinds.get(row.absence_type.label, 0.0) + row.portion.days
                 )
             body = " · ".join(f"{fmt_days(v)}d {k.lower()}" for k, v in kinds.items())
+        narrow = self.has_class("-narrow")
+        if narrow:
+            # One line instead of three: on a narrow terminal every row the rail
+            # keeps is a row of calendar somebody cannot see.
+            body = f"{selection.label()} · {count}{portion} · {body}"
         self.query_one("#leave-selection-booked", Static).update(body)
 
     def on_year_calendar_selection_changed(
