@@ -1,6 +1,6 @@
 """The arithmetic of a flexi balance.
 
-    balance = Σ worked − Σ expected − Σ TOIL taken
+    balance = Σ worked − Σ expected − Σ TOIL taken + Σ adjustments
 
 ``expected`` is the part that carries the meaning. A day you booked as annual
 leave expects nothing, so it neither earns nor costs flexi. A day you worked six
@@ -11,6 +11,10 @@ TOIL is subtracted separately rather than folded into ``expected``, because a
 TOIL day is a *withdrawal from the same account the surplus accrues into*, not a
 day you were expected to work. Folding it in would make a TOIL day look like an
 ordinary absence and the balance would never go down.
+
+Adjustments are the only term that is *stored* rather than derived. They exist
+so that a stretch nobody tracked can be settled without deleting the records
+that prove what did happen — see :class:`~flexi.models.database.db.BalanceAdjustment`.
 
 Everything is :class:`~datetime.timedelta`. Hours only exist at the formatting
 boundary — ``7.4`` is not representable in binary floating point, and a week of
@@ -80,11 +84,14 @@ class BalanceSummary:
     worked: timedelta = ZERO
     expected: timedelta = ZERO
     toil_taken: timedelta = ZERO
+    adjustment: timedelta = ZERO
+    """Stored corrections effective within the span. The only term that is not
+    derived from clock events."""
 
     @property
     def delta(self) -> timedelta:
         """The signed balance: what this span did to the flexi account."""
-        return self.worked - self.expected - self.toil_taken
+        return self.worked - self.expected - self.toil_taken + self.adjustment
 
     @property
     def is_surplus(self) -> bool:
@@ -101,6 +108,7 @@ class BalanceSummary:
             self.worked + other.worked,
             self.expected + other.expected,
             self.toil_taken + other.toil_taken,
+            self.adjustment + other.adjustment,
         )
 
 
@@ -109,8 +117,8 @@ def accumulate(ledgers: Iterable[object]) -> BalanceSummary:
 
     Typed loosely on purpose: this is called with
     :class:`~flexi.domain.ledger.DayLedger` values, and typing it as such would
-    make ``ledger`` and ``balance`` import each other. The three attributes it
-    reads are the contract.
+    make ``ledger`` and ``balance`` import each other. The attributes it reads
+    are the contract.
     """
     total = BalanceSummary()
     for ledger in ledgers:
@@ -118,5 +126,6 @@ def accumulate(ledgers: Iterable[object]) -> BalanceSummary:
             worked=getattr(ledger, "worked", ZERO),
             expected=getattr(ledger, "expected", ZERO),
             toil_taken=getattr(ledger, "toil_taken", ZERO),
+            adjustment=getattr(ledger, "adjustment", ZERO),
         )
     return total

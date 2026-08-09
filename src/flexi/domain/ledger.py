@@ -83,6 +83,8 @@ class DayLedger:
     worked: timedelta
     expected: timedelta
     toil_taken: timedelta = timedelta()
+    adjustment: timedelta = timedelta()
+    """A stored correction effective on this date. Almost always zero."""
     holiday_title: str | None = None
     absences: tuple[AbsenceSlice, ...] = ()
     segments: tuple[Segment, ...] = ()
@@ -101,7 +103,7 @@ class DayLedger:
         A TOIL day is a withdrawal: it expects nothing and so scores no deficit
         for being unworked, but it spends a day of the surplus that paid for it.
         """
-        return self.delta - self.toil_taken
+        return self.delta - self.toil_taken + self.adjustment
 
     @property
     def is_open(self) -> bool:

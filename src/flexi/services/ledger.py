@@ -30,7 +30,12 @@ from flexi.domain.balance import (
 )
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.punch import Window
-from flexi.models.database.db import AbsenceDay, BankHolidayCache, WorkSession
+from flexi.models.database.db import (
+    AbsenceDay,
+    BalanceAdjustment,
+    BankHolidayCache,
+    WorkSession,
+)
 from flexi.services.settings import SettingsService
 
 
@@ -128,6 +133,7 @@ class LedgerService:
         sessions = self._sessions(start, end)
         absences = self._absences(start, end)
         holidays = self._holidays(start, end)
+        corrections = self._adjustments(start, end)
         working_days = set(self._settings.get_working_day_indices())
         contracted = self.contracted
 
@@ -161,6 +167,7 @@ class LedgerService:
                 worked=worked,
                 expected=expected,
                 toil_taken=toil_taken_for(contracted, slices),
+                adjustment=corrections.get(when, timedelta()),
                 holiday_title=title,
                 absences=slices,
                 segments=segments,
@@ -201,6 +208,25 @@ class LedgerService:
         for row in self._session.execute(stmt).scalars():
             grouped[row.date].append(row)
         return grouped
+
+    def _adjustments(self, start: date, end: date) -> dict[date, timedelta]:
+        """Stored corrections, by the date they take effect.
+
+        Carried on the day rather than added at the end, so a period summary and
+        the running balance pick them up by the same route as every other term.
+        A correction dated before the leave year belongs to the leave year it
+        was dated in, and is not counted here — which is what makes it possible
+        to settle one year without disturbing the next.
+        """
+        stmt = select(BalanceAdjustment.date, BalanceAdjustment.minutes).where(
+            BalanceAdjustment.date >= start, BalanceAdjustment.date <= end
+        )
+        totals: dict[date, timedelta] = {}
+        for row in self._session.execute(stmt):
+            totals[row.date] = totals.get(row.date, timedelta()) + timedelta(
+                minutes=row.minutes
+            )
+        return totals
 
     def _holidays(self, start: date, end: date) -> dict[date, str]:
         stmt = select(BankHolidayCache.date, BankHolidayCache.title).where(
