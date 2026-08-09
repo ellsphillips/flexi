@@ -163,8 +163,23 @@ Nothing here is new machinery:
 - `WalletService` already computes the allowances.
 - The absence modal, the confirm modal, jump mode and the chrome are all shared.
 
-The genuinely new pieces are `YearCalendar` (a scrolling, stitched grid with a
-cursor and a selection) and `LeaveScreen` that arranges it.
+The genuinely new pieces are `domain/stitch.py` (pure: months into a grid, and
+a selection that can be pulled back), `YearCalendar` (the scrolling surface,
+drawn with the Line API rather than a widget per day) and `LeaveScreen`.
+
+## 8. What changed on the way
+
+- **The grid is sized to what a week needs, not to the panel.** Stretched across
+  eighty columns the days drift so far apart that a week stops reading as a row,
+  so the calendar is fixed at forty-six and the remainder goes to the rail —
+  where the selection label can run to `Mon 10 Aug – Wed 9 Sep 2026`.
+- **`escape` had to be able to do two things.** The calendar binds it to collapse
+  a selection and the screen binds it to leave; a focused widget is asked first,
+  so the calendar stands its binding down when there is nothing to collapse
+  rather than trapping somebody on the screen.
+- **The legend panel carries keys, not glyphs.** It is titled "Book" and sits
+  where somebody deciding what to book is already looking, so it earns its space
+  by saying which key does it. The glyph scale is one line underneath.
 
 ---
 

@@ -25,7 +25,7 @@ Plus **`v`** — jump mode, which is navigation rather than discovery.
 | `v` | Jump mode. |
 | `?` | Help. |
 | `ctrl+p` | Command palette. |
-| `f1` `f2` `f3` | Dashboard / Insights / Settings. |
+| `f1` `f2` `f3` `f4` | Dashboard / Leave / Insights / Settings. |
 | `escape` | Close the modal, or leave this screen for the dashboard. |
 | `ctrl+q` | Quit. |
 | `ctrl+l` | Toggle the log pane. |
@@ -105,6 +105,27 @@ absence modal pre-filled with that type and the currently selected date.
 | `left` `right` `up` `down` | Move the selection by a day or a week. |
 | `,` / `.` | Previous / next month. |
 | `enter` | Set the period anchor to the selected day. |
+
+---
+
+## Leave
+
+The whole screen acts on the cursor, or the range you extended it into.
+
+| Key | Action |
+|---|---|
+| `←` `→` `↑` `↓` / `h` `j` `k` `l` | Move the cursor a day or a week. |
+| `shift` + those | Extend the selection. |
+| `escape` | Collapse the selection — or leave the screen, when there is nothing to collapse. |
+| `A` `S` `T` `U` `O` | Book annual / sick / TOIL / unpaid / other on the selection. |
+| `space` | Cycle the portion: full → morning → afternoon, *before* booking. |
+| `x` | Remove what is booked. More than three days asks first. |
+| `e` | The booking modal, for a note or an odd case. |
+| `[` `]` | A month at a time, clamped into a shorter one. |
+| `home` `end` | The start and the end of the leave year. |
+
+`O` goes straight to the modal, because other absence needs a note and a note
+needs somewhere to be typed.
 
 ---
 

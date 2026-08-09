@@ -45,8 +45,11 @@ CASES: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
     ("jump-mode", WIDE, ["v"]),
     ("help", WIDE, ["question_mark"]),
     ("absence-modal", WIDE, ["A"]),
-    ("insights", WIDE, ["f2"]),
-    ("insights-tall", (120, 44), ["f2"]),
+    ("insights", WIDE, ["f3"]),
+    ("insights-tall", (120, 44), ["f3"]),
+    ("leave", WIDE, ["f2"]),
+    ("leave-selection", WIDE, ["f2", "down", "shift+right", "shift+right"]),
+    ("leave-narrow", NARROW, ["f2"]),
     ("dashboard-narrow", NARROW, []),
     ("dashboard-tiny", TINY, []),
 )
