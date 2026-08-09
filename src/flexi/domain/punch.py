@@ -150,48 +150,69 @@ def strip(
     count = cell_count(window, max(1, width))
     moment = now or datetime.combine(ledger.date, time.min)
 
-    cells = [Cell.OFF] * count
-
     if ledger.is_holiday:
-        return tuple([Cell.HOLIDAY] * count)
+        return (Cell.HOLIDAY,) * count
 
+    cells = [Cell.OFF] * count
     bounds = edges(ledger.date, count, window)
 
-    for slice_ in ledger.absences:
-        for index in range(count):
-            middle = bounds[index] + (bounds[index + 1] - bounds[index]) / 2
-            if slice_.covers(middle):
-                cells[index] = Cell.ABSENCE
-
-    for segment in ledger.segments:
-        finish = segment.finish(moment)
-        for index in range(count):
-            if segment.start < bounds[index + 1] and finish > bounds[index]:
-                cells[index] = Cell.ON
-
-    # A break is only a break between two sessions; time before arriving and
-    # after leaving is not being away, it is not being at work.
-    for start, end in ledger.breaks():
-        for index in range(count):
-            if (
-                cells[index] is Cell.OFF
-                and start < bounds[index + 1]
-                and end > bounds[index]
-            ):
-                cells[index] = Cell.BREAK
-
+    # Layers, painted in order. Each may overwrite the one before it, which is
+    # what puts a session on top of an absence and the live cell on top of both.
+    _mark_absences(cells, ledger, bounds)
+    _mark_sessions(cells, ledger, bounds, moment)
+    _mark_breaks(cells, ledger, bounds)
     _mark_target(cells, ledger, bounds)
     _mark_live(cells, ledger, bounds, moment)
     return tuple(cells)
 
 
-def _mark_target(cells: list[Cell], ledger: DayLedger, edges: list[datetime]) -> None:
+def _overlaps(
+    start: datetime, end: datetime, bounds: list[datetime], index: int
+) -> bool:
+    """Whether a span touches the cell at ``index``."""
+    return start < bounds[index + 1] and end > bounds[index]
+
+
+def _mark_absences(
+    cells: list[Cell], ledger: DayLedger, bounds: list[datetime]
+) -> None:
+    """A cell is absent when its midpoint falls inside a booked portion."""
+    for slice_ in ledger.absences:
+        for index in range(len(cells)):
+            middle = bounds[index] + (bounds[index + 1] - bounds[index]) / 2
+            if slice_.covers(middle):
+                cells[index] = Cell.ABSENCE
+
+
+def _mark_sessions(
+    cells: list[Cell], ledger: DayLedger, bounds: list[datetime], moment: datetime
+) -> None:
+    for segment in ledger.segments:
+        finish = segment.finish(moment)
+        for index in range(len(cells)):
+            if _overlaps(segment.start, finish, bounds, index):
+                cells[index] = Cell.ON
+
+
+def _mark_breaks(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
+    """A break is only a break *between* two sessions.
+
+    Time before arriving and after leaving is not being away, it is not being
+    at work, so it stays off rather than reading as a three-hour lunch.
+    """
+    for start, end in ledger.breaks():
+        for index in range(len(cells)):
+            if cells[index] is Cell.OFF and _overlaps(start, end, bounds, index):
+                cells[index] = Cell.BREAK
+
+
+def _mark_target(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
     """Put the go-home tick on the first cell that is free to carry it."""
     leave_at = ledger.leave_at()
     if leave_at is None or ledger.expected <= timedelta():
         return
     for index in range(len(cells)):
-        if edges[index] <= leave_at < edges[index + 1]:
+        if bounds[index] <= leave_at < bounds[index + 1]:
             if cells[index] in {Cell.OFF, Cell.BREAK}:
                 cells[index] = Cell.TARGET
             return
@@ -200,13 +221,13 @@ def _mark_target(cells: list[Cell], ledger: DayLedger, edges: list[datetime]) ->
 def _mark_live(
     cells: list[Cell],
     ledger: DayLedger,
-    edges: list[datetime],
+    bounds: list[datetime],
     moment: datetime,
 ) -> None:
     """Highlight the cell an open session is currently in."""
     if not ledger.is_open:
         return
     for index in range(len(cells)):
-        if edges[index] <= moment < edges[index + 1] and cells[index] is Cell.ON:
+        if bounds[index] <= moment < bounds[index + 1] and cells[index] is Cell.ON:
             cells[index] = Cell.LIVE
             return
