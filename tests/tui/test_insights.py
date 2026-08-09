@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
 
 import pytest
 
+from flexi.app import FlexiApp
 from flexi.components.charts import (
     Burndown,
     DivergingBars,
@@ -60,7 +62,7 @@ def test_week_columns_of_nothing_is_empty() -> None:
 # -- the screen ------------------------------------------------------------
 
 
-async def test_f3_opens_insights_on_the_leave_year(app_factory) -> None:
+async def test_f3_opens_insights_on_the_leave_year(app_factory: Callable[[], FlexiApp]) -> None:
     """It opens on the year: four bars of one week is worse than the table."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -70,7 +72,7 @@ async def test_f3_opens_insights_on_the_leave_year(app_factory) -> None:
         assert app.screen.period.start == date(2026, 4, 6)
 
 
-async def test_escape_returns_to_the_dashboard(app_factory) -> None:
+async def test_escape_returns_to_the_dashboard(app_factory: Callable[[], FlexiApp]) -> None:
     """It leaves the way every pushed screen does."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -82,7 +84,7 @@ async def test_escape_returns_to_the_dashboard(app_factory) -> None:
         assert app.nav == "dashboard"
 
 
-async def test_f1_returns_to_the_dashboard(app_factory) -> None:
+async def test_f1_returns_to_the_dashboard(app_factory: Callable[[], FlexiApp]) -> None:
     """It leaves Insights, not just relabels the nav bar.
 
     Insights is a pushed screen, so `f1` has to dismiss it. Setting `nav` alone
@@ -100,7 +102,7 @@ async def test_f1_returns_to_the_dashboard(app_factory) -> None:
         assert app.nav == "dashboard"
 
 
-async def test_all_four_charts_draw(app_factory) -> None:
+async def test_all_four_charts_draw(app_factory: Callable[[], FlexiApp]) -> None:
     """It renders every panel with data rather than an empty state."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
@@ -113,7 +115,7 @@ async def test_all_four_charts_draw(app_factory) -> None:
         assert "No entitlement recorded" not in text
 
 
-async def test_the_balance_chart_stops_at_today(app_factory) -> None:
+async def test_the_balance_chart_stops_at_today(app_factory: Callable[[], FlexiApp]) -> None:
     """It does not chart a cliff of deficits for days nobody has lived yet."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
@@ -125,7 +127,7 @@ async def test_the_balance_chart_stops_at_today(app_factory) -> None:
 
 
 async def test_every_chart_writes_its_figures_as_well_as_drawing_them(
-    app_factory,
+    app_factory: Callable[[], FlexiApp],
 ) -> None:
     """No chart is the only way to read its own numbers."""
     app = app_factory()
@@ -138,7 +140,7 @@ async def test_every_chart_writes_its_figures_as_well_as_drawing_them(
         assert "+" in text and "−" in text  # heatmap legend, both ends named
 
 
-async def test_the_heatmap_legend_names_both_ends(app_factory) -> None:
+async def test_the_heatmap_legend_names_both_ends(app_factory: Callable[[], FlexiApp]) -> None:
     """A diverging ramp with no labelled poles is a mood, not a scale."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
@@ -149,7 +151,7 @@ async def test_the_heatmap_legend_names_both_ends(app_factory) -> None:
         assert "+" in legend
 
 
-async def test_insights_panels_are_jumpable(app_factory) -> None:
+async def test_insights_panels_are_jumpable(app_factory: Callable[[], FlexiApp]) -> None:
     """It offers the same one-key navigation the dashboard does."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:

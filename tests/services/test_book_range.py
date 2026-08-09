@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.app import create_db_engine, get_session
@@ -28,7 +29,7 @@ def session(tmp_path: Path):
 
 
 @pytest.fixture
-def services(session) -> Services:
+def services(session: Session) -> Services:
     built = Services.build(session)
     built.settings.save_settings(
         leave_year_start="10-20",

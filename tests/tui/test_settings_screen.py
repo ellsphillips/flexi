@@ -5,31 +5,13 @@ Covers: settings save updates are reflected via SettingsService.
 
 from __future__ import annotations
 
-from pathlib import Path
+from sqlalchemy.orm import Session
 
-import pytest
-
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base
 from flexi.services.settings import SettingsService
 
 
-@pytest.fixture
-def engine(tmp_path: Path):
-    eng = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(eng)
-    return eng
-
-
-@pytest.fixture
-def session(engine):
-    s = get_session(engine)
-    yield s
-    s.close()
-
-
 class TestSettingsRoundTrip:
-    def test_save_and_read_back(self, session) -> None:
+    def test_save_and_read_back(self, session: Session) -> None:
         svc = SettingsService(session)
         svc.save_settings(
             leave_year_start="04-01",
@@ -48,7 +30,7 @@ class TestSettingsRoundTrip:
         assert ent is not None
         assert ent.days == 28.5
 
-    def test_update_settings_reflects_immediately(self, session) -> None:
+    def test_update_settings_reflects_immediately(self, session: Session) -> None:
         svc = SettingsService(session)
         svc.save_settings(
             leave_year_start="01-01",
@@ -69,7 +51,7 @@ class TestSettingsRoundTrip:
         assert s.working_days == "0,1,2,3"
         assert s.bank_holiday_division == "northern-ireland"
 
-    def test_add_next_year_entitlement(self, session) -> None:
+    def test_add_next_year_entitlement(self, session: Session) -> None:
         svc = SettingsService(session)
         svc.save_entitlement(2026, 25.0)
         svc.save_entitlement(2027, 25.0)

@@ -7,39 +7,23 @@ Covers: stale close once, system audit event, count toward worked time,
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
-from pathlib import Path
 
 import pytest
+from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base
 from flexi.services.clock import ClockService
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
 
 
 @pytest.fixture
-def engine(tmp_path: Path):
-    eng = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(eng)
-    return eng
-
-
-@pytest.fixture
-def session(engine):
-    s = get_session(engine)
-    yield s
-    s.close()
-
-
-@pytest.fixture
-def svc(session) -> ClockService:
+def svc(session: Session) -> ClockService:
     return ClockService(session)
 
 
 @pytest.fixture
-def _settings(session):
+def _settings(session: Session):
     s = SettingsService(session)
     s.save_settings(
         leave_year_start="01-01",

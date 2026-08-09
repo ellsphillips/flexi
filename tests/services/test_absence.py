@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType
 from flexi.models.database.app import create_db_engine, get_session
@@ -29,21 +30,7 @@ def _next_weekday(start: date, weekday: int) -> date:
 
 
 @pytest.fixture
-def engine(tmp_path: Path):
-    eng = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(eng)
-    return eng
-
-
-@pytest.fixture
-def session(engine):
-    s = get_session(engine)
-    yield s
-    s.close()
-
-
-@pytest.fixture
-def settings(session) -> SettingsService:
+def settings(session: Session) -> SettingsService:
     svc = SettingsService(session)
     svc.save_settings(
         leave_year_start="01-01",
@@ -56,7 +43,7 @@ def settings(session) -> SettingsService:
 
 
 @pytest.fixture
-def bank_holidays(session) -> BankHolidayService:
+def bank_holidays(session: Session) -> BankHolidayService:
     now = datetime.now(tz=UTC).replace(tzinfo=None)
     session.add(
         BankHolidayCache(
@@ -71,7 +58,7 @@ def bank_holidays(session) -> BankHolidayService:
 
 
 @pytest.fixture
-def absence(session, settings, bank_holidays) -> AbsenceService:
+def absence(session: Session, settings: SettingsService, bank_holidays: BankHolidayService) -> AbsenceService:
     return AbsenceService(session, settings, bank_holidays)
 
 
@@ -147,7 +134,7 @@ class TestRejections:
         assert "unavailable" in result.message
 
     def test_reject_on_date_with_work_session(
-        self, absence: AbsenceService, session
+        self, absence: AbsenceService, session: Session
     ) -> None:
         d = _next_weekday(date(2026, 7, 6), 0)  # A Monday in future
         clock = ClockService(session)
@@ -203,7 +190,7 @@ class TestBalance:
         remaining = absence.get_remaining_annual_leave()
         assert remaining == 24.0
 
-    def test_reject_when_insufficient(self, session, bank_holidays, settings) -> None:
+    def test_reject_when_insufficient(self, session: Session, bank_holidays: BankHolidayService, settings: SettingsService) -> None:
         settings.save_entitlement(2026, 1.0)
         svc = AbsenceService(session, settings, bank_holidays)
         d1 = _next_weekday(date(2026, 6, 8), 0)

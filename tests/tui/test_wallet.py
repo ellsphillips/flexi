@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 
 import pytest
 from textual.widgets import Input, RadioSet
 
+from flexi.app import FlexiApp
 from flexi.components.common import Gauge
 from flexi.constants import AbsenceType, Portion
 from flexi.screens.modals import AbsenceModal
@@ -15,7 +17,7 @@ from tests.tui.conftest import WIDE, status_text
 pytestmark = pytest.mark.usefixtures("_frozen")
 
 
-async def test_every_allowance_has_a_gauge(app_factory) -> None:
+async def test_every_allowance_has_a_gauge(app_factory: Callable[[], FlexiApp]) -> None:
     """It has a line for each type, whether or not anything is in it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -24,7 +26,7 @@ async def test_every_allowance_has_a_gauge(app_factory) -> None:
             assert app.screen.query_one(f"#gauge-{kind.token}", Gauge)
 
 
-async def test_a_type_with_nothing_recorded_is_not_drawn(app_factory) -> None:
+async def test_a_type_with_nothing_recorded_is_not_drawn(app_factory: Callable[[], FlexiApp]) -> None:
     """It hides an empty uncapped allowance rather than saying 'none' five times."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -33,7 +35,7 @@ async def test_a_type_with_nothing_recorded_is_not_drawn(app_factory) -> None:
         assert app.screen.query_one("#gauge-sick", Gauge).display is True
 
 
-async def test_a_shifted_key_opens_the_booking_modal_prefilled(app_factory) -> None:
+async def test_a_shifted_key_opens_the_booking_modal_prefilled(app_factory: Callable[[], FlexiApp]) -> None:
     """It books from anywhere on the dashboard, with the type already chosen."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -46,7 +48,7 @@ async def test_a_shifted_key_opens_the_booking_modal_prefilled(app_factory) -> N
         assert pressed.name == AbsenceType.SICK.value
 
 
-async def test_booking_a_half_day_draws_down_a_half(app_factory) -> None:
+async def test_booking_a_half_day_draws_down_a_half(app_factory: Callable[[], FlexiApp]) -> None:
     """It records a morning and spends half a day of the allowance."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -69,7 +71,7 @@ async def test_booking_a_half_day_draws_down_a_half(app_factory) -> None:
 
 
 async def test_booking_over_a_bank_holiday_is_refused_with_a_reason(
-    app_factory,
+    app_factory: Callable[[], FlexiApp],
 ) -> None:
     """It says why, on the status bar, rather than failing silently."""
     app = app_factory()
@@ -82,7 +84,7 @@ async def test_booking_over_a_bank_holiday_is_refused_with_a_reason(
         assert "bank holiday" in status_text(app).lower()
 
 
-async def test_other_absence_insists_on_a_note(app_factory) -> None:
+async def test_other_absence_insists_on_a_note(app_factory: Callable[[], FlexiApp]) -> None:
     """It refuses inside the modal, keeping what was typed on screen."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -97,7 +99,7 @@ async def test_other_absence_insists_on_a_note(app_factory) -> None:
         assert "note" in str(app.screen.query_one("#modal-error").render()).lower()
 
 
-async def test_taking_toil_beyond_the_balance_warns_but_proceeds(app_factory) -> None:
+async def test_taking_toil_beyond_the_balance_warns_but_proceeds(app_factory: Callable[[], FlexiApp]) -> None:
     """It lets you overdraw your own arithmetic, and says that you did."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -115,7 +117,7 @@ async def test_taking_toil_beyond_the_balance_warns_but_proceeds(app_factory) ->
         assert len(app.services.absence.for_date(date(2026, 6, 24))) == 1
 
 
-async def test_the_modal_cancels_on_escape(app_factory) -> None:
+async def test_the_modal_cancels_on_escape(app_factory: Callable[[], FlexiApp]) -> None:
     """It dismisses with nothing, like every modal in the application."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:

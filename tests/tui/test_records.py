@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 
 import pytest
 from sqlalchemy import event
 
+from flexi.app import FlexiApp
 from flexi.components.expandable import DAY, SESSION, ExpandableTable
 from flexi.components.modules.records import RecordsModule
 from flexi.components.progress import ProgressRail, TimeProgress
@@ -15,11 +17,11 @@ from tests.tui.conftest import WIDE, dashboard
 pytestmark = pytest.mark.usefixtures("_frozen")
 
 
-def table(app) -> ExpandableTable:
+def table(app: FlexiApp) -> ExpandableTable:
     return app.screen.query_one("#records-table", ExpandableTable)
 
 
-async def test_a_week_is_seven_rows_and_a_total(app_factory) -> None:
+async def test_a_week_is_seven_rows_and_a_total(app_factory: Callable[[], FlexiApp]) -> None:
     """It shows every day in the period, worked or not, plus the period line."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -29,7 +31,7 @@ async def test_a_week_is_seven_rows_and_a_total(app_factory) -> None:
         assert rows[-1].key == "t-period"
 
 
-async def test_space_opens_the_day_under_the_cursor(app_factory) -> None:
+async def test_space_opens_the_day_under_the_cursor(app_factory: Callable[[], FlexiApp]) -> None:
     """It reveals the sessions that produced the figures on the row."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -47,7 +49,7 @@ async def test_space_opens_the_day_under_the_cursor(app_factory) -> None:
         assert any(row.key.startswith(SESSION) for row in widget.visible_rows())
 
 
-async def test_expanding_does_not_move_the_cursor(app_factory) -> None:
+async def test_expanding_does_not_move_the_cursor(app_factory: Callable[[], FlexiApp]) -> None:
     """It restores the cursor by key, so rows inserted above do not shift it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -64,7 +66,7 @@ async def test_expanding_does_not_move_the_cursor(app_factory) -> None:
         assert widget.cursor_key == target
 
 
-async def test_a_day_with_nothing_recorded_does_not_open(app_factory) -> None:
+async def test_a_day_with_nothing_recorded_does_not_open(app_factory: Callable[[], FlexiApp]) -> None:
     """It leaves `space` inert where there is nothing behind the row."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -75,7 +77,7 @@ async def test_a_day_with_nothing_recorded_does_not_open(app_factory) -> None:
         assert saturday not in widget.expanded
 
 
-async def test_shift_space_opens_and_closes_everything(app_factory) -> None:
+async def test_shift_space_opens_and_closes_everything(app_factory: Callable[[], FlexiApp]) -> None:
     """It inverts the majority, so one key always does the visible thing."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -90,7 +92,7 @@ async def test_shift_space_opens_and_closes_everything(app_factory) -> None:
         assert widget.expanded == set()
 
 
-async def test_loading_a_period_costs_the_same_whatever_its_length(app_factory) -> None:
+async def test_loading_a_period_costs_the_same_whatever_its_length(app_factory: Callable[[], FlexiApp]) -> None:
     """It reads a period in a fixed number of queries, not one per day.
 
     Asserting a *constant* rather than a literal count is the property that
@@ -123,7 +125,7 @@ async def test_loading_a_period_costs_the_same_whatever_its_length(app_factory) 
 
 
 async def test_the_rails_say_how_far_through_the_day_and_the_period(
-    app_factory,
+    app_factory: Callable[[], FlexiApp],
 ) -> None:
     """It answers 'am I nearly done' without reading a table."""
     app = app_factory()
@@ -139,7 +141,7 @@ async def test_the_rails_say_how_far_through_the_day_and_the_period(
         assert period.share > 1.0, "the seed's week is over its expected hours"
 
 
-async def test_the_period_rail_follows_the_granularity(app_factory) -> None:
+async def test_the_period_rail_follows_the_granularity(app_factory: Callable[[], FlexiApp]) -> None:
     """It relabels itself rather than always saying WEEK."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -148,7 +150,7 @@ async def test_the_period_rail_follows_the_granularity(app_factory) -> None:
         assert app.screen.query_one("#rail-period", ProgressRail).label == "MONTH"
 
 
-async def test_the_period_rail_gives_way_when_there_is_no_room(app_factory) -> None:
+async def test_the_period_rail_gives_way_when_there_is_no_room(app_factory: Callable[[], FlexiApp]) -> None:
     """Below 100 columns two rails leave each other no bar, so one goes."""
     app = app_factory()
     async with app.run_test(size=(84, 28)) as pilot:
@@ -157,7 +159,7 @@ async def test_the_period_rail_gives_way_when_there_is_no_room(app_factory) -> N
         assert app.screen.query_one("#rail-period", ProgressRail).display is False
 
 
-async def test_the_period_total_is_in_the_border_subtitle(app_factory) -> None:
+async def test_the_period_total_is_in_the_border_subtitle(app_factory: Callable[[], FlexiApp]) -> None:
     """It puts the period's figures in the module's live slot."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:

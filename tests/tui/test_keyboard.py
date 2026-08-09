@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import inspect
 import pkgutil
+from collections.abc import Callable
 from importlib import import_module
 
 import pytest
 
 import flexi.screens
+from flexi.app import FlexiApp
 from flexi.components.chrome import NavItemLabel, footer_key_cost, keys_that_fit
 from flexi.screens.help import HelpScreen, collect_bindings
 from flexi.screens.insights import InsightsScreen
@@ -42,7 +44,7 @@ def modal_classes() -> list[type[FlexiModal]]:
 # -- bindings --------------------------------------------------------------
 
 
-async def test_no_two_shown_bindings_share_a_key(app_factory) -> None:
+async def test_no_two_shown_bindings_share_a_key(app_factory: Callable[[], FlexiApp]) -> None:
     """It never advertises one key doing two things on the same screen."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -58,7 +60,7 @@ async def test_no_two_shown_bindings_share_a_key(app_factory) -> None:
             seen[binding.key] = binding.action
 
 
-async def test_every_binding_names_an_action_that_exists(app_factory) -> None:
+async def test_every_binding_names_an_action_that_exists(app_factory: Callable[[], FlexiApp]) -> None:
     """It fails here rather than doing nothing when the key is pressed.
 
     A typo in an action name is otherwise silent until a user presses the key and
@@ -79,7 +81,7 @@ async def test_every_binding_names_an_action_that_exists(app_factory) -> None:
             )
 
 
-async def test_the_key_strip_says_how_many_it_dropped(app_factory) -> None:
+async def test_the_key_strip_says_how_many_it_dropped(app_factory: Callable[[], FlexiApp]) -> None:
     """It spends its last columns on a pointer rather than half a key."""
     app = app_factory()
     async with app.run_test(size=(64, 24)) as pilot:
@@ -130,7 +132,7 @@ def test_every_modal_binds_escape_and_enter(modal: type[FlexiModal]) -> None:
 # -- the pointer -----------------------------------------------------------
 
 
-async def test_clicking_a_tab_navigates(app_factory) -> None:
+async def test_clicking_a_tab_navigates(app_factory: Callable[[], FlexiApp]) -> None:
     """Every nav item is a widget with a hover state so a pointer works.
 
     It did not, for a while: `NavItemLabel` posted `NavBar.Selected` and nothing
@@ -159,7 +161,7 @@ async def test_clicking_a_tab_navigates(app_factory) -> None:
         assert not isinstance(app.screen, InsightsScreen)
 
 
-async def test_the_active_tab_is_marked(app_factory) -> None:
+async def test_the_active_tab_is_marked(app_factory: Callable[[], FlexiApp]) -> None:
     """It says where you are, not only where you can go."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -175,7 +177,7 @@ async def test_the_active_tab_is_marked(app_factory) -> None:
 # -- help ------------------------------------------------------------------
 
 
-async def test_question_mark_lists_flexi_bindings_only(app_factory) -> None:
+async def test_question_mark_lists_flexi_bindings_only(app_factory: Callable[[], FlexiApp]) -> None:
     """It shows what Flexi added, not Textual's eight scroll bindings."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -193,7 +195,7 @@ async def test_question_mark_lists_flexi_bindings_only(app_factory) -> None:
         assert "Scroll Up" not in actions
 
 
-async def test_help_closes_on_escape(app_factory) -> None:
+async def test_help_closes_on_escape(app_factory: Callable[[], FlexiApp]) -> None:
     """It leaves the way every other dialog does."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:

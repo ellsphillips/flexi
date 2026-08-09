@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy.orm import Session
 
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import BankHolidayCache, Base
@@ -27,7 +28,7 @@ def session(tmp_path: Path):
 
 
 @pytest.fixture
-def services(session) -> Services:
+def services(session: Session) -> Services:
     """A leave year that starts on the Monday of the test week."""
     built = Services.build(session)
     built.settings.save_settings(

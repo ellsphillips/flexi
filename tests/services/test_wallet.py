@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.app import create_db_engine, get_session
@@ -28,7 +29,7 @@ def session(tmp_path: Path):
 
 
 @pytest.fixture
-def services(session) -> Services:
+def services(session: Session) -> Services:
     """A configured application: 25 days' leave, no holidays.
 
     The leave year starts on the Monday of the test week on purpose. The balance
@@ -122,7 +123,7 @@ def test_pace_marks_where_an_even_spread_would_be(services: Services) -> None:
     assert annual.ahead_of_pace is False
 
 
-def test_an_unrecorded_entitlement_reads_as_unknown_not_zero(session) -> None:
+def test_an_unrecorded_entitlement_reads_as_unknown_not_zero(session: Session) -> None:
     """It distinguishes 'no allowance recorded' from 'no allowance left'."""
     services = Services.build(session)
     services.settings.save_settings(

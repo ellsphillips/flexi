@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
 from flexi.models.database.app import create_db_engine, get_session
@@ -28,7 +29,7 @@ def session(tmp_path: Path):
 
 
 @pytest.fixture
-def services(session) -> Services:
+def services(session: Session) -> Services:
     built = Services.build(session)
     built.settings.save_settings(
         leave_year_start="10-20",
@@ -39,11 +40,11 @@ def services(session) -> Services:
     return Services.build(session)
 
 
-def rows(session) -> list[WorkSession]:
+def rows(session: Session) -> list[WorkSession]:
     return list(session.query(WorkSession).all())
 
 
-def test_a_double_press_is_discarded(services: Services, session) -> None:
+def test_a_double_press_is_discarded(services: Services, session: Session) -> None:
     """Clocking in and straight back out never happened."""
     services.clock.clock_in(now=NINE)
     result = services.clock.clock_out(now=NINE + timedelta(seconds=2))
@@ -53,7 +54,7 @@ def test_a_double_press_is_discarded(services: Services, session) -> None:
     assert services.clock.get_sessions_for_date(DAY) == []
 
 
-def test_the_events_are_kept(services: Services, session) -> None:
+def test_the_events_are_kept(services: Services, session: Session) -> None:
     """Voided, not deleted. Clock events are immutable and the trail is the point."""
     services.clock.clock_in(now=NINE)
     services.clock.clock_out(now=NINE + timedelta(seconds=2))
@@ -90,7 +91,7 @@ def test_the_boundary_counts(services: Services) -> None:
     assert result.message == "Clocked out"
 
 
-def test_the_threshold_is_configurable(session) -> None:
+def test_the_threshold_is_configurable(session: Session) -> None:
     """Sixty seconds is a default, not a law."""
     clock = ClockService(session, timedelta(seconds=5))
     clock.clock_in(now=NINE)
@@ -112,7 +113,7 @@ def test_the_message_reads_like_a_person_said_it(services: Services) -> None:
 # -- databases that predate the threshold ----------------------------------
 
 
-def add_session(session, start: datetime, end: datetime) -> None:
+def add_session(session: Session, start: datetime, end: datetime) -> None:
     """A session written straight to the table.
 
     Not through ClockService: clocking in runs the startup sweep, so a loop that
@@ -135,7 +136,7 @@ def add_session(session, start: datetime, end: datetime) -> None:
     session.commit()
 
 
-def test_old_short_sessions_are_swept_on_startup(services: Services, session) -> None:
+def test_old_short_sessions_are_swept_on_startup(services: Services, session: Session) -> None:
     """Somebody learning which key does what leaves a trail of them."""
     for offset in range(5):
         at = NINE + timedelta(minutes=offset)
@@ -149,7 +150,7 @@ def test_old_short_sessions_are_swept_on_startup(services: Services, session) ->
     assert len(rows(session)) == 6, "voided, not deleted"
 
 
-def test_an_open_session_is_never_swept(services: Services, session) -> None:
+def test_an_open_session_is_never_swept(services: Services, session: Session) -> None:
     """It has no length yet, so it cannot be too short."""
     services.clock.clock_in(now=NINE)
     run_startup_cleanup(session)

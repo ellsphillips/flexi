@@ -7,34 +7,19 @@ rejected actions write nothing, DB rollback leaves no partial state.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, ClockEvent, WorkSession
+from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.services.clock import ClockService
 
 
 @pytest.fixture
-def engine(tmp_path: Path):
-    eng = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(eng)
-    return eng
-
-
-@pytest.fixture
-def session(engine):
-    s = get_session(engine)
-    yield s
-    s.close()
-
-
-@pytest.fixture
-def svc(session) -> ClockService:
+def svc(session: Session) -> ClockService:
     return ClockService(session)
 
 
@@ -42,7 +27,7 @@ def svc(session) -> ClockService:
 
 
 class TestClockIn:
-    def test_creates_event_and_session(self, svc: ClockService, session) -> None:
+    def test_creates_event_and_session(self, svc: ClockService, session: Session) -> None:
         result = svc.clock_in()
         assert result.success is True
         assert result.event is not None
@@ -63,7 +48,7 @@ class TestClockIn:
 
 
 class TestClockOut:
-    def test_creates_event_and_closes_session(self, svc: ClockService, session) -> None:
+    def test_creates_event_and_closes_session(self, svc: ClockService, session: Session) -> None:
         svc.clock_in()
         result = svc.clock_out()
         assert result.success is True
@@ -80,7 +65,7 @@ class TestClockOut:
 
 
 class TestRejections:
-    def test_duplicate_clock_in(self, svc: ClockService, session) -> None:
+    def test_duplicate_clock_in(self, svc: ClockService, session: Session) -> None:
         svc.clock_in()
         result = svc.clock_in()
         assert result.success is False
@@ -89,7 +74,7 @@ class TestRejections:
         events = session.execute(select(ClockEvent)).scalars().all()
         assert len(events) == 1
 
-    def test_clock_out_without_open_session(self, svc: ClockService, session) -> None:
+    def test_clock_out_without_open_session(self, svc: ClockService, session: Session) -> None:
         result = svc.clock_out()
         assert result.success is False
         assert result.event is None
@@ -107,7 +92,7 @@ class TestRejections:
 
 
 class TestRollback:
-    def test_flush_failure_leaves_no_event(self, svc: ClockService, session) -> None:
+    def test_flush_failure_leaves_no_event(self, svc: ClockService, session: Session) -> None:
         """If commit fails after flush, no partial state should remain."""
         with patch.object(session, "commit", side_effect=RuntimeError("boom")):
             with pytest.raises(RuntimeError, match="boom"):
