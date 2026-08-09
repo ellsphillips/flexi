@@ -15,7 +15,7 @@ resize costs nothing.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -141,7 +141,7 @@ class LedgerService:
         for when in _date_range(start, end):
             segments = tuple(
                 sorted(
-                    (_segment(row, moment) for row in sessions[when]),
+                    (_segment(row) for row in sessions[when]),
                     key=lambda item: item.start,
                 )
             )
@@ -152,7 +152,9 @@ class LedgerService:
             title = holidays.get(when)
             is_working = when.weekday() in working_days
 
-            worked = worked_from(segments, now=moment if when == today else moment)
+            worked = worked_from(
+                segments, now=moment if when >= today else _end_of(when)
+            )
             expected = expected_for(
                 contracted,
                 is_working_day=is_working,
@@ -236,7 +238,18 @@ class LedgerService:
         return {row.date: row.title for row in self._session.execute(stmt)}
 
 
-def _segment(row: WorkSession, now: datetime) -> Segment:
+def _end_of(day: date) -> datetime:
+    """The last moment of a date.
+
+    A session nobody closed is worth the rest of its own day, not every hour
+    since. Startup auto-closes stale sessions, so this only catches the window
+    between a crash and the next launch -- but during it, an open Tuesday would
+    otherwise report Tuesday to now as time worked on Tuesday.
+    """
+    return datetime.combine(day, time.max)
+
+
+def _segment(row: WorkSession) -> Segment:
     start = _naive(row.clock_in_event.timestamp)
     end = (
         _naive(row.clock_out_event.timestamp)

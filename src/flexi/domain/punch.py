@@ -92,9 +92,8 @@ class Window:
         end = self.end.hour * 60 + self.end.minute
         return max(1, end - start)
 
-    def moment(self, day: datetime | None, offset_minutes: float) -> datetime:
+    def moment(self, day: datetime, offset_minutes: float) -> datetime:
         """A datetime ``offset_minutes`` into the window on ``day``."""
-        assert day is not None
         base = day.replace(
             hour=self.start.hour, minute=self.start.minute, second=0, microsecond=0
         )
