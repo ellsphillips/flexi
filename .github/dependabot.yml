@@ -1,0 +1,24 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "build"
+    groups:
+      # One pull request a month rather than fifteen. Flexi pins nothing
+      # tightly except textual, which is the one worth reading a diff for.
+      dependencies:
+        patterns: ["*"]
+        exclude-patterns: ["textual"]
