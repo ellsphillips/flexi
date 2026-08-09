@@ -236,9 +236,9 @@ class FlexiApp(TextualApp[None]):
         `docs/KEYMAP.md` promises.
         """
         del parameters
-        if action == "clock_toggle" and isinstance(self.focused, (Input, TextArea)):
-            return False
-        return True
+        if action != "clock_toggle":
+            return True
+        return not isinstance(self.focused, Input | TextArea)
 
     def action_clock_toggle(self) -> None:
         """One key, from anywhere. The dashboard owns the confirmation."""

@@ -114,4 +114,4 @@ class BankHolidayService:
         stmt = select(BankHolidayCache.date).where(
             BankHolidayCache.division == self._division
         )
-        return {row for row in self._session.execute(stmt).scalars()}
+        return set(self._session.execute(stmt).scalars())

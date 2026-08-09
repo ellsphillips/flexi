@@ -68,7 +68,8 @@ async def test_booking_a_half_day_draws_down_a_half(app_factory: AppFactory) -> 
         booked = app.services.absence.for_date(date(2026, 6, 22))
         assert [item.portion for item in booked] == [Portion.AM]
         after = app.services.absence.get_remaining_annual_leave(date(2026, 6, 11))
-        assert before is not None and after is not None
+        assert before is not None
+        assert after is not None
         assert before - after == 0.5
 
 

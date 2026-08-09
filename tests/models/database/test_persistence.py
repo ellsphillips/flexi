@@ -154,9 +154,11 @@ class TestMigrationFailure:
         self, db_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """If alembic upgrade fails, the error propagates."""
-        with patch(
-            "flexi.models.database.migrate.command.upgrade",
-            side_effect=RuntimeError("migration exploded"),
+        with (
+            patch(
+                "flexi.models.database.migrate.command.upgrade",
+                side_effect=RuntimeError("migration exploded"),
+            ),
+            pytest.raises(RuntimeError, match="migration exploded"),
         ):
-            with pytest.raises(RuntimeError, match="migration exploded"):
-                run_migrations(db_path)
+            run_migrations(db_path)

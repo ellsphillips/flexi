@@ -24,7 +24,7 @@ def svc(session: Session) -> ClockService:
 
 
 @pytest.fixture
-def _settings(session: Session):
+def _settings(session: Session) -> None:
     s = SettingsService(session)
     s.save_settings(
         leave_year_start="01-01",

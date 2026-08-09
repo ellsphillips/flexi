@@ -133,9 +133,12 @@ async def test_every_chart_writes_its_figures_as_well_as_drawing_them(
         await pilot.press("f3")
         await pilot.pause()
         text = screen_text(app)
-        assert "best" in text and "worst" in text  # diverging bars
-        assert "taken" in text and "left" in text  # burndown
-        assert "+" in text and "−" in text  # heatmap legend, both ends named
+        assert "best" in text
+        assert "worst" in text
+        assert "taken" in text
+        assert "left" in text
+        assert "+" in text
+        assert "−" in text
 
 
 async def test_the_heatmap_legend_names_both_ends(app_factory: AppFactory) -> None:

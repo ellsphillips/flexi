@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from itertools import pairwise
 
 from flexi.constants import AbsenceType, DayKind, Portion
 
@@ -134,7 +135,7 @@ class DayLedger:
         """
         ordered = sorted(self.segments, key=lambda s: s.start)
         gaps: list[tuple[datetime, datetime]] = []
-        for earlier, later in zip(ordered, ordered[1:], strict=False):
+        for earlier, later in pairwise(ordered):
             if earlier.end is not None and earlier.end < later.start:
                 gaps.append((earlier.end, later.start))
         return tuple(gaps)
