@@ -108,7 +108,7 @@ widget type that declares them, so `PunchStrip`'s rules do not reach its cells.
 
 ### `[x]` 8. Calendar — *feature 4*
 
-`CalendarModule` on the new `Period` model: `d`/`w`/`m`/`y`, `[`/`]`, `t`, `g`,
+`MonthView` on the new `Period` model: `d`/`w`/`m`/`y`, `[`/`]`, `t`, `g`,
 `,`/`.`. Day-type markers from the validated scale. The current period is
 indicated by a tinted row (week), a tinted block (month) and a ring on today —
 today and *selected* must be distinguishable when they are different days.

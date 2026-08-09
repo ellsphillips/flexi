@@ -95,6 +95,6 @@ def _label_for(node: object) -> str:
         "RecordsModule": "Records",
         "ExpandableTable": "Records table",
         "WalletModule": "Wallet",
-        "CalendarModule": "Calendar",
+        "MonthView": "Calendar",
         "ClockModule": "Clock",
     }.get(name, name)

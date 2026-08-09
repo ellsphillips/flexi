@@ -6,8 +6,8 @@ import pytest
 
 from flexi.components.expandable import DAY, ExpandableTable
 from flexi.components.jump_overlay import JumpOverlay
-from flexi.components.modules.calendar import CalendarModule
 from flexi.components.modules.clock import ClockModule
+from flexi.components.modules.monthview import MonthView
 from tests.tui.conftest import WIDE, AppFactory, dashboard
 
 pytestmark = pytest.mark.usefixtures("_frozen")
@@ -73,7 +73,7 @@ async def test_escape_restores_the_previous_focus_exactly(
     """It costs nothing to try, which is what makes the mode worth having."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
-        calendar = app.screen.query_one(CalendarModule)
+        calendar = app.screen.query_one(MonthView)
         calendar.focus()
         await pilot.pause()
 

@@ -1,24 +1,14 @@
-"""The calendar: where you are in time, and how to get somewhere else.
+"""Where you are in time, and how to get somewhere else.
 
-The hardest thing this widget does is say *where you are* without saying it four
-times. There are three separate facts on screen — today, the selected day, and
-the extent of the current period — and a naive design gives each its own colour
-until the grid is a mess of highlights that nobody can read.
-
-So each fact gets a different *device*:
-
-* **the period** tints the ground of the rows or cells it covers,
-* **the selection** reverses one cell,
-* **today** is underlined,
-
-which means all three can be true of one cell and it still reads. A day type
-sits on top of that as the digit's colour, never as its background, so the
-markers never fight the position.
+Three separate facts share this grid — today, the selected day, and the extent
+of the period — and giving each a colour makes a mess nobody can read. So each
+gets a different device: the period tints the ground, the selection reverses a
+cell, today is underlined. All three can be true of one cell and it still reads,
+which leaves colour free to carry the day type.
 """
 
 from __future__ import annotations
 
-import calendar
 from datetime import date, timedelta
 from typing import Any, ClassVar
 
@@ -34,10 +24,11 @@ from flexi.config import CONFIG
 from flexi.constants import DayKind
 from flexi.domain.ledger import DayLedger
 from flexi.domain.period import Granularity, Period
+from flexi.domain.stitch import DAYS_IN_WEEK, MONTH_NAMES, weekday_initials
 from flexi.messages import DateSelected, Scope
 
 WEEKS = 6
-DAYS = 7
+MONTHS_IN_YEAR = 12
 
 KIND_CLASSES: dict[DayKind, str] = {
     DayKind.HOLIDAY: "day-holiday",
@@ -48,7 +39,7 @@ KIND_CLASSES: dict[DayKind, str] = {
 }
 
 
-class CalendarModule(Module):
+class MonthView(Module):
     """A month grid that drives, and reflects, the dashboard's period."""
 
     WATCHES: ClassVar[Scope] = Scope.ALL
@@ -65,7 +56,7 @@ class CalendarModule(Module):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(
-            id="calendar-module",
+            id="month-view",
             title="Calendar",
             subtitle=f"← {CONFIG.hotkeys.period_cycle} →",
             **kwargs,
@@ -80,11 +71,11 @@ class CalendarModule(Module):
             yield Button("›", id="calendar-next", classes="-quiet")
         with Container(classes="calendar"):
             with Horizontal(classes="calendar-dotw-row"):
-                for initial in ("M", "T", "W", "T", "F", "S", "S"):
+                for initial in weekday_initials():
                     yield Label(initial)
             for week in range(WEEKS):
                 with Horizontal(classes="calendar-row", id=f"calendar-row-{week}"):
-                    for day in range(DAYS):
+                    for day in range(DAYS_IN_WEEK):
                         yield Label("", id=f"calendar-cell-{week}-{day}")
 
     def on_mount(self) -> None:
@@ -109,20 +100,22 @@ class CalendarModule(Module):
         today = self.now.date()
 
         self.query_one("#calendar-label", Label).update(
-            f"{calendar.month_name[self._visible.month]} {self._visible.year}"
+            f"{MONTH_NAMES[self._visible.month - 1]} {self._visible.year}"
         )
 
         for index, when in enumerate(grid):
-            week, column = divmod(index, DAYS)
+            week, column = divmod(index, DAYS_IN_WEEK)
             cell = self.query_one(f"#calendar-cell-{week}-{column}", Label)
-            ledger = ledgers.get(when)
-            cell.update(self._cell_text(when, ledger, period, today))
-            cell.set_classes(" ".join(self._cell_classes(when, ledger, period, today)))
+            cell.update(self._cell_text(when, today))
+            cell.set_classes(
+                " ".join(self._cell_classes(when, ledgers.get(when), period, today))
+            )
 
         for week in range(WEEKS):
             row = self.query_one(f"#calendar-row-{week}")
             covered = any(
-                period.contains(grid[week * DAYS + column]) for column in range(DAYS)
+                period.contains(grid[week * DAYS_IN_WEEK + column])
+                for column in range(DAYS_IN_WEEK)
             )
             row.set_class(
                 covered and period.granularity is Granularity.WEEK, "in-period"
@@ -130,13 +123,7 @@ class CalendarModule(Module):
 
         self.set_subtitle(period.label)
 
-    def _cell_text(
-        self,
-        when: date,
-        ledger: DayLedger | None,
-        period: Period,
-        today: date,
-    ) -> Text:
+    def _cell_text(self, when: date, today: date) -> Text:
         """A day number, underlined when it is today.
 
         Underline rather than another colour: today can coincide with a selected
@@ -146,7 +133,6 @@ class CalendarModule(Module):
         text = Text(f"{when.day:2d}")
         if when == today:
             text.stylize("underline")
-        del ledger, period
         return text
 
     def _cell_classes(
@@ -198,9 +184,10 @@ class CalendarModule(Module):
 def _month_grid(first_of_month: date) -> list[date]:
     """Six weeks of dates covering the month, Monday first."""
     start = first_of_month - timedelta(days=first_of_month.weekday())
-    return [start + timedelta(days=offset) for offset in range(WEEKS * DAYS)]
+    return [start + timedelta(days=offset) for offset in range(WEEKS * DAYS_IN_WEEK)]
 
 
 def _add_month(when: date, offset: int) -> date:
-    total = when.year * 12 + when.month - 1 + offset
-    return date(total // 12, total % 12 + 1, 1)
+    total = when.year * MONTHS_IN_YEAR + when.month - 1 + offset
+    year, month = divmod(total, MONTHS_IN_YEAR)
+    return date(year, month + 1, 1)

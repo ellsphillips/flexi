@@ -31,8 +31,8 @@ from flexi.components.expandable import ABSENCE, DAY, SESSION
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.balance import BalanceModule
 from flexi.components.modules.base import Module
-from flexi.components.modules.calendar import CalendarModule
 from flexi.components.modules.clock import ClockModule
+from flexi.components.modules.monthview import MonthView
 from flexi.components.modules.records import BookHere, DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import TimeProgress
@@ -61,7 +61,7 @@ JUMP_TARGETS = {
     "balance-module": "b",
     "wallet-module": "w",
     "records-module": "r",
-    "calendar-module": "p",
+    "month-view": "p",
 }
 
 
@@ -123,7 +123,7 @@ class DashboardScreen(Screen[None]):
                 yield ClockModule()
                 yield BalanceModule()
                 yield WalletModule()
-                yield CalendarModule()
+                yield MonthView()
             with Vertical(id="dashboard-records"):
                 yield RecordsModule()
         yield AppFooter()

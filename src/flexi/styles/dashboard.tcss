@@ -45,7 +45,7 @@ DashboardScreen.-narrow #dashboard-controls .module {
     height: 100%;
 }
 
-DashboardScreen.-narrow #calendar-module {
+DashboardScreen.-narrow #month-view {
     display: none;
 }
 
@@ -152,7 +152,7 @@ DashboardScreen.-tiny #balance-module {
 
 /* -- Calendar ------------------------------------------------------------- */
 
-#calendar-module {
+#month-view {
     margin: 0;
 }
 
