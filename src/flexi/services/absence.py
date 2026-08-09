@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import AbsenceType, Portion
+from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain.format import short_date
 from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
@@ -90,6 +90,90 @@ class RangeResult:
             return f"{days} {what}"
         missed = f"{len(self.skipped)} skipped"
         return f"{days} {what}, {missed} — {'; '.join(self.reasons)}"
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedDay:
+    """One date, and what booking it would do."""
+
+    date: date
+    verdict: Verdict
+    reason: str
+    detail: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AbsencePlan:
+    """What booking a span would do, decided without writing anything.
+
+    Exists so a confirmation prompt can be a question rather than a receipt.
+    ``book_range`` used to call ``book`` in a loop, and ``book`` commits, so by
+    the time there was a result to show the rows were already in the database.
+    """
+
+    absence_type: AbsenceType
+    portion: Portion
+    note: str | None
+    start: date
+    end: date
+    days: tuple[PlannedDay, ...]
+    annual_remaining: float | None = None
+    toil_available: float | None = None
+
+    @property
+    def bookable(self) -> tuple[PlannedDay, ...]:
+        return tuple(d for d in self.days if d.verdict is Verdict.BOOK)
+
+    @property
+    def refused(self) -> tuple[PlannedDay, ...]:
+        return tuple(d for d in self.days if d.verdict.is_refusal)
+
+    @property
+    def skipped(self) -> tuple[PlannedDay, ...]:
+        """Weekends and bank holidays: passed over, not turned down."""
+        return tuple(d for d in self.days if d.verdict.is_skip)
+
+    @property
+    def cost(self) -> float:
+        """Days this plan would consume, counting a half as a half."""
+        return len(self.bookable) * self.portion.days
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.bookable
+
+    @property
+    def reasons(self) -> tuple[str, ...]:
+        """The distinct refusals, in the order they were first hit."""
+        seen: list[str] = []
+        for day in self.refused:
+            if day.reason not in seen:
+                seen.append(day.reason)
+        return tuple(seen)
+
+    @property
+    def annual_after(self) -> float | None:
+        if self.annual_remaining is None:
+            return None
+        if not self.absence_type.draws_down_entitlement:
+            return self.annual_remaining
+        return self.annual_remaining - self.cost
+
+    @property
+    def toil_after(self) -> float | None:
+        if self.toil_available is None:
+            return None
+        if not self.absence_type.draws_down_balance:
+            return self.toil_available
+        return self.toil_available - self.cost
+
+    @property
+    def warning(self) -> str | None:
+        """Overdrawing the flexi balance is allowed, and worth saying out loud."""
+        after = self.toil_after
+        if after is None or after >= 0:
+            return None
+        return f"This takes the flexi balance {abs(after):g} day into deficit"
 
 
 class AbsenceService:
@@ -265,18 +349,71 @@ class AbsenceService:
         portion: Portion,
         note: str | None,
     ) -> AbsenceResult | None:
-        """The first reason this booking cannot happen, or ``None``.
-
-        Order matters: the reasons are checked cheapest first, and only the
-        first is reported, because a dialog listing four objections at once
-        tells nobody what to do next.
-        """
-        return (
-            self._note_refusal(absence_type, note)
-            or self._calendar_refusal(day)
-            or self._clash_refusal(day, portion)
-            or self._entitlement_refusal(day, absence_type, portion)
+        """The first reason this booking cannot happen, or ``None``."""
+        verdict, reason, _ = self._verdict(
+            day, absence_type, portion, note, remaining_annual=None
         )
+        if verdict is Verdict.BOOK:
+            return None
+        return AbsenceResult(False, reason)
+
+    def _verdict(
+        self,
+        day: date,
+        absence_type: AbsenceType,
+        portion: Portion,
+        note: str | None,
+        *,
+        remaining_annual: float | None,
+    ) -> tuple[Verdict, str, str | None]:
+        """What booking this date would do, typed, with the sentence to show.
+
+        Order matters: cheapest first, and only the first is reported, because
+        a dialog listing four objections at once tells nobody what to do next.
+
+        ``remaining_annual`` is passed in rather than read, so a plan can carry a
+        drawdown the database has not seen. ``None`` means read it fresh.
+        """
+        if absence_type.requires_note and not (note or "").strip():
+            return (
+                Verdict.NEEDS_NOTE,
+                "Other absence needs a note saying what it is",
+                None,
+            )
+
+        if not self._settings.is_working_day(day.weekday()):
+            return (Verdict.NON_WORKING, "Not a working day", None)
+
+        holiday = self._bank_holidays.is_bank_holiday(day)
+        if holiday is None:
+            return (
+                Verdict.NO_CALENDAR,
+                "Bank holiday data unavailable; cannot book absence",
+                None,
+            )
+        if holiday:
+            title = self._bank_holidays.get_title(day)
+            return (Verdict.BANK_HOLIDAY, "That day is already a bank holiday", title)
+
+        clash = self._clash_refusal(day, portion)
+        if clash is not None:
+            return (Verdict.CLASH, clash.message, None)
+
+        if absence_type.draws_down_entitlement:
+            remaining = (
+                self.get_remaining_annual_leave(day)
+                if remaining_annual is None
+                else remaining_annual
+            )
+            if remaining is not None and remaining < portion.days:
+                short = portion.days - remaining
+                return (
+                    Verdict.NO_ENTITLEMENT,
+                    f"Not enough annual leave — {short:g} day short of the request",
+                    None,
+                )
+
+        return (Verdict.BOOK, "", None)
 
     def _note_refusal(
         self, absence_type: AbsenceType, note: str | None
@@ -348,6 +485,72 @@ class AbsenceService:
             f"Booked, but this takes the flexi balance {overdraft:g} day into deficit"
         )
 
+    # -- planning -----------------------------------------------------------
+
+    def plan(
+        self,
+        start: date,
+        end: date,
+        absence_type: AbsenceType,
+        portion: Portion = Portion.FULL,
+        *,
+        note: str | None = None,
+        available_toil_days: float | None = None,
+    ) -> AbsencePlan:
+        """Decide every date in the span without writing a row.
+
+        The entitlement is drawn down across the plan rather than read fresh for
+        each day: booking ten days against five left has to refuse the sixth,
+        and the database has not seen the first five yet.
+        """
+        remaining = self.get_remaining_annual_leave(start)
+        days: list[PlannedDay] = []
+
+        for when in _walk(start, end):
+            verdict, reason, detail = self._verdict(
+                when, absence_type, portion, note, remaining_annual=remaining
+            )
+            days.append(PlannedDay(when, verdict, reason, detail))
+            drawing_down = verdict is Verdict.BOOK and (
+                absence_type.draws_down_entitlement
+            )
+            if drawing_down and remaining is not None:
+                remaining -= portion.days
+
+        return AbsencePlan(
+            absence_type=absence_type,
+            portion=portion,
+            note=note,
+            start=start,
+            end=end,
+            days=tuple(days),
+            annual_remaining=self.get_remaining_annual_leave(start),
+            toil_available=available_toil_days,
+        )
+
+    def book_plan(self, plan: AbsencePlan) -> RangeResult:
+        """Write exactly what the plan decided, and nothing it did not."""
+        booked: list[date] = []
+        skipped: list[tuple[date, str]] = []
+
+        for day in plan.days:
+            if day.verdict is Verdict.BOOK:
+                self._session.add(
+                    AbsenceDay(
+                        date=day.date,
+                        absence_type=plan.absence_type,
+                        portion=plan.portion,
+                        note=plan.note,
+                    )
+                )
+                booked.append(day.date)
+            elif day.verdict.is_refusal:
+                skipped.append((day.date, day.reason))
+
+        if booked:
+            self._session.commit()
+        return RangeResult(tuple(booked), tuple(skipped), plan.warning)
+
     def book_range(
         self,
         start: date,
@@ -360,36 +563,21 @@ class AbsenceService:
     ) -> RangeResult:
         """Book every day in a span that will take it.
 
-        Weekends and bank holidays are skipped quietly — nobody booking a
+        Weekends and bank holidays are passed over quietly — nobody booking a
         fortnight means to book the Saturdays, and reporting them as refusals
-        would bury the one that matters.
+        would bury the one that matters. They are still in the plan, so a caller
+        that wants to say "and I left the two bank holidays" can.
         """
-        booked: list[date] = []
-        skipped: list[tuple[date, str]] = []
-        warning: str | None = None
-        remaining = available_toil_days
-
-        for when in _walk(start, end):
-            if not self._settings.is_working_day(when.weekday()):
-                continue
-            result = self.book(
-                when,
+        return self.book_plan(
+            self.plan(
+                start,
+                end,
                 absence_type,
                 portion,
                 note=note,
-                available_toil_days=remaining,
+                available_toil_days=available_toil_days,
             )
-            if result.success:
-                booked.append(when)
-                warning = warning or result.warning
-                if remaining is not None:
-                    remaining -= portion.days
-            elif "bank holiday" in result.message:
-                continue
-            else:
-                skipped.append((when, result.message))
-
-        return RangeResult(tuple(booked), tuple(skipped), warning)
+        )
 
     def clear_range(self, start: date, end: date) -> RangeResult:
         """Remove every booking in a span.

@@ -153,6 +153,9 @@ ignore = [
 "scripts/*" = ["INP001", "T201"]
 
 [tool.ruff.lint.pylint]
+# _verdict is one decision with seven named outcomes. Splitting it to satisfy a
+# counter would put the ordering of those outcomes in two places.
+max-returns = 8
 # The wide signatures in this codebase are keyword-only by construction, so
 # their call sites read as prose rather than as a row of unlabelled values.
 # FBT and the keyword-only style carry what the arity limit is reaching for.

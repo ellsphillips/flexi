@@ -105,6 +105,38 @@ _ABSENCE_TOKENS: dict[AbsenceType, str] = {
 }
 
 
+class Verdict(enum.Enum):
+    """What planning a booking decided about one date.
+
+    Typed, because the old code told a bank holiday apart from a real refusal by
+    looking for the words "bank holiday" in a sentence written for a status bar.
+    That matched "That day is already a bank holiday" and missed "Bank holiday
+    data unavailable; cannot book absence" on the capital B alone.
+    """
+
+    BOOK = "book"
+    NON_WORKING = "non-working"
+    BANK_HOLIDAY = "bank-holiday"
+    NO_CALENDAR = "no-calendar"
+    CLASH = "clash"
+    NO_ENTITLEMENT = "no-entitlement"
+    NEEDS_NOTE = "needs-note"
+
+    @property
+    def is_refusal(self) -> bool:
+        """True when the day was asked for and could not be had.
+
+        A weekend is not a refusal. Nobody booking a fortnight meant the
+        Saturdays, and counting them as failures makes every fortnight partial.
+        """
+        return self not in {Verdict.BOOK, Verdict.NON_WORKING, Verdict.BANK_HOLIDAY}
+
+    @property
+    def is_skip(self) -> bool:
+        """True when the date was passed over rather than refused."""
+        return self in {Verdict.NON_WORKING, Verdict.BANK_HOLIDAY}
+
+
 class Portion(enum.Enum):
     """How much of a day an absence covers."""
 
