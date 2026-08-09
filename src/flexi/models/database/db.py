@@ -147,3 +147,25 @@ class AbsenceDay(Base):
         Enum(Portion), default=Portion.FULL, server_default="FULL"
     )
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class BalanceAdjustment(Base):
+    """A signed correction to the flexi balance, with a reason.
+
+    The balance is derived from clock events, and clock events are immutable —
+    which is right until somebody needs to draw a line under a stretch they
+    never tracked. Deleting the records would lose the audit trail and would not
+    survive the next recomputation; an adjustment is one row that says what was
+    corrected, when it took effect, and why.
+
+    ``date`` is the day the correction takes effect: it counts toward any
+    balance computed for that date or later.
+    """
+
+    __tablename__ = "balance_adjustments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    date: Mapped[date_type] = mapped_column(Date(), index=True)
+    minutes: Mapped[int] = mapped_column(Integer())
+    reason: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime())
