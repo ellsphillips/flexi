@@ -7,7 +7,7 @@ machine on any day, which is what a committed SVG snapshot requires.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
@@ -178,7 +178,7 @@ def _open_session(session: Session, when: date, index: int) -> None:
 def _session(session: Session, when: date, start: time, end: time | None) -> None:
     clock_in = ClockEvent(
         action=ClockAction.IN,
-        timestamp=datetime.combine(when, start, tzinfo=UTC),
+        timestamp=datetime.combine(when, start),
         source="user",
     )
     session.add(clock_in)
@@ -188,7 +188,7 @@ def _session(session: Session, when: date, start: time, end: time | None) -> Non
     if end is not None:
         clock_out = ClockEvent(
             action=ClockAction.OUT,
-            timestamp=datetime.combine(when, end, tzinfo=UTC),
+            timestamp=datetime.combine(when, end),
             source="user",
         )
         session.add(clock_out)
