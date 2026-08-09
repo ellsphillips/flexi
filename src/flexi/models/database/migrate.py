@@ -11,7 +11,7 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 
 import flexi
-from flexi.locations import backups_directory, database_file
+from flexi.locations import backups_directory, database_file, ensure
 from flexi.models.database.app import create_db_engine
 
 MAX_BACKUPS = 10
@@ -38,7 +38,7 @@ def backup_database(db_path: Path | None = None) -> Path | None:
     if not db_path.exists():
         return None
 
-    backup_dir = backups_directory()
+    backup_dir = ensure(backups_directory())
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_path = backup_dir / f"{db_path.stem}_{timestamp}.bak"
     shutil.copy2(db_path, backup_path)

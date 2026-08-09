@@ -22,7 +22,7 @@ PACKAGE = Path(flexi.__file__).parent
 PROJECT_ROOT = Path(__file__).parent.parent
 
 # Import name on the left, distribution name on the right, where they differ.
-DISTRIBUTION = {"yaml": "pyyaml", "xdg_base_dirs": "xdg_base_dirs"}
+DISTRIBUTION = {"yaml": "pyyaml"}
 
 DATA_FILES = [
     "py.typed",
