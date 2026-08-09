@@ -6,7 +6,7 @@ rejected actions write nothing, DB rollback leaves no partial state.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -143,8 +143,11 @@ class TestOpenSession:
 
 class TestSessionsForDate:
     def test_returns_sessions(self, svc: ClockService) -> None:
-        svc.clock_in()
-        svc.clock_out()
+        # A real session, with time in it. Clocking in and straight back out is
+        # a slip of the finger and is discarded — see test_short_sessions.py.
+        now = datetime.now(tz=timezone.utc)
+        svc.clock_in(now=now)
+        svc.clock_out(now=now + timedelta(minutes=30))
         sessions = svc.get_sessions_for_date(date.today())
         assert len(sessions) == 1
 
