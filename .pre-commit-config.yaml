@@ -1,43 +1,58 @@
-# See https://pre-commit.com for more information
-# See https://pre-commit.com/hooks.html for more hooks
+# Every check here runs the same command CI runs, through the same project
+# environment. A hook that installs its own copy of a tool drifts from the one
+# in the lockfile, and then the hook and CI disagree about whether a tree is
+# clean -- which is worse than having no hook.
+#
+#   uv run pre-commit install
+#
+default_install_hook_types: [pre-commit]
+default_stages: [pre-commit]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-      - id: check-ast
-      - id: check-json
+      - id: check-added-large-files
+      - id: check-case-conflict # macOS and Linux disagree; CI runs both
+      - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
-      - id: check-added-large-files
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.1
+      - id: end-of-file-fixer
+        exclude: ^docs/shots/
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+        # Generated terminal captures. The trailing spaces are the padding that
+        # makes a row the width it was drawn at, and shoot.py puts them back.
+        exclude: ^docs/shots/
+
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--fix]
-        exclude: "typings|examples"
+      - id: ruff-check
+        name: ruff
+        entry: uv run ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
       - id: ruff-format
-        exclude: "typings|examples"
-  - repo: https://github.com/psf/black
-    rev: 24.10.0
-    hooks:
-      - id: black
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        args: ["--profile", "black"]
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.3.0
-    hooks:
+        name: ruff-format
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
       - id: mypy
-        args:
-          [
-            --strict,
-            --ignore-missing-imports,
-            --allow-untyped-decorators,
-            --allow-subclassing-any,
-            --exclude=migrations|tests|dist|build|typings,
-          ]
-        additional_dependencies: ["typing-extensions", "types-requests"]
+        name: mypy
+        # No filenames: mypy resolves imports across the whole package, and
+        # checking one file at a time invents errors that are not there.
+        entry: uv run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: uv-lock
+        name: uv.lock matches pyproject
+        entry: uv lock --check
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
