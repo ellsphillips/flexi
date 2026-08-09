@@ -1,38 +1,19 @@
-"""Tests for Slice 2: settings service.
-
-Covers: setup-complete validation, settings persistence, leave entitlement
-half-day support, active leave year calculation.
-"""
+"""Settings persistence, half-day entitlements, and which leave year is active."""
 
 from __future__ import annotations
 
 from datetime import date, time
-from pathlib import Path
 
 import pytest
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session
 
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base
-from flexi.services.settings import parse_month_day
-from flexi.services.settings import SettingsService
-
-
-@pytest.fixture()
-def engine(tmp_path: Path):
-    eng = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(eng)
-    return eng
+from flexi.models.database.app import get_session
+from flexi.services.settings import SettingsService, parse_month_day
 
 
-@pytest.fixture()
-def session(engine):
-    s = get_session(engine)
-    yield s
-    s.close()
-
-
-@pytest.fixture()
-def svc(session) -> SettingsService:
+@pytest.fixture
+def svc(session: Session) -> SettingsService:
     return SettingsService(session)
 
 
@@ -93,7 +74,7 @@ class TestSettingsPersistence:
         assert s.leave_year_start == "04-01"
         assert s.bank_holiday_division == "scotland"
 
-    def test_survives_new_session(self, engine) -> None:
+    def test_survives_new_session(self, engine: Engine) -> None:
         s1 = get_session(engine)
         svc1 = SettingsService(s1)
         _do_setup(svc1)

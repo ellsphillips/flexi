@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import pytest
+from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, BankHolidayCache
+from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import Services
 
 MONDAY = date(2026, 8, 10)
@@ -18,17 +17,8 @@ NEXT_FRIDAY = date(2026, 8, 21)
 BANK_HOLIDAY = date(2026, 8, 31)
 
 
-@pytest.fixture()
-def session(tmp_path: Path):
-    engine = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(engine)
-    opened = get_session(engine)
-    yield opened
-    opened.close()
-
-
-@pytest.fixture()
-def services(session) -> Services:
+@pytest.fixture
+def services(session: Session) -> Services:
     built = Services.build(session)
     built.settings.save_settings(
         leave_year_start="10-20",

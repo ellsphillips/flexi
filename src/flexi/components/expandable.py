@@ -1,26 +1,9 @@
 """A table whose rows open to show what is inside them.
 
-Textual's ``DataTable`` has no concept of a child row, and the reference application's answer — a
-global "show splits" toggle that expands everything at once — is not the same
-feature: the question a records table answers is "what happened on *Thursday*",
-not "show me every session in the month".
-
-So this widget owns the expansion state and flattens a list of
-:class:`RowGroup` into rows each time it is drawn. Two details make it feel
-right, and both are the sort of thing that is invisible when correct and
-maddening when not:
-
-**The cursor is preserved by key, not by index.** Expanding a row above the
-cursor inserts rows above it; restoring the cursor by index would move it.
-
-**Row keys are typed by prefix.** ``d-2026-06-11`` is a day, ``s-14`` a session,
-``a-3`` an absence, ``t-2026-06-11`` a total. Every handler switches on the
-prefix, so a key says what it is and no parallel bookkeeping can fall out of step
-with the table.
-
-It does *not* fork ``DataTable``. the reference application vendors 2,700 lines of it to add
-per-row styling; passing ``rich.text.Text`` with an explicit style into the cell
-gets the same result and stays on the upstream widget.
+Row keys are typed by prefix -- ``d-`` a day, ``s-`` a session, ``a-`` an
+absence, ``t-`` a total -- so a key says what it is and no parallel bookkeeping
+can fall out of step with the table. The cursor is restored by key rather than
+by index, because expanding a row above it would otherwise move it.
 """
 
 from __future__ import annotations
@@ -117,7 +100,9 @@ class ExpandableTable(DataTable[RenderableType]):
                 label, width = spec
                 # A column can be keyed and still be headless: `strip` is a name
                 # for the code, not a word for the reader.
-                self.add_column("" if label == "strip" else label, width=width, key=label)
+                self.add_column(
+                    "" if label == "strip" else label, width=width, key=label
+                )
             else:
                 self.add_column(spec, key=spec or None)
 

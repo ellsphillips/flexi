@@ -68,7 +68,7 @@ the clock module's pill flips, and the punch strip grows a live edge.
 | `left` / `right` | Same, when the calendar or records table has focus. |
 | `t` | Today. Resets the anchor, keeps the granularity. |
 | `g` | Go to date — a modal that accepts `12`, `12 Jun`, `2026-06-12`, `+3d`, `-2w`. |
-| `p` | Cycle granularity forward (the the reference application muscle memory: `d → w → m → y → d`). |
+| `p` | Cycle granularity forward: `d → w → m → y → d`. |
 
 ### Records table
 
@@ -166,8 +166,8 @@ where it was.
 
 The records table additionally exposes `1`–`9` for its first nine visible day
 rows. `v` `4` puts the cursor on the fourth day without leaving the home row.
-This is Flexi's extension to the reference application's jump mode and it is the reason jump mode is
-worth having in a table-heavy application.
+A row is not a widget, so these offsets come from the table's own geometry --
+which is what makes jump mode worth having in a table-heavy application.
 
 ### Adding a target
 
@@ -179,8 +179,8 @@ def jump_targets(self) -> Mapping[str, str]:
 ```
 
 The `Jumper` is rebuilt from this every time the overlay opens, so a target for a
-widget that is not mounted simply does not appear — unlike the reference application, where one
-global dict lists ids from every screen and the misses are silent.
+widget that is not mounted simply does not appear. One global dict listing ids
+from every screen would drop the misses silently instead.
 
 ---
 

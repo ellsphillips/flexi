@@ -15,16 +15,16 @@ import pytest
 import sqlalchemy as sa
 from alembic import command
 
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.migrate import _get_alembic_config
-from flexi.models.database.db import AbsenceDay, Settings
 from flexi.constants import AbsenceType, Portion
+from flexi.models.database.app import create_db_engine, get_session
+from flexi.models.database.db import AbsenceDay, Settings
+from flexi.models.database.migrate import _get_alembic_config
 
 BEFORE_HALF_DAYS = "0006"
 HEAD = "head"
 
 
-@pytest.fixture()
+@pytest.fixture
 def db(tmp_path: Path) -> Path:
     return tmp_path / "flexi.db"
 
@@ -41,7 +41,9 @@ def rows(db: Path, table: str) -> list[tuple[object, ...]]:
     engine = create_db_engine(db)
     try:
         with engine.connect() as connection:
-            return [tuple(row) for row in connection.execute(sa.text(f"SELECT * FROM {table}"))]
+            # S608: the table name comes from this module, never from input.
+            statement = sa.text(f"SELECT * FROM {table}")  # noqa: S608
+            return [tuple(row) for row in connection.execute(statement)]
     finally:
         engine.dispose()
 

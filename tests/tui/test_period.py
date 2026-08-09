@@ -6,16 +6,17 @@ from datetime import date
 
 import pytest
 
+from flexi.app import FlexiApp
 from flexi.components.expandable import DAY, ExpandableTable
 from flexi.domain.period import Granularity
-from tests.tui.conftest import WIDE, dashboard
+from tests.tui.conftest import WIDE, AppFactory, dashboard
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
 TODAY = date(2026, 6, 11)
 
 
-def day_rows(app) -> int:
+def day_rows(app: FlexiApp) -> int:
     table = app.screen.query_one("#records-table", ExpandableTable)
     return len([row for row in table.visible_rows() if row.kind == DAY])
 
@@ -29,7 +30,9 @@ def day_rows(app) -> int:
         ("y", Granularity.YEAR, 365),
     ],
 )
-async def test_a_key_per_granularity(app_factory, key, granularity, rows) -> None:
+async def test_a_key_per_granularity(
+    app_factory: AppFactory, key: str, granularity: Granularity, rows: int
+) -> None:
     """It changes how much of time is on screen, and the table follows."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -39,7 +42,7 @@ async def test_a_key_per_granularity(app_factory, key, granularity, rows) -> Non
         assert day_rows(app) == rows
 
 
-async def test_zooming_out_and_back_keeps_your_place(app_factory) -> None:
+async def test_zooming_out_and_back_keeps_your_place(app_factory: AppFactory) -> None:
     """It keeps the anchor, so a month view and back is the same week."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -51,7 +54,7 @@ async def test_zooming_out_and_back_keeps_your_place(app_factory) -> None:
         assert dashboard(app).period == before
 
 
-async def test_brackets_step_and_t_returns(app_factory) -> None:
+async def test_brackets_step_and_t_returns(app_factory: AppFactory) -> None:
     """It moves a period at a time and comes home without changing the width."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -68,7 +71,7 @@ async def test_brackets_step_and_t_returns(app_factory) -> None:
         assert home.granularity is Granularity.WEEK
 
 
-async def test_the_future_is_reachable(app_factory) -> None:
+async def test_the_future_is_reachable(app_factory: AppFactory) -> None:
     """It can show next month, which an offset-from-today model cannot."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -79,8 +82,8 @@ async def test_the_future_is_reachable(app_factory) -> None:
         assert dashboard(app).period.start == date(2026, 9, 1)
 
 
-async def test_p_cycles_the_granularity(app_factory) -> None:
-    """It cycles day to week to month to year, the the reference application muscle memory."""
+async def test_p_cycles_the_granularity(app_factory: AppFactory) -> None:
+    """It cycles day to week to month to year, and wraps."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("p")
@@ -88,7 +91,7 @@ async def test_p_cycles_the_granularity(app_factory) -> None:
         assert dashboard(app).period.granularity is Granularity.MONTH
 
 
-async def test_the_header_says_where_you_are(app_factory) -> None:
+async def test_the_header_says_where_you_are(app_factory: AppFactory) -> None:
     """It names today and the shown period, always, in the same place."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -102,7 +105,7 @@ async def test_the_header_says_where_you_are(app_factory) -> None:
         assert "June 2026" in str(app.screen.query_one("#header-context").render())
 
 
-async def test_go_to_date_accepts_an_offset(app_factory) -> None:
+async def test_go_to_date_accepts_an_offset(app_factory: AppFactory) -> None:
     """It takes the several ways somebody might type a date."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -115,7 +118,7 @@ async def test_go_to_date_accepts_an_offset(app_factory) -> None:
 
 
 async def test_the_calendar_marks_today_the_selection_and_the_period(
-    app_factory,
+    app_factory: AppFactory,
 ) -> None:
     """It uses three devices for three facts, so one cell can carry them all."""
     app = app_factory()

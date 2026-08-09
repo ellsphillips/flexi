@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from sqlalchemy.orm import Session
 
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, BankHolidayCache
+from flexi import wallclock
+from flexi.models.database.db import BankHolidayCache
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services
 
@@ -17,17 +17,8 @@ FRIDAY = date(2026, 6, 12)
 CONTRACTED = timedelta(minutes=444)
 
 
-@pytest.fixture()
-def session(tmp_path: Path):
-    engine = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(engine)
-    opened = get_session(engine)
-    yield opened
-    opened.close()
-
-
-@pytest.fixture()
-def services(session) -> Services:
+@pytest.fixture
+def services(session: Session) -> Services:
     """A leave year that starts on the Monday of the test week."""
     built = Services.build(session)
     built.settings.save_settings(
@@ -49,7 +40,7 @@ def services(session) -> Services:
 
 
 def work(services: Services, when: date, hours: float) -> None:
-    start = datetime.combine(when, datetime.min.time(), tzinfo=timezone.utc).replace(hour=9)
+    start = datetime.combine(when, datetime.min.time(), tzinfo=UTC).replace(hour=9)
     services.clock.clock_in(now=start)
     services.clock.clock_out(now=start + timedelta(hours=hours))
     services.invalidate()
@@ -155,7 +146,7 @@ def test_zeroing_defaults_to_yesterday(services: Services) -> None:
     result = services.zero_balance()
     if result.success:
         assert result.adjustment is not None
-        assert result.adjustment.date == date.today() - timedelta(days=1)
+        assert result.adjustment.date == wallclock.today() - timedelta(days=1)
 
 
 def test_zeroing_twice_is_refused_the_second_time(services: Services) -> None:

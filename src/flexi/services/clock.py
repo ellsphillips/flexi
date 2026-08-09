@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
-from flexi.models.database.db import ClockEvent, WorkSession
+from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 
 
 def _naive(moment: datetime) -> datetime:
@@ -20,11 +20,14 @@ def _naive(moment: datetime) -> datetime:
     return moment.replace(tzinfo=None) if moment.tzinfo else moment
 
 
+SECONDS_PER_MINUTE = 60
+
+
 def _readable(span: timedelta) -> str:
     """A threshold as somebody would say it out loud."""
     seconds = int(span.total_seconds())
-    if seconds % 60 == 0 and seconds >= 60:
-        minutes = seconds // 60
+    if seconds % SECONDS_PER_MINUTE == 0 and seconds >= SECONDS_PER_MINUTE:
+        minutes = seconds // SECONDS_PER_MINUTE
         return f"{minutes} minute" + ("" if minutes == 1 else "s")
     return f"{seconds} second" + ("" if seconds == 1 else "s")
 
@@ -80,7 +83,7 @@ class ClockService:
             return ClockResult(success=False, message="Already clocked in")
 
         if now is None:
-            now = datetime.now(tz=timezone.utc)
+            now = datetime.now(tz=UTC)
 
         work_date = now.astimezone().date()
 
@@ -94,17 +97,11 @@ class ClockService:
                 success=False, message="Cannot clock in on a bank holiday"
             )
 
-        # Block clocking on absence-marked dates (table may not exist yet)
-        try:
-            from flexi.models.database.db import AbsenceDay
-
-            stmt = select(AbsenceDay).where(AbsenceDay.date == work_date)
-            if self._session.execute(stmt).scalar_one_or_none() is not None:
-                return ClockResult(
-                    success=False, message="Cannot clock in on an absence day"
-                )
-        except Exception:  # noqa: BLE001
-            pass  # absence table may not exist yet
+        stmt = select(AbsenceDay).where(AbsenceDay.date == work_date)
+        if self._session.execute(stmt).scalar_one_or_none() is not None:
+            return ClockResult(
+                success=False, message="Cannot clock in on an absence day"
+            )
 
         event = ClockEvent(action=ClockAction.IN, timestamp=now, source=source)
         self._session.add(event)
@@ -136,7 +133,7 @@ class ClockService:
             return ClockResult(success=False, message="Not clocked in")
 
         if now is None:
-            now = datetime.now(tz=timezone.utc)
+            now = datetime.now(tz=UTC)
 
         event = ClockEvent(action=ClockAction.OUT, timestamp=now, source=source)
         self._session.add(event)

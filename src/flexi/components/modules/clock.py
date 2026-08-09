@@ -1,13 +1,11 @@
-"""The clock: are you on it, since when, and when can you go.
+"""Are you on the clock, since when, and when can you go.
 
-One key does the whole thing. The switch and the button exist because a pointer
-should work and because a control that can be seen teaches the key beside it —
-not because clocking in should take three interactions.
+One key does the whole thing. The switch and the button exist so a pointer works
+and so a visible control teaches the key beside it.
 
-The subtitle is the live slot: while a session is open it carries the elapsed
-time and updates every second. A minute-grained readout that jumped in
-sixty-second steps would look like a hung process, which is why
-``defaults.tick_seconds`` is 1.
+The subtitle carries the elapsed time while a session is open and updates every
+second: a minute-grained readout jumping in sixty-second steps looks like a hung
+process.
 """
 
 from __future__ import annotations
@@ -61,13 +59,9 @@ class ClockModule(Module):
             Tone.ACCENT if on_clock else Tone.NEUTRAL,
         )
 
-        # Plain assignment, so the slider animates. `set_reactive` writes the
-        # value without running the watcher, and the watcher is the animation —
-        # pressing `/` moved the clock and left the switch sitting still.
-        #
-        # The Changed event this posts is safe: `_ledger` was refreshed from the
-        # database a few lines above, so `on_switch_changed` sees the switch and
-        # the truth already agreeing and does nothing.
+        # Plain assignment, so the slider animates: `set_reactive` skips the
+        # watcher, and the watcher is the animation. The Changed event it posts
+        # is a no-op, `_ledger` having just been refreshed.
         self.query_one("#clock-switch", Switch).value = on_clock
 
         button = self.query_one("#clock-button", Button)

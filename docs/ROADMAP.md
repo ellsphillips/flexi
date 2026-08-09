@@ -56,10 +56,10 @@ revision. See [`DOMAIN.md`](DOMAIN.md) §6.
 `theme/flexi.tcss` with the validated palette, `theme/__init__.py` with the
 `palette()` parser, `styles/*.tcss`. Port `common.py` (`Tone`, `Pill`,
 `StatCard`, `KeyHint`, `Rule`, `Gauge`) and `chrome.py` (`Wordmark`, `NavBar`,
-`AppHeader`, `StatusBar`, `KeyStrip`, `AppFooter`) from the design reference.
+`AppHeader`, `StatusBar`, `KeyStrip`, `AppFooter`).
 
 **Done when:** `KeyStrip` shows `+n more` at 80 columns rather than a half-drawn
-key, and its two measurement functions have the design reference's tests; no hardcoded hex
+key, and its two measurement functions are tested directly; no hardcoded hex
 remains outside the `PALETTE` block (`grep -rn '#[0-9a-fA-F]\{6\}' src/flexi
 --include=*.py --include=*.tcss` returns only `flexi.tcss` and the fallback table
 in `theme/__init__.py`, which exists for the case where the stylesheet cannot be
@@ -108,7 +108,7 @@ widget type that declares them, so `PunchStrip`'s rules do not reach its cells.
 
 ### `[x]` 8. Calendar — *feature 4*
 
-`CalendarModule` on the new `Period` model: `d`/`w`/`m`/`y`, `[`/`]`, `t`, `g`,
+`MonthView` on the new `Period` model: `d`/`w`/`m`/`y`, `[`/`]`, `t`, `g`,
 `,`/`.`. Day-type markers from the validated scale. The current period is
 indicated by a tinted row (week), a tinted block (month) and a ring on today —
 today and *selected* must be distinguishable when they are different days.

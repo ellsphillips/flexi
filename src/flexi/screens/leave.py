@@ -11,7 +11,7 @@ a note explaining it" is a real case and does not deserve a key of its own.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import ClassVar
 
 from textual.app import ComposeResult
@@ -20,17 +20,23 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
+from flexi import wallclock
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import Gauge, Tone, mark_width
 from flexi.components.yearcalendar import YearCalendar, legend
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import delta
+from flexi.domain.format import delta, short_date
 from flexi.domain.period import Granularity, Period
 from flexi.domain.stitch import Selection
 from flexi.messages import Scope
-from flexi.screens.modals import AbsenceBooking, AbsenceModal, ConfirmModal, GoToDateModal
+from flexi.screens.modals import (
+    AbsenceBooking,
+    AbsenceModal,
+    ConfirmModal,
+    GoToDateModal,
+)
 from flexi.services.registry import Services
 
 TRACKED: tuple[AbsenceType, ...] = (
@@ -66,13 +72,15 @@ class LeaveScreen(Screen[None]):
         Binding("escape", "back", "Back", show=False),
     ]
 
-    def __init__(self, services: Services, anchor: date | None = None, **kwargs: object) -> None:
+    def __init__(
+        self, services: Services, anchor: date | None = None, **kwargs: object
+    ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._services = services
-        self.now = datetime.now()
+        self.now = wallclock.now()
         self.portion = Portion.FULL
         self.period = Period.containing(
-            anchor or date.today(),
+            anchor or wallclock.today(),
             Granularity.YEAR,
             year_start=services.settings.get_leave_year_start(),
             first_weekday=CONFIG.defaults.first_day_of_week,
@@ -136,7 +144,7 @@ class LeaveScreen(Screen[None]):
 
     def rebuild(self) -> None:
         """Reload the year and redraw everything that depends on it."""
-        self.now = datetime.now()
+        self.now = wallclock.now()
         start, end = self.period.start, self.period.end
         ledgers = {
             item.date: item
@@ -154,9 +162,7 @@ class LeaveScreen(Screen[None]):
         self._draw_wallet()
         self._draw_selection()
         for header in self.query(AppHeader):
-            header.context = (
-                f"{self.now.date().strftime('%a %-d %b')} · {self.period.label}"
-            )
+            header.context = f"{short_date(self.now.date())} · {self.period.label}"
 
     def _booked_subtitle(self) -> str:
         """How much of the year is already spoken for."""
@@ -182,7 +188,10 @@ class LeaveScreen(Screen[None]):
             elif allowance.is_capped and allowance.remaining is not None:
                 gauge.show(
                     allowance.used,
-                    readout=f"{fmt_days(allowance.remaining)} of {fmt_days(allowance.total or 0)}",
+                    readout=(
+                        f"{fmt_days(allowance.remaining)} of "
+                        f"{fmt_days(allowance.total or 0)}"
+                    ),
                     total=allowance.total or 1.0,
                     target=allowance.pace,
                     tone=Tone.OK,
@@ -190,7 +199,9 @@ class LeaveScreen(Screen[None]):
             else:
                 gauge.show(
                     None,
-                    readout=f"{fmt_days(allowance.used)}d" if allowance.used else "none",
+                    readout=f"{fmt_days(allowance.used)}d"
+                    if allowance.used
+                    else "none",
                     total=1.0,
                     tone=Tone.NEUTRAL,
                     compact=True,
@@ -200,9 +211,9 @@ class LeaveScreen(Screen[None]):
         self.query_one("#leave-wallet-line", Static).update(
             f"ANNUAL {left} · TOIL {delta(data.balance.delta)}"
         )
-        self.query_one("#leave-wallet", Vertical).border_subtitle = (
-            f"{data.leave_year[0]:%b %y}–{data.leave_year[1]:%b %y}"
-        )
+        self.query_one(
+            "#leave-wallet", Vertical
+        ).border_subtitle = f"{data.leave_year[0]:%b %y}–{data.leave_year[1]:%b %y}"
 
     def _draw_selection(self) -> None:
         selection = self.selection
@@ -215,14 +226,17 @@ class LeaveScreen(Screen[None]):
 
         self.query_one("#leave-selection-label", Static).update(selection.label())
         count = f"{len(working)} working day" + ("" if len(working) == 1 else "s")
-        portion = "" if self.portion is Portion.FULL else f" · {self.portion.label.lower()}s"
+        portion = (
+            "" if self.portion is Portion.FULL else f" · {self.portion.label.lower()}s"
+        )
         self.query_one("#leave-selection-detail", Static).update(f"{count}{portion}")
 
         if not booked:
             body = "Nothing booked"
         elif len(booked) == 1:
             body = booked[0].absence_type.label + (
-                "" if booked[0].portion is Portion.FULL
+                ""
+                if booked[0].portion is Portion.FULL
                 else f" ({booked[0].portion.label.lower()})"
             )
         else:
@@ -272,8 +286,11 @@ class LeaveScreen(Screen[None]):
             self.portion,
             available_toil_days=self._services.toil_days(),
         )
-        self._after_write(result.message(f"of {absence_type.label.lower()} booked"),
-                          ok=result.success, warning=result.warning)
+        self._after_write(
+            result.message(f"of {absence_type.label.lower()} booked"),
+            ok=result.success,
+            warning=result.warning,
+        )
 
     def action_remove(self) -> None:
         selection = self.selection
@@ -333,15 +350,19 @@ class LeaveScreen(Screen[None]):
             callback=book,
         )
 
-    def _after_write(self, message: str, *, ok: bool, warning: str | None = None) -> None:
+    def _after_write(
+        self, message: str, *, ok: bool, warning: str | None = None
+    ) -> None:
         self._services.invalidate()
         self.rebuild()
-        self.status(warning or message, Tone.WARN if warning else (Tone.OK if ok else Tone.ERR))
+        self.status(
+            warning or message, Tone.WARN if warning else (Tone.OK if ok else Tone.ERR)
+        )
 
     # -- moving ------------------------------------------------------------
 
     def action_today(self) -> None:
-        self.calendar.go_to(date.today())
+        self.calendar.go_to(wallclock.today())
 
     def action_go_to_date(self) -> None:
         def apply(when: date | None) -> None:

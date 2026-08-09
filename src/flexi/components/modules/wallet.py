@@ -1,9 +1,7 @@
-"""The wallet: every allowance, what is left, and whether that is on track.
+"""Every allowance, what is left, and whether that is on track.
 
-The gauge draws a marker where an even spread through the leave year would have
-you, which is the difference between a figure and a judgement. "18.5 days left"
-says nothing on its own; "18.5 left, and the marker is behind you" says you are
-banking leave you may not be able to take.
+The gauge marks where an even spread through the leave year would have you,
+which is the difference between a figure and a judgement.
 
 Tone is decided here rather than in :class:`~flexi.components.common.Gauge`,
 because whether an underspent allowance is good news is a question about leave
@@ -56,7 +54,9 @@ class BookRequested(Message):
 class WalletModule(Module):
     """One gauge per allowance, plus the period's own figures."""
 
-    WATCHES: ClassVar[Scope] = Scope.ABSENCE | Scope.CLOCK | Scope.SETTINGS | Scope.PERIOD
+    WATCHES: ClassVar[Scope] = (
+        Scope.ABSENCE | Scope.CLOCK | Scope.SETTINGS | Scope.PERIOD
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(id="wallet-module", title="Wallet", **kwargs)
@@ -87,7 +87,7 @@ class WalletModule(Module):
             return
         self._draw_counted(gauge, allowance)
 
-    def _draw_toil(self, gauge: Gauge, data: WalletData) -> None:  # noqa: D401
+    def _draw_toil(self, gauge: Gauge, data: WalletData) -> None:
         """TOIL has no entitlement — it has a balance, which can go negative.
 
         The track shows the balance against a nominal five days either way, so a
@@ -98,7 +98,9 @@ class WalletModule(Module):
         gauge.display = True
         gauge.show(
             max(0.0, min(balance_days, 5.0)),
-            readout=f"{delta(data.balance.delta)}  ({signed_days(round(balance_days, 1))}d)",
+            readout=(
+                f"{delta(data.balance.delta)}  ({signed_days(round(balance_days, 1))}d)"
+            ),
             total=5.0,
             tone=Tone.OK if balance_days >= 0 else Tone.ERR,
         )
@@ -138,6 +140,7 @@ class WalletModule(Module):
             tone=Tone.NEUTRAL,
             compact=True,
         )
+
 
 def _pace_tone(allowance: Allowance) -> Tone:
     """Amber when an entitlement is being spent faster than the year is passing.

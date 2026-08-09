@@ -1,19 +1,10 @@
-"""Jump mode: spatial navigation by one keystroke.
+"""Jump mode: one keystroke puts a badge on every jumpable region.
 
-Adapted from the reference application, which took the idea from the Amp editor. Press the jump
-key, every jumpable region grows a one-key badge over its top-left corner, press
-that key and focus lands there.
+Nothing needs a per-widget hook -- the overlay is a modal screen that reads the
+live compositor geometry underneath it.
 
-The mechanism is worth understanding because it looks like it should need
-per-widget hooks and does not: the overlay is a modal screen, and it reads the
-*live compositor geometry* of the screen underneath it. A widget is jumpable
-because the screen said so, not because it implements anything.
-
-Flexi's one departure from the reference application: targets are asked for per screen rather than
-kept in a single application-wide dict. the reference application lists every container id in the
-whole application in ``App.on_mount``, including ids belonging to screens that
-are not mounted, and a target that misses is silently dropped. Asking the live
-screen means a target can only ever name something that is there.
+Targets are asked of the current screen rather than held in an application-wide
+dict, so a target can only ever name something that is mounted.
 """
 
 from __future__ import annotations

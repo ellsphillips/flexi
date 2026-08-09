@@ -10,22 +10,24 @@ from __future__ import annotations
 import inspect
 import pkgutil
 from importlib import import_module
+from typing import Any
 
 import pytest
+from textual.binding import Binding
 
 import flexi.screens
 from flexi.components.chrome import NavItemLabel, footer_key_cost, keys_that_fit
 from flexi.screens.help import HelpScreen, collect_bindings
 from flexi.screens.insights import InsightsScreen
 from flexi.screens.modals import FlexiModal
-from tests.tui.conftest import WIDE
+from tests.tui.conftest import WIDE, AppFactory, showing
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
 
-def modal_classes() -> list[type[FlexiModal]]:
+def modal_classes() -> list[type[FlexiModal[Any]]]:
     """Every modal in the package, found by walking it."""
-    found: list[type[FlexiModal]] = []
+    found: list[type[FlexiModal[Any]]] = []
     for info in pkgutil.walk_packages(flexi.screens.__path__, "flexi.screens."):
         module = import_module(info.name)
         for _name, obj in inspect.getmembers(module, inspect.isclass):
@@ -42,7 +44,7 @@ def modal_classes() -> list[type[FlexiModal]]:
 # -- bindings --------------------------------------------------------------
 
 
-async def test_no_two_shown_bindings_share_a_key(app_factory) -> None:
+async def test_no_two_shown_bindings_share_a_key(app_factory: AppFactory) -> None:
     """It never advertises one key doing two things on the same screen."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -58,7 +60,9 @@ async def test_no_two_shown_bindings_share_a_key(app_factory) -> None:
             seen[binding.key] = binding.action
 
 
-async def test_every_binding_names_an_action_that_exists(app_factory) -> None:
+async def test_every_binding_names_an_action_that_exists(
+    app_factory: AppFactory,
+) -> None:
     """It fails here rather than doing nothing when the key is pressed.
 
     A typo in an action name is otherwise silent until a user presses the key and
@@ -79,7 +83,7 @@ async def test_every_binding_names_an_action_that_exists(app_factory) -> None:
             )
 
 
-async def test_the_key_strip_says_how_many_it_dropped(app_factory) -> None:
+async def test_the_key_strip_says_how_many_it_dropped(app_factory: AppFactory) -> None:
     """It spends its last columns on a pointer rather than half a key."""
     app = app_factory()
     async with app.run_test(size=(64, 24)) as pilot:
@@ -105,7 +109,7 @@ def test_an_entry_costs_its_two_strings_plus_its_margin() -> None:
     ],
 )
 def test_the_strip_reserves_room_for_its_own_overflow_notice(
-    costs, budget, marker, shown
+    costs: list[int], budget: int, marker: int, shown: int
 ) -> None:
     """A strip that overflowed *and* hid the fact is the failure to prevent."""
     assert keys_that_fit(costs, budget, marker) == shown
@@ -120,9 +124,12 @@ def test_there_are_modals_to_check() -> None:
 
 
 @pytest.mark.parametrize("modal", modal_classes(), ids=lambda cls: cls.__name__)
-def test_every_modal_binds_escape_and_enter(modal: type[FlexiModal]) -> None:
+def test_every_modal_binds_escape_and_enter(modal: type[FlexiModal[Any]]) -> None:
     """It keeps the contract every dialog in the application keeps."""
-    keys = {binding.key for binding in modal.BINDINGS}
+    keys = {
+        binding.key if isinstance(binding, Binding) else binding[0]
+        for binding in modal.BINDINGS
+    }
     assert "escape" in keys
     assert "enter" in keys
 
@@ -130,7 +137,7 @@ def test_every_modal_binds_escape_and_enter(modal: type[FlexiModal]) -> None:
 # -- the pointer -----------------------------------------------------------
 
 
-async def test_clicking_a_tab_navigates(app_factory) -> None:
+async def test_clicking_a_tab_navigates(app_factory: AppFactory) -> None:
     """Every nav item is a widget with a hover state so a pointer works.
 
     It did not, for a while: `NavItemLabel` posted `NavBar.Selected` and nothing
@@ -147,11 +154,11 @@ async def test_clicking_a_tab_navigates(app_factory) -> None:
         )
         await pilot.click(insights)
         await pilot.pause()
-        assert isinstance(app.screen, InsightsScreen)
+        opened = showing(app, InsightsScreen)
 
         dashboard = next(
             label
-            for label in app.screen.query(NavItemLabel)
+            for label in opened.query(NavItemLabel)
             if label.item.screen == "dashboard"
         )
         await pilot.click(dashboard)
@@ -159,7 +166,7 @@ async def test_clicking_a_tab_navigates(app_factory) -> None:
         assert not isinstance(app.screen, InsightsScreen)
 
 
-async def test_the_active_tab_is_marked(app_factory) -> None:
+async def test_the_active_tab_is_marked(app_factory: AppFactory) -> None:
     """It says where you are, not only where you can go."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -175,7 +182,7 @@ async def test_the_active_tab_is_marked(app_factory) -> None:
 # -- help ------------------------------------------------------------------
 
 
-async def test_question_mark_lists_flexi_bindings_only(app_factory) -> None:
+async def test_question_mark_lists_flexi_bindings_only(app_factory: AppFactory) -> None:
     """It shows what Flexi added, not Textual's eight scroll bindings."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -186,12 +193,14 @@ async def test_question_mark_lists_flexi_bindings_only(app_factory) -> None:
         groups = collect_bindings(app.screen_stack[-2])
         assert "Anywhere" in groups
         assert "VerticalScroll" not in groups
-        actions = [description for entries in groups.values() for _, description in entries]
+        actions = [
+            description for entries in groups.values() for _, description in entries
+        ]
         assert "Clock" in actions
         assert "Scroll Up" not in actions
 
 
-async def test_help_closes_on_escape(app_factory) -> None:
+async def test_help_closes_on_escape(app_factory: AppFactory) -> None:
     """It leaves the way every other dialog does."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:

@@ -1,19 +1,12 @@
 """The palette, read from the stylesheet rather than restated here.
 
-Textual scopes CSS variables to the file that declares them, so a `$c-accent`
-written in `flexi.tcss` would be invisible to any other stylesheet. Parsing the
-palette out of `flexi.tcss` and republishing it through the Textual `Theme`
-makes every name available application-wide while leaving exactly one place
-where a colour is written down.
+Textual scopes CSS variables to the file that declares them, so the PALETTE
+block is parsed out of ``flexi.tcss`` and republished through a Textual
+``Theme``. That leaves exactly one place where a colour is written down.
 
-Two traps worth knowing before editing this module:
-
-- **An undefined variable fails at startup**, during CSS parse, not at render.
-  Anything a stylesheet references must be either in the PALETTE block or in
-  :func:`theme_variables`.
-- **`App.theme = "flexi"` raises if `register_theme` has not run.** Register in
-  the app's ``__init__``, not ``on_mount``: Flexi can push the setup screen
-  before ``on_mount`` completes and that is too late.
+Two traps: an undefined variable fails during CSS parse at startup rather than
+at render, and ``App.theme = "flexi"`` raises unless ``register_theme`` has
+already run.
 """
 
 from __future__ import annotations
@@ -67,7 +60,9 @@ def palette(path: Path = THEME_PATH) -> dict[str, str]:
         source = path.read_text(encoding="utf-8")
     except OSError:
         return dict(_FALLBACK)
-    found = {name: value.strip() for name, value in _PALETTE_DECLARATION.findall(source)}
+    found = {
+        name: value.strip() for name, value in _PALETTE_DECLARATION.findall(source)
+    }
     return found or dict(_FALLBACK)
 
 
@@ -89,28 +84,19 @@ def theme_variables() -> dict[str, str]:
     variables = dict(palette())
     variables.update(
         {
-            # Theme-only, and deliberately NOT declared in flexi.tcss.
-            #
-            # Textual 8 mis-parses `hatch:` when its colour variable is both
-            # declared in the stylesheet and supplied through the theme — the
-            # value is substituted twice and the property sees four tokens where
-            # it wants two or three. Every other property survives it, which is
-            # why this looks arbitrary until you hit it.
-            #
-            # Derived from the palette rather than written out again, so the
-            # PALETTE block stays the single place a colour is chosen.
+            # Theme-only, deliberately absent from flexi.tcss: Textual 8
+            # substitutes a `hatch:` colour twice when it is both declared and
+            # supplied, and the property then sees four tokens. Derived from the
+            # palette so it stays the one place a colour is chosen.
             "c-hatch-empty": colour("c-line-soft", "#232019"),
             "c-hatch-jump": colour("c-ink"),
         }
     )
     variables.update(
         {
-            # Textual always paints a foreground on the cursor row, so a
-            # highlighted row loses its cells' own colours — which in the
-            # records table is the punch strip and the signed delta, the two
-            # things the reader is looking at. It cannot be prevented, so it is
-            # made quiet instead: a faint band when the table is not focused, a
-            # teal one when it is.
+            # Textual always paints a foreground on the cursor row, so the
+            # highlighted row loses the punch strip and the signed delta. It
+            # cannot be prevented, so it is made quiet.
             "block-cursor-text-style": "none",
             "block-cursor-background": colour("c-accent-deep"),
             "block-cursor-foreground": colour("c-cream"),
@@ -159,4 +145,11 @@ def flexi_theme() -> Theme:
     )
 
 
-__all__ = ["THEME_NAME", "THEME_PATH", "colour", "flexi_theme", "palette", "theme_variables"]
+__all__ = [
+    "THEME_NAME",
+    "THEME_PATH",
+    "colour",
+    "flexi_theme",
+    "palette",
+    "theme_variables",
+]

@@ -1,24 +1,23 @@
 """Drawing a line under a stretch nobody tracked.
 
-The balance is derived from clock events, and clock events are immutable. That
-is the right model until somebody installs Flexi in August with a leave year
-that started the previous October: two hundred untracked working days each
-expect their contracted hours, and the balance opens at minus ninety.
+Install Flexi in August against a leave year that began the previous October and
+two hundred untracked working days each expect their contracted hours, so the
+balance opens at minus ninety.
 
-Deleting the records would be the wrong fix twice over — it loses the proof of
-what did happen, and it does not survive the next recomputation. An adjustment
-is one signed row with a date and a reason, counted like any other term in the
-sum. It can be read, explained, and removed.
+Deleting the records would lose the proof of what did happen and would not
+survive the next recomputation. An adjustment is one signed row with a date and
+a reason, counted like any other term in the sum, and removable.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi.domain.format import stamp
 from flexi.models.database.db import BalanceAdjustment
 
 OPENING_BALANCE = "opening balance"
@@ -66,9 +65,7 @@ class AdjustmentService:
 
     # -- writing -----------------------------------------------------------
 
-    def record(
-        self, when: date, amount: timedelta, reason: str
-    ) -> AdjustmentResult:
+    def record(self, when: date, amount: timedelta, reason: str) -> AdjustmentResult:
         """Store a correction.
 
         Rounded to whole minutes, because that is the resolution every figure in
@@ -86,13 +83,13 @@ class AdjustmentService:
             date=when,
             minutes=minutes,
             reason=reason.strip(),
-            created_at=datetime.now(tz=timezone.utc).replace(tzinfo=None),
+            created_at=datetime.now(tz=UTC).replace(tzinfo=None),
         )
         self._session.add(row)
         self._session.commit()
         return AdjustmentResult(
             True,
-            f"Balance adjusted by {minutes:+d} minutes on {when.strftime('%-d %b %Y')}",
+            f"Balance adjusted by {minutes:+d} minutes on {stamp(when, '%-d %b %Y')}",
             row,
         )
 

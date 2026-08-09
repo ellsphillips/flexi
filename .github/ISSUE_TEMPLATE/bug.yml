@@ -1,0 +1,37 @@
+name: Bug
+description: Something Flexi does that it should not
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: screen
+    attributes:
+      label: What was on screen
+      description: >
+        Paste the terminal, or attach a capture. `uv run python scripts/shoot.py`
+        writes SVGs and their plain-text twins to `docs/shots/`.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`flexi --version`, and your terminal and OS."
+      placeholder: "flexi 0.1.0 · kitty 0.32 · macOS 15.3"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: size
+    attributes:
+      label: Terminal size
+      description: Flexi lays out differently under 100 columns and again under 64.
+      options:
+        - label: I have said how wide the terminal was, if the layout looks wrong

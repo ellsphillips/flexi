@@ -1,9 +1,11 @@
-from datetime import date, datetime
+from datetime import datetime
 
 import click
 
 import flexi
+from flexi import wallclock
 from flexi.app import App
+from flexi.domain.format import long_date, stamp
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.clock import ClockService
@@ -18,7 +20,7 @@ from flexi.services.startup import run_startup_cleanup
     help="Run against a throwaway database seeded with six weeks of a working life.",
 )
 @click.pass_context
-def cli(ctx: click.Context, demo: bool = False) -> None:
+def cli(ctx: click.Context, *, demo: bool = False) -> None:
     """Flexi CLI."""
     if demo:
         _run_demo()
@@ -125,11 +127,13 @@ def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
     from flexi.services.registry import Services
 
     services = Services.build(ctx.obj["session"])
-    today = as_of.date() if as_of is not None else date.today()
+    today = as_of.date() if as_of is not None else wallclock.today()
     start, _ = services.absence.leave_year_bounds(today)
     summary = services.ledger.balance(today)
 
-    click.echo(f"leave year   {start:%-d %b %Y} → {today:%-d %b %Y}")
+    click.echo(
+        f"leave year   {stamp(start, '%-d %b %Y')} → {stamp(today, '%-d %b %Y')}"
+    )
     click.echo(f"worked       {hm(summary.worked)}")
     click.echo(f"expected     {hm(summary.expected)}")
     if summary.toil_taken:
@@ -152,7 +156,11 @@ def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
 @click.option("--yes", is_flag=True, help="Do not ask.")
 @click.pass_context
 def balance_zero(
-    ctx: click.Context, as_of: datetime | None, reason: str | None, yes: bool
+    ctx: click.Context,
+    as_of: datetime | None,
+    reason: str | None,
+    *,
+    yes: bool,
 ) -> None:
     """Draw a line under everything up to a date.
 
@@ -167,10 +175,10 @@ def balance_zero(
     from flexi.services.registry import Services
 
     services = Services.build(ctx.obj["session"])
-    when = as_of.date() if as_of is not None else date.today() - timedelta(days=1)
+    when = as_of.date() if as_of is not None else wallclock.today() - timedelta(days=1)
     standing = services.ledger.balance(when).delta
 
-    click.echo(f"balance as at {when:%a %-d %b %Y} is {delta(standing)}")
+    click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
     if not yes and not click.confirm("Settle it to zero?", default=True):
         click.echo("Left alone.")
         _close(ctx)
@@ -179,7 +187,9 @@ def balance_zero(
     result = services.zero_balance(when, reason=reason or OPENING_BALANCE)
     click.secho(result.message, fg="green" if result.success else "red")
     if result.success:
-        click.echo(f"balance now   {delta(services.ledger.balance(date.today()).delta)}")
+        click.echo(
+            f"balance now   {delta(services.ledger.balance(wallclock.today()).delta)}"
+        )
     _close(ctx)
     if not result.success:
         ctx.exit(1)
@@ -189,9 +199,9 @@ def balance_zero(
 @click.pass_context
 def balance_log(ctx: click.Context) -> None:
     """List every correction ever recorded."""
-    from flexi.domain.format import delta
     from datetime import timedelta
 
+    from flexi.domain.format import delta
     from flexi.services.registry import Services
 
     services = Services.build(ctx.obj["session"])

@@ -1,25 +1,20 @@
 """Building day ledgers, in one pass over a period.
 
-This is the service the interface actually reads. The v1 code issued a query per
-day per concern — a bank-holiday lookup, an absence lookup and a session lookup
-for each of 31 rows, which is roughly 150 round trips to redraw one table, on a
-widget that redraws on a timer.
-
-Here a period is loaded with three queries regardless of its length, and the
-results are memoised until something writes. ``invalidate()`` is called by the
-dashboard when a :class:`~flexi.services.registry.DataChanged` scope says the
-underlying rows moved; nothing else clears the cache, so a redraw provoked by a
-resize costs nothing.
+A period loads in three queries regardless of its length, and the results are
+memoised until something writes. The dashboard calls ``invalidate()`` when a
+:class:`~flexi.services.registry.DataChanged` scope says the rows moved; nothing
+else clears the cache, so a redraw provoked by a resize costs nothing.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from flexi import wallclock
 from flexi.constants import DayKind
 from flexi.domain.balance import (
     BalanceSummary,
@@ -98,7 +93,7 @@ class LedgerService:
         ledger contains any open session, whose length changes every second, so
         caching it would freeze the live readout.
         """
-        moment = now or datetime.now()
+        moment = now or wallclock.now()
         today = moment.date()
 
         wanted = _date_range(start, end)
@@ -122,7 +117,7 @@ class LedgerService:
         contract is reflected everywhere at once and there is no derived total to
         fall out of step.
         """
-        as_of = as_of or date.today()
+        as_of = as_of or wallclock.today()
         year = self._settings.active_leave_year(as_of)
         month, day = self._settings.get_leave_year_start()
         return self.summary(date(year, month, day), as_of, now=now)
@@ -140,7 +135,7 @@ class LedgerService:
         for when in _date_range(start, end):
             segments = tuple(
                 sorted(
-                    (_segment(row, moment) for row in sessions[when]),
+                    (_segment(row) for row in sessions[when]),
                     key=lambda item: item.start,
                 )
             )
@@ -151,7 +146,9 @@ class LedgerService:
             title = holidays.get(when)
             is_working = when.weekday() in working_days
 
-            worked = worked_from(segments, now=moment if when == today else moment)
+            worked = worked_from(
+                segments, now=moment if when >= today else _end_of(when)
+            )
             expected = expected_for(
                 contracted,
                 is_working_day=is_working,
@@ -161,7 +158,7 @@ class LedgerService:
 
             self._cache[when] = DayLedger(
                 date=when,
-                kind=_kind(is_working, title, slices, segments),
+                kind=_kind(title, slices, segments, is_working=is_working),
                 is_working_day=is_working,
                 contracted=contracted,
                 worked=worked,
@@ -173,9 +170,7 @@ class LedgerService:
                 segments=segments,
             )
 
-    def _sessions(
-        self, start: date, end: date
-    ) -> defaultdict[date, list[WorkSession]]:
+    def _sessions(self, start: date, end: date) -> defaultdict[date, list[WorkSession]]:
         # Eager-load both events. They are what a segment is made of, so a lazy
         # relationship turns "three queries for a period" into three plus two per
         # session — 34 round trips for a month, which is the shape this service
@@ -237,7 +232,18 @@ class LedgerService:
         return {row.date: row.title for row in self._session.execute(stmt)}
 
 
-def _segment(row: WorkSession, now: datetime) -> Segment:
+def _end_of(day: date) -> datetime:
+    """The last moment of a date.
+
+    A session nobody closed is worth the rest of its own day, not every hour
+    since. Startup auto-closes stale sessions, so this only catches the window
+    between a crash and the next launch -- but during it, an open Tuesday would
+    otherwise report Tuesday to now as time worked on Tuesday.
+    """
+    return datetime.combine(day, time.max)
+
+
+def _segment(row: WorkSession) -> Segment:
     start = _naive(row.clock_in_event.timestamp)
     end = (
         _naive(row.clock_out_event.timestamp)
@@ -254,10 +260,11 @@ def _segment(row: WorkSession, now: datetime) -> Segment:
 
 
 def _kind(
-    is_working: bool,
     holiday: str | None,
     slices: tuple[AbsenceSlice, ...],
     segments: tuple[Segment, ...],
+    *,
+    is_working: bool,
 ) -> DayKind:
     if holiday is not None:
         return DayKind.HOLIDAY
@@ -280,4 +287,4 @@ def _date_range(start: date, end: date) -> list[date]:
 
 def utc_now() -> datetime:
     """The current moment, aware, for anything being written to the database."""
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)

@@ -1,19 +1,16 @@
 """The dashboard: clock, balance, wallet, calendar and records.
 
-The screen owns three things the modules deliberately do not: the **period**, the
-**tick**, and the **modals**. Modules read the period and redraw; they never move
-it. That is what makes the calendar and the records table agree — there is one
-anchor, on the screen, and both are views of it.
+The screen owns the period, the tick and the modals. Modules read the period and
+redraw; they never move it, which is what makes the calendar and the records
+table agree.
 
-Redraw is scoped. A module declares which kinds of change it cares about, the
+Redraw is scoped: a module declares which kinds of change it cares about, the
 screen invalidates the ledger cache once, and only interested modules rebuild.
-The v1 code's ``Home.rebuild()`` called four modules by name, which is why adding
-a fifth meant editing a method in a different file.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any, ClassVar
 
 from textual.app import ComposeResult
@@ -24,23 +21,30 @@ from textual.geometry import Offset
 from textual.screen import Screen
 from textual.timer import Timer
 
+from flexi import wallclock
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import TINY_COLUMNS, Tone, mark_width
 from flexi.components.expandable import ABSENCE, DAY, SESSION
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.balance import BalanceModule
 from flexi.components.modules.base import Module
-from flexi.components.modules.calendar import CalendarModule
 from flexi.components.modules.clock import ClockModule
+from flexi.components.modules.monthview import MonthView
 from flexi.components.modules.records import BookHere, DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType
 from flexi.domain.format import clock as clock_time
+from flexi.domain.format import short_date
 from flexi.domain.period import Granularity, Period
 from flexi.messages import DataChanged, DateSelected, Scope
-from flexi.screens.modals import AbsenceBooking, AbsenceModal, ConfirmModal, GoToDateModal
+from flexi.screens.modals import (
+    AbsenceBooking,
+    AbsenceModal,
+    ConfirmModal,
+    GoToDateModal,
+)
 from flexi.services.registry import Services
 
 GRANULARITY_KEYS = {
@@ -55,7 +59,7 @@ JUMP_TARGETS = {
     "balance-module": "b",
     "wallet-module": "w",
     "records-module": "r",
-    "calendar-module": "p",
+    "month-view": "p",
 }
 
 
@@ -75,11 +79,17 @@ class DashboardScreen(Screen[None]):
         # Shifted, so they never collide with the record table's letters, and on
         # the screen rather than the wallet so one keystroke books leave from
         # anywhere on the dashboard.
-        Binding(CONFIG.hotkeys.book_annual, "book('annual')", "Annual leave", show=False),
+        Binding(
+            CONFIG.hotkeys.book_annual, "book('annual')", "Annual leave", show=False
+        ),
         Binding(CONFIG.hotkeys.book_sick, "book('sick')", "Sickness", show=False),
         Binding(CONFIG.hotkeys.book_toil, "book('flexi')", "TOIL day", show=False),
-        Binding(CONFIG.hotkeys.book_unpaid, "book('unpaid')", "Unpaid leave", show=False),
-        Binding(CONFIG.hotkeys.book_other, "book('other')", "Other absence", show=False),
+        Binding(
+            CONFIG.hotkeys.book_unpaid, "book('unpaid')", "Unpaid leave", show=False
+        ),
+        Binding(
+            CONFIG.hotkeys.book_other, "book('other')", "Other absence", show=False
+        ),
     ]
 
     def action_book(self, kind: str) -> None:
@@ -90,12 +100,12 @@ class DashboardScreen(Screen[None]):
         super().__init__(**kwargs)
         self._services = services
         self.period = Period.containing(
-            date.today(),
+            wallclock.today(),
             Granularity(CONFIG.defaults.period),
             year_start=services.settings.get_leave_year_start(),
             first_weekday=CONFIG.defaults.first_day_of_week,
         )
-        self.now = datetime.now()
+        self.now = wallclock.now()
         self._tick: Timer | None = None
 
     # -- composition -------------------------------------------------------
@@ -111,7 +121,7 @@ class DashboardScreen(Screen[None]):
                 yield ClockModule()
                 yield BalanceModule()
                 yield WalletModule()
-                yield CalendarModule()
+                yield MonthView()
             with Vertical(id="dashboard-records"):
                 yield RecordsModule()
         yield AppFooter()
@@ -147,7 +157,7 @@ class DashboardScreen(Screen[None]):
 
     def action_today(self) -> None:
         """Return to now, keeping the width the user chose."""
-        self.set_period(self.period.go_to(date.today()))
+        self.set_period(self.period.go_to(wallclock.today()))
 
     def action_shift(self, count: int) -> None:
         self.set_period(self.period.shift(count))
@@ -173,7 +183,7 @@ class DashboardScreen(Screen[None]):
 
     def refresh_modules(self, scope: Scope) -> None:
         """Invalidate once, then redraw only the modules that care."""
-        self.now = datetime.now()
+        self.now = wallclock.now()
         if scope & (Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS):
             self._services.invalidate()
         for module in self.query(Module):
@@ -204,9 +214,7 @@ class DashboardScreen(Screen[None]):
 
     def _sync_header(self) -> None:
         for header in self.query(AppHeader):
-            header.context = (
-                f"{date.today().strftime('%a %-d %b')} · {self.period.label}"
-            )
+            header.context = f"{short_date(wallclock.today())} · {self.period.label}"
 
     # -- the live tick -----------------------------------------------------
 
@@ -217,7 +225,7 @@ class DashboardScreen(Screen[None]):
         hung process; a timer that ran when nothing was moving would redraw the
         whole dashboard once a second for no reason.
         """
-        open_now = self._services.ledger.day(date.today()).is_open
+        open_now = self._services.ledger.day(wallclock.today()).is_open
         if open_now and self._tick is None:
             self._tick = self.set_interval(CONFIG.defaults.tick_seconds, self._on_tick)
         elif not open_now and self._tick is not None:
@@ -225,7 +233,7 @@ class DashboardScreen(Screen[None]):
             self._tick = None
 
     def _on_tick(self) -> None:
-        self.now = datetime.now()
+        self.now = wallclock.now()
         self._services.ledger.invalidate()
         for module in (ClockModule, BalanceModule):
             for widget in self.query(module):
@@ -245,15 +253,10 @@ class DashboardScreen(Screen[None]):
     def toggle_clock(self) -> None:
         """Clock in, or clock out. It never asks.
 
-        An earlier draft confirmed a clock-out before four in the afternoon, to
-        catch an accidental `/`. It fired at lunchtime every single day, because
-        clocking out for lunch is the normal thing this application is for.
-
-        The right guard is not a question but a receipt. Clock events are
-        immutable and a second `/` opens a new session, so a mistaken press costs
-        one visible break and nothing else — and the status bar says exactly what
-        was recorded, at what time, so the mistake is seen at the moment it is
-        made rather than at the end of the month.
+        An earlier draft confirmed an early clock-out and fired at lunchtime every day,
+        because clocking out for lunch is the normal thing this application is for.
+        Clock events are immutable and a second `/` opens a new session, so a mistaken
+        press costs one visible break; the status bar is the receipt.
         """
         clock = self._services.clock
         if clock.is_clocked_in():
@@ -330,8 +333,7 @@ class DashboardScreen(Screen[None]):
 
         self.app.push_screen(
             ConfirmModal(
-                f"Remove {found.absence_type.label.lower()} "
-                f"from {when.strftime('%a %-d %b')}?",
+                f"Remove {found.absence_type.label.lower()} from {short_date(when)}?",
                 title="Remove booking",
             ),
             callback=confirm,

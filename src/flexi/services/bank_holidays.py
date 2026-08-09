@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 from sqlalchemy import delete, select
@@ -31,7 +31,7 @@ class BankHolidayService:
         row = self._session.execute(stmt).scalar_one_or_none()
         if row is None:
             return False
-        age = datetime.now(tz=timezone.utc) - row.replace(tzinfo=timezone.utc)
+        age = datetime.now(tz=UTC) - row.replace(tzinfo=UTC)
         return age < CACHE_MAX_AGE
 
     # ---- fetch ----
@@ -48,13 +48,11 @@ class BankHolidayService:
 
         division_data = data.get(self._division, {})
         events = division_data.get("events", [])
-        now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+        now = datetime.now(tz=UTC).replace(tzinfo=None)
 
         # Clear old cache for this division
         self._session.execute(
-            delete(BankHolidayCache).where(
-                BankHolidayCache.division == self._division
-            )
+            delete(BankHolidayCache).where(BankHolidayCache.division == self._division)
         )
 
         for ev in events:
@@ -116,4 +114,4 @@ class BankHolidayService:
         stmt = select(BankHolidayCache.date).where(
             BankHolidayCache.division == self._division
         )
-        return {row for row in self._session.execute(stmt).scalars()}
+        return set(self._session.execute(stmt).scalars())

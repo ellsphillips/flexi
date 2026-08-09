@@ -9,11 +9,11 @@ keep using on purpose.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from textual import events
 from textual.app import ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Center
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -34,7 +34,7 @@ focused, which reads as the jump having gone to the wrong place.
 class JumpOverlay(ModalScreen[str | Widget | None]):
     """The badges, and the two bars that explain the mode."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss_overlay", "Dismiss", show=False),
     ]
 
@@ -79,7 +79,9 @@ class JumpOverlay(ModalScreen[str | Widget | None]):
 
     def _sync(self) -> None:
         self.overlays = self.jumper.get_overlays()
-        self.keys_to_widgets = {info.key: info.widget for info in self.overlays.values()}
+        self.keys_to_widgets = {
+            info.key: info.widget for info in self.overlays.values()
+        }
 
     def compose(self) -> ComposeResult:
         self._sync()

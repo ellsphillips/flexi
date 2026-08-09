@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from datetime import date
-from typing import Any
+from typing import Any, ClassVar
 
 from textual.app import ComposeResult
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
+from flexi import wallclock
 from flexi.services.registry import Services
 
 DIVISIONS = [
@@ -20,7 +21,7 @@ DIVISIONS = [
 class SetupScreen(Screen[bool]):
     """First-launch setup screen. Returns True when setup is saved."""
 
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "cancel", "Cancel")]
 
     DEFAULT_CSS = """
     SetupScreen {
@@ -68,7 +69,7 @@ class SetupScreen(Screen[bool]):
         self._settings_svc = services.settings
 
     def compose(self) -> ComposeResult:
-        year = date.today().year
+        year = wallclock.today().year
         with Container(id="setup-dialog"):
             yield Static("Welcome to Flexi! Complete setup to continue.\n")
 
@@ -82,7 +83,9 @@ class SetupScreen(Screen[bool]):
 
             with Horizontal(classes="setup-row"):
                 yield Label("Working days (indices)")
-                yield Input("0,1,2,3,4", id="input-working-days", placeholder="0,1,2,3,4")
+                yield Input(
+                    "0,1,2,3,4", id="input-working-days", placeholder="0,1,2,3,4"
+                )
 
             with Horizontal(classes="setup-row"):
                 yield Label("Bank holiday region")
@@ -142,7 +145,7 @@ class SetupScreen(Screen[bool]):
             auto_close_time=auto_close,
         )
 
-        year = date.today().year
+        year = wallclock.today().year
         self._settings_svc.save_entitlement(year, entitlement)
 
         self.dismiss(True)

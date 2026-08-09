@@ -1,9 +1,7 @@
 """One object holding every service, built once and hung on the app.
 
-The v1 code had every widget reach for ``self.app._session`` behind a
-``# type: ignore`` and construct its own services — four constructions per
-rebuild, in five files, each of which had to know which services depend on which
-others. This is that knowledge, written down once.
+Which service depends on which is written down here and nowhere else, so a
+widget never constructs its own and never reaches for the session behind it.
 """
 
 from __future__ import annotations
@@ -13,6 +11,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.services.absence import AbsenceService
 from flexi.services.adjustments import (
     OPENING_BALANCE,
@@ -77,7 +76,7 @@ class Services:
         Settling to the end of yesterday leaves today behaving exactly as any
         other day does.
         """
-        as_of = as_of or (date.today() - timedelta(days=1))
+        as_of = as_of or (wallclock.today() - timedelta(days=1))
         standing = self.ledger.balance(as_of).delta
         if not round(standing.total_seconds() / 60):
             return AdjustmentResult(False, "The balance is already zero")
@@ -88,12 +87,14 @@ class Services:
 
     def now(self) -> datetime:
         """The current local moment, in one place so tests can patch one thing."""
-        return datetime.now()
+        return wallclock.now()
 
 
 def _minimum_session() -> timedelta:
-    """How long a session has to last to count. Preference, so it comes from
-    the config file rather than from the database."""
+    """How long a session has to last to count.
+
+    A preference, so it comes from the config file rather than the database.
+    """
     from flexi.config import CONFIG
 
     return timedelta(seconds=CONFIG.defaults.minimum_session_seconds)

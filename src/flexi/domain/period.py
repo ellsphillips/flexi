@@ -1,20 +1,11 @@
-"""The temporal view: which span of dates the dashboard is showing.
+"""Which span of dates is on screen.
 
-the reference application models a period as *an offset from today*, which cannot express next
-month — it rings the terminal bell at you instead. Flexi books leave in the
-future, so a period is an **anchor** plus a granularity, and every operation is
-defined in terms of moving or reinterpreting that anchor.
+A period is an anchor plus a granularity rather than an offset from today: an
+offset cannot express next month, and Flexi books leave in the future.
 
-Two behaviours follow from the anchor, and they are what make the control feel
-right under the hand:
-
-**Zooming keeps the anchor.** Standing on Thursday of week 24 and pressing `m`
-gives you June; pressing `w` again gives you week 24 back, not the week
-containing the first of the month. The anchor never moved, so the user's place
-never moved.
-
-**Going to today resets the anchor, not the granularity.** Someone who has
-chosen a month view and pressed `t` wants *this month*.
+Zooming keeps the anchor, so ``m`` then ``w`` returns to the week you were
+standing on rather than the week containing the first of the month. Going to
+today resets the anchor and not the granularity.
 """
 
 from __future__ import annotations
@@ -24,6 +15,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from enum import StrEnum
+
+from flexi.domain.format import day_month, long_date
 
 MONTH_NAMES = (
     "January",
@@ -54,12 +47,12 @@ class Granularity(StrEnum):
         """The name shown to a reader."""
         return self.value.capitalize()
 
-    def next(self) -> "Granularity":
+    def next(self) -> Granularity:
         """The next granularity in the cycle ``day → week → month → year → day``."""
         order: list[Granularity] = list(Granularity)
         return order[(order.index(self) + 1) % len(order)]
 
-    def previous(self) -> "Granularity":
+    def previous(self) -> Granularity:
         """The previous granularity in the cycle."""
         order: list[Granularity] = list(Granularity)
         return order[(order.index(self) - 1) % len(order)]
@@ -79,13 +72,9 @@ def _add_months(anchor: date, months: int) -> date:
 class Period:
     """A span of dates, identified by any date inside it.
 
-    Args:
-        granularity: How wide the span is.
-        anchor: A date inside the span. Operations move or reinterpret this,
-            never a separate cursor, which is what keeps zooming lossless.
-        year_start: ``(month, day)`` the leave year turns over on. Only affects
-            :attr:`Granularity.YEAR`.
-        first_weekday: ``0`` for Monday. Only affects :attr:`Granularity.WEEK`.
+    Operations move or reinterpret ``anchor`` rather than a separate cursor, which
+    is what keeps zooming lossless. ``year_start`` affects only
+    :attr:`Granularity.YEAR`, ``first_weekday`` only :attr:`Granularity.WEEK`.
     """
 
     granularity: Granularity
@@ -204,9 +193,9 @@ class Period:
         """
         match self.granularity:
             case Granularity.DAY:
-                return self.anchor.strftime("%a %-d %b %Y")
+                return long_date(self.anchor)
             case Granularity.WEEK:
-                return f"Week of {self.start.strftime('%-d %b')}"
+                return f"Week of {day_month(self.start)}"
             case Granularity.MONTH:
                 return f"{MONTH_NAMES[self.anchor.month - 1]} {self.anchor.year}"
             case Granularity.YEAR:
@@ -220,9 +209,9 @@ class Period:
         """A form that fits a narrow subtitle."""
         match self.granularity:
             case Granularity.DAY:
-                return self.anchor.strftime("%-d %b")
+                return day_month(self.anchor)
             case Granularity.WEEK:
-                return self.start.strftime("%-d %b")
+                return day_month(self.start)
             case Granularity.MONTH:
                 return self.anchor.strftime("%b %Y")
             case Granularity.YEAR:

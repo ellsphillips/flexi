@@ -1,15 +1,11 @@
-"""The wallet: what is left in each allowance, and what the balance is doing.
+"""What is left in each allowance, and what the balance is doing.
 
-An allowance figure on its own is unreadable. "18.5 days" is either comfortable
-or alarming depending entirely on how much of the leave year is left, which is
-why every allowance here carries a **pace** — where the figure would be if it
-were being spent evenly — and the gauge draws a marker there. The pair is the
-sentence "you have spent six and a half of twenty-five, and you are a third of
-the way through the year" written in one line.
+Every allowance carries a pace -- where the figure would be if it were being
+spent evenly -- because "18.5 days" is comfortable or alarming depending
+entirely on how much of the leave year is left.
 
-This service returns numbers and says nothing about colour. Whether an underspent
-allowance is good news is a question about leave policy, not about bars, and it
-is answered in :mod:`flexi.components.modules.wallet`.
+Numbers only. Whether an underspent allowance is good news is a question about
+leave policy, and it is answered in the wallet module.
 """
 
 from __future__ import annotations
@@ -19,6 +15,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import AbsenceType
 from flexi.domain.balance import BalanceSummary
 from flexi.domain.ledger import DayLedger
@@ -133,7 +130,7 @@ class WalletService:
         now: datetime | None = None,
     ) -> WalletData:
         """The wallet as at ``today``, with ``start``–``end`` as the shown period."""
-        today = today or date.today()
+        today = today or wallclock.today()
         year_start, year_end = self._absence.leave_year_bounds(today)
         elapsed = _fraction_elapsed(year_start, year_end, today)
         contracted = self._settings.get_contracted()
@@ -149,9 +146,7 @@ class WalletService:
             period=period,
             today=self._ledger.day(today, now=now),
             contracted=contracted,
-            allowances=self._allowances(
-                year_start, year_end, elapsed, balance_days
-            ),
+            allowances=self._allowances(year_start, year_end, elapsed, balance_days),
         )
 
     def _allowances(
@@ -193,7 +188,7 @@ class WalletService:
         what stops the interface cheerfully accepting an unlimited number of
         future TOIL days and only mentioning the deficit once they arrive.
         """
-        today = today or date.today()
+        today = today or wallclock.today()
         contracted = self._settings.get_contracted()
         if not contracted:
             return 0.0

@@ -1,18 +1,13 @@
 """A plausible six weeks, for demos, screenshots and snapshot tests.
 
-The same seed serves three readers — somebody running ``flexi --demo``, a
-snapshot test, and whoever is reviewing a screenshot — which is the point: they
-all see the same interesting cases rather than an empty database or three
-different fictions.
-
-Deterministic by construction. No ``random``, no ``date.today()``: every figure
-is derived from the day's index, so the seed produces byte-identical output on
-any machine on any day, which is what a committed SVG snapshot requires.
+Deterministic by construction -- no ``random``, no clock reads. Every figure is
+derived from the day's index, so the seed produces byte-identical output on any
+machine on any day, which is what a committed SVG snapshot requires.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
@@ -26,6 +21,9 @@ from flexi.models.database.db import (
     Settings,
     WorkSession,
 )
+
+FRIDAY = 4
+"""The last working weekday, as datetime.weekday() numbers them."""
 
 ANCHOR = date(2026, 6, 11)
 """The Thursday every demo is drawn as at. Mid-week, mid-month, mid-leave-year."""
@@ -67,7 +65,14 @@ def seed_demo(session: Session, *, anchor: date = ANCHOR) -> None:
 
 
 def _wipe(session: Session) -> None:
-    for model in (WorkSession, ClockEvent, AbsenceDay, BankHolidayCache, LeaveEntitlement, Settings):
+    for model in (
+        WorkSession,
+        ClockEvent,
+        AbsenceDay,
+        BankHolidayCache,
+        LeaveEntitlement,
+        Settings,
+    ):
         session.execute(delete(model))
     session.commit()
 
@@ -139,7 +144,7 @@ def _work(session: Session, anchor: date, booked: set[date]) -> None:
 
     for index in range((anchor - start).days + 1):
         when = start + timedelta(days=index)
-        if when.weekday() > 4 or when in booked or when in holidays:
+        if when.weekday() > FRIDAY or when in booked or when in holidays:
             continue
         if when == anchor:
             _open_session(session, when, index)
@@ -170,12 +175,10 @@ def _open_session(session: Session, when: date, index: int) -> None:
     _session(session, when, time(13, 20), None)
 
 
-def _session(
-    session: Session, when: date, start: time, end: time | None
-) -> None:
+def _session(session: Session, when: date, start: time, end: time | None) -> None:
     clock_in = ClockEvent(
         action=ClockAction.IN,
-        timestamp=datetime.combine(when, start, tzinfo=timezone.utc),
+        timestamp=datetime.combine(when, start, tzinfo=UTC),
         source="user",
     )
     session.add(clock_in)
@@ -185,7 +188,7 @@ def _session(
     if end is not None:
         clock_out = ClockEvent(
             action=ClockAction.OUT,
-            timestamp=datetime.combine(when, end, tzinfo=timezone.utc),
+            timestamp=datetime.combine(when, end, tzinfo=UTC),
             source="user",
         )
         session.add(clock_out)

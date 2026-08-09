@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, BankHolidayCache
+from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import Services
 
 MONDAY = date(2026, 6, 8)
@@ -18,17 +17,8 @@ THURSDAY = date(2026, 6, 11)
 CONTRACTED = timedelta(minutes=444)
 
 
-@pytest.fixture()
-def session(tmp_path: Path):
-    engine = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(engine)
-    opened = get_session(engine)
-    yield opened
-    opened.close()
-
-
-@pytest.fixture()
-def services(session) -> Services:
+@pytest.fixture
+def services(session: Session) -> Services:
     """A configured application: 25 days' leave, no holidays.
 
     The leave year starts on the Monday of the test week on purpose. The balance
@@ -59,9 +49,7 @@ def services(session) -> Services:
 
 
 def work(services: Services, when: date, hours: float) -> None:
-    start = datetime.combine(when, datetime.min.time(), tzinfo=timezone.utc).replace(
-        hour=9
-    )
+    start = datetime.combine(when, datetime.min.time(), tzinfo=UTC).replace(hour=9)
     services.clock.clock_in(now=start)
     services.clock.clock_out(now=start + timedelta(hours=hours))
     services.invalidate()
@@ -124,7 +112,7 @@ def test_pace_marks_where_an_even_spread_would_be(services: Services) -> None:
     assert annual.ahead_of_pace is False
 
 
-def test_an_unrecorded_entitlement_reads_as_unknown_not_zero(session) -> None:
+def test_an_unrecorded_entitlement_reads_as_unknown_not_zero(session: Session) -> None:
     """It distinguishes 'no allowance recorded' from 'no allowance left'."""
     services = Services.build(session)
     services.settings.save_settings(

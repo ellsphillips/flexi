@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.services.settings import SettingsService
@@ -25,7 +26,7 @@ def close_stale_sessions(
     and marks sessions auto_closed.
     """
     if today is None:
-        today = date.today()
+        today = wallclock.today()
 
     stmt = select(WorkSession).where(
         WorkSession.clock_out_id.is_(None),
@@ -42,9 +43,7 @@ def close_stale_sessions(
         if effective_close <= clock_in_time:
             effective_close = time(23, 59)
 
-        close_dt = datetime.combine(
-            ws.work_date, effective_close, tzinfo=timezone.utc
-        )
+        close_dt = datetime.combine(ws.work_date, effective_close, tzinfo=UTC)
         event = ClockEvent(
             action=ClockAction.OUT,
             timestamp=close_dt,

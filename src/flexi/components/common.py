@@ -1,21 +1,15 @@
 """Small widgets every screen needs, so no screen invents its own.
 
-Six things, deliberately: a pill for state, a stat for a measurement, a gauge for
-a measurement with a target, a key hint for a shortcut, a rule for a section
-break, and an empty indicator for a region with nothing in it. Each is a thin
-wrapper over a Textual widget whose entire job is to carry a class from
-``theme/flexi.tcss`` — the styling lives there, not here, so a screen written by
-somebody else picks up a palette change without being edited.
-
-:class:`Tone` is the vocabulary they share. It exists so that "this went well" is
-expressed the same way in a pill, a gauge and a status bar, and so that a screen
-never writes ``"pill--ok"`` as a string and gets it wrong.
+Each is a thin wrapper whose job is to carry a class from ``theme/flexi.tcss``,
+so a screen picks up a palette change without being edited. :class:`Tone` is the
+shared vocabulary, so nothing writes ``"pill--ok"`` as a string and gets it
+wrong.
 """
 
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, TYPE_CHECKING, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 from rich.text import Text
 from textual.app import ComposeResult, RenderResult
@@ -102,7 +96,9 @@ class Pill(Static):
     label: reactive[str] = reactive("", init=False)
     tone: reactive[Tone] = reactive(Tone.NEUTRAL, init=False)
 
-    def __init__(self, label: str = "", tone: Tone = Tone.NEUTRAL, **kwargs: Any) -> None:
+    def __init__(
+        self, label: str = "", tone: Tone = Tone.NEUTRAL, **kwargs: Any
+    ) -> None:
         super().__init__(label, **kwargs)
         self.set_reactive(Pill.label, label)
         self.set_reactive(Pill.tone, tone)
@@ -133,8 +129,11 @@ class Pill(Static):
         self._apply_tone()
 
     def _apply_tone(self) -> None:
-        """Tone classes are mutually exclusive, so removing all of them first is
-        cheaper to reason about than tracking which one is on."""
+        """Apply the tone, having cleared the others.
+
+        They are mutually exclusive, so removing all of them first is cheaper to
+        reason about than tracking which one is on.
+        """
         self.remove_class(*_ALL_TONE_CLASSES)
         if applied := TONE_CLASSES[self.tone]:
             self.add_class(applied)
@@ -152,7 +151,9 @@ class StatCard(Vertical):
     value: reactive[str] = reactive("", init=False)
     note: reactive[str] = reactive("", init=False)
 
-    def __init__(self, label: str, value: str = "", note: str = "", **kwargs: Any) -> None:
+    def __init__(
+        self, label: str, value: str = "", note: str = "", **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
         self._label = label
         self.set_reactive(StatCard.value, value)
@@ -224,15 +225,10 @@ class EmptyIndicator(Static):
 class Gauge(Widget):
     """A measurement against a total, with an optional marker where it should be.
 
-    A number of days remaining is unreadable on its own: 18.5 is either
-    comfortable or alarming depending entirely on how much of the leave year is
-    left. So the gauge draws a marker where the pace line sits and colours the
-    fill by the caller's verdict — the sentence "you have spent six of
-    twenty-five and you are four months in" written in two rows.
-
-    The widget makes no judgement of its own. The caller passes a :class:`Tone`,
-    because whether an underspent allowance is good news is a question about
-    leave policy, not about bars.
+    The marker is the pace line: 18.5 days left reads as comfortable or alarming
+    depending entirely on how much of the leave year remains. The caller passes the
+    :class:`Tone`, because whether that is good news is a question about leave
+    policy rather than about bars.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -268,13 +264,9 @@ class Gauge(Widget):
     ) -> None:
         """Draw a reading. ``None`` leaves the track empty rather than at zero.
 
-        An unmeasured allowance and an allowance measured at zero are not the
-        same thing, and a gauge that drew them identically would say a fresh
-        install had spent nothing when it does not yet know.
-
-        ``compact`` drops the bar and keeps the line. A track with nothing in it
-        is not information — it is a row of hyphens that costs a line of a
-        sidebar that has four other things to say.
+        An unmeasured allowance and one measured at zero are not the same thing.
+        ``compact`` drops the bar and keeps the line, because an empty track is a row of
+        hyphens costing a line of a sidebar with four other things to say.
         """
         self.value = value
         self.readout = readout

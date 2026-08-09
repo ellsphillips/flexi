@@ -1,15 +1,11 @@
 """Preferences: keybindings and defaults, from ``~/.config/flexi/config.yaml``.
 
-Distinct from *settings*, which live in the database. Settings are what the
-balance depends on — contracted hours, the leave year, the bank-holiday division
-— and belong with the records they explain. Config is preference: which key
-clocks in, which period the dashboard opens on.
+Distinct from *settings*, which live in the database because the balance depends
+on them. Config is preference: which key clocks in, which period opens.
 
-Bindings read from :data:`CONFIG` at class-definition time, so this module is
-imported before any widget module and must not import anything from Flexi except
-:mod:`flexi.locations`. A cycle here fails at import with a message about
-partially initialised modules, which is a bad first thing for a contributor to
-see.
+Bindings read :data:`CONFIG` at class-definition time, so this module is
+imported before any widget module and must import nothing from Flexi except
+:mod:`flexi.locations`.
 """
 
 from __future__ import annotations

@@ -1,18 +1,10 @@
 """The frame every screen sits in: header, navigation, status line, key strip.
 
-Two rules hold this together.
-
-**The wordmark never moves.** It is the leftmost thing on every screen, at the
-same height, in the same colour, so the application always looks like the same
-application no matter how far in you are. Everything to its right is context.
-
-**Navigation is data, not markup.** :data:`NAV_ITEMS` is the one table that says
-which screens exist, which key jumps to them and what they are called. The app
-builds its bindings from it, the nav bar builds its clickable items from it, and
-the command palette builds its entries from it — so adding a screen is one line
-here rather than four edits in three files. It lives in this module rather than
-in ``app.py`` because the widgets need it and the app imports the widgets; the
-other direction would be a cycle.
+:data:`NAV_ITEMS` is the one table naming which screens exist, which key reaches
+them and what they are called. Bindings, the nav bar and the command palette are
+all built from it, so adding a screen is a line here rather than four edits in
+three files. It lives in this module rather than in ``app.py`` because the
+widgets need it and the app imports the widgets.
 """
 
 from __future__ import annotations
@@ -109,22 +101,20 @@ class NavBar(Horizontal):
 
 
 class AppHeader(Horizontal):
-    """Wordmark, navigation, and the date and period currently in play.
+    """Wordmark, navigation, and the date and period in play.
 
-    Reads its context from the app when it mounts and is pushed to afterwards.
-    Both directions are needed: Textual's ``ScreenResume`` does not bubble to the
-    app, so a header on a newly-raised screen has to ask rather than wait to be
-    told.
-
-    The app is read with ``getattr`` rather than imported and type-checked, which
-    keeps this module free of a cycle and lets the header be dropped into a test
-    harness app that has no context at all.
+    Reads its context on mount and is pushed to afterwards -- both, because
+    Textual's ``ScreenResume`` does not bubble to the app, so a header on a newly
+    raised screen has to ask. The app is reached with ``getattr`` to keep this
+    module out of an import cycle.
     """
 
     context: reactive[str] = reactive("", init=False)
 
     def compose(self) -> ComposeResult:
-        self.set_reactive(AppHeader.context, str(getattr(self.app, "context_label", "")))
+        self.set_reactive(
+            AppHeader.context, str(getattr(self.app, "context_label", ""))
+        )
         yield Wordmark()
         yield NavBar()
         yield Static(self.context, classes="header-context", id="header-context")
@@ -150,7 +140,9 @@ class StatusBar(Horizontal):
         yield Static("", classes="status-message", id="status-message")
         yield Pill("", id="status-pill")
 
-    def set_status(self, message: str, tone: Tone = Tone.NEUTRAL, *, pill: str = "") -> None:
+    def set_status(
+        self, message: str, tone: Tone = Tone.NEUTRAL, *, pill: str = ""
+    ) -> None:
         if not self.is_mounted:
             return
         self.query_one("#status-message", Static).update(message)
@@ -231,16 +223,10 @@ class OverflowLabel(FooterLabel):
 class KeyStrip(Footer):
     """Textual's footer, trimmed to the keys the terminal can actually show.
 
-    The stock footer lays every binding out and lets the terminal edge cut
-    whatever is left, so at 80 columns a screen advertising twelve keys draws
-    seven and a half: ``t Toda``, and then nothing. The keys lost that way are
-    the last ones declared, which here are the navigation — the only keys a
-    newcomer has no other way of discovering.
-
-    So the strip measures before it composes, keeps whole entries only, and
-    spends its last few columns saying how many it dropped. ``?`` lists them; it
-    is early enough in every screen's bindings to survive the trim, which is what
-    makes the count a pointer rather than a shrug.
+    The stock footer lets the terminal edge cut whatever does not fit, and what it
+    cuts is the last bindings declared -- here, the navigation. This measures
+    first, keeps whole entries, and spends its last columns saying how many it
+    dropped.
     """
 
     def compose(self) -> ComposeResult:
@@ -290,5 +276,7 @@ class AppFooter(Vertical):
         # footer would add a second entry for it.
         yield KeyStrip(compact=True, show_command_palette=False)
 
-    def set_status(self, message: str, tone: Tone = Tone.NEUTRAL, *, pill: str = "") -> None:
+    def set_status(
+        self, message: str, tone: Tone = Tone.NEUTRAL, *, pill: str = ""
+    ) -> None:
         self.query_one(StatusBar).set_status(message, tone, pill=pill)

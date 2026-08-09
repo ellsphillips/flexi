@@ -1,18 +1,11 @@
 """A scrolling year of days, with a cursor you can book leave on.
 
-The dashboard's calendar is a date picker: one month, paged, three cells wide.
-This is the other thing a calendar can be — a continuous surface you move over
-and act on, where a fortnight in August is visible as a fortnight and booking it
-costs one keystroke.
+Drawn with the Line API rather than a widget per day: a leave year is 365 days,
+and 365 widgets would cost a layout pass on every arrow key.
 
-It draws itself with the Line API rather than mounting a widget per day. A leave
-year is 365 days and about 60 rows; 365 widgets would cost a layout pass every
-time the cursor moved, and the cursor moves on every arrow key.
-
-Colour carries the *type* of a booking and the glyph carries its *portion*, so
-the two never compete for the same cell — the same rule the year heatmap
-follows. Nothing is ever colour alone: the selection panel beside this spells
-out what is booked on the day under the cursor.
+Colour carries the type of a booking and the glyph carries its portion, so the
+two never compete for a cell -- and the panel beside spells out what is booked,
+so nothing here is colour alone.
 """
 
 from __future__ import annotations
@@ -29,6 +22,7 @@ from textual.message import Message
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
+from flexi import wallclock
 from flexi.constants import Portion
 from flexi.domain.ledger import DayLedger
 from flexi.domain.stitch import (
@@ -41,6 +35,12 @@ from flexi.domain.stitch import (
 
 TOKEN: Final = 3
 """What a day always occupies: two columns for the number, one for the marker."""
+
+HEADING_ROW: Final = -2
+"""The weekday initials, drawn once above the whole grid."""
+
+TITLE_ROW: Final = -1
+"""A month name. Every other row index is a week within its block."""
 
 LABELLED_CELL: Final = 9
 """From here a tile has room to say what is booked on it, not just that
@@ -118,9 +118,9 @@ class YearCalendar(ScrollView, can_focus=True):
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self.blocks: tuple[MonthBlock, ...] = ()
         self.ledgers: dict[date, DayLedger] = {}
-        self.selection = Selection.at(date.today())
+        self.selection = Selection.at(wallclock.today())
         self.first_weekday = 0
-        self._today = date.today()
+        self._today = wallclock.today()
         self._rows: list[tuple[MonthBlock | None, int]] = []
         """One entry per drawn line: the block it belongs to, and which of its
         rows it is. ``-1`` is a month title, ``-2`` a weekday heading."""
@@ -138,7 +138,9 @@ class YearCalendar(ScrollView, can_focus=True):
         cell wider than its neighbour.
         """
         base, extra = divmod(self._available, DAYS_IN_WEEK)
-        return tuple(base + (1 if index < extra else 0) for index in range(DAYS_IN_WEEK))
+        return tuple(
+            base + (1 if index < extra else 0) for index in range(DAYS_IN_WEEK)
+        )
 
     @property
     def cell(self) -> int:
@@ -169,14 +171,14 @@ class YearCalendar(ScrollView, can_focus=True):
         self.first_weekday = first_weekday
         self.blocks = tuple(stitch(start, end, first_weekday=first_weekday))
         self.ledgers = ledgers
-        self._today = today or date.today()
+        self._today = today or wallclock.today()
         self._relayout()
         self.refresh()
 
     def _relayout(self) -> None:
-        rows: list[tuple[MonthBlock | None, int]] = [(None, -2)]
+        rows: list[tuple[MonthBlock | None, int]] = [(None, HEADING_ROW)]
         for block in self.blocks:
-            rows.append((block, -1))
+            rows.append((block, TITLE_ROW))
             rows.extend((block, index) for index in range(len(block.rows)))
         self._rows = rows
         self.virtual_size = Size(self.grid_width, len(rows))
@@ -252,7 +254,7 @@ class YearCalendar(ScrollView, can_focus=True):
         return [
             (block, index)
             for index, (block, row) in enumerate(self._rows)
-            if block is not None and row == -1
+            if block is not None and row == TITLE_ROW
         ]
 
     def visible_months(self) -> list[tuple[MonthBlock, int]]:
@@ -282,11 +284,11 @@ class YearCalendar(ScrollView, can_focus=True):
             return Strip.blank(self.size.width)
         block, row = self._rows[line]
 
-        if row == -2:
+        if row == HEADING_ROW:
             return self._heading_strip()
         if block is None:
             return Strip.blank(self.size.width)
-        if row == -1:
+        if row == TITLE_ROW:
             return self._title_strip(block)
         return self._week_strip(block, row)
 
@@ -294,7 +296,8 @@ class YearCalendar(ScrollView, can_focus=True):
         style = self.get_component_rich_style("cal--weekday")
         initials = weekday_initials(self.first_weekday)
         text = "".join(
-            initial.center(width) for initial, width in zip(initials, self.columns)
+            initial.center(width)
+            for initial, width in zip(initials, self.columns, strict=False)
         )
         return Strip([Segment(text, style)], self.grid_width)
 
@@ -308,7 +311,7 @@ class YearCalendar(ScrollView, can_focus=True):
     def _week_strip(self, block: MonthBlock, row: int) -> Strip:
         empty = self.get_component_rich_style("cal--empty")
         segments: list[Segment] = []
-        for cell, width in zip(block.rows[row], self.columns):
+        for cell, width in zip(block.rows[row], self.columns, strict=False):
             if cell.date is None:
                 segments.append(Segment(BLANK * width, empty))
                 continue
@@ -318,13 +321,8 @@ class YearCalendar(ScrollView, can_focus=True):
     def _day_segment(self, when: date, width: int) -> Segment:
         """A tile: the day, what is on it, and the whole cell painted.
 
-        Every column is emitted with a style, including the blanks at a seam.
-        Left unstyled they take whatever the widget's own ground is, which
-        showed up as slabs of a different colour down the side of the grid.
-
-        Given room, the tile says what is booked rather than leaving the reader
-        to decode a colour. Below that it falls back to the number and a marker,
-        right-aligned so the columns still read as columns.
+        Every column is emitted with a style, including the blanks at a seam. Left
+        unstyled they take the widget's own ground and read as slabs down the grid.
         """
         ledger = self.ledgers.get(when)
         style = self._day_style(when, ledger)
@@ -347,7 +345,11 @@ class YearCalendar(ScrollView, can_focus=True):
             return "part day"
         slice_ = ledger.absences[0]
         word = slice_.type.short.lower()
-        return word if slice_.portion is Portion.FULL else f"{word} {PORTION_GLYPH[slice_.portion]}"
+        return (
+            word
+            if slice_.portion is Portion.FULL
+            else f"{word} {PORTION_GLYPH[slice_.portion]}"
+        )
 
     def _marker(self, ledger: DayLedger | None) -> str:
         """The glyph says how much of the day; the colour says what kind."""

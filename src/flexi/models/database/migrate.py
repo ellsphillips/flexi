@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import logging
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-import flexi
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 
+import flexi
 from flexi.locations import backups_directory, database_file
 from flexi.models.database.app import create_db_engine
 
 MAX_BACKUPS = 10
+
+log = logging.getLogger(__name__)
 
 
 def _get_alembic_config(db_path: Path) -> Config:
@@ -36,21 +39,25 @@ def backup_database(db_path: Path | None = None) -> Path | None:
         return None
 
     backup_dir = backups_directory()
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_path = backup_dir / f"{db_path.stem}_{timestamp}.bak"
     shutil.copy2(db_path, backup_path)
     return backup_path
 
 
 def _cleanup_old_backups() -> None:
-    """Keep only the latest MAX_BACKUPS files. Silently ignores errors."""
+    """Keep only the latest MAX_BACKUPS files.
+
+    Housekeeping runs after a backup has already been taken, so a full disk or
+    a read-only directory here must not fail the migration that motivated it.
+    """
     try:
         backup_dir = backups_directory()
         backups = sorted(backup_dir.glob("*.bak"), key=lambda p: p.stat().st_mtime)
         for old in backups[:-MAX_BACKUPS]:
             old.unlink()
-    except Exception:  # noqa: BLE001
-        pass
+    except OSError:
+        log.warning("could not prune old backups", exc_info=True)
 
 
 def run_migrations(db_path: Path | None = None) -> None:

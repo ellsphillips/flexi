@@ -1,28 +1,19 @@
 """The application shell: theme, services, screens, jump mode.
 
-Three decisions shape this module.
+The theme is registered in ``__init__`` rather than ``on_mount``, because
+setting ``App.theme`` raises if ``register_theme`` has not run and the setup
+screen can be pushed before ``on_mount`` finishes.
 
-**The theme is registered in ``__init__``, not ``on_mount``.** Setting
-``App.theme`` raises if ``register_theme`` has not run, and Flexi can push the
-setup screen before ``on_mount`` finishes. Registering during construction takes
-the ordering question off the table.
-
-**``/`` is bound with ``priority=True``.** It has to work from any screen with
-any widget focused — except inside an ``Input``, where Textual's own focus rules
-give the key to the field, which is correct: typing a date into "go to day" must
-be able to contain a slash.
-
-**Jump targets come from the live screen.** the reference application keeps one application-wide
-dict listing container ids from every screen, and a target naming something that
-is not mounted is silently dropped. Asking ``screen.jump_targets()`` means a
-target can only ever name something that is there.
+``/`` is bound with ``priority=True`` so it works from any screen, and stood
+down by :meth:`check_action` inside a text field, where a date being typed is
+allowed to contain one.
 """
 
 from __future__ import annotations
 
+from pathlib import PurePath
 from typing import Any, ClassVar, cast
 
-import flexi
 from textual import events, log
 from textual import work as textual_work
 from textual.app import App as TextualApp
@@ -33,6 +24,7 @@ from textual.reactive import Reactive, reactive
 from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
+import flexi
 from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, AppHeader, NavBar
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import Jumper
@@ -47,12 +39,15 @@ from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.registry import Services
 from flexi.theme import THEME_NAME, flexi_theme
+from flexi.versioning import available_update
+
+UPDATE_NOTICE_SECONDS = 10
 
 
 class FlexiApp(TextualApp[None]):
     """Flexi."""
 
-    CSS_PATH = [
+    CSS_PATH: ClassVar[list[str | PurePath]] = [
         "theme/flexi.tcss",
         "styles/dashboard.tcss",
         "styles/leave.tcss",
@@ -131,20 +126,15 @@ class FlexiApp(TextualApp[None]):
     @textual_work(thread=True)
     def _check_for_updates(self) -> None:
         """Ask PyPI whether there is a newer Flexi, and say nothing if not."""
-        try:
-            from flexi.versioning import get_pypi_version, needs_update
-
-            if needs_update():
-                pypi = get_pypi_version()
-                if pypi:
-                    self.notify(
-                        f"Update available: {flexi.__version__} → {pypi}\n"
-                        f"Run: uv tool upgrade flexi",
-                        severity="information",
-                        timeout=10,
-                    )
-        except Exception:  # noqa: BLE001 - an update check may never break launch
-            pass
+        latest = available_update()
+        if latest is None:
+            return
+        self.notify(
+            f"Update available: {flexi.__version__} → {latest}\n"
+            f"Run: uv tool upgrade flexi",
+            severity="information",
+            timeout=UPDATE_NOTICE_SECONDS,
+        )
 
     # -- navigation --------------------------------------------------------
 
@@ -229,17 +219,13 @@ class FlexiApp(TextualApp[None]):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Stand `/` down while somebody is typing.
 
-        The binding is `priority=True` so it works from any screen with any
-        widget focused — but priority means it runs *before* the focused widget,
-        so a bare `priority` binding would eat the slash out of a date being
-        typed into "go to date". Returning `False` here skips the binding and
-        lets the key carry on to the field, which is the behaviour
-        `docs/KEYMAP.md` promises.
+        The binding is `priority=True`, so it runs before the focused widget -- without
+        this it would eat the slash out of a date being typed into "go to date".
         """
         del parameters
-        if action == "clock_toggle" and isinstance(self.focused, (Input, TextArea)):
-            return False
-        return True
+        if action != "clock_toggle":
+            return True
+        return not isinstance(self.focused, Input | TextArea)
 
     def action_clock_toggle(self) -> None:
         """One key, from anywhere. The dashboard owns the confirmation."""
@@ -258,8 +244,7 @@ class FlexiApp(TextualApp[None]):
     def action_toggle_jump_mode(self) -> None:
         self._jumping = not self._jumping
 
-    def watch__jumping(self, jumping: bool) -> None:
-        del jumping
+    def watch__jumping(self) -> None:
         focused_before = self.focused
         if focused_before is not None:
             self.set_focus(None, scroll_visible=False)
@@ -314,9 +299,11 @@ class FlexiApp(TextualApp[None]):
         if focus_on.focusable:
             self.set_focus(focus_on)
         else:
-            # Not focusable: a button, say. the reference application's trick — synthesise the click
-            # the pointer would have made, so a jump can press things too.
-            widget.post_message(events.Click(widget, 0, 0, 0, 0, 0, False, False, False))
+            # Not focusable: a button, say. Synthesise the click the pointer
+            # would have made, so a jump can press things too.
+            widget.post_message(
+                events.Click(widget, 0, 0, 0, 0, 0, False, False, False)
+            )
 
 
 App = FlexiApp

@@ -1,23 +1,33 @@
-"""Tests for Slice 3: bank holiday cache and validation.
+"""The bank holiday cache: hits, stale refreshes, and an index that is down.
 
-Covers: cache hit, stale refresh, fetch failure, division changes,
-unavailable validation, title lookup.
+Absence booking refuses outright when holiday data is unavailable, so the
+difference between "no holidays" and "could not tell" has to survive the cache.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, date, datetime, timedelta
+from typing import TypedDict
 from unittest.mock import patch
 
 import httpx
-import pytest
+from sqlalchemy.orm import Session
 
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, BankHolidayCache
+from flexi.models.database.db import BankHolidayCache
 from flexi.services.bank_holidays import BankHolidayService
 
-SAMPLE_RESPONSE = {
+
+class Event(TypedDict):
+    title: str
+    date: str
+
+
+class Division(TypedDict):
+    division: str
+    events: list[Event]
+
+
+SAMPLE_RESPONSE: dict[str, Division] = {
     "england-and-wales": {
         "division": "england-and-wales",
         "events": [
@@ -36,24 +46,11 @@ SAMPLE_RESPONSE = {
 }
 
 
-@pytest.fixture()
-def engine(tmp_path: Path):
-    eng = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(eng)
-    return eng
-
-
-@pytest.fixture()
-def session(engine):
-    s = get_session(engine)
-    yield s
-    s.close()
-
-
-def _seed_cache(session, division: str = "england-and-wales") -> None:
+def _seed_cache(session: Session, division: str = "england-and-wales") -> None:
     """Insert sample bank holidays directly into the cache table."""
-    now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
-    for ev in SAMPLE_RESPONSE.get(division, {}).get("events", []):
+    now = datetime.now(tz=UTC).replace(tzinfo=None)
+    known = SAMPLE_RESPONSE.get(division)
+    for ev in known["events"] if known else ():
         session.add(
             BankHolidayCache(
                 division=division,
@@ -69,7 +66,7 @@ def _seed_cache(session, division: str = "england-and-wales") -> None:
 
 
 class TestCacheHit:
-    def test_dates_from_fresh_cache(self, session) -> None:
+    def test_dates_from_fresh_cache(self, session: Session) -> None:
         _seed_cache(session)
         svc = BankHolidayService(session, "england-and-wales")
         dates = svc.get_dates()
@@ -78,7 +75,7 @@ class TestCacheHit:
         assert date(2026, 12, 25) in dates
         assert len(dates) == 3
 
-    def test_is_bank_holiday(self, session) -> None:
+    def test_is_bank_holiday(self, session: Session) -> None:
         _seed_cache(session)
         svc = BankHolidayService(session, "england-and-wales")
         assert svc.is_bank_holiday(date(2026, 1, 1)) is True
@@ -89,9 +86,9 @@ class TestCacheHit:
 
 
 class TestStaleRefresh:
-    def test_stale_cache_triggers_refresh(self, session) -> None:
+    def test_stale_cache_triggers_refresh(self, session: Session) -> None:
         # Insert old entries
-        old = datetime.now(tz=timezone.utc) - timedelta(days=10)
+        old = datetime.now(tz=UTC) - timedelta(days=10)
         session.add(
             BankHolidayCache(
                 division="england-and-wales",
@@ -110,13 +107,13 @@ class TestStaleRefresh:
 
 
 class TestFetchFailure:
-    def test_unavailable_when_no_cache(self, session) -> None:
+    def test_unavailable_when_no_cache(self, session: Session) -> None:
         svc = BankHolidayService(session, "england-and-wales")
         assert svc.is_available() is False
         assert svc.get_dates() is None
         assert svc.is_bank_holiday(date(2026, 1, 1)) is None
 
-    def test_fetch_failure_returns_false(self, session) -> None:
+    def test_fetch_failure_returns_false(self, session: Session) -> None:
         svc = BankHolidayService(session, "england-and-wales")
         with patch(
             "flexi.services.bank_holidays.httpx.Client",
@@ -129,7 +126,7 @@ class TestFetchFailure:
 
 
 class TestDivisionChanges:
-    def test_different_division_different_dates(self, session) -> None:
+    def test_different_division_different_dates(self, session: Session) -> None:
         _seed_cache(session, "england-and-wales")
         _seed_cache(session, "scotland")
 
@@ -145,7 +142,7 @@ class TestDivisionChanges:
 
 
 class TestTitleLookup:
-    def test_get_title(self, session) -> None:
+    def test_get_title(self, session: Session) -> None:
         _seed_cache(session)
         svc = BankHolidayService(session, "england-and-wales")
         assert svc.get_title(date(2026, 12, 25)) == "Christmas Day"

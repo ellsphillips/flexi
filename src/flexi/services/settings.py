@@ -5,6 +5,8 @@ from datetime import date, time, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
+from flexi.domain.stitch import MONTHS_IN_YEAR
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
     DEFAULT_WINDOW_END,
@@ -12,6 +14,8 @@ from flexi.models.database.db import (
     LeaveEntitlement,
     Settings,
 )
+
+LONGEST_MONTH = 31
 
 
 class SettingsService:
@@ -39,6 +43,7 @@ class SettingsService:
 
     def save_settings(
         self,
+        *,
         leave_year_start: str,
         working_days: str,
         bank_holiday_division: str,
@@ -87,7 +92,9 @@ class SettingsService:
         disagrees with the sum of its own rows.
         """
         settings = self.get_settings()
-        minutes = settings.contracted_minutes if settings else DEFAULT_CONTRACTED_MINUTES
+        minutes = (
+            settings.contracted_minutes if settings else DEFAULT_CONTRACTED_MINUTES
+        )
         return timedelta(minutes=minutes)
 
     def get_day_window(self) -> tuple[str, str]:
@@ -123,7 +130,7 @@ class SettingsService:
     def active_leave_year(self, ref: date | None = None) -> int:
         """Return the calendar year of the active leave year containing ref."""
         if ref is None:
-            ref = date.today()
+            ref = wallclock.today()
         m, d = self.get_leave_year_start()
         start_this_year = date(ref.year, m, d)
         return ref.year if ref >= start_this_year else ref.year - 1
@@ -166,10 +173,10 @@ def parse_month_day(raw: str) -> tuple[int, int]:
         msg = f"Invalid date format '{raw}', expected MM-DD or MM/DD"
         raise ValueError(msg)
     month, day = int(m.group(1)), int(m.group(2))
-    if not (1 <= month <= 12):
+    if not (1 <= month <= MONTHS_IN_YEAR):
         msg = f"Month {month} out of range 1-12"
         raise ValueError(msg)
-    if not (1 <= day <= 31):
+    if not (1 <= day <= LONGEST_MONTH):
         msg = f"Day {day} out of range 1-31"
         raise ValueError(msg)
     return month, day

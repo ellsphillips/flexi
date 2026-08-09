@@ -1,14 +1,11 @@
 """The records table: one row per day, opening to the day's breakdown.
 
-A collapsed row is a whole day in one line — the date, the punch strip, what was
-worked and how that compares to what was expected. Opening it shows the sessions
-and breaks that produced those figures, so the table answers both "how was the
-week" and "why is Thursday short" without a second screen.
+A collapsed row is a whole day in one line; opening it shows the sessions and
+breaks behind the figures, so the table answers both "how was the week" and "why
+is Thursday short" without a second screen.
 
-The strips are painted into cells rather than mounted as widgets: thirty-one
-widgets would cost a layout pass per redraw, on the one widget that redraws every
-second. That is why this module declares the punch component classes itself and
-calls :func:`~flexi.components.punch.render_strip` with its own style lookup.
+Strips are painted into cells rather than mounted: thirty-one widgets would cost
+a layout pass per redraw, on the one widget that redraws every second.
 """
 
 from __future__ import annotations
@@ -35,15 +32,20 @@ from flexi.components.expandable import (
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.base import Module
 from flexi.components.punch import PUNCH_CLASSES, render_strip
-from flexi.domain.punch import cell_count
 from flexi.config import CONFIG
 from flexi.constants import DayKind
 from flexi.domain.format import clock, delta, hm
 from flexi.domain.ledger import DayLedger
 from flexi.domain.period import Granularity
+from flexi.domain.punch import cell_count
 from flexi.messages import Scope
 
-COLUMNS: tuple[tuple[str, int] | str, ...] = (("Day", 7), ("strip", 36), ("Worked", 7), ("±", 6))
+COLUMNS: tuple[tuple[str, int] | str, ...] = (
+    ("Day", 7),
+    ("strip", 36),
+    ("Worked", 7),
+    ("±", 6),
+)
 STRIP_WIDTH_FLOOR = 12
 FIXED_COLUMNS = 7 + 7 + 6
 CELL_PADDING = 8
@@ -104,7 +106,9 @@ class RecordsModule(Module):
 
     def compose(self) -> ComposeResult:
         yield ExpandableTable(id="records-table", zebra_stripes=False)
-        yield Static("No days in this period", id="records-empty", classes="empty-indicator")
+        yield Static(
+            "No days in this period", id="records-empty", classes="empty-indicator"
+        )
 
     def on_mount(self) -> None:
         self.query_one("#records-table", ExpandableTable).set_columns(*COLUMNS)
@@ -210,7 +214,9 @@ class RecordsModule(Module):
                             f"  {BRANCH} {clock(segment.start)} → {finish}  {note}",
                             style=sub,
                         ),
-                        Text(hm(segment.duration(self.now)), style=sub, justify="right"),
+                        Text(
+                            hm(segment.duration(self.now)), style=sub, justify="right"
+                        ),
                         Text("", style=sub),
                     ),
                 )
@@ -251,7 +257,11 @@ class RecordsModule(Module):
         worked = sum((item.worked for item in ledgers), start=timedelta())
         expected = sum((item.expected for item in ledgers), start=timedelta())
         toil = sum((item.toil_taken for item in ledgers), start=timedelta())
-        label = "Day" if self.period.granularity is Granularity.DAY else self.period.granularity.label
+        label = (
+            "Day"
+            if self.period.granularity is Granularity.DAY
+            else self.period.granularity.label
+        )
         return RowGroup(
             Row(
                 key=f"{TOTAL}period",
@@ -321,13 +331,8 @@ class RecordsModule(Module):
     def jump_row_targets(self) -> dict[Offset, JumpInfo]:
         """A number key over each of the first nine visible day rows.
 
-        Flexi's extension to the reference application's jump mode, and the reason jump mode is worth
-        having in a table-heavy application: `v` then `4` lands on the fourth day
-        without leaving the home row.
-
-        A row is not a widget, so it cannot be found by walking the DOM the way a
-        panel is. The offsets are computed from the table's own geometry instead,
-        and a row scrolled out of view is simply not offered.
+        A row is not a widget, so the offsets come from the table's own geometry rather
+        than from walking the DOM, and a row scrolled out of view is not offered.
         """
         table = self.table
         region = table.region

@@ -7,12 +7,12 @@ from textual.widgets import Button, Input, Switch
 
 from flexi.components.modules.clock import ClockModule
 from flexi.messages import Scope
-from tests.tui.conftest import WIDE, dashboard, status_text
+from tests.tui.conftest import WIDE, AppFactory, dashboard, status_text
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
 
-async def test_slash_clocks_out_and_back_in(app_factory) -> None:
+async def test_slash_clocks_out_and_back_in(app_factory: AppFactory) -> None:
     """It toggles, from the dashboard, with one unshifted key."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -29,7 +29,7 @@ async def test_slash_clocks_out_and_back_in(app_factory) -> None:
         assert "Clocked in" in status_text(app)
 
 
-async def test_the_button_does_the_same_thing(app_factory) -> None:
+async def test_the_button_does_the_same_thing(app_factory: AppFactory) -> None:
     """It works for a pointer, because the point of Textual is that one works."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -42,7 +42,9 @@ async def test_the_button_does_the_same_thing(app_factory) -> None:
         assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
 
 
-async def test_the_switch_reflects_the_truth_without_looping(app_factory) -> None:
+async def test_the_switch_reflects_the_truth_without_looping(
+    app_factory: AppFactory,
+) -> None:
     """It writes the switch back on every redraw without treating that as input.
 
     A naive handler acts on the write, clocks straight back out, redraws, and
@@ -65,7 +67,7 @@ async def test_the_switch_reflects_the_truth_without_looping(app_factory) -> Non
         assert not app.services.clock.is_clocked_in()
 
 
-async def test_clocking_in_twice_is_refused_not_raised(app_factory) -> None:
+async def test_clocking_in_twice_is_refused_not_raised(app_factory: AppFactory) -> None:
     """It reports the refusal on the status bar and carries on."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -75,7 +77,7 @@ async def test_clocking_in_twice_is_refused_not_raised(app_factory) -> None:
         await pilot.pause()
 
 
-async def test_slash_does_not_reach_a_focused_input(app_factory) -> None:
+async def test_slash_does_not_reach_a_focused_input(app_factory: AppFactory) -> None:
     """It gives the key to the field, so a typed date can contain a slash."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -94,7 +96,7 @@ async def test_slash_does_not_reach_a_focused_input(app_factory) -> None:
 
 
 async def test_the_switch_moves_through_its_watcher_so_it_animates(
-    app_factory,
+    app_factory: AppFactory,
 ) -> None:
     """It sets the reactive rather than writing past it.
 
@@ -119,10 +121,14 @@ async def test_the_switch_moves_through_its_watcher_so_it_animates(
         await pilot.press("slash")
         await pilot.pause()
 
-        assert seen == [False], "the watcher should have run exactly once, with the new value"
+        assert seen == [False], (
+            "the watcher should have run exactly once, with the new value"
+        )
 
 
-async def test_the_elapsed_time_is_in_the_border_subtitle(app_factory) -> None:
+async def test_the_elapsed_time_is_in_the_border_subtitle(
+    app_factory: AppFactory,
+) -> None:
     """It puts the live figure in the module's data slot, not in a whole row."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:

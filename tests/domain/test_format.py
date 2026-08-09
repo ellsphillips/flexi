@@ -60,7 +60,9 @@ def test_clock() -> None:
     assert clock(datetime(2026, 6, 11, 9, 12)) == "09:12"
 
 
-@pytest.mark.parametrize(("value", "expected"), [(18.5, "18.5"), (19.0, "19"), (0.0, "0")])
+@pytest.mark.parametrize(
+    ("value", "expected"), [(18.5, "18.5"), (19.0, "19"), (0.0, "0")]
+)
 def test_days(value: float, expected: str) -> None:
     """It writes a half only when there is one."""
     assert days(value) == expected

@@ -169,9 +169,10 @@ def test_a_hand_worked_fortnight() -> None:
     total = accumulate(week_one + week_two)
 
     #  +48m on Tuesday, −4h14 on Thursday, −7h24 for the TOIL day
-    assert total.delta == timedelta(minutes=48) - timedelta(
-        hours=4, minutes=14
-    ) - CONTRACTED
+    assert (
+        total.delta
+        == timedelta(minutes=48) - timedelta(hours=4, minutes=14) - CONTRACTED
+    )
     assert fmt_delta(total.delta) == "−10:50"
     assert total.is_deficit
 

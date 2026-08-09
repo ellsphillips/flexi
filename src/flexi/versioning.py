@@ -1,27 +1,37 @@
+"""Whether PyPI has a newer Flexi than the one running."""
+
 from __future__ import annotations
 
 import httpx
-from packaging import version
+from packaging.version import InvalidVersion, Version
 
 import flexi
 
+PYPI_URL = "https://pypi.org/pypi/flexi/json"
+TIMEOUT_SECONDS = 5.0
+
 
 def get_pypi_version() -> str | None:
-    """Fetch the latest version from PyPI."""
+    """The latest published version, or None if PyPI could not be read."""
     try:
-        response = httpx.get("https://pypi.org/pypi/flexi/json", timeout=5.0)
+        response = httpx.get(PYPI_URL, timeout=TIMEOUT_SECONDS)
         response.raise_for_status()
-        pypi_version = response.json()["info"]["version"]
-        return str(pypi_version)
-    except Exception:  # noqa: BLE001
+        return str(response.json()["info"]["version"])
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
         return None
 
 
-def needs_update() -> bool:
-    """Check if the current version needs an update."""
-    pypi_version = get_pypi_version()
+def available_update() -> str | None:
+    """The published version, when it is newer than this one.
 
-    if pypi_version is None:
-        return False
-
-    return bool(version.parse(pypi_version) > version.parse(flexi.__version__))
+    One request, and one answer that carries the version rather than a bare
+    True the caller has to go and fetch again.
+    """
+    latest = get_pypi_version()
+    if latest is None:
+        return None
+    try:
+        newer = Version(latest) > Version(flexi.__version__)
+    except InvalidVersion:
+        return None
+    return latest if newer else None

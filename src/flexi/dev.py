@@ -1,4 +1,4 @@
-"""dev script for flexi - run with `uv run textual run --dev ./src/flexi/dev.py`"""
+"""dev script for flexi - run with `uv run textual run --dev ./src/flexi/dev.py`."""
 
 from flexi.app import App
 

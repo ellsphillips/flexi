@@ -76,7 +76,7 @@ async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> 
         # of tofu — which looks like a Flexi bug and is not one. The text dump
         # is what alignment is actually checked against.
         (SHOTS / f"{name}.txt").write_text(screen_text(app), encoding="utf-8")
-    print(f"  {name}.svg  {size[0]}x{size[1]}")  # noqa: T201
+    print(f"  {name}.svg  {size[0]}x{size[1]}")
 
 
 def screen_text(app: FlexiApp) -> str:

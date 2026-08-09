@@ -1,21 +1,17 @@
 """Booking, changing and removing absence.
 
-Every refusal here is a sentence the status bar can show without editing. That is
-not politeness — it is the reason the interface needs no modal to explain why a
-key did nothing.
+Every refusal is a sentence the status bar can show unedited, which is why there
+is no modal explaining why a key did nothing.
 
-The rules that are not obvious:
+The rules SQLite cannot express, so this service does:
 
-* A **full day cannot coexist with a half**, and SQLite cannot say so, so this
-  service says it. The database constraint is only ``(date, portion)``.
-* **Two halves of different types are legal.** A sick morning and an annual
-  afternoon is a real thing that happens, and refusing it would push the user
-  into recording a lie.
-* **A half day may be booked over existing work in the other half.** Someone who
-  worked the morning and went home ill at lunch has to be able to record both.
-* **TOIL warns, it does not block.** An annual allowance is a hard limit set by
-  someone else; a flexi balance is your own arithmetic, and going into deficit is
-  a decision rather than an error.
+* A full day cannot coexist with a half. The table constraint is only
+  ``(date, portion)``.
+* Two halves of different types are legal -- a sick morning and an annual
+  afternoon is a real thing that happens.
+* A half day may be booked over recorded work in the other half.
+* TOIL warns rather than blocks: an annual allowance is somebody else's limit,
+  a flexi balance is your own arithmetic.
 """
 
 from __future__ import annotations
@@ -27,7 +23,9 @@ from datetime import date, datetime, time, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import AbsenceType, Portion
+from flexi.domain.format import short_date
 from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.services.bank_holidays import BankHolidayService
@@ -82,8 +80,10 @@ class RangeResult:
         if not self.booked and not self.skipped:
             return "Nothing to do"
         if not self.booked:
-            return self.reasons[0] if len(self.reasons) == 1 else (
-                f"Nothing {what}: " + "; ".join(self.reasons)
+            return (
+                self.reasons[0]
+                if len(self.reasons) == 1
+                else (f"Nothing {what}: " + "; ".join(self.reasons))
             )
         days = f"{len(self.booked)} day" + ("" if len(self.booked) == 1 else "s")
         if not self.skipped:
@@ -197,7 +197,7 @@ class AbsenceService:
 
     def leave_year_bounds(self, ref: date | None = None) -> tuple[date, date]:
         """The first and last date of the leave year containing ``ref``."""
-        ref = ref or date.today()
+        ref = ref or wallclock.today()
         year = self._settings.active_leave_year(ref)
         month, day = self._settings.get_leave_year_start()
         start = date(year, month, day)
@@ -235,13 +235,8 @@ class AbsenceService:
     ) -> AbsenceResult:
         """Book an absence, or say why not.
 
-        Args:
-            day: The date to book.
-            absence_type: What kind of absence.
-            portion: A whole day, a morning or an afternoon.
-            note: Required for :attr:`~flexi.constants.AbsenceType.OTHER`.
-            available_toil_days: The flexi balance in days, when the caller knows
-                it. Used only to *warn* on a TOIL booking that would overdraw.
+        ``available_toil_days`` only warns on a TOIL booking that would overdraw; it
+        never refuses one.
         """
         refusal = self._refusal(day, absence_type, portion, note)
         if refusal is not None:
@@ -258,7 +253,7 @@ class AbsenceService:
 
         return AbsenceResult(
             success=True,
-            message=f"{absence_type.label} booked for {day.strftime('%a %-d %b')}",
+            message=f"{absence_type.label} booked for {short_date(day)}",
             absence=absence,
             warning=self._toil_warning(absence_type, portion, available_toil_days),
         )
@@ -270,10 +265,28 @@ class AbsenceService:
         portion: Portion,
         note: str | None,
     ) -> AbsenceResult | None:
-        """The first reason this booking cannot happen, or ``None``."""
+        """The first reason this booking cannot happen, or ``None``.
+
+        Order matters: the reasons are checked cheapest first, and only the
+        first is reported, because a dialog listing four objections at once
+        tells nobody what to do next.
+        """
+        return (
+            self._note_refusal(absence_type, note)
+            or self._calendar_refusal(day)
+            or self._clash_refusal(day, portion)
+            or self._entitlement_refusal(day, absence_type, portion)
+        )
+
+    def _note_refusal(
+        self, absence_type: AbsenceType, note: str | None
+    ) -> AbsenceResult | None:
         if absence_type.requires_note and not (note or "").strip():
             return AbsenceResult(False, "Other absence needs a note saying what it is")
+        return None
 
+    def _calendar_refusal(self, day: date) -> AbsenceResult | None:
+        """Whether the day is one you could be absent from at all."""
         if not self._settings.is_working_day(day.weekday()):
             return AbsenceResult(False, "That is not a working day")
 
@@ -284,7 +297,10 @@ class AbsenceService:
             )
         if holiday:
             return AbsenceResult(False, "That day is already a bank holiday")
+        return None
 
+    def _clash_refusal(self, day: date, portion: Portion) -> AbsenceResult | None:
+        """Whether something already occupies the part of the day being booked."""
         existing = self.for_date(day)
         if any(booked.portion is Portion.FULL for booked in existing):
             return AbsenceResult(False, "That day is already booked in full")
@@ -296,21 +312,25 @@ class AbsenceService:
             return AbsenceResult(
                 False, f"That {portion.label.lower()} is already booked"
             )
-
         if self._has_work_in(day, portion):
             return AbsenceResult(
                 False, "There is recorded work in that part of the day"
             )
-
-        if absence_type.draws_down_entitlement:
-            remaining = self.get_remaining_annual_leave(day)
-            if remaining is not None and remaining < portion.days:
-                short = portion.days - remaining
-                return AbsenceResult(
-                    False,
-                    f"Not enough annual leave — {short:g} day short of the request",
-                )
         return None
+
+    def _entitlement_refusal(
+        self, day: date, absence_type: AbsenceType, portion: Portion
+    ) -> AbsenceResult | None:
+        """Whether there is enough allowance left to draw on."""
+        if not absence_type.draws_down_entitlement:
+            return None
+        remaining = self.get_remaining_annual_leave(day)
+        if remaining is None or remaining >= portion.days:
+            return None
+        short = portion.days - remaining
+        return AbsenceResult(
+            False, f"Not enough annual leave — {short:g} day short of the request"
+        )
 
     def _toil_warning(
         self,
@@ -324,7 +344,9 @@ class AbsenceService:
         if available_toil_days >= portion.days:
             return None
         overdraft = portion.days - available_toil_days
-        return f"Booked, but this takes the flexi balance {overdraft:g} day into deficit"
+        return (
+            f"Booked, but this takes the flexi balance {overdraft:g} day into deficit"
+        )
 
     def book_range(
         self,
@@ -376,10 +398,11 @@ class AbsenceService:
         happens to be half empty should report what it removed, not five
         complaints about the days that were already free.
         """
-        cleared: list[date] = []
-        for when in _walk(start, end):
-            if self.for_date(when) and self.remove(when).success:
-                cleared.append(when)
+        cleared = [
+            when
+            for when in _walk(start, end)
+            if self.for_date(when) and self.remove(when).success
+        ]
         return RangeResult(tuple(cleared))
 
     def change_type(
@@ -423,9 +446,7 @@ class AbsenceService:
         for absence in booked:
             self._session.delete(absence)
         self._session.commit()
-        return AbsenceResult(
-            True, f"{removed} removed from {day.strftime('%a %-d %b')}"
-        )
+        return AbsenceResult(True, f"{removed} removed from {short_date(day)}")
 
     # -- internals ---------------------------------------------------------
 

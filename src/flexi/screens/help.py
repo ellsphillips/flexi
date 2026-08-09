@@ -54,13 +54,9 @@ class HelpScreen(ModalScreen[None]):
 def collect_bindings(screen: object) -> dict[str, list[tuple[str, str]]]:
     """Group a screen's active bindings by the widget that declared them.
 
-    Only Flexi's own bindings. Textual gives every scrollable container eight
-    bindings of its own — Scroll Up, Page Left, Focus Next — and listing them
-    turns a keyboard reference into a list of things nobody came here to learn.
-    They still work; they are simply not news.
-
-    Deduplicated per action, the same way the key strip does it, so a key with
-    two bindings appears once rather than as two separate things you could press.
+    Flexi's own only. Textual gives every scrollable container eight bindings of its
+    own, and listing Scroll Up and Page Left turns a keyboard reference into a list
+    of things nobody came here to learn.
     """
     groups: dict[str, list[tuple[str, str]]] = {}
     seen: set[tuple[str, str]] = set()
@@ -95,6 +91,6 @@ def _label_for(node: object) -> str:
         "RecordsModule": "Records",
         "ExpandableTable": "Records table",
         "WalletModule": "Wallet",
-        "CalendarModule": "Calendar",
+        "MonthView": "Calendar",
         "ClockModule": "Clock",
     }.get(name, name)
