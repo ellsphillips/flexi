@@ -5,6 +5,7 @@ import click
 import flexi
 from flexi import wallclock
 from flexi.app import App
+from flexi.domain.format import long_date, stamp
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.clock import ClockService
@@ -130,7 +131,9 @@ def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
     start, _ = services.absence.leave_year_bounds(today)
     summary = services.ledger.balance(today)
 
-    click.echo(f"leave year   {start:%-d %b %Y} → {today:%-d %b %Y}")
+    click.echo(
+        f"leave year   {stamp(start, '%-d %b %Y')} → {stamp(today, '%-d %b %Y')}"
+    )
     click.echo(f"worked       {hm(summary.worked)}")
     click.echo(f"expected     {hm(summary.expected)}")
     if summary.toil_taken:
@@ -175,7 +178,7 @@ def balance_zero(
     when = as_of.date() if as_of is not None else wallclock.today() - timedelta(days=1)
     standing = services.ledger.balance(when).delta
 
-    click.echo(f"balance as at {when:%a %-d %b %Y} is {delta(standing)}")
+    click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
     if not yes and not click.confirm("Settle it to zero?", default=True):
         click.echo("Left alone.")
         _close(ctx)

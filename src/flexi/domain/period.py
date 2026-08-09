@@ -25,6 +25,8 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from enum import StrEnum
 
+from flexi.domain.format import day_month, long_date
+
 MONTH_NAMES = (
     "January",
     "February",
@@ -204,9 +206,9 @@ class Period:
         """
         match self.granularity:
             case Granularity.DAY:
-                return self.anchor.strftime("%a %-d %b %Y")
+                return long_date(self.anchor)
             case Granularity.WEEK:
-                return f"Week of {self.start.strftime('%-d %b')}"
+                return f"Week of {day_month(self.start)}"
             case Granularity.MONTH:
                 return f"{MONTH_NAMES[self.anchor.month - 1]} {self.anchor.year}"
             case Granularity.YEAR:
@@ -220,9 +222,9 @@ class Period:
         """A form that fits a narrow subtitle."""
         match self.granularity:
             case Granularity.DAY:
-                return self.anchor.strftime("%-d %b")
+                return day_month(self.anchor)
             case Granularity.WEEK:
-                return self.start.strftime("%-d %b")
+                return day_month(self.start)
             case Granularity.MONTH:
                 return self.anchor.strftime("%b %Y")
             case Granularity.YEAR:

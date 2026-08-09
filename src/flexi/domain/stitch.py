@@ -20,6 +20,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from flexi.domain.format import long_date, short_date, stamp
+
 DAYS_IN_WEEK = 7
 MONTHS_IN_YEAR = 12
 MONTH_NAMES = (
@@ -187,7 +189,7 @@ class Selection:
     def label(self) -> str:
         """How the selection names itself."""
         if self.single:
-            return self.anchor.strftime("%a %-d %b %Y")
+            return long_date(self.anchor)
         if self.start.month == self.end.month:
-            return f"{self.start:%a %-d} – {self.end:%a %-d %b %Y}"
-        return f"{self.start:%a %-d %b} – {self.end:%a %-d %b %Y}"
+            return f"{stamp(self.start, '%a %-d')} – {long_date(self.end)}"
+        return f"{short_date(self.start)} – {long_date(self.end)}"

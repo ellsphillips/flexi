@@ -27,7 +27,7 @@ from flexi.components.yearcalendar import YearCalendar, legend
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import delta
+from flexi.domain.format import delta, short_date
 from flexi.domain.period import Granularity, Period
 from flexi.domain.stitch import Selection
 from flexi.messages import Scope
@@ -162,9 +162,7 @@ class LeaveScreen(Screen[None]):
         self._draw_wallet()
         self._draw_selection()
         for header in self.query(AppHeader):
-            header.context = (
-                f"{self.now.date().strftime('%a %-d %b')} · {self.period.label}"
-            )
+            header.context = f"{short_date(self.now.date())} · {self.period.label}"
 
     def _booked_subtitle(self) -> str:
         """How much of the year is already spoken for."""

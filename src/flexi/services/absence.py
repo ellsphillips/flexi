@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import AbsenceType, Portion
+from flexi.domain.format import short_date
 from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.services.bank_holidays import BankHolidayService
@@ -261,7 +262,7 @@ class AbsenceService:
 
         return AbsenceResult(
             success=True,
-            message=f"{absence_type.label} booked for {day.strftime('%a %-d %b')}",
+            message=f"{absence_type.label} booked for {short_date(day)}",
             absence=absence,
             warning=self._toil_warning(absence_type, portion, available_toil_days),
         )
@@ -454,9 +455,7 @@ class AbsenceService:
         for absence in booked:
             self._session.delete(absence)
         self._session.commit()
-        return AbsenceResult(
-            True, f"{removed} removed from {day.strftime('%a %-d %b')}"
-        )
+        return AbsenceResult(True, f"{removed} removed from {short_date(day)}")
 
     # -- internals ---------------------------------------------------------
 

@@ -9,7 +9,7 @@ the same height as the plus, which is what makes ``+0:48`` and ``−4:14`` line 
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 MINUS = "−"
 """U+2212. Not a hyphen — see the module docstring."""
@@ -83,6 +83,50 @@ def digits(value: timedelta) -> str:
     if total == 0:
         return ZERO
     return f"{'+' if total > 0 else '-'}{hm(value)}"
+
+
+def stamp(when: date, pattern: str) -> str:
+    """``strftime`` with an unpadded day, on every platform.
+
+    ``%-d`` is a glibc and BSD extension. On Windows it does not mean "the day
+    without a leading zero", it raises — so the day is substituted before the
+    pattern reaches ``strftime`` and the result is identical everywhere.
+
+    Examples:
+        >>> stamp(date(2026, 6, 5), "%-d %b")
+        '5 Jun'
+    """
+    return when.strftime(pattern.replace("%-d", str(when.day)))
+
+
+def long_date(when: date) -> str:
+    """A date with its weekday and year.
+
+    Examples:
+        >>> long_date(date(2026, 6, 11))
+        'Thu 11 Jun 2026'
+    """
+    return stamp(when, "%a %-d %b %Y")
+
+
+def short_date(when: date) -> str:
+    """A date with its weekday, for a header that already implies the year.
+
+    Examples:
+        >>> short_date(date(2026, 6, 11))
+        'Thu 11 Jun'
+    """
+    return stamp(when, "%a %-d %b")
+
+
+def day_month(when: date) -> str:
+    """A date at its shortest.
+
+    Examples:
+        >>> day_month(date(2026, 6, 11))
+        '11 Jun'
+    """
+    return stamp(when, "%-d %b")
 
 
 def clock(moment: datetime) -> str:

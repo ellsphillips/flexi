@@ -382,7 +382,7 @@ def week_columns(ledgers: list[DayLedger]) -> list[Column]:
         buckets[monday] = buckets.get(monday, timedelta()) + ledger.balance_effect
     return [
         Column(
-            label=monday.strftime("%-d"),
+            label=str(monday.day),
             value=total.total_seconds() / 3600,
             readout=delta(total),
         )

@@ -28,7 +28,7 @@ from flexi.components.common import Tone, mark_width
 from flexi.components.modules.base import Module
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType
-from flexi.domain.format import delta, hm
+from flexi.domain.format import day_month, delta, hm, short_date
 from flexi.domain.period import Granularity, Period
 from flexi.messages import Scope
 from flexi.services.registry import Services
@@ -65,7 +65,7 @@ class BalanceHistory(Module):
         ledgers = self.services.ledger.days(period.start, end, now=self.now)
         self.query_one("#balance-bars", DivergingBars).show(week_columns(ledgers))
         total = self.services.ledger.summary(period.start, end, now=self.now)
-        self.set_subtitle(f"{delta(total.delta)} to {end.strftime('%-d %b')}")
+        self.set_subtitle(f"{delta(total.delta)} to {day_month(end)}")
 
 
 class LeaveBurndown(Module):
@@ -120,7 +120,7 @@ class ShapeOfTheWeeks(Module):
         self.query_one("#ribbon", WeekRibbon).show(
             ledgers[-RIBBON_DAYS:], self.services.ledger.window
         )
-        self.set_subtitle(f"to {end.strftime('%-d %b')}")
+        self.set_subtitle(f"to {day_month(end)}")
 
 
 class YearAtAGlance(Module):
@@ -179,9 +179,7 @@ class InsightsScreen(Screen[None]):
     def on_mount(self) -> None:
         for header in self.query(AppHeader):
             header.set_active("insights")
-            header.context = (
-                f"{wallclock.today().strftime('%a %-d %b')} · {self.period.label}"
-            )
+            header.context = f"{short_date(wallclock.today())} · {self.period.label}"
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)
@@ -199,9 +197,7 @@ class InsightsScreen(Screen[None]):
     def set_period(self, period: Period) -> None:
         self.period = period
         for header in self.query(AppHeader):
-            header.context = (
-                f"{wallclock.today().strftime('%a %-d %b')} · {period.label}"
-            )
+            header.context = f"{short_date(wallclock.today())} · {period.label}"
         self._services.invalidate()
         for module in self.query(Module):
             module.rebuild()

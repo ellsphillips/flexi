@@ -19,6 +19,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi.domain.format import stamp
 from flexi.models.database.db import BalanceAdjustment
 
 OPENING_BALANCE = "opening balance"
@@ -90,7 +91,7 @@ class AdjustmentService:
         self._session.commit()
         return AdjustmentResult(
             True,
-            f"Balance adjusted by {minutes:+d} minutes on {when.strftime('%-d %b %Y')}",
+            f"Balance adjusted by {minutes:+d} minutes on {stamp(when, '%-d %b %Y')}",
             row,
         )
 

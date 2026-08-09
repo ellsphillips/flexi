@@ -19,7 +19,7 @@ from textual.app import ComposeResult
 from textual.widgets import Digits, Static
 
 from flexi.components.modules.base import Module
-from flexi.domain.format import delta, digits, hm, signed_days
+from flexi.domain.format import delta, digits, hm, signed_days, stamp
 from flexi.messages import Scope
 
 STATE_CLASSES = ("surplus", "deficit", "muted")
@@ -56,7 +56,7 @@ class BalanceModule(Module):
             self._detail(summary.delta, contracted)
         )
         start, end = services.absence.leave_year_bounds(today)
-        self.set_subtitle(f"{start.strftime('%-d %b %y')}–{end.strftime('%-d %b %y')}")
+        self.set_subtitle(f"{stamp(start, '%-d %b %y')}–{stamp(end, '%-d %b %y')}")
 
     def _detail(self, value: timedelta, contracted: timedelta) -> str:
         """The caption: the same figure said a second way.

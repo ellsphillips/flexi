@@ -39,6 +39,7 @@ from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType
 from flexi.domain.format import clock as clock_time
+from flexi.domain.format import short_date
 from flexi.domain.period import Granularity, Period
 from flexi.messages import DataChanged, DateSelected, Scope
 from flexi.screens.modals import (
@@ -216,9 +217,7 @@ class DashboardScreen(Screen[None]):
 
     def _sync_header(self) -> None:
         for header in self.query(AppHeader):
-            header.context = (
-                f"{wallclock.today().strftime('%a %-d %b')} · {self.period.label}"
-            )
+            header.context = f"{short_date(wallclock.today())} · {self.period.label}"
 
     # -- the live tick -----------------------------------------------------
 
@@ -342,8 +341,7 @@ class DashboardScreen(Screen[None]):
 
         self.app.push_screen(
             ConfirmModal(
-                f"Remove {found.absence_type.label.lower()} "
-                f"from {when.strftime('%a %-d %b')}?",
+                f"Remove {found.absence_type.label.lower()} from {short_date(when)}?",
                 title="Remove booking",
             ),
             callback=confirm,
