@@ -10,6 +10,7 @@ from flexi.domain.format import clock, days, delta, hm, signed_days
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.period import Granularity, Period
 from flexi.domain.punch import Cell, Window, bucket_minutes, strip
+from flexi.domain.stitch import MonthBlock, Selection, month_block, stitch
 
 __all__ = [
     "AbsenceSlice",
@@ -17,7 +18,9 @@ __all__ = [
     "Cell",
     "DayLedger",
     "Granularity",
+    "MonthBlock",
     "Period",
+    "Selection",
     "Segment",
     "Window",
     "accumulate",
@@ -27,7 +30,9 @@ __all__ = [
     "delta",
     "expected_for",
     "hm",
+    "month_block",
     "signed_days",
+    "stitch",
     "strip",
     "worked_from",
 ]
