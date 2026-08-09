@@ -19,7 +19,7 @@ from flexi.services.startup import run_startup_cleanup
     help="Run against a throwaway database seeded with six weeks of a working life.",
 )
 @click.pass_context
-def cli(ctx: click.Context, demo: bool = False) -> None:
+def cli(ctx: click.Context, *, demo: bool = False) -> None:
     """Flexi CLI."""
     if demo:
         _run_demo()
@@ -153,7 +153,11 @@ def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
 @click.option("--yes", is_flag=True, help="Do not ask.")
 @click.pass_context
 def balance_zero(
-    ctx: click.Context, as_of: datetime | None, reason: str | None, yes: bool
+    ctx: click.Context,
+    as_of: datetime | None,
+    reason: str | None,
+    *,
+    yes: bool,
 ) -> None:
     """Draw a line under everything up to a date.
 

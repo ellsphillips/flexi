@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from textual.app import ComposeResult
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
@@ -21,7 +22,7 @@ DIVISIONS = [
 class SettingsScreen(Screen[bool]):
     """Settings edit screen. Returns True when saved."""
 
-    BINDINGS = [("escape", "back", "Back")]
+    BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "back", "Back")]
 
     DEFAULT_CSS = """
     SettingsScreen {

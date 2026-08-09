@@ -215,7 +215,7 @@ async def test_removing_a_day_is_immediate(app_factory: AppFactory) -> None:
 
 
 async def test_removing_a_lot_asks_first(app_factory: AppFactory) -> None:
-    """One key that can wipe a fortnight without a word is a key nobody presses twice."""
+    """A key that can wipe a fortnight without a word is pressed once, ever."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)

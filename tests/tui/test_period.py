@@ -31,7 +31,7 @@ def day_rows(app: FlexiApp) -> int:
     ],
 )
 async def test_a_key_per_granularity(
-    app_factory: AppFactory, key, granularity, rows
+    app_factory: AppFactory, key: str, granularity: Granularity, rows: int
 ) -> None:
     """It changes how much of time is on screen, and the table follows."""
     app = app_factory()

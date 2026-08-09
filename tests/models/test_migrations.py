@@ -41,10 +41,9 @@ def rows(db: Path, table: str) -> list[tuple[object, ...]]:
     engine = create_db_engine(db)
     try:
         with engine.connect() as connection:
-            return [
-                tuple(row)
-                for row in connection.execute(sa.text(f"SELECT * FROM {table}"))
-            ]
+            # S608: the table name comes from this module, never from input.
+            statement = sa.text(f"SELECT * FROM {table}")  # noqa: S608
+            return [tuple(row) for row in connection.execute(statement)]
     finally:
         engine.dispose()
 

@@ -27,6 +27,9 @@ from flexi.models.database.db import (
     WorkSession,
 )
 
+FRIDAY = 4
+"""The last working weekday, as datetime.weekday() numbers them."""
+
 ANCHOR = date(2026, 6, 11)
 """The Thursday every demo is drawn as at. Mid-week, mid-month, mid-leave-year."""
 
@@ -146,7 +149,7 @@ def _work(session: Session, anchor: date, booked: set[date]) -> None:
 
     for index in range((anchor - start).days + 1):
         when = start + timedelta(days=index)
-        if when.weekday() > 4 or when in booked or when in holidays:
+        if when.weekday() > FRIDAY or when in booked or when in holidays:
             continue
         if when == anchor:
             _open_session(session, when, index)

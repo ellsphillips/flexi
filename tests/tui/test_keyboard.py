@@ -107,7 +107,7 @@ def test_an_entry_costs_its_two_strings_plus_its_margin() -> None:
     ],
 )
 def test_the_strip_reserves_room_for_its_own_overflow_notice(
-    costs, budget, marker, shown
+    costs: list[int], budget: int, marker: int, shown: int
 ) -> None:
     """A strip that overflowed *and* hid the fact is the failure to prevent."""
     assert keys_that_fit(costs, budget, marker) == shown

@@ -164,7 +164,7 @@ class LedgerService:
 
             self._cache[when] = DayLedger(
                 date=when,
-                kind=_kind(is_working, title, slices, segments),
+                kind=_kind(title, slices, segments, is_working=is_working),
                 is_working_day=is_working,
                 contracted=contracted,
                 worked=worked,
@@ -266,10 +266,11 @@ def _segment(row: WorkSession) -> Segment:
 
 
 def _kind(
-    is_working: bool,
     holiday: str | None,
     slices: tuple[AbsenceSlice, ...],
     segments: tuple[Segment, ...],
+    *,
+    is_working: bool,
 ) -> DayKind:
     if holiday is not None:
         return DayKind.HOLIDAY

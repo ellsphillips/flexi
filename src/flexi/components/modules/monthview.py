@@ -24,11 +24,15 @@ from flexi.config import CONFIG
 from flexi.constants import DayKind
 from flexi.domain.ledger import DayLedger
 from flexi.domain.period import Granularity, Period
-from flexi.domain.stitch import DAYS_IN_WEEK, MONTH_NAMES, weekday_initials
+from flexi.domain.stitch import (
+    DAYS_IN_WEEK,
+    MONTH_NAMES,
+    MONTHS_IN_YEAR,
+    weekday_initials,
+)
 from flexi.messages import DateSelected, Scope
 
 WEEKS = 6
-MONTHS_IN_YEAR = 12
 
 KIND_CLASSES: dict[DayKind, str] = {
     DayKind.HOLIDAY: "day-holiday",

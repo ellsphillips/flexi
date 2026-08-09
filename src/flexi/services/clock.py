@@ -20,11 +20,14 @@ def _naive(moment: datetime) -> datetime:
     return moment.replace(tzinfo=None) if moment.tzinfo else moment
 
 
+SECONDS_PER_MINUTE = 60
+
+
 def _readable(span: timedelta) -> str:
     """A threshold as somebody would say it out loud."""
     seconds = int(span.total_seconds())
-    if seconds % 60 == 0 and seconds >= 60:
-        minutes = seconds // 60
+    if seconds % SECONDS_PER_MINUTE == 0 and seconds >= SECONDS_PER_MINUTE:
+        minutes = seconds // SECONDS_PER_MINUTE
         return f"{minutes} minute" + ("" if minutes == 1 else "s")
     return f"{seconds} second" + ("" if seconds == 1 else "s")
 

@@ -124,7 +124,16 @@ ignore = [
     "INP001",  # the suite is not a package
     "SLF001",  # a test may reach past the front door
     "ARG",     # fixtures arrive as arguments and are not always read
+    "FBT",     # parametrised booleans are data, not an API being designed
 ]
+# Alembic owns this layout and looks the directory up by path, not by import.
+"src/flexi/migrations/*" = ["INP001"]
+
+[tool.ruff.lint.pylint]
+# The wide signatures in this codebase are keyword-only by construction, so
+# their call sites read as prose rather than as a row of unlabelled values.
+# FBT and the keyword-only style carry what the arity limit is reaching for.
+max-args = 8
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

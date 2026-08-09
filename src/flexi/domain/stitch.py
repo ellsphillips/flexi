@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 DAYS_IN_WEEK = 7
+MONTHS_IN_YEAR = 12
 MONTH_NAMES = (
     "January",
     "February",
@@ -39,8 +40,10 @@ MONTH_NAMES = (
 
 @dataclass(frozen=True, slots=True)
 class Cell:
-    """One position in the grid. ``date`` is ``None`` where a month has not
-    started yet or has already ended — the blanks at a seam.
+    """One position in the grid.
+
+    ``date`` is ``None`` where a month has not started yet or has already
+    ended — the blanks at a seam.
     """
 
     date: date | None
@@ -116,7 +119,7 @@ def stitch(start: date, end: date, *, first_weekday: int = 0) -> list[MonthBlock
     year, month = start.year, start.month
     while (year, month) <= (end.year, end.month):
         blocks.append(month_block(year, month, first_weekday=first_weekday))
-        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+        year, month = (year + 1, 1) if month == MONTHS_IN_YEAR else (year, month + 1)
     return blocks
 
 

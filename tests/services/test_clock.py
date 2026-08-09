@@ -103,9 +103,11 @@ class TestRollback:
         self, svc: ClockService, session: Session
     ) -> None:
         """If commit fails after flush, no partial state should remain."""
-        with patch.object(session, "commit", side_effect=RuntimeError("boom")):
-            with pytest.raises(RuntimeError, match="boom"):
-                svc.clock_in()
+        with (
+            patch.object(session, "commit", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            svc.clock_in()
 
         session.rollback()
         events = session.execute(select(ClockEvent)).scalars().all()

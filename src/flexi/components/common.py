@@ -135,8 +135,10 @@ class Pill(Static):
         self._apply_tone()
 
     def _apply_tone(self) -> None:
-        """Tone classes are mutually exclusive, so removing all of them first is
-        cheaper to reason about than tracking which one is on.
+        """Apply the tone, having cleared the others.
+
+        They are mutually exclusive, so removing all of them first is cheaper to
+        reason about than tracking which one is on.
         """
         self.remove_class(*_ALL_TONE_CLASSES)
         if applied := TONE_CLASSES[self.tone]:

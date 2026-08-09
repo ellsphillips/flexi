@@ -43,6 +43,12 @@ from flexi.domain.stitch import (
 TOKEN: Final = 3
 """What a day always occupies: two columns for the number, one for the marker."""
 
+HEADING_ROW: Final = -2
+"""The weekday initials, drawn once above the whole grid."""
+
+TITLE_ROW: Final = -1
+"""A month name. Every other row index is a week within its block."""
+
 LABELLED_CELL: Final = 9
 """From here a tile has room to say what is booked on it, not just that
 something is. Below it the type is carried by the tile's colour alone — which is
@@ -177,9 +183,9 @@ class YearCalendar(ScrollView, can_focus=True):
         self.refresh()
 
     def _relayout(self) -> None:
-        rows: list[tuple[MonthBlock | None, int]] = [(None, -2)]
+        rows: list[tuple[MonthBlock | None, int]] = [(None, HEADING_ROW)]
         for block in self.blocks:
-            rows.append((block, -1))
+            rows.append((block, TITLE_ROW))
             rows.extend((block, index) for index in range(len(block.rows)))
         self._rows = rows
         self.virtual_size = Size(self.grid_width, len(rows))
@@ -255,7 +261,7 @@ class YearCalendar(ScrollView, can_focus=True):
         return [
             (block, index)
             for index, (block, row) in enumerate(self._rows)
-            if block is not None and row == -1
+            if block is not None and row == TITLE_ROW
         ]
 
     def visible_months(self) -> list[tuple[MonthBlock, int]]:
@@ -285,11 +291,11 @@ class YearCalendar(ScrollView, can_focus=True):
             return Strip.blank(self.size.width)
         block, row = self._rows[line]
 
-        if row == -2:
+        if row == HEADING_ROW:
             return self._heading_strip()
         if block is None:
             return Strip.blank(self.size.width)
-        if row == -1:
+        if row == TITLE_ROW:
             return self._title_strip(block)
         return self._week_strip(block, row)
 

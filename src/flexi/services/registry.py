@@ -93,8 +93,9 @@ class Services:
 
 
 def _minimum_session() -> timedelta:
-    """How long a session has to last to count. Preference, so it comes from
-    the config file rather than from the database.
+    """How long a session has to last to count.
+
+    A preference, so it comes from the config file rather than the database.
     """
     from flexi.config import CONFIG
 

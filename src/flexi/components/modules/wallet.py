@@ -100,7 +100,9 @@ class WalletModule(Module):
         gauge.display = True
         gauge.show(
             max(0.0, min(balance_days, 5.0)),
-            readout=f"{delta(data.balance.delta)}  ({signed_days(round(balance_days, 1))}d)",
+            readout=(
+                f"{delta(data.balance.delta)}  ({signed_days(round(balance_days, 1))}d)"
+            ),
             total=5.0,
             tone=Tone.OK if balance_days >= 0 else Tone.ERR,
         )

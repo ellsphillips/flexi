@@ -406,10 +406,11 @@ class AbsenceService:
         happens to be half empty should report what it removed, not five
         complaints about the days that were already free.
         """
-        cleared: list[date] = []
-        for when in _walk(start, end):
-            if self.for_date(when) and self.remove(when).success:
-                cleared.append(when)
+        cleared = [
+            when
+            for when in _walk(start, end)
+            if self.for_date(when) and self.remove(when).success
+        ]
         return RangeResult(tuple(cleared))
 
     def change_type(

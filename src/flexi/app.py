@@ -257,8 +257,7 @@ class FlexiApp(TextualApp[None]):
     def action_toggle_jump_mode(self) -> None:
         self._jumping = not self._jumping
 
-    def watch__jumping(self, jumping: bool) -> None:
-        del jumping
+    def watch__jumping(self) -> None:
         focused_before = self.focused
         if focused_before is not None:
             self.set_focus(None, scroll_visible=False)

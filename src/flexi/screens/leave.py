@@ -190,7 +190,10 @@ class LeaveScreen(Screen[None]):
             elif allowance.is_capped and allowance.remaining is not None:
                 gauge.show(
                     allowance.used,
-                    readout=f"{fmt_days(allowance.remaining)} of {fmt_days(allowance.total or 0)}",
+                    readout=(
+                        f"{fmt_days(allowance.remaining)} of "
+                        f"{fmt_days(allowance.total or 0)}"
+                    ),
                     total=allowance.total or 1.0,
                     target=allowance.pace,
                     tone=Tone.OK,

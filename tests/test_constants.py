@@ -12,6 +12,8 @@ from flexi.constants import StatusOption
         ("d", StatusOption.DEPART),
     ],
 )
-def test_StatusOption(status: str, expected: StatusOption) -> None:
-    """It StatusOptions in or out."""
+def test_a_status_is_named_by_word_or_initial(
+    status: str, expected: StatusOption
+) -> None:
+    """Both "arrive" and "a" reach the same option."""
     assert StatusOption.from_str(status) == expected

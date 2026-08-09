@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from textual.app import ComposeResult
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
@@ -20,7 +21,7 @@ DIVISIONS = [
 class SetupScreen(Screen[bool]):
     """First-launch setup screen. Returns True when setup is saved."""
 
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "cancel", "Cancel")]
 
     DEFAULT_CSS = """
     SetupScreen {

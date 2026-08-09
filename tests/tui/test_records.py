@@ -111,7 +111,9 @@ async def test_loading_a_period_costs_the_same_whatever_its_length(
         def count_queries(days: int) -> int:
             statements: list[str] = []
 
-            def record(conn, cursor, statement, *_args) -> None:  # noqa: ANN001
+            def record(
+                conn: object, cursor: object, statement: str, *_args: object
+            ) -> None:
                 if statement.lstrip().upper().startswith("SELECT"):
                     statements.append(statement)
 
