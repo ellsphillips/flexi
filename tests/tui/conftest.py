@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import time_machine
+from textual.screen import Screen
 
 from flexi.app import FlexiApp
 from flexi.components.chrome import AppFooter
@@ -59,6 +61,21 @@ def dashboard(app: FlexiApp) -> DashboardScreen:
     found = app._dashboard()
     assert found is not None, "the dashboard should be mounted"
     return found
+
+
+def showing[S: Screen[Any]](app: FlexiApp, kind: type[S]) -> S:
+    """The current screen, asserted to be ``kind``.
+
+    ``App.screen`` is typed ``Screen[object]``, so narrowing it in place with
+    ``isinstance`` against a ``Screen[None]`` subclass leaves mypy holding
+    ``Never``. Going through a bound type variable keeps the type, and still
+    fails the test when the screen is not the one expected.
+    """
+    screen = app.screen
+    assert isinstance(screen, kind), (
+        f"expected {kind.__name__}, showing {type(screen).__name__}"
+    )
+    return screen
 
 
 def status_text(app: FlexiApp) -> str:

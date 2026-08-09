@@ -10,22 +10,24 @@ from __future__ import annotations
 import inspect
 import pkgutil
 from importlib import import_module
+from typing import Any
 
 import pytest
+from textual.binding import Binding
 
 import flexi.screens
 from flexi.components.chrome import NavItemLabel, footer_key_cost, keys_that_fit
 from flexi.screens.help import HelpScreen, collect_bindings
 from flexi.screens.insights import InsightsScreen
 from flexi.screens.modals import FlexiModal
-from tests.tui.conftest import WIDE, AppFactory
+from tests.tui.conftest import WIDE, AppFactory, showing
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
 
-def modal_classes() -> list[type[FlexiModal]]:
+def modal_classes() -> list[type[FlexiModal[Any]]]:
     """Every modal in the package, found by walking it."""
-    found: list[type[FlexiModal]] = []
+    found: list[type[FlexiModal[Any]]] = []
     for info in pkgutil.walk_packages(flexi.screens.__path__, "flexi.screens."):
         module = import_module(info.name)
         for _name, obj in inspect.getmembers(module, inspect.isclass):
@@ -122,9 +124,12 @@ def test_there_are_modals_to_check() -> None:
 
 
 @pytest.mark.parametrize("modal", modal_classes(), ids=lambda cls: cls.__name__)
-def test_every_modal_binds_escape_and_enter(modal: type[FlexiModal]) -> None:
+def test_every_modal_binds_escape_and_enter(modal: type[FlexiModal[Any]]) -> None:
     """It keeps the contract every dialog in the application keeps."""
-    keys = {binding.key for binding in modal.BINDINGS}
+    keys = {
+        binding.key if isinstance(binding, Binding) else binding[0]
+        for binding in modal.BINDINGS
+    }
     assert "escape" in keys
     assert "enter" in keys
 
@@ -149,11 +154,11 @@ async def test_clicking_a_tab_navigates(app_factory: AppFactory) -> None:
         )
         await pilot.click(insights)
         await pilot.pause()
-        assert isinstance(app.screen, InsightsScreen)
+        opened = showing(app, InsightsScreen)
 
         dashboard = next(
             label
-            for label in app.screen.query(NavItemLabel)
+            for label in opened.query(NavItemLabel)
             if label.item.screen == "dashboard"
         )
         await pilot.click(dashboard)

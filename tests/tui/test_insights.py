@@ -16,7 +16,7 @@ from flexi.components.charts import (
 from flexi.constants import DayKind
 from flexi.domain.ledger import DayLedger
 from flexi.screens.insights import InsightsScreen
-from tests.tui.conftest import WIDE, AppFactory, screen_text
+from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
@@ -66,8 +66,7 @@ async def test_f3_opens_insights_on_the_leave_year(app_factory: AppFactory) -> N
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("f3")
         await pilot.pause()
-        assert isinstance(app.screen, InsightsScreen)
-        assert app.screen.period.start == date(2026, 4, 6)
+        assert showing(app, InsightsScreen).period.start == date(2026, 4, 6)
 
 
 async def test_escape_returns_to_the_dashboard(app_factory: AppFactory) -> None:
@@ -92,7 +91,7 @@ async def test_f1_returns_to_the_dashboard(app_factory: AppFactory) -> None:
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("f3")
         await pilot.pause()
-        assert isinstance(app.screen, InsightsScreen)
+        showing(app, InsightsScreen)
 
         await pilot.press("f1")
         await pilot.pause()
@@ -158,6 +157,6 @@ async def test_insights_panels_are_jumpable(app_factory: AppFactory) -> None:
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
         await pilot.pause()
-        targets = app.screen.jump_targets()
-        for widget_id in targets:
-            assert app.screen.query(f"#{widget_id}"), f"{widget_id} is not mounted"
+        insights = showing(app, InsightsScreen)
+        for widget_id in insights.jump_targets():
+            assert insights.query(f"#{widget_id}"), f"{widget_id} is not mounted"

@@ -76,7 +76,7 @@ strict = true
 # src layout: without mypy_path every module is found twice, once as `flexi.x`
 # and once as `src.flexi.x`, and mypy refuses to check either.
 mypy_path = "src"
-packages = ["flexi"]
+files = ["src/flexi", "tests"]
 exclude = "migrations|dist|build"
 warn_unreachable = true
 show_error_codes = true

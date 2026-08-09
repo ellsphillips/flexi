@@ -85,7 +85,9 @@ class TestFallbackTo2359:
         svc.clock_in(now=yesterday_8pm)
         closed = close_stale_sessions(svc._session, time(18, 0))
         assert len(closed) == 1
-        close_time = closed[0].clock_out_event.timestamp.replace(tzinfo=None).time()
+        closing = closed[0].clock_out_event
+        assert closing is not None
+        close_time = closing.timestamp.replace(tzinfo=None).time()
         assert close_time == time(23, 59)
 
 
@@ -99,6 +101,7 @@ class TestCountsTowardWorkedTime:
         svc.clock_in(now=yesterday_9am)
         closed = close_stale_sessions(svc._session, time(18, 0))
         ws = closed[0]
+        assert ws.clock_out_event is not None
         start = ws.clock_in_event.timestamp.replace(tzinfo=None)
         end = ws.clock_out_event.timestamp.replace(tzinfo=None)
         duration = (end - start).total_seconds()

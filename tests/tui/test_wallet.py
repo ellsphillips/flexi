@@ -5,12 +5,12 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from textual.widgets import Input, RadioSet
+from textual.widgets import Input, RadioButton, RadioSet
 
 from flexi.components.common import Gauge
 from flexi.constants import AbsenceType, Portion
 from flexi.screens.modals import AbsenceModal
-from tests.tui.conftest import WIDE, AppFactory, status_text
+from tests.tui.conftest import WIDE, AppFactory, showing, status_text
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
@@ -43,8 +43,7 @@ async def test_a_shifted_key_opens_the_booking_modal_prefilled(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("S")
         await pilot.pause()
-        modal = app.screen
-        assert isinstance(modal, AbsenceModal)
+        modal = showing(app, AbsenceModal)
         pressed = modal.query_one("#absence-type", RadioSet).pressed_button
         assert pressed is not None
         assert pressed.name == AbsenceType.SICK.value
@@ -60,7 +59,7 @@ async def test_booking_a_half_day_draws_down_a_half(app_factory: AppFactory) -> 
 
         app.screen.query_one("#absence-date", Input).value = "2026-06-22"
         portions = app.screen.query_one("#absence-portion", RadioSet)
-        portions.query("RadioButton")[1].value = True  # morning
+        portions.query(RadioButton)[1].value = True  # morning
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
@@ -128,7 +127,7 @@ async def test_the_modal_cancels_on_escape(app_factory: AppFactory) -> None:
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("A")
         await pilot.pause()
-        assert isinstance(app.screen, AbsenceModal)
+        showing(app, AbsenceModal)
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, AbsenceModal)

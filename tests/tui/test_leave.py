@@ -13,7 +13,7 @@ from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
-from tests.tui.conftest import WIDE, AppFactory, status_text
+from tests.tui.conftest import WIDE, AppFactory, showing, status_text
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
@@ -38,8 +38,7 @@ async def test_f2_opens_the_leave_year(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
-        assert isinstance(app.screen, LeaveScreen)
-        assert app.screen.period.start == date(2026, 4, 6)
+        assert showing(app, LeaveScreen).period.start == date(2026, 4, 6)
         assert calendar(app).selection.head == TODAY
 
 
@@ -162,7 +161,7 @@ async def test_space_cycles_the_portion_before_booking(app_factory: AppFactory) 
 
         await pilot.press("space")
         await pilot.pause()
-        assert app.screen.portion is Portion.AM
+        assert showing(app, LeaveScreen).portion is Portion.AM
 
         await pilot.press("A")
         await pilot.pause()
@@ -192,7 +191,9 @@ async def test_the_wallet_moves_with_the_booking(app_factory: AppFactory) -> Non
         await pilot.press("A")
         await pilot.pause()
 
-        assert app.screen.query_one("#leave-gauge-annual", Gauge).value == before + 1
+        assert before is not None
+        after = showing(app, LeaveScreen).query_one("#leave-gauge-annual", Gauge)
+        assert after.value == before + 1
 
 
 # -- removing --------------------------------------------------------------
@@ -268,8 +269,9 @@ async def test_every_panel_is_jumpable(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
-        for widget_id in app.screen.jump_targets():
-            assert app.screen.query(f"#{widget_id}"), f"{widget_id} is not mounted"
+        leave = showing(app, LeaveScreen)
+        for widget_id in leave.jump_targets():
+            assert leave.query(f"#{widget_id}"), f"{widget_id} is not mounted"
 
 
 async def test_the_rail_gives_way_when_there_is_no_room(

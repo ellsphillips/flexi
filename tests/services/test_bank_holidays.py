@@ -7,6 +7,7 @@ unavailable validation, title lookup.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from typing import TypedDict
 from unittest.mock import patch
 
 import httpx
@@ -15,7 +16,18 @@ from sqlalchemy.orm import Session
 from flexi.models.database.db import BankHolidayCache
 from flexi.services.bank_holidays import BankHolidayService
 
-SAMPLE_RESPONSE = {
+
+class Event(TypedDict):
+    title: str
+    date: str
+
+
+class Division(TypedDict):
+    division: str
+    events: list[Event]
+
+
+SAMPLE_RESPONSE: dict[str, Division] = {
     "england-and-wales": {
         "division": "england-and-wales",
         "events": [
@@ -37,7 +49,8 @@ SAMPLE_RESPONSE = {
 def _seed_cache(session: Session, division: str = "england-and-wales") -> None:
     """Insert sample bank holidays directly into the cache table."""
     now = datetime.now(tz=UTC).replace(tzinfo=None)
-    for ev in SAMPLE_RESPONSE.get(division, {}).get("events", []):
+    known = SAMPLE_RESPONSE.get(division)
+    for ev in known["events"] if known else ():
         session.add(
             BankHolidayCache(
                 division=division,
