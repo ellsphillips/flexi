@@ -8,7 +8,6 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
-from flexi import wallclock
 from flexi.services.registry import Services
 
 DIVISIONS = [
@@ -120,7 +119,7 @@ class SettingsScreen(Screen[bool]):
             next_year = last.year + 1
             default_days = last.days
         else:
-            next_year = wallclock.today().year
+            next_year = self._svc.active_leave_year()
             default_days = 25.0
 
         self._svc.save_entitlement(next_year, default_days)

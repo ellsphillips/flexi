@@ -8,7 +8,6 @@ from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
-from flexi import wallclock
 from flexi.services.registry import Services
 
 DIVISIONS = [
@@ -69,7 +68,7 @@ class SetupScreen(Screen[bool]):
         self._settings_svc = services.settings
 
     def compose(self) -> ComposeResult:
-        year = wallclock.today().year
+        year = self._settings_svc.active_leave_year()
         with Container(id="setup-dialog"):
             yield Static("Welcome to Flexi! Complete setup to continue.\n")
 
@@ -139,7 +138,10 @@ class SetupScreen(Screen[bool]):
             self.notify(str(error), severity="error")
             return
 
-        year = wallclock.today().year
+        # The leave year, not the calendar year. Setting Flexi up in February
+        # against an April leave year files the allowance under the year that
+        # has not started, and get_active_entitlement_days then finds nothing.
+        year = self._settings_svc.active_leave_year()
         self._settings_svc.save_entitlement(year, entitlement)
 
         self.dismiss(True)
