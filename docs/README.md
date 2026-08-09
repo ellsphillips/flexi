@@ -13,6 +13,7 @@ These documents are the handoff. Read them in this order:
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Package layout, layering, how a keypress becomes a database write and a redraw. |
 | [`LEAVE-SCREEN.md`](LEAVE-SCREEN.md) | Why the leave year scrolls rather than pages, and how booking costs one keystroke. |
 | [`KEYMAP.md`](KEYMAP.md) | Every binding, jump mode, and the rules for adding a new one. |
+| [`RELEASING.md`](RELEASING.md) | The branch flow, the four gates before anything reaches PyPI, and the one-time GitHub setup. |
 | [`TESTING.md`](TESTING.md) | Unit, Pilot and snapshot testing; how to capture a screenshot for review. |
 | [`ROADMAP.md`](ROADMAP.md) | The delivery slices, each with acceptance criteria. Pick up here. |
 

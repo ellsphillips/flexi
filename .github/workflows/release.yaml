@@ -1,0 +1,163 @@
+name: Release
+
+# Publishing is deliberately hard to do by accident. Four things must all be
+# true before anything reaches PyPI:
+#
+#   1. the commit is on main
+#   2. the version in pyproject is one PyPI has never seen
+#   3. the whole suite passes, and the built wheel installs and boots
+#   4. a human approves the `pypi` environment in the Actions UI
+#
+# Miss any of them and the run stops. Push a README fix to main and it will
+# reach step 2, notice the version is unchanged, and stop without failing.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never two releases at once, and never cancel one midway.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE: flexi
+
+jobs:
+  guard:
+    name: Is this a new version?
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.published.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: version
+        name: Read the version from pyproject
+        run: |
+          version=$(python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "pyproject says $version"
+
+      - id: published
+        name: Has PyPI seen it before?
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/${PACKAGE}/${version}/json")
+          if [ "$code" = "200" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${PACKAGE} ${version} is already on PyPI. Nothing to release."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${PACKAGE} ${version} is new. Continuing to verification."
+          fi
+
+  verify:
+    name: Verify · Python ${{ matrix.python }}
+    needs: guard
+    if: needs.guard.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: ${{ matrix.python }}
+
+      - run: uv sync --locked --dev
+      - run: uv lock --check
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run mypy
+      - run: uv run pytest -q
+
+  build:
+    name: Build, then prove the artefact runs
+    needs: [guard, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv build
+
+      - name: The filename matches the version being released
+        run: |
+          version="${{ needs.guard.outputs.version }}"
+          ls -1 dist/
+          test -f "dist/${PACKAGE}-${version}-py3-none-any.whl"
+          test -f "dist/${PACKAGE}-${version}.tar.gz"
+
+      - name: It installs somewhere with no source tree, and boots
+        run: |
+          uv venv /tmp/probe
+          uv pip install --python /tmp/probe/bin/python dist/*.whl pytest pytest-asyncio
+          /tmp/probe/bin/python -m pytest tests/test_packaging.py -q
+          /tmp/probe/bin/python scripts/smoke.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: [guard, build]
+    runs-on: ubuntu-latest
+    # The approval gate. This environment has a required reviewer, so the run
+    # pauses here until somebody presses the button in the Actions UI, and it
+    # is restricted to main so no other branch can reach the token.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/flexi/${{ needs.guard.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Upload
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        # --check-url makes a re-run of an interrupted upload a no-op rather
+        # than a 400 from PyPI.
+        run: uv publish --check-url https://pypi.org/simple/${PACKAGE}/ dist/*
+
+  tag:
+    name: Tag the release
+    needs: [guard, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --generate-notes

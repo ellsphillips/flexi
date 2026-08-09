@@ -6,6 +6,10 @@ uv run pre-commit install
 uv run pytest -q
 ```
 
+`dev` is the working branch: branch off it, and open pull requests into it.
+`main` is what has been released, and merging into it starts the release
+pipeline — see [`docs/RELEASING.md`](docs/RELEASING.md).
+
 The hooks run the same commands CI runs, through the same locked environment, so
 a clean commit is a green pipeline.
 
