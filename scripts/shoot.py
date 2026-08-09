@@ -5,7 +5,6 @@ looks like". Same seed either way, so a reviewer and a failing test are looking
 at the same six weeks.
 
     uv run python scripts/shoot.py
-    rsvg-convert -w 1600 docs/shots/dashboard-wide.svg -o /tmp/wide.png
 """
 
 from __future__ import annotations
@@ -31,7 +30,17 @@ WIDE = (120, 36)
 NARROW = (84, 28)
 TINY = (64, 22)
 
+# The shots the README points at. Wider and taller than the regression set, so
+# each one has room to show the whole feature rather than a corner of it.
+SHOWCASE = (128, 40)
+SHOWCASE_TALL = (128, 46)
+
 SHOOTS: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
+    ("showcase-dashboard", SHOWCASE, ["m"]),
+    ("showcase-records", SHOWCASE, ["v", "r", "down", "down", "space"]),
+    ("showcase-leave", SHOWCASE, ["f2", "down", "shift+right", "shift+right"]),
+    ("showcase-insights", SHOWCASE_TALL, ["f3"]),
+    ("showcase-jump", SHOWCASE, ["v"]),
     ("dashboard-wide", WIDE, []),
     ("dashboard-month", WIDE, ["m"]),
     ("dashboard-day", WIDE, ["d"]),
@@ -76,6 +85,7 @@ async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> 
         # of tofu — which looks like a Flexi bug and is not one. The text dump
         # is what alignment is actually checked against.
         (SHOTS / f"{name}.txt").write_text(screen_text(app), encoding="utf-8")
+
     print(f"  {name}.svg  {size[0]}x{size[1]}")
 
 

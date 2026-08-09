@@ -47,6 +47,8 @@ UPDATE_NOTICE_SECONDS = 10
 class FlexiApp(TextualApp[None]):
     """Flexi."""
 
+    TITLE = "flexi"
+
     CSS_PATH: ClassVar[list[str | PurePath]] = [
         "theme/flexi.tcss",
         "styles/dashboard.tcss",
