@@ -178,11 +178,15 @@ uv run pytest tests/domain -q        # while working on arithmetic
 uv run pytest tests/tui -q           # while working on interaction
 uv run python scripts/shoot.py       # after an intentional visual change
 uv run mypy                          # strict, and it is meant to stay strict
-uv run ruff check src tests scripts
+uv run ruff check
 ```
 
-`mypy` needs no argument: `pyproject.toml` sets `mypy_path = "src"` and
-`packages = ["flexi"]`, without which a src layout is discovered twice — once as
-`flexi.x` and once as `src.flexi.x` — and mypy refuses to check either.
+Neither `mypy` nor `ruff` needs an argument. `mypy` covers `src` and `tests`
+both, and `mypy_path = "src"` is what stops a src layout being discovered twice
+— once as `flexi.x` and once as `src.flexi.x` — which makes mypy refuse to check
+either.
+
+`uv run pre-commit run --all-files` runs the lot, and those hooks are the same
+commands CI runs.
 
 A failed snapshot prints its diff, so nothing needs uploading as an artifact.
