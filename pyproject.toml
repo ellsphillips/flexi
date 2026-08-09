@@ -62,6 +62,10 @@ show_missing = true
 
 [tool.mypy]
 strict = true
+# src layout: without mypy_path every module is found twice, once as
+# `flexi.x` and once as `src.flexi.x`, and mypy refuses to check either.
+mypy_path = "src"
+packages = ["flexi"]
 exclude = "migrations|tests|dist|build|typings"
 explicit_package_bases = true
 warn_unused_ignores = true
