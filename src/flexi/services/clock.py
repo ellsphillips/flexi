@@ -1,13 +1,32 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
+
+
+def _naive(moment: datetime) -> datetime:
+    """A timestamp with its zone stripped, for comparing against another one.
+
+    SQLite has no timestamp type, so a `DateTime(timezone=True)` column reads
+    back naive whatever went in — and subtracting an aware datetime from a naive
+    one raises rather than being wrong quietly.
+    """
+    return moment.replace(tzinfo=None) if moment.tzinfo else moment
+
+
+def _readable(span: timedelta) -> str:
+    """A threshold as somebody would say it out loud."""
+    seconds = int(span.total_seconds())
+    if seconds % 60 == 0 and seconds >= 60:
+        minutes = seconds // 60
+        return f"{minutes} minute" + ("" if minutes == 1 else "s")
+    return f"{seconds} second" + ("" if seconds == 1 else "s")
 
 
 @dataclass(frozen=True)
@@ -20,11 +39,20 @@ class ClockResult:
     session: WorkSession | None = None
 
 
+DEFAULT_MINIMUM_SESSION = timedelta(seconds=60)
+"""Below this, a session is a slip of the finger rather than a minute of work."""
+
+
 class ClockService:
     """Atomic clock-in / clock-out operations."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        minimum_session: timedelta = DEFAULT_MINIMUM_SESSION,
+    ) -> None:
         self._session = session
+        self._minimum = minimum_session
 
     def get_open_session(self) -> WorkSession | None:
         """Return the currently open work session, or None."""
@@ -115,8 +143,23 @@ class ClockService:
         self._session.flush()
 
         open_session.clock_out_id = event.id
-        self._session.commit()
 
+        # Clocking in and straight back out is a slip of the finger. The events
+        # stay — they are immutable, and the audit trail is the point — but the
+        # session is voided, so it is absent from the records table and from
+        # every figure derived from it.
+        length = _naive(now) - _naive(open_session.clock_in_event.timestamp)
+        if length < self._minimum:
+            open_session.voided = True
+            self._session.commit()
+            return ClockResult(
+                success=True,
+                message=f"Discarded — under {_readable(self._minimum)} on the clock",
+                event=event,
+                session=open_session,
+            )
+
+        self._session.commit()
         return ClockResult(
             success=True,
             message="Clocked out",
@@ -125,6 +168,31 @@ class ClockService:
         )
 
     def get_sessions_for_date(self, work_date: date) -> list[WorkSession]:
-        """Return all work sessions for a given date."""
-        stmt = select(WorkSession).where(WorkSession.work_date == work_date)
+        """Every session that counts on a date. Voided ones are not sessions."""
+        stmt = select(WorkSession).where(
+            WorkSession.work_date == work_date, WorkSession.voided.is_(False)
+        )
         return list(self._session.execute(stmt).scalars())
+
+    def discard_short_sessions(self) -> list[WorkSession]:
+        """Void every closed session already on record that is too short.
+
+        For databases that predate the threshold, or that were filled in while
+        somebody was learning which key does what.
+        """
+        stmt = select(WorkSession).where(
+            WorkSession.clock_out_id.is_not(None), WorkSession.voided.is_(False)
+        )
+        discarded: list[WorkSession] = []
+        for work in self._session.execute(stmt).scalars():
+            if work.clock_out_event is None:
+                continue
+            length = _naive(work.clock_out_event.timestamp) - _naive(
+                work.clock_in_event.timestamp
+            )
+            if length < self._minimum:
+                work.voided = True
+                discarded.append(work)
+        if discarded:
+            self._session.commit()
+        return discarded

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -63,6 +63,18 @@ def close_stale_sessions(
 
 
 def run_startup_cleanup(session: Session) -> list[WorkSession]:
-    """Run all startup-time cleanup. Called before app launch and clock actions."""
-    svc = SettingsService(session)
-    return close_stale_sessions(session, svc.get_auto_close_time())
+    """Run all startup-time cleanup. Called before app launch and clock actions.
+
+    Two sweeps. Sessions left running overnight are closed at the configured
+    time, and sessions so short they can only have been a slip of the finger are
+    voided — which also cleans up databases that predate the threshold.
+    """
+    from flexi.config import CONFIG
+    from flexi.services.clock import ClockService
+
+    settings = SettingsService(session)
+    closed = close_stale_sessions(session, settings.get_auto_close_time())
+    ClockService(
+        session, timedelta(seconds=CONFIG.defaults.minimum_session_seconds)
+    ).discard_short_sessions()
+    return closed

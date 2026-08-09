@@ -34,6 +34,12 @@ from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 
 
+def _walk(start: date, end: date) -> list[date]:
+    """Every date from start to end, inclusive."""
+    span = (end - start).days
+    return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
+
+
 @dataclass(frozen=True)
 class AbsenceResult:
     """The outcome of an absence action, and what to tell the user about it."""
@@ -42,6 +48,48 @@ class AbsenceResult:
     message: str
     absence: AbsenceDay | None = None
     warning: str | None = None
+
+
+@dataclass(frozen=True)
+class RangeResult:
+    """The outcome of booking or clearing a span of days.
+
+    Partial by design. Booking a fortnight that crosses a bank holiday should
+    book twelve days and say so, not refuse all fourteen and leave somebody to
+    find the offending one — so this records what happened and what did not,
+    with the reason each day was skipped.
+    """
+
+    booked: tuple[date, ...] = ()
+    skipped: tuple[tuple[date, str], ...] = ()
+    warning: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return bool(self.booked)
+
+    @property
+    def reasons(self) -> tuple[str, ...]:
+        """The distinct refusals, in the order they were first hit."""
+        seen: list[str] = []
+        for _when, reason in self.skipped:
+            if reason not in seen:
+                seen.append(reason)
+        return tuple(seen)
+
+    def message(self, what: str) -> str:
+        """One sentence a status bar can show unedited."""
+        if not self.booked and not self.skipped:
+            return "Nothing to do"
+        if not self.booked:
+            return self.reasons[0] if len(self.reasons) == 1 else (
+                f"Nothing {what}: " + "; ".join(self.reasons)
+            )
+        days = f"{len(self.booked)} day" + ("" if len(self.booked) == 1 else "s")
+        if not self.skipped:
+            return f"{days} {what}"
+        missed = f"{len(self.skipped)} skipped"
+        return f"{days} {what}, {missed} — {'; '.join(self.reasons)}"
 
 
 class AbsenceService:
@@ -277,6 +325,62 @@ class AbsenceService:
             return None
         overdraft = portion.days - available_toil_days
         return f"Booked, but this takes the flexi balance {overdraft:g} day into deficit"
+
+    def book_range(
+        self,
+        start: date,
+        end: date,
+        absence_type: AbsenceType,
+        portion: Portion = Portion.FULL,
+        *,
+        note: str | None = None,
+        available_toil_days: float | None = None,
+    ) -> RangeResult:
+        """Book every day in a span that will take it.
+
+        Weekends and bank holidays are skipped quietly — nobody booking a
+        fortnight means to book the Saturdays, and reporting them as refusals
+        would bury the one that matters.
+        """
+        booked: list[date] = []
+        skipped: list[tuple[date, str]] = []
+        warning: str | None = None
+        remaining = available_toil_days
+
+        for when in _walk(start, end):
+            if not self._settings.is_working_day(when.weekday()):
+                continue
+            result = self.book(
+                when,
+                absence_type,
+                portion,
+                note=note,
+                available_toil_days=remaining,
+            )
+            if result.success:
+                booked.append(when)
+                warning = warning or result.warning
+                if remaining is not None:
+                    remaining -= portion.days
+            elif "bank holiday" in result.message:
+                continue
+            else:
+                skipped.append((when, result.message))
+
+        return RangeResult(tuple(booked), tuple(skipped), warning)
+
+    def clear_range(self, start: date, end: date) -> RangeResult:
+        """Remove every booking in a span.
+
+        A day with nothing on it is not a failure — clearing a fortnight that
+        happens to be half empty should report what it removed, not five
+        complaints about the days that were already free.
+        """
+        cleared: list[date] = []
+        for when in _walk(start, end):
+            if self.for_date(when) and self.remove(when).success:
+                cleared.append(when)
+        return RangeResult(tuple(cleared))
 
     def change_type(
         self,

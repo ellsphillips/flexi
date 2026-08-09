@@ -30,6 +30,13 @@ Plus **`v`** — jump mode, which is navigation rather than discovery.
 | `ctrl+q` | Quit. |
 | `ctrl+l` | Toggle the log pane. |
 
+**A session under a minute never happened.** Clocking in and straight back out
+is a slip of the finger, not a minute of work, and a records table full of them
+is a records table nobody trusts. The clock-out reports `Discarded — under 1
+minute on the clock`, the events are kept, and the session is voided so it is
+absent from the table and from every figure derived from it. The threshold is
+`defaults.minimum_session_seconds`.
+
 `/` is deliberately a single unshifted key on the home row of the right hand, and
 it is bound at **app** level with `priority=True` so it works from any screen and
 any focused widget — except inside an `Input`, where Textual's own focus rules
