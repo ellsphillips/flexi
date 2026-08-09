@@ -114,8 +114,7 @@ Screen {
 
 
 /* -- .module --------------------------------------------------------------
-   The titled panel, inherited from the reference application because it is the one part of its
-   look worth keeping and its users will recognise it.
+   The titled panel: the one container every island is built on.
 
    The border is ALWAYS present and only its colour changes on focus. A border
    occupies layout space, so adding one on `:focus` reflows the panel by two

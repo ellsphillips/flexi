@@ -57,8 +57,8 @@ src/flexi/
     common.py            Tone, Pill, StatCard, KeyHint, Rule, Gauge
     chrome.py            Wordmark, NavBar, AppHeader, StatusBar, KeyStrip, AppFooter
     punch.py             PunchStrip
-    jumper.py            Jumper            (from the reference application, verbatim)
-    jump_overlay.py      JumpOverlay       (from the reference application, adapted)
+    jumper.py            Jumper
+    jump_overlay.py      JumpOverlay
     expandable.py        ExpandableTable   (wraps DataTable — see §6)
     yearcalendar.py      YearCalendar      (the scrolling leave year)
     progress.py          ProgressRail, TimeProgress
@@ -186,15 +186,15 @@ is the discoverability backstop for the long tail of actions that do not deserve
 a key.
 
 Screens are registered as *factories* so an import error in one screen is a
-placeholder panel and a log line, not a crash at startup (the design reference's pattern).
+placeholder panel and a log line, not a crash at startup.
 
 ## 6. The records table
 
 Requirements: a row per day in the period, expandable to the day's breakdown,
 responsive, and fast enough to redraw on a one-second tick.
 
-**Do not fork `DataTable`.** the reference application vendors 2,700 lines of it to add a
-`style_name` argument for per-row styling. Flexi gets the same effect by passing
+**Do not fork `DataTable`.** Vendoring it to add a `style_name` argument for
+per-row styling costs 2,700 lines. Flexi gets the same effect by passing
 `rich.text.Text` with an explicit style into the cell:
 
 ```python
@@ -232,11 +232,11 @@ Children of a day row, in order:
 
 ## 7. Jump mode
 
-Copied from the reference application (`components/jumper.py` verbatim, `jump_overlay.py` adapted to
-Flexi's config) and extended in two ways:
+Two properties are worth stating, because both look like they should need
+per-widget hooks and do not:
 
-1. **Targets are declared, not hardcoded.** the reference application keeps one dict in
-   `App.on_mount` listing every container id in the whole application, including
+1. **Targets are declared, not hardcoded.** An application-wide dict built in
+   `App.on_mount` would list every container id in the application, including
    ids from screens that are not mounted. Flexi asks the screen:
 
    ```python
@@ -254,9 +254,8 @@ Flexi's config) and extended in two ways:
    panels.
 
 The overlay dismisses with the widget or id, and the app focuses it — or, if it
-is not focusable, posts a synthetic `Click`, which is how the reference application makes a button
-jumpable. Full mechanics, with both files verbatim, in
-[`research/flexi-jump-mode.md`](research/flexi-jump-mode.md).
+is not focusable, posts a synthetic `Click`, which is what makes a button
+jumpable.
 
 ## 8. Configuration
 
@@ -275,7 +274,7 @@ defaults:
   confirm_clock_out_before: "16:00"   # ask if departing unusually early
 ```
 
-Bindings read from `CONFIG.hotkeys` at class-definition time (the reference application's pattern),
+Bindings read from `CONFIG.hotkeys` at class-definition time,
 so the config is loaded before any widget module is imported. `config.py` must
 therefore have no Flexi imports beyond `locations`.
 
@@ -290,7 +289,6 @@ records they explain. Config is preference; settings are domain.
 | `textual>=8.2,<9` (from `1.0.0`) | The compact `Footer`/`FooterKey`/`FooterLabel` that `KeyStrip` subclasses, the `Content` API, and current theming. The UI is being rewritten, so the breaking changes land in code that is going anyway. |
 | `+ pydantic>=2` | Config validation. |
 | `+ pyyaml` | Config file. |
-| `+ plotext` | Charts on the insights screen (the reference application's choice; a `PlotextPlot` widget wraps it). |
 | `+ pytest-textual-snapshot`, `+ time-machine` | See `TESTING.md`. |
 
 `rich`, `sqlalchemy`, `alembic`, `httpx`, `click`, `xdg-base-dirs` unchanged.

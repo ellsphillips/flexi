@@ -1,7 +1,7 @@
 """Jump mode: one keystroke puts a badge on every jumpable region.
 
-Adapted from the reference application. Nothing needs a per-widget hook -- the overlay is a modal
-screen that reads the live compositor geometry underneath it.
+Nothing needs a per-widget hook -- the overlay is a modal screen that reads the
+live compositor geometry underneath it.
 
 Targets are asked of the current screen rather than held in an application-wide
 dict, so a target can only ever name something that is mounted.

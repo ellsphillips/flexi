@@ -299,8 +299,8 @@ class FlexiApp(TextualApp[None]):
         if focus_on.focusable:
             self.set_focus(focus_on)
         else:
-            # Not focusable: a button, say. the reference application's trick — synthesise the click
-            # the pointer would have made, so a jump can press things too.
+            # Not focusable: a button, say. Synthesise the click the pointer
+            # would have made, so a jump can press things too.
             widget.post_message(
                 events.Click(widget, 0, 0, 0, 0, 0, False, False, False)
             )

@@ -83,7 +83,7 @@ async def test_the_future_is_reachable(app_factory: AppFactory) -> None:
 
 
 async def test_p_cycles_the_granularity(app_factory: AppFactory) -> None:
-    """It cycles day to week to month to year, the the reference application muscle memory."""
+    """It cycles day to week to month to year, and wraps."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("p")

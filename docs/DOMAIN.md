@@ -155,8 +155,8 @@ everywhere in the UI because that is where a reader looks for it.
 
 ## 4. The period model
 
-the reference application models a period as *an offset from today*, which cannot express next month
-— it bells at you instead. Flexi books leave in the future, so it uses an
+A period modelled as *an offset from today* cannot express next month. Flexi
+books leave in the future, so it uses an
 **anchor**.
 
 ```python

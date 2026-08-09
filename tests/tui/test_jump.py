@@ -51,8 +51,8 @@ async def test_a_jump_to_the_records_lands_on_the_rows(app_factory: AppFactory) 
 async def test_a_number_jumps_to_a_day_row(app_factory: AppFactory) -> None:
     """It puts the cursor on the nth day without leaving the home row.
 
-    Flexi's extension to the reference application's jump mode, and the reason jump mode earns its
-    place in a table-heavy application.
+    A row is not a widget, which is what makes this worth a test: the offsets
+    come from the table's geometry rather than from the DOM.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -88,7 +88,7 @@ async def test_escape_restores_the_previous_focus_exactly(
 async def test_targets_come_from_the_live_screen(app_factory: AppFactory) -> None:
     """It can only name something that is mounted.
 
-    the reference application keeps one application-wide dict and silently drops the misses; asking
+    An application-wide table of targets would silently drop the misses; asking
     the screen means a target that is not there simply is not offered.
     """
     app = app_factory()

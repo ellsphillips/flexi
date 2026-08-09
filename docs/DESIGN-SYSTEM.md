@@ -4,8 +4,8 @@ Flexi looks like a **time card**. Not a dashboard of equal tiles — a stiff rul
 card with a column of stamped times down it, which is what the thing it replaces
 actually was. Every decision below comes from that.
 
-The structure is the design reference's: warm graphite grounds, hairlines instead of boxes,
-an overline above every figure, exactly one accent. The identity is Flexi's own:
+Warm graphite grounds, hairlines instead of boxes, an overline above every
+figure, exactly one accent. The identity:
 a cyan accent, a categorical day-type scale, and one signature element.
 
 ---
@@ -218,12 +218,12 @@ stylesheet.
 | `StatCard(label, value, note)` | reactive `.value` | Overline / figure / caption. |
 | `KeyHint(key, action)` | — | For the few shortcuts a region wants to teach in place. |
 | `Rule(label, accent=False)` | — | A hairline with an optional label above it. This is how sections separate. Distinct from `textual.widgets.Rule`. |
-| `Gauge(label, low, high, mode)` | `.show(value, target)` | Adapted from the design reference's `Meter`. A track, a fill, and a marker where the target sits, coloured by distance from it. The wallet's allowance bars. |
+| `Gauge(label, low, high, mode)` | `.show(value, target)` | A track, a fill, and a marker where the target sits, coloured by distance from it. The wallet's allowance bars. |
 | `PunchStrip(ledger, window)` | `.set_ledger()` | §1. |
 | `ProgressRail(label)` | `.show(done, total, compact=)` | One bar: how much of an expectation is met. Overshoot is *drawn*, not clipped — a ten-hour day against a seven-hour contract is the most interesting thing this application can tell you, and a bar that stopped at full would say it was ordinary. |
 | `TimeProgress` | `.show(...)` | The two rails under the header: today, and the shown period. |
 
-`flexi/components/chrome.py` — the frame, adapted from the design reference:
+`flexi/components/chrome.py` — the frame:
 `Wordmark`, `NavBar` (+`NavItem` table, the single place a screen is registered),
 `AppHeader`, `StatusBar`, `KeyStrip`, `AppFooter`.
 
@@ -232,17 +232,14 @@ and lets the terminal edge cut whatever is left, so a screen advertising twelve
 keys at 80 columns draws seven and a half — and the ones lost are the last
 declared, which is the navigation. `KeyStrip` measures first, keeps whole entries,
 and spends its last columns on `+3 more`. Flexi has a lot of bindings; this is
-what stops the keyboard experience being a lie. Copy the design reference's
-`footer_key_cost` / `keys_that_fit` and their tests verbatim.
+what stops the keyboard experience being a lie. `footer_key_cost` and
+`keys_that_fit` are measured, and tested directly.
 
 ---
 
 ## 6. Layout
 
 ### The module container
-
-Inherited from the reference application, because it is the one part of its look worth keeping and
-users of the reference application will recognise it immediately.
 
 ```css
 .module {
@@ -259,8 +256,8 @@ users of the reference application will recognise it immediately.
 ```
 
 **A module has no ground of its own.** It is a rounded rule drawn *on* the page,
-not a lighter rectangle floating above it — which is what makes the reference application's panels
-read as part of the application rather than as cards dropped onto it. Everything
+not a lighter rectangle floating above it — which is what makes a panel read as
+part of the application rather than as a card dropped onto it. Everything
 inside inherits the same ground, including the records table; a `DataTable` left
 on `$c-surface` grows a lighter rectangle in the middle of its own panel.
 
@@ -279,8 +276,7 @@ alignments.
 
 **A border title is a live data slot.** The clock module's title is
 `Clock`; its *subtitle* is the running elapsed time. The wallet's subtitle is the
-leave year. This removes a whole summary row per module and is straight out of
-the reference application.
+leave year. This removes a whole summary row per module.
 
 ### Responsiveness
 
@@ -357,9 +353,9 @@ a figure and no bar.
 ## 7. Where the palette lives, and why
 
 Textual scopes CSS variables to the stylesheet that declares them, so a
-`$c-accent` written in `flexi.tcss` is invisible to `dashboard.tcss`. The fix,
-lifted from the design reference: **parse the palette out of the stylesheet and republish it
-through the Textual `Theme`**, which the app broadcasts to every stylesheet.
+`$c-accent` written in `flexi.tcss` is invisible to `dashboard.tcss`. The fix:
+**parse the palette out of the stylesheet and republish it through the Textual
+`Theme`**, which the app broadcasts to every stylesheet.
 
 ```python
 _PALETTE = re.compile(r"^\s*\$([a-z0-9-]+)\s*:\s*([^;${}]+);", re.MULTILINE)
