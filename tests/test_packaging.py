@@ -53,6 +53,16 @@ def test_the_package_ships_its_typing_marker() -> None:
     assert (PACKAGE / "py.typed").is_file()
 
 
+@pytest.mark.skipif(not PROJECT_ROOT.joinpath("README.md").is_file(), reason="sdist")
+def test_the_readme_version_badge_matches_the_project() -> None:
+    """A hand-written badge is a fact that drifts the first time nobody looks."""
+    spec = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    readme = (PROJECT_ROOT / "README.md").read_text()
+    badges = re.findall(r"/badge/version-([\d.]+)-", readme)
+    assert badges, "the README no longer carries a version badge"
+    assert set(badges) == {spec["project"]["version"]}
+
+
 def _declared() -> set[str]:
     spec = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
     return {

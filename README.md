@@ -2,10 +2,16 @@
 
 When you were on the clock, how far ahead or behind your contracted hours you are, and what is left in your leave allowances.
 
-![PyPI - Version](https://img.shields.io/pypi/v/flexi?style=for-the-badge)
-![Python](https://img.shields.io/badge/python-3.12%20|%203.13-blue?style=for-the-badge)
-![Licence](https://img.shields.io/badge/licence-MIT-green?style=for-the-badge)
-![CI](https://img.shields.io/github/actions/workflow/status/ellsphillips/flexi/ci.yaml?style=for-the-badge&label=ci)
+[![version](https://shieldcn.dev/badge/version-0.1.0-00AAAD.svg)](https://pypi.org/project/flexi/)
+[![python](https://shieldcn.dev/badge/python-3.12_|_3.13-00AAAD.svg?logo=python)](https://www.python.org)
+[![built with textual](https://shieldcn.dev/badge/built_with-textual-00AAAD.svg)](https://textual.textualize.io)
+[![ci](https://shieldcn.dev/github/ci/ellsphillips/flexi.svg)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
+
+[![licence](https://shieldcn.dev/badge/licence-MIT-2E9E52.svg)](LICENSE)
+[![tests](https://shieldcn.dev/badge/tests-438_passing-2E9E52.svg?logo=pytest)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
+[![mypy](https://shieldcn.dev/badge/mypy-strict-2E9E52.svg)](https://mypy-lang.org)
+[![ruff](https://shieldcn.dev/badge/ruff-select_ALL-2E9E52.svg?logo=ruff)](https://github.com/astral-sh/ruff)
+[![prs](https://shieldcn.dev/badge/PRs-welcome-2E9E52.svg?variant=outline)](CONTRIBUTING.md)
 
 ![The dashboard](./docs/shots/showcase-dashboard.svg)
 
@@ -38,6 +44,16 @@ Flexitime only works if you can see it. A spreadsheet gives you a number; it doe
 `A` books annual leave on the cursor, `shift`+arrows extend to a range, `space` cycles to half-days, `x` removes. A fortnight across a bank holiday books twelve days and says so, rather than refusing all fourteen.
 
 ![The leave year](./docs/shots/showcase-leave.svg)
+
+Colour carries the *type* of a booking and the glyph carries its *portion*, so the two never compete for the same cell — and every colour is spelled out in words beside it, so nothing here is colour alone:
+
+![annual](https://shieldcn.dev/badge/●-annual-8451C9.svg)
+![sick](https://shieldcn.dev/badge/●-sick-DB703B.svg)
+![toil](https://shieldcn.dev/badge/●-TOIL-00AAAD.svg)
+![unpaid](https://shieldcn.dev/badge/●-unpaid-BE5BAC.svg)
+![bank holiday](https://shieldcn.dev/badge/●-bank_holiday-97B1CD.svg)
+![surplus](https://shieldcn.dev/badge/●-surplus-2E9E52.svg)
+![deficit](https://shieldcn.dev/badge/●-deficit-CE3E5D.svg)
 
 ### Where the balance actually went
 
