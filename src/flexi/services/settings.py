@@ -182,6 +182,8 @@ DAY_NAMES: tuple[str, ...] = (
     "sunday",
 )
 DEFAULT_WORKING_DAYS = (0, 1, 2, 3, 4)
+SHORTEST_DAY_NAME = 3
+"""Mon, Tue, Wed -- shorter than that and Tue and Thu are the same word."""
 
 
 def _weekday(token: str) -> int:
@@ -194,7 +196,7 @@ def _weekday(token: str) -> int:
         msg = f"Day {index} is out of range: use 0 (Monday) to 6 (Sunday)"
         raise ValueError(msg)
     for index, name in enumerate(DAY_NAMES):
-        if name.startswith(token) and len(token) >= 3:
+        if name.startswith(token) and len(token) >= SHORTEST_DAY_NAME:
             return index
     msg = f"'{token}' is not a day: use Mon-Fri, or 0 (Monday) to 6 (Sunday)"
     raise ValueError(msg)
