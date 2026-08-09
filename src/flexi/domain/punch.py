@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 
+from flexi import wallclock
 from flexi.domain.ledger import DayLedger
 
 BUCKET_SIZES: tuple[int, ...] = (5, 10, 15, 20, 30, 60)
@@ -110,7 +111,12 @@ def edges(day: date, count: int, window: Window) -> list[datetime]:
     """
     span = window.minutes / count
     midnight = datetime.combine(day, time.min)
-    return [window.moment(midnight, index * span) for index in range(count + 1)]
+    # Each bound localised on its own, so the grid stays a *wall* grid: on the
+    # October Sunday 02:00 is an hour further from midnight than 01:00 was.
+    return [
+        wallclock.local(window.moment(midnight, index * span))
+        for index in range(count + 1)
+    ]
 
 
 def strip(
@@ -126,7 +132,7 @@ def strip(
     """
     window = window or Window()
     count = cell_count(window, max(1, width))
-    moment = now or datetime.combine(ledger.date, time.min)
+    moment = now or wallclock.local(datetime.combine(ledger.date, time.min))
 
     if ledger.is_holiday:
         return (Cell.HOLIDAY,) * count

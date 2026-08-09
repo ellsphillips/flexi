@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
+from flexi import wallclock
 from flexi.constants import AbsenceType, DayKind, Portion
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.punch import Cell, Window, bucket_minutes, cell_count, strip
@@ -25,7 +26,8 @@ def render(cells: tuple[Cell, ...]) -> str:
 
 
 def at(hour: int, minute: int = 0) -> datetime:
-    return datetime.combine(DAY, time(hour, minute))
+    """A local reading, carrying its offset. The domain refuses naive moments."""
+    return wallclock.local(datetime.combine(DAY, time(hour, minute)))
 
 
 def ledger(

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
+from flexi.models.database.moment import columns, moment_of
 from flexi.services.settings import SettingsService
 
 
@@ -36,17 +37,19 @@ def close_stale_sessions(
 
     closed: list[WorkSession] = []
     for ws in stale:
-        clock_in_time = ws.clock_in_event.timestamp.replace(tzinfo=None).time()
+        opened = moment_of(ws.clock_in_event)
 
         # If configured close is before clock-in, use 23:59
         effective_close = auto_close_time
-        if effective_close <= clock_in_time:
+        if effective_close <= opened.time():
             effective_close = time(23, 59)
 
-        close_dt = datetime.combine(ws.work_date, effective_close)
+        closed_at = wallclock.local(datetime.combine(ws.work_date, effective_close))
+        wall, offset = columns(closed_at)
         event = ClockEvent(
             action=ClockAction.OUT,
-            timestamp=close_dt,
+            timestamp=wall,
+            utc_offset_minutes=offset,
             source="system",
         )
         session.add(event)

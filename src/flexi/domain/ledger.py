@@ -45,8 +45,13 @@ class Segment:
         return self.end if self.end is not None else now
 
     def duration(self, now: datetime) -> timedelta:
-        """How long this segment has lasted, as at ``now``."""
-        return max(timedelta(), self.finish(now) - self.start)
+        """How long this segment has lasted, as at ``now``.
+
+        Not clamped at zero. A negative span means the two ends disagree, and
+        turning that into a silent nothing is what let an hour of real work
+        read as 0:00 for a full hour every October.
+        """
+        return self.finish(now) - self.start
 
 
 @dataclass(frozen=True, slots=True)

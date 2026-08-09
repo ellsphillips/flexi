@@ -42,7 +42,7 @@ jobs:
         run: uv run mypy
 
   test:
-    name: ${{ matrix.os }} · Python ${{ matrix.python }}
+    name: ${{ matrix.os }} · Python ${{ matrix.python }} · TZ ${{ matrix.tz }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -53,6 +53,10 @@ jobs:
         # a year while the app could not have started.
         os: [ubuntu-latest, macos-latest]
         python: ["3.12", "3.13"]
+        # A timesheet's arithmetic must not move with the machine. Europe/London
+        # is the one that matters -- it is the audience, and it is the only one
+        # here with transitions.
+        tz: ["UTC", "Europe/London"]
     steps:
       - uses: actions/checkout@v4
 
@@ -65,10 +69,12 @@ jobs:
       - run: uv sync --locked --dev
 
       - name: pytest
+        env:
+          TZ: ${{ matrix.tz }}
         run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13'
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC'
         uses: actions/upload-artifact@v4
         with:
           name: coverage
