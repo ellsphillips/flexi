@@ -321,13 +321,8 @@ class YearCalendar(ScrollView, can_focus=True):
     def _day_segment(self, when: date, width: int) -> Segment:
         """A tile: the day, what is on it, and the whole cell painted.
 
-        Every column is emitted with a style, including the blanks at a seam.
-        Left unstyled they take whatever the widget's own ground is, which
-        showed up as slabs of a different colour down the side of the grid.
-
-        Given room, the tile says what is booked rather than leaving the reader
-        to decode a colour. Below that it falls back to the number and a marker,
-        right-aligned so the columns still read as columns.
+        Every column is emitted with a style, including the blanks at a seam. Left
+        unstyled they take the widget's own ground and read as slabs down the grid.
         """
         ledger = self.ledgers.get(when)
         style = self._day_style(when, ledger)

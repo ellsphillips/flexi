@@ -119,18 +119,10 @@ def strip(
     window: Window | None = None,
     now: datetime | None = None,
 ) -> tuple[Cell, ...]:
-    """Draw one day as a row of cells.
+    """Draw one day as a row of cells, never wider than ``width``.
 
-    Args:
-        ledger: The day to draw.
-        width: How many columns are available. The result is never wider.
-        window: The span of the day to cover. Defaults to 07:00–19:00.
-        now: The moment to treat as current, for the live edge and for any open
-            session's length. Defaults to the ledger's last clock-out, so a
-            historical day draws identically whenever it is redrawn.
-
-    Returns:
-        Between three and ``width`` cells, left to right.
+    ``now`` defaults to the ledger's last clock-out, so a historical day draws
+    identically however often it is redrawn.
     """
     window = window or Window()
     count = cell_count(window, max(1, width))

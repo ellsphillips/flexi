@@ -331,13 +331,8 @@ class RecordsModule(Module):
     def jump_row_targets(self) -> dict[Offset, JumpInfo]:
         """A number key over each of the first nine visible day rows.
 
-        Flexi's extension to the reference application's jump mode, and the reason jump mode is worth
-        having in a table-heavy application: `v` then `4` lands on the fourth day
-        without leaving the home row.
-
-        A row is not a widget, so it cannot be found by walking the DOM the way a
-        panel is. The offsets are computed from the table's own geometry instead,
-        and a row scrolled out of view is simply not offered.
+        A row is not a widget, so the offsets come from the table's own geometry rather
+        than from walking the DOM, and a row scrolled out of view is not offered.
         """
         table = self.table
         region = table.region

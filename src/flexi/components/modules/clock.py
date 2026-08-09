@@ -59,13 +59,9 @@ class ClockModule(Module):
             Tone.ACCENT if on_clock else Tone.NEUTRAL,
         )
 
-        # Plain assignment, so the slider animates. `set_reactive` writes the
-        # value without running the watcher, and the watcher is the animation —
-        # pressing `/` moved the clock and left the switch sitting still.
-        #
-        # The Changed event this posts is safe: `_ledger` was refreshed from the
-        # database a few lines above, so `on_switch_changed` sees the switch and
-        # the truth already agreeing and does nothing.
+        # Plain assignment, so the slider animates: `set_reactive` skips the
+        # watcher, and the watcher is the animation. The Changed event it posts
+        # is a no-op, `_ledger` having just been refreshed.
         self.query_one("#clock-switch", Switch).value = on_clock
 
         button = self.query_one("#clock-button", Button)

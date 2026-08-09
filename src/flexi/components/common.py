@@ -225,15 +225,10 @@ class EmptyIndicator(Static):
 class Gauge(Widget):
     """A measurement against a total, with an optional marker where it should be.
 
-    A number of days remaining is unreadable on its own: 18.5 is either
-    comfortable or alarming depending entirely on how much of the leave year is
-    left. So the gauge draws a marker where the pace line sits and colours the
-    fill by the caller's verdict — the sentence "you have spent six of
-    twenty-five and you are four months in" written in two rows.
-
-    The widget makes no judgement of its own. The caller passes a :class:`Tone`,
-    because whether an underspent allowance is good news is a question about
-    leave policy, not about bars.
+    The marker is the pace line: 18.5 days left reads as comfortable or alarming
+    depending entirely on how much of the leave year remains. The caller passes the
+    :class:`Tone`, because whether that is good news is a question about leave
+    policy rather than about bars.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -269,13 +264,9 @@ class Gauge(Widget):
     ) -> None:
         """Draw a reading. ``None`` leaves the track empty rather than at zero.
 
-        An unmeasured allowance and an allowance measured at zero are not the
-        same thing, and a gauge that drew them identically would say a fresh
-        install had spent nothing when it does not yet know.
-
-        ``compact`` drops the bar and keeps the line. A track with nothing in it
-        is not information — it is a row of hyphens that costs a line of a
-        sidebar that has four other things to say.
+        An unmeasured allowance and one measured at zero are not the same thing.
+        ``compact`` drops the bar and keeps the line, because an empty track is a row of
+        hyphens costing a line of a sidebar with four other things to say.
         """
         self.value = value
         self.readout = readout

@@ -148,14 +148,9 @@ class AbsenceDay(Base):
 class BalanceAdjustment(Base):
     """A signed correction to the flexi balance, with a reason.
 
-    The balance is derived from clock events, and clock events are immutable —
-    which is right until somebody needs to draw a line under a stretch they
-    never tracked. Deleting the records would lose the audit trail and would not
-    survive the next recomputation; an adjustment is one row that says what was
-    corrected, when it took effect, and why.
-
-    ``date`` is the day the correction takes effect: it counts toward any
-    balance computed for that date or later.
+    ``date`` is when the correction takes effect: it counts toward any balance
+    computed for that date or later. Deleting the records instead would lose the
+    audit trail and would not survive the next recomputation.
     """
 
     __tablename__ = "balance_adjustments"

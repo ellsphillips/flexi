@@ -1,7 +1,7 @@
-"""Tests for Slice 7: absence service.
+"""Booking absence, and every reason a booking is refused.
 
-Covers: annual/sick/flexi creation, rejection on non-working/BH/work-session days,
-removal, type change, invalid markers, and balance checks.
+The refusals matter more than the bookings: each one is a sentence the status
+bar shows unedited, so a change in wording is a change in the interface.
 """
 
 from __future__ import annotations

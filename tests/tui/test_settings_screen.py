@@ -1,7 +1,4 @@
-"""Tests for Slice 11: settings screen.
-
-Covers: settings save updates are reflected via SettingsService.
-"""
+"""The settings screen writes what it shows, and refuses what it cannot read."""
 
 from __future__ import annotations
 

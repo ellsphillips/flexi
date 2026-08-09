@@ -235,13 +235,8 @@ class AbsenceService:
     ) -> AbsenceResult:
         """Book an absence, or say why not.
 
-        Args:
-            day: The date to book.
-            absence_type: What kind of absence.
-            portion: A whole day, a morning or an afternoon.
-            note: Required for :attr:`~flexi.constants.AbsenceType.OTHER`.
-            available_toil_days: The flexi balance in days, when the caller knows
-                it. Used only to *warn* on a TOIL booking that would overdraw.
+        ``available_toil_days`` only warns on a TOIL booking that would overdraw; it
+        never refuses one.
         """
         refusal = self._refusal(day, absence_type, portion, note)
         if refusal is not None:

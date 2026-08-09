@@ -1,8 +1,4 @@
-"""Tests for Slice 2: settings service.
-
-Covers: setup-complete validation, settings persistence, leave entitlement
-half-day support, active leave year calculation.
-"""
+"""Settings persistence, half-day entitlements, and which leave year is active."""
 
 from __future__ import annotations
 

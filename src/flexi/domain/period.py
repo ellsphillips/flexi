@@ -72,13 +72,9 @@ def _add_months(anchor: date, months: int) -> date:
 class Period:
     """A span of dates, identified by any date inside it.
 
-    Args:
-        granularity: How wide the span is.
-        anchor: A date inside the span. Operations move or reinterpret this,
-            never a separate cursor, which is what keeps zooming lossless.
-        year_start: ``(month, day)`` the leave year turns over on. Only affects
-            :attr:`Granularity.YEAR`.
-        first_weekday: ``0`` for Monday. Only affects :attr:`Granularity.WEEK`.
+    Operations move or reinterpret ``anchor`` rather than a separate cursor, which
+    is what keeps zooming lossless. ``year_start`` affects only
+    :attr:`Granularity.YEAR`, ``first_weekday`` only :attr:`Granularity.WEEK`.
     """
 
     granularity: Granularity

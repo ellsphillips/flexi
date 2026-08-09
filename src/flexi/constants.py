@@ -18,20 +18,7 @@ class StatusOption(StrEnum):
 
     @classmethod
     def from_str(cls, action: str) -> StatusOption:
-        """Convert a clock action to its equivalent Enum.
-
-        Args:
-            action: The clock action, i.e. arrive or depart.
-
-        Returns:
-            The equivalent of the clock action in Enum.
-
-        Examples:
-            >>> StatusOption.from_str("depart") is StatusOption.DEPART
-            True
-            >>> StatusOption.from_str("a") is StatusOption.ARRIVE
-            True
-        """
+        """The option named by a word or by its initial."""
         return cls.ARRIVE if action.lower().startswith("a") else cls.DEPART
 
 

@@ -253,15 +253,10 @@ class DashboardScreen(Screen[None]):
     def toggle_clock(self) -> None:
         """Clock in, or clock out. It never asks.
 
-        An earlier draft confirmed a clock-out before four in the afternoon, to
-        catch an accidental `/`. It fired at lunchtime every single day, because
-        clocking out for lunch is the normal thing this application is for.
-
-        The right guard is not a question but a receipt. Clock events are
-        immutable and a second `/` opens a new session, so a mistaken press costs
-        one visible break and nothing else — and the status bar says exactly what
-        was recorded, at what time, so the mistake is seen at the moment it is
-        made rather than at the end of the month.
+        An earlier draft confirmed an early clock-out and fired at lunchtime every day,
+        because clocking out for lunch is the normal thing this application is for.
+        Clock events are immutable and a second `/` opens a new session, so a mistaken
+        press costs one visible break; the status bar is the receipt.
         """
         clock = self._services.clock
         if clock.is_clocked_in():

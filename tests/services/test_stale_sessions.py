@@ -1,8 +1,4 @@
-"""Tests for Slice 6: stale-session auto-close.
-
-Covers: stale close once, system audit event, count toward worked time,
-23:59 fallback, and auto_closed flag.
-"""
+"""A session left open overnight is closed at the configured time, not now."""
 
 from __future__ import annotations
 

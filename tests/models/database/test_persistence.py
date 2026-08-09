@@ -1,7 +1,8 @@
-"""Tests for Slice 1: migration-safe SQLite persistence.
+"""Migrations, and the backups taken before them.
 
-Covers: migration success, backup creation, backup retention, backup failure,
-migration failure, foreign-key enforcement, and version check still works.
+A migration that half-applies and takes the backup with it is the one failure
+this database cannot recover from, so each step is checked for what it leaves
+behind when it fails as well as when it succeeds.
 """
 
 from __future__ import annotations

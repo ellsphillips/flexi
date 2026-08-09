@@ -101,16 +101,12 @@ class NavBar(Horizontal):
 
 
 class AppHeader(Horizontal):
-    """Wordmark, navigation, and the date and period currently in play.
+    """Wordmark, navigation, and the date and period in play.
 
-    Reads its context from the app when it mounts and is pushed to afterwards.
-    Both directions are needed: Textual's ``ScreenResume`` does not bubble to the
-    app, so a header on a newly-raised screen has to ask rather than wait to be
-    told.
-
-    The app is read with ``getattr`` rather than imported and type-checked, which
-    keeps this module free of a cycle and lets the header be dropped into a test
-    harness app that has no context at all.
+    Reads its context on mount and is pushed to afterwards -- both, because
+    Textual's ``ScreenResume`` does not bubble to the app, so a header on a newly
+    raised screen has to ask. The app is reached with ``getattr`` to keep this
+    module out of an import cycle.
     """
 
     context: reactive[str] = reactive("", init=False)
@@ -227,16 +223,10 @@ class OverflowLabel(FooterLabel):
 class KeyStrip(Footer):
     """Textual's footer, trimmed to the keys the terminal can actually show.
 
-    The stock footer lays every binding out and lets the terminal edge cut
-    whatever is left, so at 80 columns a screen advertising twelve keys draws
-    seven and a half: ``t Toda``, and then nothing. The keys lost that way are
-    the last ones declared, which here are the navigation — the only keys a
-    newcomer has no other way of discovering.
-
-    So the strip measures before it composes, keeps whole entries only, and
-    spends its last few columns saying how many it dropped. ``?`` lists them; it
-    is early enough in every screen's bindings to survive the trim, which is what
-    makes the count a pointer rather than a shrug.
+    The stock footer lets the terminal edge cut whatever does not fit, and what it
+    cuts is the last bindings declared -- here, the navigation. This measures
+    first, keeps whole entries, and spends its last columns saying how many it
+    dropped.
     """
 
     def compose(self) -> ComposeResult:

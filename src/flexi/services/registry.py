@@ -1,9 +1,7 @@
 """One object holding every service, built once and hung on the app.
 
-The v1 code had every widget reach for ``self.app._session`` behind a
-``# type: ignore`` and construct its own services — four constructions per
-rebuild, in five files, each of which had to know which services depend on which
-others. This is that knowledge, written down once.
+Which service depends on which is written down here and nowhere else, so a
+widget never constructs its own and never reaches for the session behind it.
 """
 
 from __future__ import annotations

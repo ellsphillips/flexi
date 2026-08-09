@@ -84,28 +84,19 @@ def theme_variables() -> dict[str, str]:
     variables = dict(palette())
     variables.update(
         {
-            # Theme-only, and deliberately NOT declared in flexi.tcss.
-            #
-            # Textual 8 mis-parses `hatch:` when its colour variable is both
-            # declared in the stylesheet and supplied through the theme — the
-            # value is substituted twice and the property sees four tokens where
-            # it wants two or three. Every other property survives it, which is
-            # why this looks arbitrary until you hit it.
-            #
-            # Derived from the palette rather than written out again, so the
-            # PALETTE block stays the single place a colour is chosen.
+            # Theme-only, deliberately absent from flexi.tcss: Textual 8
+            # substitutes a `hatch:` colour twice when it is both declared and
+            # supplied, and the property then sees four tokens. Derived from the
+            # palette so it stays the one place a colour is chosen.
             "c-hatch-empty": colour("c-line-soft", "#232019"),
             "c-hatch-jump": colour("c-ink"),
         }
     )
     variables.update(
         {
-            # Textual always paints a foreground on the cursor row, so a
-            # highlighted row loses its cells' own colours — which in the
-            # records table is the punch strip and the signed delta, the two
-            # things the reader is looking at. It cannot be prevented, so it is
-            # made quiet instead: a faint band when the table is not focused, a
-            # teal one when it is.
+            # Textual always paints a foreground on the cursor row, so the
+            # highlighted row loses the punch strip and the signed delta. It
+            # cannot be prevented, so it is made quiet.
             "block-cursor-text-style": "none",
             "block-cursor-background": colour("c-accent-deep"),
             "block-cursor-foreground": colour("c-cream"),

@@ -1,7 +1,8 @@
-"""Tests for Slice 4: clock service.
+"""Clocking in and out writes both rows, or neither.
 
-Covers: accepted actions persist both ClockEvent and WorkSession,
-rejected actions write nothing, DB rollback leaves no partial state.
+A ClockEvent without its WorkSession is a session that never ends; the reverse
+is a session with no start. Every rejected action is checked for writing
+nothing at all.
 """
 
 from __future__ import annotations

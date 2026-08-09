@@ -1,7 +1,7 @@
-"""Tests for Slice 3: bank holiday cache and validation.
+"""The bank holiday cache: hits, stale refreshes, and an index that is down.
 
-Covers: cache hit, stale refresh, fetch failure, division changes,
-unavailable validation, title lookup.
+Absence booking refuses outright when holiday data is unavailable, so the
+difference between "no holidays" and "could not tell" has to survive the cache.
 """
 
 from __future__ import annotations

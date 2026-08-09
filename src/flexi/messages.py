@@ -1,10 +1,9 @@
 """Messages that travel between widgets.
 
-One rule: **a module never calls another module's ``rebuild()``.** It posts
+One rule: a module never calls another module's ``rebuild()``. It posts
 :class:`DataChanged` with a scope, the screen invalidates the ledger cache once,
-and every module that declared an interest in that scope redraws. The v1 code had
-``Home.rebuild()`` call four modules by name, which is why adding a fifth meant
-editing a method in a different file.
+and every module that declared an interest in that scope redraws -- so adding a
+module is a declaration rather than an edit to somebody else's method.
 """
 
 from __future__ import annotations
