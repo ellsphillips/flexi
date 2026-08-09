@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "flexi"
 version = "0.1.0"
@@ -38,6 +42,14 @@ dev = [
     "types-pyyaml>=6.0",
     "typing-extensions>=4.12.2",
 ]
+
+[tool.hatch.build.targets.wheel]
+# Everything under the package, not just the .py files: the app reads its
+# stylesheets, py.typed and alembic templates from beside its own __file__.
+packages = ["src/flexi"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "docs", "README.md", "alembic.ini"]
 
 [tool.uv]
 package = true
