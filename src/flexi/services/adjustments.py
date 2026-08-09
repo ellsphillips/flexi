@@ -1,14 +1,12 @@
 """Drawing a line under a stretch nobody tracked.
 
-The balance is derived from clock events, and clock events are immutable. That
-is the right model until somebody installs Flexi in August with a leave year
-that started the previous October: two hundred untracked working days each
-expect their contracted hours, and the balance opens at minus ninety.
+Install Flexi in August against a leave year that began the previous October and
+two hundred untracked working days each expect their contracted hours, so the
+balance opens at minus ninety.
 
-Deleting the records would be the wrong fix twice over — it loses the proof of
-what did happen, and it does not survive the next recomputation. An adjustment
-is one signed row with a date and a reason, counted like any other term in the
-sum. It can be read, explained, and removed.
+Deleting the records would lose the proof of what did happen and would not
+survive the next recomputation. An adjustment is one signed row with a date and
+a reason, counted like any other term in the sum, and removable.
 """
 
 from __future__ import annotations

@@ -1,15 +1,11 @@
-"""The wallet: what is left in each allowance, and what the balance is doing.
+"""What is left in each allowance, and what the balance is doing.
 
-An allowance figure on its own is unreadable. "18.5 days" is either comfortable
-or alarming depending entirely on how much of the leave year is left, which is
-why every allowance here carries a **pace** — where the figure would be if it
-were being spent evenly — and the gauge draws a marker there. The pair is the
-sentence "you have spent six and a half of twenty-five, and you are a third of
-the way through the year" written in one line.
+Every allowance carries a pace -- where the figure would be if it were being
+spent evenly -- because "18.5 days" is comfortable or alarming depending
+entirely on how much of the leave year is left.
 
-This service returns numbers and says nothing about colour. Whether an underspent
-allowance is good news is a question about leave policy, not about bars, and it
-is answered in :mod:`flexi.components.modules.wallet`.
+Numbers only. Whether an underspent allowance is good news is a question about
+leave policy, and it is answered in the wallet module.
 """
 
 from __future__ import annotations

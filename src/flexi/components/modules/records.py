@@ -1,14 +1,11 @@
 """The records table: one row per day, opening to the day's breakdown.
 
-A collapsed row is a whole day in one line — the date, the punch strip, what was
-worked and how that compares to what was expected. Opening it shows the sessions
-and breaks that produced those figures, so the table answers both "how was the
-week" and "why is Thursday short" without a second screen.
+A collapsed row is a whole day in one line; opening it shows the sessions and
+breaks behind the figures, so the table answers both "how was the week" and "why
+is Thursday short" without a second screen.
 
-The strips are painted into cells rather than mounted as widgets: thirty-one
-widgets would cost a layout pass per redraw, on the one widget that redraws every
-second. That is why this module declares the punch component classes itself and
-calls :func:`~flexi.components.punch.render_strip` with its own style lookup.
+Strips are painted into cells rather than mounted: thirty-one widgets would cost
+a layout pass per redraw, on the one widget that redraws every second.
 """
 
 from __future__ import annotations

@@ -1,18 +1,11 @@
 """A scrolling year of days, with a cursor you can book leave on.
 
-The dashboard's calendar is a date picker: one month, paged, three cells wide.
-This is the other thing a calendar can be — a continuous surface you move over
-and act on, where a fortnight in August is visible as a fortnight and booking it
-costs one keystroke.
+Drawn with the Line API rather than a widget per day: a leave year is 365 days,
+and 365 widgets would cost a layout pass on every arrow key.
 
-It draws itself with the Line API rather than mounting a widget per day. A leave
-year is 365 days and about 60 rows; 365 widgets would cost a layout pass every
-time the cursor moved, and the cursor moves on every arrow key.
-
-Colour carries the *type* of a booking and the glyph carries its *portion*, so
-the two never compete for the same cell — the same rule the year heatmap
-follows. Nothing is ever colour alone: the selection panel beside this spells
-out what is booked on the day under the cursor.
+Colour carries the type of a booking and the glyph carries its portion, so the
+two never compete for a cell -- and the panel beside spells out what is booked,
+so nothing here is colour alone.
 """
 
 from __future__ import annotations

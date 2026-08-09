@@ -1,20 +1,11 @@
-"""The temporal view: which span of dates the dashboard is showing.
+"""Which span of dates is on screen.
 
-the reference application models a period as *an offset from today*, which cannot express next
-month — it rings the terminal bell at you instead. Flexi books leave in the
-future, so a period is an **anchor** plus a granularity, and every operation is
-defined in terms of moving or reinterpreting that anchor.
+A period is an anchor plus a granularity rather than an offset from today: an
+offset cannot express next month, and Flexi books leave in the future.
 
-Two behaviours follow from the anchor, and they are what make the control feel
-right under the hand:
-
-**Zooming keeps the anchor.** Standing on Thursday of week 24 and pressing `m`
-gives you June; pressing `w` again gives you week 24 back, not the week
-containing the first of the month. The anchor never moved, so the user's place
-never moved.
-
-**Going to today resets the anchor, not the granularity.** Someone who has
-chosen a month view and pressed `t` wants *this month*.
+Zooming keeps the anchor, so ``m`` then ``w`` returns to the week you were
+standing on rather than the week containing the first of the month. Going to
+today resets the anchor and not the granularity.
 """
 
 from __future__ import annotations

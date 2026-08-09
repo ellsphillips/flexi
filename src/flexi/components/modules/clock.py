@@ -1,13 +1,11 @@
-"""The clock: are you on it, since when, and when can you go.
+"""Are you on the clock, since when, and when can you go.
 
-One key does the whole thing. The switch and the button exist because a pointer
-should work and because a control that can be seen teaches the key beside it —
-not because clocking in should take three interactions.
+One key does the whole thing. The switch and the button exist so a pointer works
+and so a visible control teaches the key beside it.
 
-The subtitle is the live slot: while a session is open it carries the elapsed
-time and updates every second. A minute-grained readout that jumped in
-sixty-second steps would look like a hung process, which is why
-``defaults.tick_seconds`` is 1.
+The subtitle carries the elapsed time while a session is open and updates every
+second: a minute-grained readout jumping in sixty-second steps looks like a hung
+process.
 """
 
 from __future__ import annotations

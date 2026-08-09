@@ -1,19 +1,11 @@
-"""The punch strip, drawn.
+"""The punch strip, drawn. The bucketing is pure and lives in the domain.
 
-The bucketing is in :mod:`flexi.domain.punch` and is a pure function; this module
-is only the part that knows about glyphs and colours. The split is what lets the
-strip be pinned by exact-string tests and what lets the same code draw a table
-cell, a full-width expanded row and a week ribbon.
+:func:`render_strip` takes a style lookup rather than a widget, because the
+records table paints strips into ``DataTable`` cells: mounting a widget per row
+would cost a layout pass on the one thing that redraws on a timer.
 
-:func:`render_strip` takes a *style lookup* rather than a widget, because the
-records table paints strips into ``DataTable`` cells rather than mounting a
-widget per row — mounting thirty-one widgets to draw thirty-one lines would cost
-a layout pass per redraw, on the one widget that redraws on a timer. Any widget
-that declares :data:`PUNCH_CLASSES` can therefore paint one.
-
-An absence cell takes the colour of the type booked over *that half of the day*,
-which is why a morning of sickness and an afternoon of annual leave draw as two
-colours in one row.
+An absence cell takes the colour of the type booked over that half of the day,
+so a sick morning and an annual afternoon draw as two colours in one row.
 """
 
 from __future__ import annotations

@@ -1,15 +1,9 @@
 """Building day ledgers, in one pass over a period.
 
-This is the service the interface actually reads. The v1 code issued a query per
-day per concern — a bank-holiday lookup, an absence lookup and a session lookup
-for each of 31 rows, which is roughly 150 round trips to redraw one table, on a
-widget that redraws on a timer.
-
-Here a period is loaded with three queries regardless of its length, and the
-results are memoised until something writes. ``invalidate()`` is called by the
-dashboard when a :class:`~flexi.services.registry.DataChanged` scope says the
-underlying rows moved; nothing else clears the cache, so a redraw provoked by a
-resize costs nothing.
+A period loads in three queries regardless of its length, and the results are
+memoised until something writes. The dashboard calls ``invalidate()`` when a
+:class:`~flexi.services.registry.DataChanged` scope says the rows moved; nothing
+else clears the cache, so a redraw provoked by a resize costs nothing.
 """
 
 from __future__ import annotations

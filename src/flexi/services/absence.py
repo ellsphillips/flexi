@@ -1,21 +1,17 @@
 """Booking, changing and removing absence.
 
-Every refusal here is a sentence the status bar can show without editing. That is
-not politeness — it is the reason the interface needs no modal to explain why a
-key did nothing.
+Every refusal is a sentence the status bar can show unedited, which is why there
+is no modal explaining why a key did nothing.
 
-The rules that are not obvious:
+The rules SQLite cannot express, so this service does:
 
-* A **full day cannot coexist with a half**, and SQLite cannot say so, so this
-  service says it. The database constraint is only ``(date, portion)``.
-* **Two halves of different types are legal.** A sick morning and an annual
-  afternoon is a real thing that happens, and refusing it would push the user
-  into recording a lie.
-* **A half day may be booked over existing work in the other half.** Someone who
-  worked the morning and went home ill at lunch has to be able to record both.
-* **TOIL warns, it does not block.** An annual allowance is a hard limit set by
-  someone else; a flexi balance is your own arithmetic, and going into deficit is
-  a decision rather than an error.
+* A full day cannot coexist with a half. The table constraint is only
+  ``(date, portion)``.
+* Two halves of different types are legal -- a sick morning and an annual
+  afternoon is a real thing that happens.
+* A half day may be booked over recorded work in the other half.
+* TOIL warns rather than blocks: an annual allowance is somebody else's limit,
+  a flexi balance is your own arithmetic.
 """
 
 from __future__ import annotations

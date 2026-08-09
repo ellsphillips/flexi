@@ -1,14 +1,11 @@
 """The dashboard: clock, balance, wallet, calendar and records.
 
-The screen owns three things the modules deliberately do not: the **period**, the
-**tick**, and the **modals**. Modules read the period and redraw; they never move
-it. That is what makes the calendar and the records table agree — there is one
-anchor, on the screen, and both are views of it.
+The screen owns the period, the tick and the modals. Modules read the period and
+redraw; they never move it, which is what makes the calendar and the records
+table agree.
 
-Redraw is scoped. A module declares which kinds of change it cares about, the
+Redraw is scoped: a module declares which kinds of change it cares about, the
 screen invalidates the ledger cache once, and only interested modules rebuild.
-The v1 code's ``Home.rebuild()`` called four modules by name, which is why adding
-a fifth meant editing a method in a different file.
 """
 
 from __future__ import annotations

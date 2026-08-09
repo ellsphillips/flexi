@@ -1,21 +1,12 @@
 """The application shell: theme, services, screens, jump mode.
 
-Three decisions shape this module.
+The theme is registered in ``__init__`` rather than ``on_mount``, because
+setting ``App.theme`` raises if ``register_theme`` has not run and the setup
+screen can be pushed before ``on_mount`` finishes.
 
-**The theme is registered in ``__init__``, not ``on_mount``.** Setting
-``App.theme`` raises if ``register_theme`` has not run, and Flexi can push the
-setup screen before ``on_mount`` finishes. Registering during construction takes
-the ordering question off the table.
-
-**``/`` is bound with ``priority=True``.** It has to work from any screen with
-any widget focused — except inside an ``Input``, where Textual's own focus rules
-give the key to the field, which is correct: typing a date into "go to day" must
-be able to contain a slash.
-
-**Jump targets come from the live screen.** the reference application keeps one application-wide
-dict listing container ids from every screen, and a target naming something that
-is not mounted is silently dropped. Asking ``screen.jump_targets()`` means a
-target can only ever name something that is there.
+``/`` is bound with ``priority=True`` so it works from any screen, and stood
+down by :meth:`check_action` inside a text field, where a date being typed is
+allowed to contain one.
 """
 
 from __future__ import annotations

@@ -1,29 +1,15 @@
 """The punch strip: a working day drawn as a row of cells.
 
-This is Flexi's signature element and the reason the interface reads as a time
-card rather than a dashboard. A day becomes one line:
-
     ─────────────████████████·············█████████────
 
-on the clock, a break, on the clock again, and the window either side of it.
-Seven of them stacked on a shared time axis makes the shape of a week legible in
-a way no column of totals is.
-
-Two decisions are worth stating because they look like bugs otherwise.
-
-**The strip shows presence, not proportion.** A cell lights if *any* part of a
-session falls inside it, so a five-minute session at 30-minute resolution fills a
-whole cell rather than disappearing. Overstating a short session is a smaller lie
-than a strip that says you were never there.
-
-**It coarsens, it never truncates.** Given less width, the strip picks a bigger
-bucket so the window still spans the row. Below :data:`MIN_CELLS` columns it
-falls back to three cells — morning, afternoon, evening — rather than claiming a
+Two behaviours look like bugs and are not. The strip shows presence, not
+proportion: a cell lights if any part of a session falls inside it, so a short
+session is overstated rather than lost. And it coarsens rather than truncating,
+falling back to three cells below :data:`MIN_CELLS` rather than claiming a
 precision it cannot draw.
 
-Everything here is a pure function of ``(ledger, width, window, now)``, which is
-what lets the same code draw a full-width expanded row, a one-line table cell
-and a week ribbon, and what lets the tests pin exact strings.
+Everything is a pure function of ``(ledger, width, window, now)``, which is what
+lets one implementation draw a table cell, an expanded row and a week ribbon.
 """
 
 from __future__ import annotations

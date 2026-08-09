@@ -1,19 +1,12 @@
 """The palette, read from the stylesheet rather than restated here.
 
-Textual scopes CSS variables to the file that declares them, so a `$c-accent`
-written in `flexi.tcss` would be invisible to any other stylesheet. Parsing the
-palette out of `flexi.tcss` and republishing it through the Textual `Theme`
-makes every name available application-wide while leaving exactly one place
-where a colour is written down.
+Textual scopes CSS variables to the file that declares them, so the PALETTE
+block is parsed out of ``flexi.tcss`` and republished through a Textual
+``Theme``. That leaves exactly one place where a colour is written down.
 
-Two traps worth knowing before editing this module:
-
-- **An undefined variable fails at startup**, during CSS parse, not at render.
-  Anything a stylesheet references must be either in the PALETTE block or in
-  :func:`theme_variables`.
-- **`App.theme = "flexi"` raises if `register_theme` has not run.** Register in
-  the app's ``__init__``, not ``on_mount``: Flexi can push the setup screen
-  before ``on_mount`` completes and that is too late.
+Two traps: an undefined variable fails during CSS parse at startup rather than
+at render, and ``App.theme = "flexi"`` raises unless ``register_theme`` has
+already run.
 """
 
 from __future__ import annotations

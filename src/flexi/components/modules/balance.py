@@ -1,13 +1,11 @@
-"""The balance: the one number the application exists to show.
+"""The one number the application exists to show.
 
-This is the only place in Flexi where type gets bigger. A terminal has one font
-at one size, so scale has to be *drawn*, and Textual's ``Digits`` draws a 3×3
-glyph per character. Spending that effect on exactly one figure is what makes it
-read as the headline rather than as one stat among five.
+The only place in Flexi where type gets bigger. A terminal has one font at one
+size, so scale has to be drawn, and spending Textual's ``Digits`` on exactly one
+figure is what makes it read as the headline.
 
-The sign is mandatory and coloured — surplus green, deficit red — and zero is
-drawn unsigned and muted, because ``+0:00`` reads as a small surplus and the
-point of the figure is that there is not one.
+Zero is drawn unsigned and muted, because ``+0:00`` reads as a small surplus and
+the point of the figure is that there is not one.
 """
 
 from __future__ import annotations

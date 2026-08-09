@@ -1,9 +1,7 @@
-"""The wallet: every allowance, what is left, and whether that is on track.
+"""Every allowance, what is left, and whether that is on track.
 
-The gauge draws a marker where an even spread through the leave year would have
-you, which is the difference between a figure and a judgement. "18.5 days left"
-says nothing on its own; "18.5 left, and the marker is behind you" says you are
-banking leave you may not be able to take.
+The gauge marks where an even spread through the leave year would have you,
+which is the difference between a figure and a judgement.
 
 Tone is decided here rather than in :class:`~flexi.components.common.Gauge`,
 because whether an underspent allowance is good news is a question about leave

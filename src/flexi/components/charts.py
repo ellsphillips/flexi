@@ -1,25 +1,8 @@
 """Charts, drawn as characters.
 
-Four forms, each chosen because the data has that job — not because a chart
-library offered it:
-
-* :class:`DivergingBars` — a signed quantity around a baseline. The flexi
-  balance, week by week, with surplus above the line and deficit below.
-* :class:`Burndown` — one series against a reference line. Annual leave
-  remaining against the pace an even spread would set.
-* :class:`WeekRibbon` — small multiples of the punch strip on a shared time
-  axis. The signature element, scaled up to a whole period.
-* :class:`YearHeatmap` — a calendar grid on a diverging ramp, so a year of
-  short days and long ones is one picture.
-
-Rules these follow, and a future chart should too:
-
-**Series colour comes from the three validated slots only** — TOIL, annual,
-sick. A fourth series folds into a neutral. **Sequential is one hue, light to
-dark; diverging is two hues with a grey midpoint, never a rainbow.** **Text
-wears text tokens, never the series colour**: a coloured mark sits beside a
-label, it does not replace it. And **no chart is the only way to read its
-numbers** — every one of these has the figure written next to it.
+Series colour comes from the three validated slots only -- TOIL, annual, sick --
+and a fourth series folds into a neutral. Every chart writes its figure beside
+the mark, so none of them is the only way to read its own numbers.
 """
 
 from __future__ import annotations

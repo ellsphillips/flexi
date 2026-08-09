@@ -1,16 +1,11 @@
 """Laying a span of months out as one continuous grid.
 
-A wall calendar pages month by month because paper has edges. A terminal does
-not, so a leave year is drawn as one column that scrolls: months flow into each
-other, and a fortnight spanning the end of July is a fortnight rather than two
-halves the reader has to hold in their head.
-
-The stitching is the whole trick, and it is arithmetic rather than drawing —
-which is why it lives here, is pure, and is pinned by tests that count rows.
+A terminal has no page edges, so a leave year is one scrolling column: months
+flow into each other and a fortnight spanning the end of July stays a fortnight.
 
 Every month starts on its own row so the weekday columns line up down the whole
-year. That costs a partial row at each seam, which is the price of a grid you can
-read a column of Mondays off.
+year. That costs a partial row at each seam, which is the price of a grid you
+can read a column of Mondays off.
 """
 
 from __future__ import annotations

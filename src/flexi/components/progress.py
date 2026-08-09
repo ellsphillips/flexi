@@ -1,18 +1,8 @@
-"""How far through the day — and the period — you are.
+"""How far through the day, and the period, you are.
 
-The dashboard already answers "what happened" and "what is the balance". This
-answers the question people actually open a flexitime tracker to ask at half past
-three: *am I nearly done?*
-
-Two rails, docked under the header where the eye lands first. Progress is
-**worked against expected**, not wall-clock against the working day: a day you
-started at seven is further through than one you started at ten, and the clock on
-the wall does not know that.
-
-Responsive by class, like everything else here. Above 100 columns both rails sit
-side by side; below it the period rail goes and the day rail takes the width;
-below 64 the figures shorten to a percentage, because a bar with no room for its
-label is decoration.
+Progress is worked against expected rather than wall-clock against the working
+day: someone who started at seven is further through than someone who started at
+ten, and the clock on the wall does not know that.
 """
 
 from __future__ import annotations

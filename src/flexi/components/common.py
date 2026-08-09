@@ -1,15 +1,9 @@
 """Small widgets every screen needs, so no screen invents its own.
 
-Six things, deliberately: a pill for state, a stat for a measurement, a gauge for
-a measurement with a target, a key hint for a shortcut, a rule for a section
-break, and an empty indicator for a region with nothing in it. Each is a thin
-wrapper over a Textual widget whose entire job is to carry a class from
-``theme/flexi.tcss`` — the styling lives there, not here, so a screen written by
-somebody else picks up a palette change without being edited.
-
-:class:`Tone` is the vocabulary they share. It exists so that "this went well" is
-expressed the same way in a pill, a gauge and a status bar, and so that a screen
-never writes ``"pill--ok"`` as a string and gets it wrong.
+Each is a thin wrapper whose job is to carry a class from ``theme/flexi.tcss``,
+so a screen picks up a palette change without being edited. :class:`Tone` is the
+shared vocabulary, so nothing writes ``"pill--ok"`` as a string and gets it
+wrong.
 """
 
 from __future__ import annotations

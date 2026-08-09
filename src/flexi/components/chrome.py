@@ -1,18 +1,10 @@
 """The frame every screen sits in: header, navigation, status line, key strip.
 
-Two rules hold this together.
-
-**The wordmark never moves.** It is the leftmost thing on every screen, at the
-same height, in the same colour, so the application always looks like the same
-application no matter how far in you are. Everything to its right is context.
-
-**Navigation is data, not markup.** :data:`NAV_ITEMS` is the one table that says
-which screens exist, which key jumps to them and what they are called. The app
-builds its bindings from it, the nav bar builds its clickable items from it, and
-the command palette builds its entries from it — so adding a screen is one line
-here rather than four edits in three files. It lives in this module rather than
-in ``app.py`` because the widgets need it and the app imports the widgets; the
-other direction would be a cycle.
+:data:`NAV_ITEMS` is the one table naming which screens exist, which key reaches
+them and what they are called. Bindings, the nav bar and the command palette are
+all built from it, so adding a screen is a line here rather than four edits in
+three files. It lives in this module rather than in ``app.py`` because the
+widgets need it and the app imports the widgets.
 """
 
 from __future__ import annotations
