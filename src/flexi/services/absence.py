@@ -28,6 +28,7 @@ from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain.format import short_date
 from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
+from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 
@@ -647,9 +648,9 @@ class AbsenceService:
             return True
         midday = datetime.combine(day, time(MIDDAY_HOUR, 0))
         for work in sessions:
-            start = work.clock_in_event.timestamp.replace(tzinfo=None)
+            start = moment_of(work.clock_in_event)
             end = (
-                work.clock_out_event.timestamp.replace(tzinfo=None)
+                moment_of(work.clock_out_event)
                 if work.clock_out_event is not None
                 else datetime.combine(day, time.max)
             )

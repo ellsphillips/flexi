@@ -31,20 +31,8 @@ from flexi.models.database.db import (
     BankHolidayCache,
     WorkSession,
 )
+from flexi.models.database.moment import moment_of
 from flexi.services.settings import SettingsService
-
-
-def _naive(moment: datetime) -> datetime:
-    """A timestamp as local wall time, without a zone.
-
-    Everything on screen is wall-clock: a punch strip is drawn against the hours
-    of the day the wearer lived, not against UTC. Timestamps are stored aware and
-    compared naive, in one place, so the conversion cannot be forgotten in a
-    widget.
-    """
-    if moment.tzinfo is None:
-        return moment
-    return moment.astimezone().replace(tzinfo=None)
 
 
 class LedgerService:
@@ -93,7 +81,7 @@ class LedgerService:
         ledger contains any open session, whose length changes every second, so
         caching it would freeze the live readout.
         """
-        moment = now or wallclock.now()
+        moment = wallclock.local(now) if now is not None else wallclock.now()
         today = moment.date()
 
         wanted = _date_range(start, end)
@@ -240,16 +228,12 @@ def _end_of(day: date) -> datetime:
     between a crash and the next launch -- but during it, an open Tuesday would
     otherwise report Tuesday to now as time worked on Tuesday.
     """
-    return datetime.combine(day, time.max)
+    return wallclock.local(datetime.combine(day, time.max))
 
 
 def _segment(row: WorkSession) -> Segment:
-    start = _naive(row.clock_in_event.timestamp)
-    end = (
-        _naive(row.clock_out_event.timestamp)
-        if row.clock_out_event is not None
-        else None
-    )
+    start = moment_of(row.clock_in_event)
+    end = moment_of(row.clock_out_event) if row.clock_out_event is not None else None
     return Segment(
         session_id=row.id,
         start=start,

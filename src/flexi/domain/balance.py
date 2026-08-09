@@ -24,7 +24,12 @@ ZERO = timedelta()
 
 
 def worked_from(segments: Iterable[Segment], now: datetime) -> timedelta:
-    """Time on the clock, counting an open session up to ``now``."""
+    """Time on the clock, counting an open session up to ``now``.
+
+    ``now`` must be a local moment carrying its offset -- see
+    :mod:`flexi.wallclock`. A naive one raises rather than quietly returning the
+    wall difference, which is the failure this signature is shaped to force.
+    """
     return sum((segment.duration(now) for segment in segments), start=ZERO)
 
 

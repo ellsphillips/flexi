@@ -9,21 +9,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
-
-
-def _naive(moment: datetime) -> datetime:
-    """A moment as local wall time, without a zone.
-
-    Flexi stores the time a person lived, not an instant on a global timeline,
-    because that is what a timesheet is. An aware value can still arrive from a
-    caller or from a row written by an older version, and it is converted rather
-    than stripped: 08:44+00:00 is 09:44 to somebody on BST, and stripping the
-    zone would record it as 08:44 and lose them an hour.
-    """
-    if moment.tzinfo is None:
-        return moment
-    return moment.astimezone().replace(tzinfo=None)
-
+from flexi.models.database.moment import columns, moment_of
 
 SECONDS_PER_MINUTE = 60
 
@@ -87,10 +73,8 @@ class ClockService:
         if self.is_clocked_in():
             return ClockResult(success=False, message="Already clocked in")
 
-        if now is None:
-            now = wallclock.now()
-
-        work_date = _naive(now).date()
+        moment = wallclock.local(now) if now is not None else wallclock.now()
+        work_date = moment.date()
 
         # Block clocking on bank holidays (if data available)
         from flexi.services.bank_holidays import BankHolidayService
@@ -108,7 +92,13 @@ class ClockService:
                 success=False, message="Cannot clock in on an absence day"
             )
 
-        event = ClockEvent(action=ClockAction.IN, timestamp=_naive(now), source=source)
+        wall, offset = columns(moment)
+        event = ClockEvent(
+            action=ClockAction.IN,
+            timestamp=wall,
+            utc_offset_minutes=offset,
+            source=source,
+        )
         self._session.add(event)
         self._session.flush()
 
@@ -137,10 +127,14 @@ class ClockService:
         if open_session is None:
             return ClockResult(success=False, message="Not clocked in")
 
-        if now is None:
-            now = wallclock.now()
-
-        event = ClockEvent(action=ClockAction.OUT, timestamp=_naive(now), source=source)
+        moment = wallclock.local(now) if now is not None else wallclock.now()
+        wall, offset = columns(moment)
+        event = ClockEvent(
+            action=ClockAction.OUT,
+            timestamp=wall,
+            utc_offset_minutes=offset,
+            source=source,
+        )
         self._session.add(event)
         self._session.flush()
 
@@ -150,7 +144,21 @@ class ClockService:
         # stay — they are immutable, and the audit trail is the point — but the
         # session is voided, so it is absent from the records table and from
         # every figure derived from it.
-        length = _naive(now) - _naive(open_session.clock_in_event.timestamp)
+        length = moment - moment_of(open_session.clock_in_event)
+
+        # A session cannot run backwards. That is a fault in the data, not a
+        # slip of the finger, and voiding it deletes real work with no way back:
+        # a session opened at 01:30 on the morning the clocks go back used to be
+        # discarded here, for up to an hour, with a message blaming the user.
+        if length < timedelta():
+            self._session.commit()
+            return ClockResult(
+                success=False,
+                message="That clock-out is earlier than the clock-in",
+                event=event,
+                session=open_session,
+            )
+
         if length < self._minimum:
             open_session.voided = True
             self._session.commit()
@@ -189,10 +197,8 @@ class ClockService:
         for work in self._session.execute(stmt).scalars():
             if work.clock_out_event is None:
                 continue
-            length = _naive(work.clock_out_event.timestamp) - _naive(
-                work.clock_in_event.timestamp
-            )
-            if length < self._minimum:
+            length = moment_of(work.clock_out_event) - moment_of(work.clock_in_event)
+            if timedelta() <= length < self._minimum:
                 work.voided = True
                 discarded.append(work)
         if discarded:

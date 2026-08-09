@@ -12,6 +12,7 @@ from datetime import date, datetime, time, timedelta
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import AbsenceType, ClockAction, Portion
 from flexi.models.database.db import (
     AbsenceDay,
@@ -175,10 +176,18 @@ def _open_session(session: Session, when: date, index: int) -> None:
     _session(session, when, time(13, 20), None)
 
 
+def _offset(wall: datetime) -> int:
+    """The offset the machine would have recorded for that wall reading."""
+    return round(
+        (wallclock.local(wall).utcoffset() or timedelta()).total_seconds() / 60
+    )
+
+
 def _session(session: Session, when: date, start: time, end: time | None) -> None:
     clock_in = ClockEvent(
         action=ClockAction.IN,
         timestamp=datetime.combine(when, start),
+        utc_offset_minutes=_offset(datetime.combine(when, start)),
         source="user",
     )
     session.add(clock_in)
@@ -189,6 +198,7 @@ def _session(session: Session, when: date, start: time, end: time | None) -> Non
         clock_out = ClockEvent(
             action=ClockAction.OUT,
             timestamp=datetime.combine(when, end),
+            utc_offset_minutes=_offset(datetime.combine(when, end)),
             source="user",
         )
         session.add(clock_out)

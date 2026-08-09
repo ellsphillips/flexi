@@ -26,6 +26,22 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 @pytest.fixture
+def in_london() -> Iterator[None]:
+    """Run a test on a British clock, then put the machine back.
+
+    The suite is pinned to UTC, a zone with no transitions, which is why it
+    could not catch a single one of these.
+    """
+    os.environ["TZ"] = "Europe/London"
+    time.tzset()
+    try:
+        yield
+    finally:
+        os.environ["TZ"] = "UTC"
+        time.tzset()
+
+
+@pytest.fixture
 def engine(tmp_path: Path) -> Engine:
     """An empty database on disk, with every table created."""
     created = create_db_engine(tmp_path / "test.db")

@@ -85,13 +85,27 @@ class BankHolidayCache(Base):
 
 
 class ClockEvent(Base):
-    """An immutable clock-in or clock-out event."""
+    """An immutable clock-in or clock-out event.
+
+    Two columns, one reading. ``timestamp`` is the time on the wall as the
+    person read it, naive by design -- SQLite has no timestamp type, so
+    ``DateTime(timezone=True)`` was decoration that stored whatever field values
+    it was handed and dropped the offset. ``utc_offset_minutes`` is how far that
+    wall reading was from UTC, so the instant is the one minus the other.
+
+    Both halves are needed. The wall half is the punch strip, the work date and
+    the midday split. The offset half is why 22:00 on 24 October to 06:00 on
+    25 October is nine hours and not eight.
+    """
 
     __tablename__ = "clock_events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     action: Mapped[ClockAction] = mapped_column(Enum(ClockAction))
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    timestamp: Mapped[datetime] = mapped_column(DateTime())
+    utc_offset_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    """Minutes east of UTC when the clock was read; the instant is ``timestamp``
+    minus this. ``None`` only on rows Flexi wrote before it recorded one."""
     source: Mapped[str] = mapped_column(String(20), default="user")
 
 

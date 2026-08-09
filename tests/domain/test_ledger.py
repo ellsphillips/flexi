@@ -1,4 +1,4 @@
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from flexi.constants import AbsenceType, DayKind, Portion
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
@@ -116,3 +116,19 @@ def test_an_empty_working_day_summarises_as_a_dash() -> None:
     """It marks a working day nobody worked, and stays quiet on a weekend."""
     assert ledger().summary == "—"
     assert ledger(is_working_day=False, kind=DayKind.WEEKEND).summary == ""
+
+
+def test_a_backwards_segment_reports_a_negative_duration() -> None:
+    """The clamp that made every timezone fault silent.
+
+    ``max(timedelta(), ...)`` turned a session whose ends disagreed into a
+    clean zero, so an hour of real work read as 0:00 every October and nothing
+    ever raised. A negative duration is a fault, and it should look like one.
+    """
+    later = datetime(2026, 10, 25, 1, 30, tzinfo=UTC)
+    earlier = datetime(2026, 10, 25, 0, 30, tzinfo=UTC)
+
+    backwards = Segment(1, later, earlier)
+
+    assert backwards.duration(later) < timedelta()
+    assert backwards.duration(later) == timedelta(hours=-1)

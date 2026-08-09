@@ -371,4 +371,4 @@ def _with_time(message: str, result: object) -> str:
     stamp = getattr(event, "timestamp", None)
     if stamp is None or not message.startswith("Clocked"):
         return message
-    return f"{message} at {clock_time(stamp.astimezone())}"
+    return f"{message} at {clock_time(stamp)}"
