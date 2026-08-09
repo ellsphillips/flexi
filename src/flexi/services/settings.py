@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, time, timedelta
 
 from sqlalchemy import select
@@ -52,9 +53,11 @@ class SettingsService:
         day_window_start: str | None = None,
         day_window_end: str | None = None,
     ) -> Settings:
-        # Normalise leave_year_start to MM-DD (accept / or -)
-        m, d = parse_month_day(leave_year_start)
-        normalised_start = f"{m:02d}-{d:02d}"
+        # Both fields are normalised here rather than at the call sites, so
+        # nothing unreadable can reach the database whichever screen wrote it.
+        month, day = parse_month_day(leave_year_start)
+        normalised_start = f"{month:02d}-{day:02d}"
+        working_days = ",".join(str(i) for i in parse_working_days(working_days))
 
         settings = self.get_settings()
         if settings is None:
@@ -105,11 +108,19 @@ class SettingsService:
         return settings.day_window_start, settings.day_window_end
 
     def get_working_day_indices(self) -> list[int]:
-        """Return weekday indices (0=Monday) for configured working days."""
+        """Weekday indices (0=Monday) for the configured working days.
+
+        Falls back to Monday-Friday rather than raising. A stored value that
+        cannot be read is a settings problem, not a reason to refuse to open
+        somebody's time records.
+        """
         settings = self.get_settings()
         if settings is None:
-            return [0, 1, 2, 3, 4]
-        return [int(d) for d in settings.working_days.split(",")]
+            return list(DEFAULT_WORKING_DAYS)
+        try:
+            return parse_working_days(settings.working_days)
+        except ValueError:
+            return list(DEFAULT_WORKING_DAYS)
 
     def is_working_day(self, weekday: int) -> bool:
         return weekday in self.get_working_day_indices()
@@ -159,6 +170,85 @@ class SettingsService:
     def all_entitlements(self) -> list[LeaveEntitlement]:
         stmt = select(LeaveEntitlement).order_by(LeaveEntitlement.year)
         return list(self._session.execute(stmt).scalars())
+
+
+DAY_NAMES: tuple[str, ...] = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+DEFAULT_WORKING_DAYS = (0, 1, 2, 3, 4)
+
+
+def _weekday(token: str) -> int:
+    """One weekday, however it was written."""
+    token = token.strip().lower()
+    if token.isdigit():
+        index = int(token)
+        if 0 <= index <= len(DAY_NAMES) - 1:
+            return index
+        msg = f"Day {index} is out of range: use 0 (Monday) to 6 (Sunday)"
+        raise ValueError(msg)
+    for index, name in enumerate(DAY_NAMES):
+        if name.startswith(token) and len(token) >= 3:
+            return index
+    msg = f"'{token}' is not a day: use Mon-Fri, or 0 (Monday) to 6 (Sunday)"
+    raise ValueError(msg)
+
+
+def parse_working_days(raw: str) -> list[int]:
+    """Weekday indices from whatever somebody typed.
+
+    A field labelled "working days" invites ``Mon-Fri`` as readily as
+    ``0,1,2,3,4``, so it takes both, and ranges of either. What it will not do
+    is accept something it cannot read: this used to be saved unchecked, and the
+    application then failed to start on every subsequent launch.
+
+    Examples:
+        >>> parse_working_days("0,1,2,3,4")
+        [0, 1, 2, 3, 4]
+        >>> parse_working_days("Mon-Fri")
+        [0, 1, 2, 3, 4]
+        >>> parse_working_days("tue, thu")
+        [1, 3]
+    """
+    if not raw.strip():
+        msg = "Choose at least one working day"
+        raise ValueError(msg)
+
+    days: set[int] = set()
+    for chunk in raw.split(","):
+        token = chunk.strip()
+        if not token:
+            continue
+        start, separator, end = token.partition("-")
+        if separator and end.strip():
+            first, last = _weekday(start), _weekday(end)
+            if first > last:
+                msg = f"'{token}' runs backwards"
+                raise ValueError(msg)
+            days.update(range(first, last + 1))
+        else:
+            days.add(_weekday(token))
+
+    if not days:
+        msg = "Choose at least one working day"
+        raise ValueError(msg)
+    return sorted(days)
+
+
+def format_working_days(indices: Sequence[int]) -> str:
+    """The days named, for a label somebody has to read back.
+
+    Examples:
+        >>> format_working_days([0, 1, 2, 3, 4])
+        'Mon, Tue, Wed, Thu, Fri'
+    """
+    return ", ".join(DAY_NAMES[index][:3].title() for index in sorted(set(indices)))
 
 
 def parse_month_day(raw: str) -> tuple[int, int]:

@@ -10,7 +10,6 @@ from textual.widgets import Button, Footer, Input, Label, Select, Static
 
 from flexi import wallclock
 from flexi.services.registry import Services
-from flexi.services.settings import parse_month_day
 
 DIVISIONS = [
     ("England & Wales", "england-and-wales"),
@@ -143,17 +142,15 @@ class SettingsScreen(Screen[bool]):
             return
 
         try:
-            parse_month_day(leave_start)
-        except ValueError as e:
-            self.notify(str(e), severity="error")
+            self._svc.save_settings(
+                leave_year_start=leave_start,
+                working_days=working_days,
+                bank_holiday_division=division,
+                auto_close_time=auto_close,
+            )
+        except ValueError as error:
+            self.notify(str(error), severity="error")
             return
-
-        self._svc.save_settings(
-            leave_year_start=leave_start,
-            working_days=working_days,
-            bank_holiday_division=division,
-            auto_close_time=auto_close,
-        )
 
         rejected: list[str] = []
         for entitlement in self._svc.all_entitlements():

@@ -82,10 +82,8 @@ class SetupScreen(Screen[bool]):
                 yield Input("25.0", id="input-entitlement", placeholder="25.0")
 
             with Horizontal(classes="setup-row"):
-                yield Label("Working days (indices)")
-                yield Input(
-                    "0,1,2,3,4", id="input-working-days", placeholder="0,1,2,3,4"
-                )
+                yield Label("Working days")
+                yield Input("Mon-Fri", id="input-working-days", placeholder="Mon-Fri")
 
             with Horizontal(classes="setup-row"):
                 yield Label("Bank holiday region")
@@ -130,20 +128,16 @@ class SetupScreen(Screen[bool]):
             self.notify("Please select a bank holiday region", severity="error")
             return
 
-        from flexi.services.settings import parse_month_day
-
         try:
-            parse_month_day(leave_start)
-        except ValueError as e:
-            self.notify(str(e), severity="error")
+            self._settings_svc.save_settings(
+                leave_year_start=leave_start,
+                working_days=working_days,
+                bank_holiday_division=division,
+                auto_close_time=auto_close,
+            )
+        except ValueError as error:
+            self.notify(str(error), severity="error")
             return
-
-        self._settings_svc.save_settings(
-            leave_year_start=leave_start,
-            working_days=working_days,
-            bank_holiday_division=division,
-            auto_close_time=auto_close,
-        )
 
         year = wallclock.today().year
         self._settings_svc.save_entitlement(year, entitlement)
