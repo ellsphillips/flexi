@@ -12,20 +12,18 @@
     padding: 0 1;
 }
 
-/* Fixed to what the grid actually needs — seven days at six columns, plus the
-   border and a gutter. Stretched to 1fr the days drift so far apart that a week
-   stops reading as a row, and the leftover is worth more to the rail, where the
-   selection label can run to "Mon 10 Aug – Wed 9 Sep 2026". */
+/* The calendar takes everything the rail does not need. Days are tiles that
+   share the full width, so there is no leftover to look wrong however wide the
+   terminal is. */
 #leave-calendar {
-    width: 46;
+    width: 1fr;
     height: 1fr;
     padding: 0 1;
     scrollbar-size-vertical: 1;
 }
 
 #leave-rail {
-    width: 1fr;
-    max-width: 52;
+    width: 34;
     height: 1fr;
     padding: 0 0 0 1;
 }
@@ -70,10 +68,26 @@ LeaveScreen.-narrow #leave-calendar {
     width: 1fr;
 }
 
+/* Two lines, not three panels. Every row the rail keeps is a row of calendar
+   somebody cannot see, and on a narrow terminal that is the whole screen. */
 LeaveScreen.-narrow #leave-rail {
     width: 1fr;
-    max-width: 100%;
-    height: auto;
+    height: 2;
+    padding: 0;
+}
+
+LeaveScreen.-narrow #leave-selection {
+    border: none;
+    height: 1;
+    padding: 0;
+}
+
+LeaveScreen.-narrow #leave-selection-label {
+    display: none;
+}
+
+LeaveScreen.-narrow #leave-selection-detail {
+    display: none;
 }
 
 LeaveScreen.-narrow #leave-wallet,
@@ -96,35 +110,56 @@ LeaveScreen.-tiny #leave-selection {
 }
 
 
-/* -- the grid ------------------------------------------------------------- */
+/* -- the grid -------------------------------------------------------------
+   Every tile paints its own ground. A booked day takes a deep wash of its
+   type's colour with the lift on top, which is legible at a glance and still
+   quiet enough that a month of annual leave does not shout down the cursor.
+   ------------------------------------------------------------------------- */
+
+YearCalendar {
+    background: $c-ink;
+}
 
 YearCalendar > .cal--month {
     color: $c-muted;
+    background: $c-ink;
     text-style: bold;
 }
 
 YearCalendar > .cal--weekday {
     color: $c-ash;
+    background: $c-ink;
     text-style: bold;
 }
 
 YearCalendar > .cal--day {
     color: $c-paper;
+    background: $c-ink;
 }
 
+/* The blanks at a seam. Painted, not left to whatever the widget's ground is. */
+YearCalendar > .cal--empty {
+    background: $c-ink;
+}
+
+/* Dim, not washed. Two shaded columns running the length of a year is the
+   heaviest thing on the screen, and it is the least important: a dim number
+   already says the day is not yours to book. */
 YearCalendar > .cal--weekend {
-    color: $c-ash;
+    color: $c-line;
+    background: $c-ink;
 }
 
 YearCalendar > .cal--outside {
     color: $c-line;
+    background: $c-ink;
 }
 
-/* Today is underlined rather than coloured: it can coincide with a booking, the
-   cursor and a weekend, and a fourth colour on one cell makes all four
+/* Today is underlined rather than coloured: it can coincide with a booking, a
+   weekend and the selection, and a fourth colour on one tile makes all four
    unreadable. */
 YearCalendar > .cal--today {
-    text-style: underline;
+    text-style: bold underline;
 }
 
 YearCalendar > .cal--cursor {
@@ -135,29 +170,35 @@ YearCalendar > .cal--cursor {
 
 YearCalendar > .cal--selected {
     background: $c-accent-deep;
-    color: $c-cream;
+    color: $c-accent-lift;
 }
 
 YearCalendar > .cal--holiday {
-    color: $c-holiday;
+    color: $c-holiday-lift;
+    background: $c-holiday-deep;
 }
 
 YearCalendar > .cal--annual {
     color: $c-annual-lift;
+    background: $c-annual-deep;
 }
 
 YearCalendar > .cal--sick {
     color: $c-sick-lift;
+    background: $c-sick-deep;
 }
 
 YearCalendar > .cal--toil {
     color: $c-toil-lift;
+    background: $c-toil-deep;
 }
 
 YearCalendar > .cal--unpaid {
     color: $c-unpaid-lift;
+    background: $c-unpaid-deep;
 }
 
 YearCalendar > .cal--other {
     color: $c-other-lift;
+    background: $c-other-deep;
 }

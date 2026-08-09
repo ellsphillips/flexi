@@ -132,22 +132,34 @@ better than a modal on the common one.
 
 ## 5. Day cells
 
-Each day is three cells wide: two for the number, one for the marker.
+**A day is a tile.** It takes an equal share of the full width and paints its own
+ground, including the blanks at a seam.
+
+The first draft capped the cell and centred the grid in the leftover, which left
+slabs of unpainted panel down both sides and read as a rendering fault rather
+than as a margin. Painting every column fixed it, and it is why there is no
+maximum cell width: there is no leftover to look wrong.
+
+From nine columns a tile has room to say what is on it — `26 annual`, `5 sick`,
+`4 hol` — and a booked week reads as a labelled bar across the row. Below that it
+falls back to the day number and a marker, right-aligned so the columns still
+read as columns:
 
 | Marker | Means |
 |---|---|
-| ` ` | nothing booked |
 | `●` | a full day, in the day-type colour |
-| `◐` | a morning |
-| `◑` | an afternoon |
+| `◐` `◑` | a morning, an afternoon |
 | `◆` | two different half days |
 | `·` | a bank holiday |
-| dim | not a working day, or not in this leave year |
 
-Colour carries the *type* and the glyph carries the *portion*, so the two
-encodings never compete for the same cell — the same rule the year heatmap
-follows. A cell is never colour alone: the selected day's type is spelled out in
-the "Selected" panel, and `?` lists the scale.
+Colour carries the *type* and the glyph carries the *portion*, so the two never
+compete for the same tile — the same rule the year heatmap follows. A tile is
+never colour alone: the panel beside the grid spells the selected day out, and
+the labelled form says it outright.
+
+**Weekends are dim, not washed.** Two shaded columns running the length of a year
+is the heaviest thing on the screen and the least important; a dim number already
+says the day is not yours to book.
 
 ---
 

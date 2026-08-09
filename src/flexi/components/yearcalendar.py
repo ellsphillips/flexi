@@ -42,14 +42,18 @@ from flexi.domain.stitch import (
 TOKEN: Final = 3
 """What a day always occupies: two columns for the number, one for the marker."""
 
-MIN_CELL: Final = 4
-MAX_CELL: Final = 6
-"""A day cell takes the width it is given, within reason.
+LABELLED_CELL: Final = 9
+"""From here a tile has room to say what is booked on it, not just that
+something is. Below it the type is carried by the tile's colour alone — which is
+why the panel beside the grid always spells the selected day out."""
 
-Fixed at four, a calendar uses twenty-eight of the eighty columns it was handed
-and reads as broken. Past six the days drift so far apart that a week stops
-looking like a row, so the leftover becomes margin instead: the grid is centred
-in its panel rather than stretched across it.
+MIN_CELL: Final = 4
+"""Two columns for the number, one for the marker, one of gutter.
+
+There is no maximum. An earlier draft capped the cell and centred the grid in
+the leftover, which left slabs of unpainted panel down both sides and read as a
+rendering fault. A day is a *tile* instead: it takes an equal share of the full
+width and paints its own ground, so there is no leftover to look wrong.
 """
 
 FULL: Final = "●"
@@ -73,6 +77,7 @@ class YearCalendar(ScrollView, can_focus=True):
         "cal--month",
         "cal--weekday",
         "cal--day",
+        "cal--empty",
         "cal--outside",
         "cal--weekend",
         "cal--today",
@@ -121,27 +126,28 @@ class YearCalendar(ScrollView, can_focus=True):
         rows it is. ``-1`` is a month title, ``-2`` a weekday heading."""
 
     @property
+    def _available(self) -> int:
+        return max(DAYS_IN_WEEK * MIN_CELL, self.content_size.width or self.size.width)
+
+    @property
+    def columns(self) -> tuple[int, ...]:
+        """The width of each of the seven columns.
+
+        The remainder is spread one column at a time rather than dumped on the
+        last, so the grid fills the panel exactly and no column is more than a
+        cell wider than its neighbour.
+        """
+        base, extra = divmod(self._available, DAYS_IN_WEEK)
+        return tuple(base + (1 if index < extra else 0) for index in range(DAYS_IN_WEEK))
+
+    @property
     def cell(self) -> int:
-        """Columns per day, from whatever width the screen gave this widget."""
-        available = self.content_size.width or self.size.width
-        return max(MIN_CELL, min(MAX_CELL, available // DAYS_IN_WEEK))
+        """The narrowest column, for anything that has to fit in all of them."""
+        return min(self.columns)
 
     @property
     def grid_width(self) -> int:
-        return self.cell * DAYS_IN_WEEK
-
-    @property
-    def _pad(self) -> int:
-        """Left margin that centres the grid in whatever width it was given."""
-        available = self.content_size.width or self.size.width
-        return max(0, (available - self.grid_width) // 2)
-
-    def _padded(self, segments: list[Segment], style: Style | None = None) -> Strip:
-        if not self._pad:
-            return Strip(segments, self.grid_width)
-        return Strip(
-            [Segment(BLANK * self._pad, style), *segments], self._pad + self.grid_width
-        )
+        return sum(self.columns)
 
     def on_resize(self) -> None:
         """The grid is sized to the panel, so a resize re-lays it out."""
@@ -286,37 +292,62 @@ class YearCalendar(ScrollView, can_focus=True):
 
     def _heading_strip(self) -> Strip:
         style = self.get_component_rich_style("cal--weekday")
+        initials = weekday_initials(self.first_weekday)
         text = "".join(
-            initial.center(self.cell) for initial in weekday_initials(self.first_weekday)
+            initial.center(width) for initial, width in zip(initials, self.columns)
         )
-        return self._padded([Segment(text, style)], style)
+        return Strip([Segment(text, style)], self.grid_width)
 
     def _title_strip(self, block: MonthBlock) -> Strip:
+        """A seam. Ruled rather than boxed, like every other divider here."""
         style = self.get_component_rich_style("cal--month")
-        width = self.grid_width
         label = f" {block.title} "
-        rule = "─" * max(0, width - len(label) - 1)
-        return self._padded([Segment(f"{label}{rule}", style)], style)
+        rule = "─" * max(0, self.grid_width - len(label) - 1)
+        return Strip([Segment(f"{label}{rule}", style)], self.grid_width)
 
     def _week_strip(self, block: MonthBlock, row: int) -> Strip:
+        empty = self.get_component_rich_style("cal--empty")
         segments: list[Segment] = []
-        for cell in block.rows[row]:
+        for cell, width in zip(block.rows[row], self.columns):
             if cell.date is None:
-                segments.append(Segment(BLANK * self.cell))
+                segments.append(Segment(BLANK * width, empty))
                 continue
-            segments.append(self._day_segment(cell.date))
-        return self._padded(segments)
+            segments.append(self._day_segment(cell.date, width))
+        return Strip(segments, self.grid_width)
 
-    def _day_segment(self, when: date) -> Segment:
-        """A fixed three-character token, centred in whatever the cell is.
+    def _day_segment(self, when: date, width: int) -> Segment:
+        """A tile: the day, what is on it, and the whole cell painted.
 
-        Fixed then centred, rather than padded: the token is always the same
-        width whether or not the day carries a marker, so the columns hold
-        still as the cursor moves across them.
+        Every column is emitted with a style, including the blanks at a seam.
+        Left unstyled they take whatever the widget's own ground is, which
+        showed up as slabs of a different colour down the side of the grid.
+
+        Given room, the tile says what is booked rather than leaving the reader
+        to decode a colour. Below that it falls back to the number and a marker,
+        right-aligned so the columns still read as columns.
         """
         ledger = self.ledgers.get(when)
+        style = self._day_style(when, ledger)
+        if width >= LABELLED_CELL:
+            label = self._label(ledger)
+            text = f" {when.day:>2} {label}" if label else f" {when.day:>2}"
+            return Segment(text[: width - 1].ljust(width), style)
         token = f"{when.day:>2}{self._marker(ledger)}"
-        return Segment(token.center(self.cell), self._day_style(when, ledger))
+        return Segment(token.rjust(width - 1) + BLANK, style)
+
+    def _label(self, ledger: DayLedger | None) -> str:
+        """What is on the day, in a word."""
+        if ledger is None:
+            return ""
+        if ledger.is_holiday:
+            return "hol"
+        if not ledger.absences:
+            return ""
+        if len(ledger.absences) > 1:
+            return "part day"
+        slice_ = ledger.absences[0]
+        word = slice_.type.short.lower()
+        return word if slice_.portion is Portion.FULL else f"{word} {PORTION_GLYPH[slice_.portion]}"
 
     def _marker(self, ledger: DayLedger | None) -> str:
         """The glyph says how much of the day; the colour says what kind."""
@@ -332,12 +363,19 @@ class YearCalendar(ScrollView, can_focus=True):
         return PORTION_GLYPH[ledger.absences[0].portion]
 
     def _day_style(self, when: date, ledger: DayLedger | None) -> Style:
+        """One style per tile, in order of what the reader needs most.
+
+        The cursor and the selection win outright: where you are is more urgent
+        than what is booked there, and the selection panel spells the booking
+        out anyway. Under them, a booked day takes its type's ground and a
+        bank holiday takes its own; today is underlined on top of whatever it
+        landed on, because it can coincide with any of them.
+        """
         if when == self.selection.head:
             return self.get_component_rich_style("cal--cursor")
         if when in self.selection:
             return self.get_component_rich_style("cal--selected")
 
-        base = self.get_component_rich_style("cal--day")
         if ledger is None:
             base = self.get_component_rich_style("cal--outside")
         elif ledger.is_holiday:
@@ -348,6 +386,8 @@ class YearCalendar(ScrollView, can_focus=True):
             )
         elif not ledger.is_working_day:
             base = self.get_component_rich_style("cal--weekend")
+        else:
+            base = self.get_component_rich_style("cal--day")
 
         if when == self._today:
             base += self.get_component_rich_style("cal--today")
@@ -365,7 +405,14 @@ class YearCalendar(ScrollView, can_focus=True):
         if offset is None:
             return
         line = int(offset.y) + int(self.scroll_offset.y)
-        column = (int(offset.x) - self._pad) // self.cell
+        column, edge = 0, 0
+        for index, width in enumerate(self.columns):
+            edge += width
+            if int(offset.x) < edge:
+                column = index
+                break
+        else:
+            column = DAYS_IN_WEEK - 1
         if not (0 <= line < len(self._rows)) or not (0 <= column < DAYS_IN_WEEK):
             return
         block, row = self._rows[line]
@@ -395,7 +442,7 @@ def legend() -> Text:
             text.append(key, "reverse")
             text.append(f" {what}")
         text.append("\n")
-    text.append(f"{FULL} full  {MORNING}{AFTERNOON} half  {SPLIT} split  {HOLIDAY} hol")
+    text.append(f"{MORNING}{AFTERNOON} half day   {SPLIT} split")
     return text
 
 

@@ -89,6 +89,3 @@ uv run mypy                     # strict, and meant to stay strict
 uv run ruff check src tests
 uv run python scripts/shoot.py  # regenerate the screenshots in docs/shots/
 ```
-
-Flexi owes a great deal to [the reference application](), which
-is where jump mode, the module container and much of the scaffolding come from.
