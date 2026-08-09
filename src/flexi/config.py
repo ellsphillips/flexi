@@ -68,6 +68,14 @@ class Defaults(BaseModel):
 
     period: str = "week"
     first_day_of_week: int = 0
+    minimum_session_seconds: int = 60
+    """A session shorter than this never happened.
+
+    Clocking in and straight back out is a slip of the finger, not a minute of
+    work, and a records table full of them is a records table nobody trusts.
+    Sixty seconds is long enough to cover a double-press and short enough that
+    nobody loses a real errand to it."""
+
     tick_seconds: int = 1
     """How often the live readout refreshes while a session is open. A minute
     would make an elapsed clock jump in 60-second steps, which looks broken."""

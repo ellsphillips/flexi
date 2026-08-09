@@ -51,7 +51,7 @@ class Services:
             session=session,
             settings=settings,
             bank_holidays=bank_holidays,
-            clock=ClockService(session),
+            clock=ClockService(session, _minimum_session()),
             absence=absence,
             adjustments=AdjustmentService(session),
             ledger=ledger,
@@ -89,6 +89,14 @@ class Services:
     def now(self) -> datetime:
         """The current local moment, in one place so tests can patch one thing."""
         return datetime.now()
+
+
+def _minimum_session() -> timedelta:
+    """How long a session has to last to count. Preference, so it comes from
+    the config file rather than from the database."""
+    from flexi.config import CONFIG
+
+    return timedelta(seconds=CONFIG.defaults.minimum_session_seconds)
 
 
 def _division(settings: SettingsService) -> str:
