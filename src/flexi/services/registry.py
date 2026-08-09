@@ -9,11 +9,16 @@ others. This is that knowledge, written down once.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from flexi.services.absence import AbsenceService
+from flexi.services.adjustments import (
+    OPENING_BALANCE,
+    AdjustmentResult,
+    AdjustmentService,
+)
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.clock import ClockService
 from flexi.services.ledger import LedgerService
@@ -30,6 +35,7 @@ class Services:
     bank_holidays: BankHolidayService
     clock: ClockService
     absence: AbsenceService
+    adjustments: AdjustmentService
     ledger: LedgerService
     wallet: WalletService
 
@@ -47,6 +53,7 @@ class Services:
             bank_holidays=bank_holidays,
             clock=ClockService(session),
             absence=absence,
+            adjustments=AdjustmentService(session),
             ledger=ledger,
             wallet=WalletService(session, settings, absence, ledger),
         )
@@ -58,6 +65,26 @@ class Services:
     def toil_days(self, today: date | None = None) -> float:
         """The flexi balance in days — what a TOIL booking would draw against."""
         return self.wallet.available_toil_days(today)
+
+    def zero_balance(
+        self, as_of: date | None = None, *, reason: str = OPENING_BALANCE
+    ) -> AdjustmentResult:
+        """Settle the balance so that it reads zero as at the end of ``as_of``.
+
+        Defaults to *yesterday*, not today. Today is not over: absorbing its
+        contracted hours before they have been worked would leave the evening
+        looking like unearned overtime, and tomorrow's balance wrong by a day.
+        Settling to the end of yesterday leaves today behaving exactly as any
+        other day does.
+        """
+        as_of = as_of or (date.today() - timedelta(days=1))
+        standing = self.ledger.balance(as_of).delta
+        if not round(standing.total_seconds() / 60):
+            return AdjustmentResult(False, "The balance is already zero")
+        result = self.adjustments.record(as_of, -standing, reason)
+        if result.success:
+            self.invalidate()
+        return result
 
     def now(self) -> datetime:
         """The current local moment, in one place so tests can patch one thing."""
