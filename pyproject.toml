@@ -88,10 +88,10 @@ ignore = [
     "D1",
     # Textual and Click hand back values that cannot be narrowed here.
     "ANN401",
-    # Flexi deals in local civil time -- "what day is it where you are". An
-    # aware UTC date answers a question nobody asked. domain/clock.py is the
-    # only sanctioned reader of the system clock.
-    "DTZ011",
+    # Flexi records local civil time: a timesheet is written in the wall time
+    # the person lives in. DTZ005 and DTZ011 stay on, so the only way to read
+    # the system clock remains flexi/wallclock.py.
+    "DTZ001",
     # Click and Textual both pass flags positionally.
     "FBT003",
     # The glyphs are the product: U+2212 in every delta, box drawing in the

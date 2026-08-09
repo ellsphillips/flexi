@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from textual.app import ComposeResult
@@ -8,6 +7,7 @@ from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
+from flexi import wallclock
 from flexi.services.registry import Services
 
 DIVISIONS = [
@@ -68,7 +68,7 @@ class SetupScreen(Screen[bool]):
         self._settings_svc = services.settings
 
     def compose(self) -> ComposeResult:
-        year = date.today().year
+        year = wallclock.today().year
         with Container(id="setup-dialog"):
             yield Static("Welcome to Flexi! Complete setup to continue.\n")
 
@@ -144,7 +144,7 @@ class SetupScreen(Screen[bool]):
             auto_close_time=auto_close,
         )
 
-        year = date.today().year
+        year = wallclock.today().year
         self._settings_svc.save_entitlement(year, entitlement)
 
         self.dismiss(True)

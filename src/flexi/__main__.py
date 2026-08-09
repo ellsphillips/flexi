@@ -1,8 +1,9 @@
-from datetime import date, datetime
+from datetime import datetime
 
 import click
 
 import flexi
+from flexi import wallclock
 from flexi.app import App
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
@@ -125,7 +126,7 @@ def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
     from flexi.services.registry import Services
 
     services = Services.build(ctx.obj["session"])
-    today = as_of.date() if as_of is not None else date.today()
+    today = as_of.date() if as_of is not None else wallclock.today()
     start, _ = services.absence.leave_year_bounds(today)
     summary = services.ledger.balance(today)
 
@@ -167,7 +168,7 @@ def balance_zero(
     from flexi.services.registry import Services
 
     services = Services.build(ctx.obj["session"])
-    when = as_of.date() if as_of is not None else date.today() - timedelta(days=1)
+    when = as_of.date() if as_of is not None else wallclock.today() - timedelta(days=1)
     standing = services.ledger.balance(when).delta
 
     click.echo(f"balance as at {when:%a %-d %b %Y} is {delta(standing)}")
@@ -180,7 +181,7 @@ def balance_zero(
     click.secho(result.message, fg="green" if result.success else "red")
     if result.success:
         click.echo(
-            f"balance now   {delta(services.ledger.balance(date.today()).delta)}"
+            f"balance now   {delta(services.ledger.balance(wallclock.today()).delta)}"
         )
     _close(ctx)
     if not result.success:

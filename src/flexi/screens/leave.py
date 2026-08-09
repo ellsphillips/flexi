@@ -11,7 +11,7 @@ a note explaining it" is a real case and does not deserve a key of its own.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import ClassVar
 
 from textual.app import ComposeResult
@@ -20,6 +20,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
+from flexi import wallclock
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import Gauge, Tone, mark_width
 from flexi.components.yearcalendar import YearCalendar, legend
@@ -76,10 +77,10 @@ class LeaveScreen(Screen[None]):
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._services = services
-        self.now = datetime.now()
+        self.now = wallclock.now()
         self.portion = Portion.FULL
         self.period = Period.containing(
-            anchor or date.today(),
+            anchor or wallclock.today(),
             Granularity.YEAR,
             year_start=services.settings.get_leave_year_start(),
             first_weekday=CONFIG.defaults.first_day_of_week,
@@ -143,7 +144,7 @@ class LeaveScreen(Screen[None]):
 
     def rebuild(self) -> None:
         """Reload the year and redraw everything that depends on it."""
-        self.now = datetime.now()
+        self.now = wallclock.now()
         start, end = self.period.start, self.period.end
         ledgers = {
             item.date: item
@@ -360,7 +361,7 @@ class LeaveScreen(Screen[None]):
     # -- moving ------------------------------------------------------------
 
     def action_today(self) -> None:
-        self.calendar.go_to(date.today())
+        self.calendar.go_to(wallclock.today())
 
     def action_go_to_date(self) -> None:
         def apply(when: date | None) -> None:

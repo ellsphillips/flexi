@@ -3,29 +3,18 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 
 import pytest
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import BankHolidayCache, Base
+from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import Services
 
 MONDAY = date(2026, 6, 8)
 SUNDAY = date(2026, 6, 14)
 THURSDAY = date(2026, 6, 11)
 CONTRACTED = timedelta(minutes=444)
-
-
-@pytest.fixture
-def session(tmp_path: Path):
-    engine = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(engine)
-    opened = get_session(engine)
-    yield opened
-    opened.close()
 
 
 @pytest.fixture

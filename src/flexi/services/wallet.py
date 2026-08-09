@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import AbsenceType
 from flexi.domain.balance import BalanceSummary
 from flexi.domain.ledger import DayLedger
@@ -133,7 +134,7 @@ class WalletService:
         now: datetime | None = None,
     ) -> WalletData:
         """The wallet as at ``today``, with ``start``–``end`` as the shown period."""
-        today = today or date.today()
+        today = today or wallclock.today()
         year_start, year_end = self._absence.leave_year_bounds(today)
         elapsed = _fraction_elapsed(year_start, year_end, today)
         contracted = self._settings.get_contracted()
@@ -191,7 +192,7 @@ class WalletService:
         what stops the interface cheerfully accepting an unlimited number of
         future TOIL days and only mentioning the deficit once they arrive.
         """
-        today = today or date.today()
+        today = today or wallclock.today()
         contracted = self._settings.get_contracted()
         if not contracted:
             return 0.0

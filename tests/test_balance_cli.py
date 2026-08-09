@@ -8,12 +8,13 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from flexi import wallclock
 from flexi.__main__ import cli
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import Services
 
-YESTERDAY = date.today() - timedelta(days=1)
+YESTERDAY = wallclock.today() - timedelta(days=1)
 
 
 @pytest.fixture

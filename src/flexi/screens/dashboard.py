@@ -13,7 +13,7 @@ a fifth meant editing a method in a different file.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any, ClassVar
 
 from textual.app import ComposeResult
@@ -24,6 +24,7 @@ from textual.geometry import Offset
 from textual.screen import Screen
 from textual.timer import Timer
 
+from flexi import wallclock
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import TINY_COLUMNS, Tone, mark_width
 from flexi.components.expandable import ABSENCE, DAY, SESSION
@@ -101,12 +102,12 @@ class DashboardScreen(Screen[None]):
         super().__init__(**kwargs)
         self._services = services
         self.period = Period.containing(
-            date.today(),
+            wallclock.today(),
             Granularity(CONFIG.defaults.period),
             year_start=services.settings.get_leave_year_start(),
             first_weekday=CONFIG.defaults.first_day_of_week,
         )
-        self.now = datetime.now()
+        self.now = wallclock.now()
         self._tick: Timer | None = None
 
     # -- composition -------------------------------------------------------
@@ -158,7 +159,7 @@ class DashboardScreen(Screen[None]):
 
     def action_today(self) -> None:
         """Return to now, keeping the width the user chose."""
-        self.set_period(self.period.go_to(date.today()))
+        self.set_period(self.period.go_to(wallclock.today()))
 
     def action_shift(self, count: int) -> None:
         self.set_period(self.period.shift(count))
@@ -184,7 +185,7 @@ class DashboardScreen(Screen[None]):
 
     def refresh_modules(self, scope: Scope) -> None:
         """Invalidate once, then redraw only the modules that care."""
-        self.now = datetime.now()
+        self.now = wallclock.now()
         if scope & (Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS):
             self._services.invalidate()
         for module in self.query(Module):
@@ -216,7 +217,7 @@ class DashboardScreen(Screen[None]):
     def _sync_header(self) -> None:
         for header in self.query(AppHeader):
             header.context = (
-                f"{date.today().strftime('%a %-d %b')} · {self.period.label}"
+                f"{wallclock.today().strftime('%a %-d %b')} · {self.period.label}"
             )
 
     # -- the live tick -----------------------------------------------------
@@ -228,7 +229,7 @@ class DashboardScreen(Screen[None]):
         hung process; a timer that ran when nothing was moving would redraw the
         whole dashboard once a second for no reason.
         """
-        open_now = self._services.ledger.day(date.today()).is_open
+        open_now = self._services.ledger.day(wallclock.today()).is_open
         if open_now and self._tick is None:
             self._tick = self.set_interval(CONFIG.defaults.tick_seconds, self._on_tick)
         elif not open_now and self._tick is not None:
@@ -236,7 +237,7 @@ class DashboardScreen(Screen[None]):
             self._tick = None
 
     def _on_tick(self) -> None:
-        self.now = datetime.now()
+        self.now = wallclock.now()
         self._services.ledger.invalidate()
         for module in (ClockModule, BalanceModule):
             for widget in self.query(module):

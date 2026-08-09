@@ -3,29 +3,18 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 
 import pytest
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base, ClockEvent, WorkSession
+from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.services.clock import ClockService
 from flexi.services.registry import Services
 from flexi.services.startup import run_startup_cleanup
 
 DAY = date(2026, 8, 10)
 NINE = datetime.combine(DAY, datetime.min.time(), tzinfo=UTC).replace(hour=9)
-
-
-@pytest.fixture
-def session(tmp_path: Path):
-    engine = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(engine)
-    opened = get_session(engine)
-    yield opened
-    opened.close()
 
 
 @pytest.fixture
@@ -136,7 +125,9 @@ def add_session(session: Session, start: datetime, end: datetime) -> None:
     session.commit()
 
 
-def test_old_short_sessions_are_swept_on_startup(services: Services, session: Session) -> None:
+def test_old_short_sessions_are_swept_on_startup(
+    services: Services, session: Session
+) -> None:
     """Somebody learning which key does what leaves a trail of them."""
     for offset in range(5):
         at = NINE + timedelta(minutes=offset)

@@ -24,6 +24,8 @@ from flexi.services.samples import NOW, seed_demo
 
 WIDE = (120, 36)
 
+type AppFactory = Callable[[], FlexiApp]
+
 
 @pytest.fixture
 def _frozen() -> Iterator[None]:
@@ -45,7 +47,7 @@ def seeded_db(tmp_path: Path, _frozen: None) -> Path:
 
 
 @pytest.fixture
-def app_factory(seeded_db: Path) -> Callable[[], FlexiApp]:
+def app_factory(seeded_db: Path) -> AppFactory:
     def build() -> FlexiApp:
         return FlexiApp(db_path=seeded_db)
 

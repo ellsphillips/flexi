@@ -3,28 +3,18 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 
 import pytest
 from sqlalchemy.orm import Session
 
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import BankHolidayCache, Base
+from flexi import wallclock
+from flexi.models.database.db import BankHolidayCache
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services
 
 MONDAY = date(2026, 6, 8)
 FRIDAY = date(2026, 6, 12)
 CONTRACTED = timedelta(minutes=444)
-
-
-@pytest.fixture
-def session(tmp_path: Path):
-    engine = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(engine)
-    opened = get_session(engine)
-    yield opened
-    opened.close()
 
 
 @pytest.fixture
@@ -156,7 +146,7 @@ def test_zeroing_defaults_to_yesterday(services: Services) -> None:
     result = services.zero_balance()
     if result.success:
         assert result.adjustment is not None
-        assert result.adjustment.date == date.today() - timedelta(days=1)
+        assert result.adjustment.date == wallclock.today() - timedelta(days=1)
 
 
 def test_zeroing_twice_is_refused_the_second_time(services: Services) -> None:

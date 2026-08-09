@@ -5,7 +5,7 @@ snapshot test, and whoever is reviewing a screenshot — which is the point: the
 all see the same interesting cases rather than an empty database or three
 different fictions.
 
-Deterministic by construction. No ``random``, no ``date.today()``: every figure
+Deterministic by construction. No ``random``, no ``wallclock.today()``: every figure
 is derived from the day's index, so the seed produces byte-identical output on
 any machine on any day, which is what a committed SVG snapshot requires.
 """

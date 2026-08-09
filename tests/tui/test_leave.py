@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import date, timedelta
 
 import pytest
@@ -14,7 +13,7 @@ from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
-from tests.tui.conftest import WIDE, status_text
+from tests.tui.conftest import WIDE, AppFactory, status_text
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
@@ -34,7 +33,7 @@ async def open_leave(pilot: Pilot[None]) -> None:
 # -- getting there ---------------------------------------------------------
 
 
-async def test_f2_opens_the_leave_year(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_f2_opens_the_leave_year(app_factory: AppFactory) -> None:
     """It opens on the leave year, with the cursor on today."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -44,7 +43,7 @@ async def test_f2_opens_the_leave_year(app_factory: Callable[[], FlexiApp]) -> N
         assert calendar(app).selection.head == TODAY
 
 
-async def test_escape_leaves(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_escape_leaves(app_factory: AppFactory) -> None:
     """With nothing selected, escape is the way out.
 
     The calendar binds it too, to collapse a selection — a focused widget is
@@ -59,7 +58,7 @@ async def test_escape_leaves(app_factory: Callable[[], FlexiApp]) -> None:
         assert not isinstance(app.screen, LeaveScreen)
 
 
-async def test_the_whole_year_is_laid_out(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_the_whole_year_is_laid_out(app_factory: AppFactory) -> None:
     """Thirteen months, because a leave year starting on the 6th touches both ends."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -74,7 +73,7 @@ async def test_the_whole_year_is_laid_out(app_factory: Callable[[], FlexiApp]) -
     ("key", "days"),
     [("right", 1), ("left", -1), ("down", 7), ("up", -7), ("l", 1), ("k", -7)],
 )
-async def test_the_cursor_moves(app_factory: Callable[[], FlexiApp], key: str, days: int) -> None:
+async def test_the_cursor_moves(app_factory: AppFactory, key: str, days: int) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -83,7 +82,7 @@ async def test_the_cursor_moves(app_factory: Callable[[], FlexiApp], key: str, d
         assert calendar(app).selection.head == TODAY + timedelta(days=days)
 
 
-async def test_shift_extends_and_escape_collapses(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_shift_extends_and_escape_collapses(app_factory: AppFactory) -> None:
     """A selection is an anchor and a head, so it can be pulled back."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -98,7 +97,7 @@ async def test_shift_extends_and_escape_collapses(app_factory: Callable[[], Flex
         assert isinstance(app.screen, LeaveScreen), "escape collapsed, it did not leave"
 
 
-async def test_a_month_step_clamps_to_a_shorter_month(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_a_month_step_clamps_to_a_shorter_month(app_factory: AppFactory) -> None:
     """From the 31st into a 30-day month lands on the 30th, not nowhere."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -116,7 +115,7 @@ async def test_a_month_step_clamps_to_a_shorter_month(app_factory: Callable[[], 
 # -- booking ---------------------------------------------------------------
 
 
-async def test_one_key_books_a_day(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_one_key_books_a_day(app_factory: AppFactory) -> None:
     """No modal. The cursor is the subject."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -132,7 +131,7 @@ async def test_one_key_books_a_day(app_factory: Callable[[], FlexiApp]) -> None:
         assert "1 day" in status_text(app)
 
 
-async def test_one_key_books_a_range(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_one_key_books_a_range(app_factory: AppFactory) -> None:
     """Five working days, and the weekend is not mentioned because it is not news."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -153,7 +152,7 @@ async def test_one_key_books_a_range(app_factory: Callable[[], FlexiApp]) -> Non
         assert "5 days" in status_text(app)
 
 
-async def test_space_cycles_the_portion_before_booking(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_space_cycles_the_portion_before_booking(app_factory: AppFactory) -> None:
     """Half days are rare, so they cost one keystroke on the rare path."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -170,7 +169,7 @@ async def test_space_cycles_the_portion_before_booking(app_factory: Callable[[],
         assert app.services.absence.for_date(FREE_MONDAY)[0].portion is Portion.AM
 
 
-async def test_other_absence_goes_through_the_modal(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_other_absence_goes_through_the_modal(app_factory: AppFactory) -> None:
     """It needs a note, and a note needs somewhere to be typed."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -180,7 +179,7 @@ async def test_other_absence_goes_through_the_modal(app_factory: Callable[[], Fl
         assert isinstance(app.screen, AbsenceModal)
 
 
-async def test_the_wallet_moves_with_the_booking(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_the_wallet_moves_with_the_booking(app_factory: AppFactory) -> None:
     """The question behind every booking is whether you can afford it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -199,7 +198,7 @@ async def test_the_wallet_moves_with_the_booking(app_factory: Callable[[], Flexi
 # -- removing --------------------------------------------------------------
 
 
-async def test_removing_a_day_is_immediate(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_removing_a_day_is_immediate(app_factory: AppFactory) -> None:
     """Below the threshold it is faster to undo than to confirm."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -215,7 +214,7 @@ async def test_removing_a_day_is_immediate(app_factory: Callable[[], FlexiApp]) 
         assert "removed" in status_text(app)
 
 
-async def test_removing_a_lot_asks_first(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_removing_a_lot_asks_first(app_factory: AppFactory) -> None:
     """One key that can wipe a fortnight without a word is a key nobody presses twice."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -241,7 +240,7 @@ async def test_removing_a_lot_asks_first(app_factory: Callable[[], FlexiApp]) ->
         )
 
 
-async def test_removing_nothing_says_so(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_removing_nothing_says_so(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -255,7 +254,7 @@ async def test_removing_nothing_says_so(app_factory: Callable[[], FlexiApp]) -> 
 # -- the surface -----------------------------------------------------------
 
 
-async def test_the_seed_is_drawn(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_the_seed_is_drawn(app_factory: AppFactory) -> None:
     """Bookings from the database reach the grid."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -265,7 +264,7 @@ async def test_the_seed_is_drawn(app_factory: Callable[[], FlexiApp]) -> None:
         assert ledgers[date(2026, 5, 25)].is_holiday, "the spring bank holiday"
 
 
-async def test_every_panel_is_jumpable(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_every_panel_is_jumpable(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -273,7 +272,9 @@ async def test_every_panel_is_jumpable(app_factory: Callable[[], FlexiApp]) -> N
             assert app.screen.query(f"#{widget_id}"), f"{widget_id} is not mounted"
 
 
-async def test_the_rail_gives_way_when_there_is_no_room(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_the_rail_gives_way_when_there_is_no_room(
+    app_factory: AppFactory,
+) -> None:
     """At 36 cells the rail leaves the calendar four days of a week."""
     app = app_factory()
     async with app.run_test(size=(84, 28)) as pilot:
@@ -282,7 +283,7 @@ async def test_the_rail_gives_way_when_there_is_no_room(app_factory: Callable[[]
         assert app.screen.query_one("#leave-wallet-line").display is True
 
 
-async def test_the_grid_never_outgrows_its_panel(app_factory: Callable[[], FlexiApp]) -> None:
+async def test_the_grid_never_outgrows_its_panel(app_factory: AppFactory) -> None:
     """A week has to keep reading as a row at every width."""
     for size in ((120, 36), (84, 28), (64, 22)):
         app = app_factory()

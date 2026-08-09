@@ -28,6 +28,7 @@ from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
 from textual.widgets import Button, Label
 
+from flexi import wallclock
 from flexi.components.modules.base import Module
 from flexi.config import CONFIG
 from flexi.constants import DayKind
@@ -69,7 +70,7 @@ class CalendarModule(Module):
             subtitle=f"← {CONFIG.hotkeys.period_cycle} →",
             **kwargs,
         )
-        self._visible = date.today().replace(day=1)
+        self._visible = wallclock.today().replace(day=1)
         self._last_anchor: date | None = None
 
     def compose(self) -> ComposeResult:

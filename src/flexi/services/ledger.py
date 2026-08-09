@@ -20,6 +20,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from flexi import wallclock
 from flexi.constants import DayKind
 from flexi.domain.balance import (
     BalanceSummary,
@@ -98,7 +99,7 @@ class LedgerService:
         ledger contains any open session, whose length changes every second, so
         caching it would freeze the live readout.
         """
-        moment = now or datetime.now()
+        moment = now or wallclock.now()
         today = moment.date()
 
         wanted = _date_range(start, end)
@@ -122,7 +123,7 @@ class LedgerService:
         contract is reflected everywhere at once and there is no derived total to
         fall out of step.
         """
-        as_of = as_of or date.today()
+        as_of = as_of or wallclock.today()
         year = self._settings.active_leave_year(as_of)
         month, day = self._settings.get_leave_year_start()
         return self.summary(date(year, month, day), as_of, now=now)

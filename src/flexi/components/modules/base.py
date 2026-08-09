@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from textual.widget import Widget
 from textual.widgets import Static
 
+from flexi import wallclock
 from flexi.domain.period import Granularity, Period
 from flexi.messages import DataChanged, Scope
 
@@ -56,7 +57,7 @@ class Module(Static):
     @property
     def period(self) -> Period:
         """The span the dashboard is currently showing."""
-        fallback = Period.containing(date.today(), Granularity.WEEK)
+        fallback = Period.containing(wallclock.today(), Granularity.WEEK)
         return cast(Period, getattr(self.screen, "period", fallback))
 
     @property
@@ -67,7 +68,7 @@ class Module(Static):
     @property
     def now(self) -> datetime:
         """The moment this redraw is drawing, in one place so tests can fix it."""
-        return cast(datetime, getattr(self.screen, "now", datetime.now()))
+        return cast(datetime, getattr(self.screen, "now", wallclock.now()))
 
     # -- redrawing ---------------------------------------------------------
 

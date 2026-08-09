@@ -27,6 +27,7 @@ from datetime import date, datetime, time, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
@@ -199,7 +200,7 @@ class AbsenceService:
 
     def leave_year_bounds(self, ref: date | None = None) -> tuple[date, date]:
         """The first and last date of the leave year containing ``ref``."""
-        ref = ref or date.today()
+        ref = ref or wallclock.today()
         year = self._settings.active_leave_year(ref)
         month, day = self._settings.get_leave_year_start()
         start = date(year, month, day)

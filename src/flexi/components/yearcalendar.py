@@ -29,6 +29,7 @@ from textual.message import Message
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
+from flexi import wallclock
 from flexi.constants import Portion
 from flexi.domain.ledger import DayLedger
 from flexi.domain.stitch import (
@@ -118,9 +119,9 @@ class YearCalendar(ScrollView, can_focus=True):
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self.blocks: tuple[MonthBlock, ...] = ()
         self.ledgers: dict[date, DayLedger] = {}
-        self.selection = Selection.at(date.today())
+        self.selection = Selection.at(wallclock.today())
         self.first_weekday = 0
-        self._today = date.today()
+        self._today = wallclock.today()
         self._rows: list[tuple[MonthBlock | None, int]] = []
         """One entry per drawn line: the block it belongs to, and which of its
         rows it is. ``-1`` is a month title, ``-2`` a weekday heading."""
@@ -171,7 +172,7 @@ class YearCalendar(ScrollView, can_focus=True):
         self.first_weekday = first_weekday
         self.blocks = tuple(stitch(start, end, first_weekday=first_weekday))
         self.ledgers = ledgers
-        self._today = today or date.today()
+        self._today = today or wallclock.today()
         self._relayout()
         self.refresh()
 

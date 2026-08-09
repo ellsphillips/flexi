@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.services.absence import AbsenceService
 from flexi.services.adjustments import (
     OPENING_BALANCE,
@@ -77,7 +78,7 @@ class Services:
         Settling to the end of yesterday leaves today behaving exactly as any
         other day does.
         """
-        as_of = as_of or (date.today() - timedelta(days=1))
+        as_of = as_of or (wallclock.today() - timedelta(days=1))
         standing = self.ledger.balance(as_of).delta
         if not round(standing.total_seconds() / 60):
             return AdjustmentResult(False, "The balance is already zero")
@@ -88,7 +89,7 @@ class Services:
 
     def now(self) -> datetime:
         """The current local moment, in one place so tests can patch one thing."""
-        return datetime.now()
+        return wallclock.now()
 
 
 def _minimum_session() -> timedelta:

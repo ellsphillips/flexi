@@ -6,11 +6,12 @@ Covers: stale close once, system audit event, count toward worked time,
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
 
 import pytest
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.services.clock import ClockService
 from flexi.services.settings import SettingsService
@@ -77,7 +78,7 @@ class TestFallbackTo2359:
     def test_close_before_clock_in_uses_2359(self, svc: ClockService) -> None:
         # Clock in at 20:00 yesterday, auto-close configured at 18:00
         yesterday_8pm = datetime.combine(
-            date.today() - timedelta(days=1),
+            wallclock.today() - timedelta(days=1),
             time(20, 0),
             tzinfo=UTC,
         )
@@ -91,7 +92,7 @@ class TestFallbackTo2359:
 class TestCountsTowardWorkedTime:
     def test_auto_closed_session_has_duration(self, svc: ClockService) -> None:
         yesterday_9am = datetime.combine(
-            date.today() - timedelta(days=1),
+            wallclock.today() - timedelta(days=1),
             time(9, 0),
             tzinfo=UTC,
         )

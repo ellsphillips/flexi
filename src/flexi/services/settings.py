@@ -5,6 +5,7 @@ from datetime import date, time, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
     DEFAULT_WINDOW_END,
@@ -125,7 +126,7 @@ class SettingsService:
     def active_leave_year(self, ref: date | None = None) -> int:
         """Return the calendar year of the active leave year containing ref."""
         if ref is None:
-            ref = date.today()
+            ref = wallclock.today()
         m, d = self.get_leave_year_start()
         start_this_year = date(ref.year, m, d)
         return ref.year if ref >= start_this_year else ref.year - 1

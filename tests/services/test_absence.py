@@ -58,7 +58,9 @@ def bank_holidays(session: Session) -> BankHolidayService:
 
 
 @pytest.fixture
-def absence(session: Session, settings: SettingsService, bank_holidays: BankHolidayService) -> AbsenceService:
+def absence(
+    session: Session, settings: SettingsService, bank_holidays: BankHolidayService
+) -> AbsenceService:
     return AbsenceService(session, settings, bank_holidays)
 
 
@@ -190,7 +192,12 @@ class TestBalance:
         remaining = absence.get_remaining_annual_leave()
         assert remaining == 24.0
 
-    def test_reject_when_insufficient(self, session: Session, bank_holidays: BankHolidayService, settings: SettingsService) -> None:
+    def test_reject_when_insufficient(
+        self,
+        session: Session,
+        bank_holidays: BankHolidayService,
+        settings: SettingsService,
+    ) -> None:
         settings.save_entitlement(2026, 1.0)
         svc = AbsenceService(session, settings, bank_holidays)
         d1 = _next_weekday(date(2026, 6, 8), 0)

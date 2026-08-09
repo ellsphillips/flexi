@@ -67,7 +67,11 @@ class TestBackupCreation:
         assert backup_database(tmp_path / "nope.db") is None
 
     def test_backup_lands_in_backups_dir(
-        self, db_path: Path, engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        db_path: Path,
+        engine: Engine,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         backup_dir = tmp_path / "backups"
         backup_dir.mkdir()
@@ -98,7 +102,9 @@ class TestBackupCreation:
 
 
 class TestBackupRetention:
-    def test_keeps_latest_ten(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_keeps_latest_ten(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         backup_dir = tmp_path / "backups"
         backup_dir.mkdir()
         monkeypatch.setattr(
@@ -110,7 +116,9 @@ class TestBackupRetention:
         remaining = list(backup_dir.glob("*.bak"))
         assert len(remaining) == MAX_BACKUPS
 
-    def test_cleanup_failure_does_not_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_cleanup_failure_does_not_raise(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(
             "flexi.models.database.migrate.backups_directory",
             lambda: Path("/nonexistent/path"),
@@ -142,7 +150,9 @@ class TestBackupFailure:
 
 
 class TestMigrationFailure:
-    def test_bad_migration_raises(self, db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_bad_migration_raises(
+        self, db_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """If alembic upgrade fails, the error propagates."""
         with patch(
             "flexi.models.database.migrate.command.upgrade",

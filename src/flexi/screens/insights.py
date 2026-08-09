@@ -7,7 +7,7 @@ answers "where am I"; this answers "how did I get here".
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 from typing import Any, ClassVar
 
 from textual.app import ComposeResult
@@ -15,6 +15,7 @@ from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 
+from flexi import wallclock
 from flexi.components.charts import (
     Burndown,
     DivergingBars,
@@ -162,7 +163,7 @@ class InsightsScreen(Screen[None]):
         # Opens on the leave year rather than inheriting a week: a chart of one
         # week's four bars is a worse answer than the table it came from.
         self.period = period.zoom(Granularity.YEAR)
-        self.now = datetime.now()
+        self.now = wallclock.now()
 
     def compose(self) -> ComposeResult:
         yield AppHeader()
@@ -179,7 +180,7 @@ class InsightsScreen(Screen[None]):
         for header in self.query(AppHeader):
             header.set_active("insights")
             header.context = (
-                f"{date.today().strftime('%a %-d %b')} · {self.period.label}"
+                f"{wallclock.today().strftime('%a %-d %b')} · {self.period.label}"
             )
 
     def on_resize(self) -> None:
@@ -198,13 +199,15 @@ class InsightsScreen(Screen[None]):
     def set_period(self, period: Period) -> None:
         self.period = period
         for header in self.query(AppHeader):
-            header.context = f"{date.today().strftime('%a %-d %b')} · {period.label}"
+            header.context = (
+                f"{wallclock.today().strftime('%a %-d %b')} · {period.label}"
+            )
         self._services.invalidate()
         for module in self.query(Module):
             module.rebuild()
 
     def action_today(self) -> None:
-        self.set_period(self.period.go_to(date.today()))
+        self.set_period(self.period.go_to(wallclock.today()))
 
     def action_shift(self, count: int) -> None:
         self.set_period(self.period.shift(count))
