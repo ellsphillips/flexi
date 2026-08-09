@@ -2,15 +2,17 @@
 
 When you were on the clock, how far ahead or behind your contracted hours you are, and what is left in your leave allowances.
 
-[![version](https://shieldcn.dev/badge/version-0.1.0-00AAAD.svg)](https://pypi.org/project/flexi/)
-[![python](https://shieldcn.dev/badge/python-3.12_|_3.13-00AAAD.svg?logo=python)](https://www.python.org)
-[![built with textual](https://shieldcn.dev/badge/built_with-textual-00AAAD.svg)](https://textual.textualize.io)
-[![ci](https://shieldcn.dev/github/ci/ellsphillips/flexi.svg)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
+[![version](https://shieldcn.dev/badge/version-0.1.0-00AAAD.svg?variant=outline)](https://pypi.org/project/flexi/)
+[![python](https://shieldcn.dev/badge/python-3.12_|_3.13-00AAAD.svg?logo=python&variant=outline)](https://www.python.org)
+[![textual](https://shieldcn.dev/badge/tui-textual-00AAAD.svg?logo=textual&variant=outline)](https://textual.textualize.io)
+[![sqlite](https://shieldcn.dev/badge/storage-sqlite-00AAAD.svg?logo=sqlite&variant=outline)](https://www.sqlite.org)
+[![uv](https://shieldcn.dev/badge/packaging-uv-00AAAD.svg?logo=uv&variant=outline)](https://docs.astral.sh/uv/)
 
-[![licence](https://shieldcn.dev/badge/licence-MIT-2E9E52.svg)](LICENSE)
-[![tests](https://shieldcn.dev/badge/tests-438_passing-2E9E52.svg?logo=pytest)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
+[![ci](https://shieldcn.dev/github/ci/ellsphillips/flexi.svg?variant=outline)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
+[![tests](https://shieldcn.dev/badge/tests-439_passing-2E9E52.svg?logo=pytest)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
 [![mypy](https://shieldcn.dev/badge/mypy-strict-2E9E52.svg)](https://mypy-lang.org)
 [![ruff](https://shieldcn.dev/badge/ruff-select_ALL-2E9E52.svg?logo=ruff)](https://github.com/astral-sh/ruff)
+[![licence](https://shieldcn.dev/badge/licence-MIT-2E9E52.svg)](LICENSE)
 [![prs](https://shieldcn.dev/badge/PRs-welcome-2E9E52.svg?variant=outline)](CONTRIBUTING.md)
 
 ![The dashboard](./docs/shots/showcase-dashboard.svg)
@@ -184,7 +186,7 @@ cd flexi
 uv sync                             # everything, including dev dependencies
 uv run pre-commit install           # the hooks are the commands CI runs
 
-uv run pytest -q                    # 438 tests, about a minute
+uv run pytest -q                    # 439 tests, about a minute
 uv run mypy                         # strict, over src and tests both
 uv run ruff check
 uv run python scripts/shoot.py      # regenerate the screenshots above
