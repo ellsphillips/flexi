@@ -39,6 +39,7 @@ src/flexi/
 
   domain/
     period.py            Granularity, Period
+    stitch.py            MonthBlock, Selection — months as one continuous grid
     ledger.py            Segment, AbsenceSlice, DayLedger, DayKind
     balance.py           expected_hours, worked, flexi balance accumulation
     punch.py             bucketing for the punch strip (pure)
@@ -59,12 +60,14 @@ src/flexi/
     jumper.py            Jumper            (from the reference application, verbatim)
     jump_overlay.py      JumpOverlay       (from the reference application, adapted)
     expandable.py        ExpandableTable   (wraps DataTable — see §6)
+    yearcalendar.py      YearCalendar      (the scrolling leave year)
+    progress.py          ProgressRail, TimeProgress
     charts/              sparkline.py, bars.py, calendar_heat.py
     modules/
       clock.py  balance.py  wallet.py  records.py  calendar.py  insights.py
 
   screens/
-    dashboard.py  insights.py  settings.py  setup.py  help.py
+    dashboard.py  leave.py  insights.py  settings.py  setup.py  help.py
     modals/  absence.py  session.py  goto.py  confirm.py
 ```
 
@@ -160,9 +163,10 @@ widgets that show elapsed time (clock subtitle, balance) and only while
 
 ```python
 NAV_ITEMS = (
-    NavItem("f1", "dashboard", "Dashboard", "Clock, balance, records"),
-    NavItem("f2", "insights",  "Insights",  "Charts of consumption and activity"),
-    NavItem("f3", "settings",  "Settings",  "Hours, leave year, bank holidays"),
+    NavItem("f1", "dashboard", "Dashboard", "Clock, balance, wallet and records"),
+    NavItem("f2", "leave",     "Leave",     "Book and remove leave across the year"),
+    NavItem("f3", "insights",  "Insights",  "How the balance and the allowances moved"),
+    NavItem("f4", "settings",  "Settings",  "Hours, leave year, bank holidays"),
 )
 ```
 

@@ -1,0 +1,163 @@
+/* ==========================================================================
+   The leave screen
+   ==========================================================================
+   A scrolling year on the left, three panels on the right. The panels are the
+   answer to a screen with more direct actions than the key strip can carry:
+   the wallet says what you can afford, the selection says what you are about
+   to act on, and the legend says which key does it.
+   ========================================================================== */
+
+#leave-body {
+    height: 1fr;
+    padding: 0 1;
+}
+
+/* Fixed to what the grid actually needs — seven days at six columns, plus the
+   border and a gutter. Stretched to 1fr the days drift so far apart that a week
+   stops reading as a row, and the leftover is worth more to the rail, where the
+   selection label can run to "Mon 10 Aug – Wed 9 Sep 2026". */
+#leave-calendar {
+    width: 46;
+    height: 1fr;
+    padding: 0 1;
+    scrollbar-size-vertical: 1;
+}
+
+#leave-rail {
+    width: 1fr;
+    max-width: 52;
+    height: 1fr;
+    padding: 0 0 0 1;
+}
+
+#leave-wallet-line {
+    display: none;
+    height: 1;
+}
+
+#leave-wallet,
+#leave-selection,
+#leave-legend {
+    height: auto;
+    margin: 0;
+}
+
+#leave-wallet Gauge {
+    margin: 0;
+}
+
+#leave-selection-label {
+    height: 1;
+}
+
+#leave-selection-detail,
+#leave-selection-booked {
+    height: 1;
+}
+
+#leave-legend-body {
+    height: auto;
+}
+
+/* Under 100 columns the rail's 36 cells leave the calendar 28 — four days of a
+   week. The rail goes, the wallet becomes one line above the grid, and the
+   legend moves to `?` where it was always also available. */
+LeaveScreen.-narrow #leave-body {
+    layout: vertical;
+}
+
+LeaveScreen.-narrow #leave-calendar {
+    width: 1fr;
+}
+
+LeaveScreen.-narrow #leave-rail {
+    width: 1fr;
+    max-width: 100%;
+    height: auto;
+}
+
+LeaveScreen.-narrow #leave-wallet,
+LeaveScreen.-narrow #leave-legend {
+    display: none;
+}
+
+LeaveScreen.-narrow #leave-wallet-line {
+    display: block;
+}
+
+LeaveScreen.-narrow #leave-selection {
+    height: auto;
+}
+
+/* Under 64, the selection panel goes too. The status bar already reports every
+   write, and the cursor is visible on the grid. */
+LeaveScreen.-tiny #leave-selection {
+    display: none;
+}
+
+
+/* -- the grid ------------------------------------------------------------- */
+
+YearCalendar > .cal--month {
+    color: $c-muted;
+    text-style: bold;
+}
+
+YearCalendar > .cal--weekday {
+    color: $c-ash;
+    text-style: bold;
+}
+
+YearCalendar > .cal--day {
+    color: $c-paper;
+}
+
+YearCalendar > .cal--weekend {
+    color: $c-ash;
+}
+
+YearCalendar > .cal--outside {
+    color: $c-line;
+}
+
+/* Today is underlined rather than coloured: it can coincide with a booking, the
+   cursor and a weekend, and a fourth colour on one cell makes all four
+   unreadable. */
+YearCalendar > .cal--today {
+    text-style: underline;
+}
+
+YearCalendar > .cal--cursor {
+    background: $c-accent;
+    color: $c-ink;
+    text-style: bold;
+}
+
+YearCalendar > .cal--selected {
+    background: $c-accent-deep;
+    color: $c-cream;
+}
+
+YearCalendar > .cal--holiday {
+    color: $c-holiday;
+}
+
+YearCalendar > .cal--annual {
+    color: $c-annual-lift;
+}
+
+YearCalendar > .cal--sick {
+    color: $c-sick-lift;
+}
+
+YearCalendar > .cal--toil {
+    color: $c-toil-lift;
+}
+
+YearCalendar > .cal--unpaid {
+    color: $c-unpaid-lift;
+}
+
+YearCalendar > .cal--other {
+    color: $c-other-lift;
+}

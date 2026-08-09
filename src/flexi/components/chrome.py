@@ -49,8 +49,9 @@ class NavItem:
 
 NAV_ITEMS: Final[tuple[NavItem, ...]] = (
     NavItem("f1", "dashboard", "Dashboard", "Clock, balance, wallet and records"),
-    NavItem("f2", "insights", "Insights", "How the balance and the allowances moved"),
-    NavItem("f3", "settings", "Settings", "Hours, leave year, bank holidays"),
+    NavItem("f2", "leave", "Leave", "Book and remove leave across the year"),
+    NavItem("f3", "insights", "Insights", "How the balance and the allowances moved"),
+    NavItem("f4", "settings", "Settings", "Hours, leave year, bank holidays"),
 )
 
 NAV_BY_SCREEN: Final[dict[str, NavItem]] = {item.screen: item for item in NAV_ITEMS}

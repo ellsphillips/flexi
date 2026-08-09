@@ -71,6 +71,12 @@ class FlexiCommands(Provider):
         yield _Command("Go to today", "Return to the current period", screen.action_today)
         yield _Command("Go to date…", "Jump the view to a date", screen.action_go_to_date)
 
+        yield _Command(
+            "Book leave…",
+            "Open the leave year and book on it directly",
+            partial(getattr(app, "action_go_to", _noop), "leave"),
+        )
+
         for kind in AbsenceType:
             yield _Command(
                 f"Book {kind.label.lower()}…",

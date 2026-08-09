@@ -42,6 +42,7 @@ from flexi.provider import FlexiCommands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings
 from flexi.screens.insights import InsightsScreen
+from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.registry import Services
@@ -54,6 +55,7 @@ class FlexiApp(TextualApp[None]):
     CSS_PATH = [
         "theme/flexi.tcss",
         "styles/dashboard.tcss",
+        "styles/leave.tcss",
     ]
 
     COMMANDS: ClassVar[set[Any]] = {FlexiCommands}
@@ -94,7 +96,7 @@ class FlexiApp(TextualApp[None]):
         self.register_theme(flexi_theme())
         self.theme = THEME_NAME
         self.jumper: Jumper | None = None
-        self._pushed: InsightsScreen | None = None
+        self._pushed: InsightsScreen | LeaveScreen | None = None
         """The screen `action_go_to` pushed, so `f1` can dismiss it.
 
         Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
@@ -155,13 +157,15 @@ class FlexiApp(TextualApp[None]):
                 SettingsScreen(self.services), callback=self._on_settings_saved
             )
             return
-        if name == "insights":
-            board = self._dashboard()
-            period = board.period if board else None
-            if period is None:
-                return
+        board = self._dashboard()
+        if name == "insights" and board is not None:
             self.nav = name
-            self._pushed = InsightsScreen(self.services, period)
+            self._pushed = InsightsScreen(self.services, board.period)
+            self.push_screen(self._pushed, callback=self._back)
+            return
+        if name == "leave" and board is not None:
+            self.nav = name
+            self._pushed = LeaveScreen(self.services, board.period.anchor)
             self.push_screen(self._pushed, callback=self._back)
             return
         if name == "dashboard":

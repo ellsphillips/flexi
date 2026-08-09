@@ -20,7 +20,19 @@ TOIL already taken as time off.
 balance(as_of) =  Σ worked_hours(d)            for d in leave_year_start..as_of
                −  Σ expected_hours(d)          for d in leave_year_start..as_of
                −  Σ toil_taken_hours(d)        for d in leave_year_start..as_of
+               +  Σ adjustments(d)             for d in leave_year_start..as_of
 ```
+
+**Adjustments are the only stored term.** Everything else is derived from clock
+events, which is right until somebody installs Flexi in August with a leave year
+that started the previous October — two hundred untracked working days each
+expect their contracted hours, and the balance opens at minus ninety. Deleting
+the records would lose the proof of what did happen and would not survive the
+next recomputation, so `flexi balance zero` writes one signed row instead.
+
+It settles to *yesterday* by default. Today is not over, and absorbing its
+contracted hours before they have been worked would leave the evening looking
+like unearned overtime.
 
 `expected_hours(d)` is the crux:
 
@@ -84,6 +96,12 @@ inserts a new pair and voids the old session.
 in v2** — `note: str | None` and `voided: bool`. `work_date` is the *local* date
 of the clock-in, so a session that runs past midnight belongs to the day it
 started.
+
+**A session under `defaults.minimum_session_seconds` never happened.** Clocking
+in and straight back out is a slip of the finger, and it is voided rather than
+deleted — the events stay, because they are immutable and the audit trail is the
+point, but the session is absent from the table and from every figure derived
+from it.
 
 ### `absence_days`
 
@@ -222,6 +240,7 @@ v2 adds three migrations on top of `0005_absence_days`:
 | `0006_settings_contracted` | `settings.contracted_minutes`, `day_window_start`, `day_window_end`, backfilled to 444 / 07:00 / 19:00. |
 | `0007_absence_portion` | `absence_days.portion` (default `FULL`), `absence_days.note`, and the two new absence types. Moves uniqueness from `date` to `(date, portion)`. |
 | `0008_session_note` | `work_sessions.note`, `work_sessions.voided` (default false). |
+| `0009_balance_adjustments` | `balance_adjustments`: a signed, dated, reasoned correction. |
 
 `0007` rebuilds the table rather than altering it: the v1 schema put `UNIQUE` on
 the `date` column itself and SQLite cannot drop a column constraint in place.

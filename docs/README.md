@@ -11,6 +11,7 @@ These documents are the handoff. Read them in this order:
 | [`DOMAIN.md`](DOMAIN.md) | The data model, the period model, and the arithmetic of a flexi balance. Read first — every screen is a view of this. |
 | [`DESIGN-SYSTEM.md`](DESIGN-SYSTEM.md) | The palette, the type scale, the component contract, and the rules that keep the interface coherent. |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Package layout, layering, how a keypress becomes a database write and a redraw. |
+| [`LEAVE-SCREEN.md`](LEAVE-SCREEN.md) | Why the leave year scrolls rather than pages, and how booking costs one keystroke. |
 | [`KEYMAP.md`](KEYMAP.md) | Every binding, jump mode, and the rules for adding a new one. |
 | [`TESTING.md`](TESTING.md) | Unit, Pilot and snapshot testing; how to capture a screenshot for review. |
 | [`ROADMAP.md`](ROADMAP.md) | The delivery slices, each with acceptance criteria. Pick up here. |

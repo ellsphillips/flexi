@@ -1,5 +1,5 @@
 
-  flexi·     Dashboard    Insights    Settings                                                    Thu 11 Jun · 2026/27
+  flexi·     Dashboard    Leave    Insights    Settings                                           Thu 11 Jun · 2026/27
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  ╭─ Balance by week ──────────────────────────────────────╮╭─ Annual leave ──────────────────────────────────────────╮
  │                   █                                    ││ ██████████┃············································ │
@@ -33,4 +33,4 @@
  ╰─────────────────────────────────────────────────────────────────────────────────────────────────────── to 11 Jun ─╯
  ╭─ The leave year ──────────────────────────────────────────────────────────────────────────────────────────────────╮
 
-t Today p Period esc Back / Clock v Jump ? Help f1 Dashboard f2 Insights f3 Settings
+t Today p Period esc Back / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings

@@ -1,5 +1,5 @@
 
-  flexi·     Dashboard    Insights    Settings          Thu 11 Jun · Week of 8 Jun
+  flexi·     Dashboard    Leave    Insights    Settings     Thu 11 Jun · Week of 8
 ────────────────────────────────────────────────────────────────────────────────────
   TODAY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6:08 of 7:24
 
@@ -25,4 +25,4 @@
  │                                                                                │
  ╰─────────────────────────────────────────────────────────────── 29:29 of 25:54 ─╯
 
-t Today p Period / Clock v Jump ? Help f1 Dashboard f2 Insights f3 Settings
+t Today p Period / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings
