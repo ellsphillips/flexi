@@ -38,6 +38,7 @@ from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.registry import Services
+from flexi.services.startup import run_startup_cleanup
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import available_update
 
@@ -111,6 +112,10 @@ class FlexiApp(TextualApp[None]):
 
     def on_mount(self) -> None:
         if self.services.settings.is_setup_complete():
+            # The CLI sweeps when it opens the database and the application did
+            # not, so a session left open overnight was still drawn as running
+            # since yesterday morning until something wrote to it.
+            run_startup_cleanup(self._session)
             self.push_screen(DashboardScreen(self.services, id="dashboard"))
             if self.open_settings:
                 self.push_screen(
