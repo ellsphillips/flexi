@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import ClassVar
+from typing import ClassVar, Final
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -14,10 +14,30 @@ from textual.timer import Timer
 from textual.widgets import Static
 
 from flexi.components import splash
+from flexi.theme import colour
 
 FRAME_SECONDS = 1 / 30
 """Thirty frames a second. Sixty buys nothing over a terminal and costs a lot
 over SSH."""
+
+BACKGROUND: Final = "#0F0E0D"
+"""The screen behind the animation. Named here as well as in the stylesheet
+because the strapline fades up out of it, and a fade needs both ends."""
+
+FALLBACK_WIDTH: Final = 80
+"""Assumed terminal width for the first frame, drawn from `on_mount` before
+Textual has laid anything out and while `size` is still zero."""
+
+
+def _blend(start: str, end: str, amount: float) -> str:
+    """A colour part way between two, for the gradient down the wordmark."""
+    first = tuple(int(start[at : at + 2], 16) for at in (1, 3, 5))
+    second = tuple(int(end[at : at + 2], 16) for at in (1, 3, 5))
+    mixed = (
+        round(one + (two - one) * amount)
+        for one, two in zip(first, second, strict=True)
+    )
+    return "#{:02X}{:02X}{:02X}".format(*mixed)
 
 
 class SplashScreen(Screen[None]):
@@ -34,9 +54,14 @@ class SplashScreen(Screen[None]):
     # Literal, not $c-ink. An undefined variable in a stylesheet fails during
     # CSS parse at startup, which would take the whole application down rather
     # than skipping an animation.
+    #
+    # `width: auto` matters: a fixed width leaves the block sitting against the
+    # left edge of a container that is itself centred, which puts the wordmark
+    # visibly off-centre while looking, in the stylesheet, as though it is not.
     DEFAULT_CSS = """
     SplashScreen { align: center middle; background: #0F0E0D; }
-    #splash-body { width: 60; height: auto; }
+    #splash-body { width: auto; height: auto; }
+    #splash-art { width: auto; height: auto; }
     """
 
     def __init__(self) -> None:
@@ -60,25 +85,45 @@ class SplashScreen(Screen[None]):
             self.action_skip()
 
     def _draw(self) -> None:
-        """One Text, built as lines, so the block centres as a block.
+        """One Text, built row by row, so the block centres as a block.
 
-        The wordmark is centred as a unit -- word plus its full stop -- and the
-        stop is coloured by span afterwards. Centring the two separately walks
-        the dot away from the word as the tracking changes.
+        Every row is padded to the same width before it is centred. Centring
+        each row on its own content would let the wordmark shuffle sideways as
+        the tracking changes, which is the one movement it must not make.
         """
-        mark = f"{splash.word(self._elapsed)}·"
-        width = max(len(mark), len(splash.STRAPLINE))
+        grid = splash.frame(self._elapsed)
+        cells = max((len(row) for row in grid), default=0)
 
-        lines = ["" for _ in range(splash.squash(self._elapsed))]
-        lines.append(mark.center(width))
-        lines.append("")
-        lines.append(splash.strapline(self._elapsed).center(width))
+        room = self.size.width or self.app.size.width or FALLBACK_WIDTH
+        wide = cells * 2 <= room
+        lines = splash.render(
+            grid, cell="██" if wide else "█", blank="  " if wide else " "
+        )
 
-        art = Text("\n".join(lines), no_wrap=True)
-        start = "\n".join(lines).index(mark)
-        art.stylize("bold #00AAAD", start, start + len(mark) - 1)
-        art.stylize("#4CDCDF", start + len(mark) - 1, start + len(mark))
-        art.stylize("#9C948A", start + len(mark))
+        width = max(
+            max((len(line) for line in lines), default=0), len(splash.STRAPLINE)
+        )
+        top, bottom = colour("c-accent"), colour("c-accent-lift")
+
+        # The ramp runs across the drawn rows rather than across the block. The
+        # block is a constant height and the word inside it is not, so spreading
+        # the gradient over the padding as well left the wordmark using only the
+        # middle of the ramp -- and using a different part of it at every height.
+        inked = [at for at, line in enumerate(lines) if line.strip()]
+        first, final = (inked[0], inked[-1]) if inked else (0, 1)
+        depth = max(final - first, 1)
+
+        art = Text(no_wrap=True)
+        for index, line in enumerate(lines):
+            down = min(1.0, max(0.0, (index - first) / depth))
+            art.append(line.center(width), style=f"bold {_blend(top, bottom, down)}")
+            art.append("\n")
+        art.append("\n")
+        arrived = splash.strapline_fade(self._elapsed)
+        art.append(
+            splash.STRAPLINE.center(width),
+            style=_blend(BACKGROUND, colour("c-muted"), arrived),
+        )
         self.query_one("#splash-art", Static).update(art)
 
     def action_skip(self) -> None:
