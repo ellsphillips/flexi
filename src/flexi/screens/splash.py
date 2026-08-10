@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from functools import cache
 from typing import ClassVar, Final
 
 from rich.text import Text
@@ -27,6 +28,19 @@ because the strapline fades up out of it, and a fade needs both ends."""
 FALLBACK_WIDTH: Final = 80
 """Assumed terminal width for the first frame, drawn from `on_mount` before
 Textual has laid anything out and while `size` is still zero."""
+
+
+@cache
+def _shade(level: int) -> str:
+    """The colour of one step of the luminance ramp.
+
+    Out of the background, through the accent, up to its lift -- so that the
+    lighting and the colour say the same thing about the same surface.
+    """
+    half = (len(splash.RAMP) - 1) / 2
+    if level <= half:
+        return _blend(BACKGROUND, colour("c-accent"), level / half)
+    return _blend(colour("c-accent"), colour("c-accent-lift"), (level - half) / half)
 
 
 def _blend(start: str, end: str, amount: float) -> str:
@@ -58,6 +72,7 @@ class SplashScreen(Screen[None]):
     # `width: auto` matters: a fixed width leaves the block sitting against the
     # left edge of a container that is itself centred, which puts the wordmark
     # visibly off-centre while looking, in the stylesheet, as though it is not.
+    # The canvas is a constant size, so centring it is the whole of the layout.
     DEFAULT_CSS = """
     SplashScreen { align: center middle; background: #0F0E0D; }
     #splash-body { width: auto; height: auto; }
@@ -85,44 +100,45 @@ class SplashScreen(Screen[None]):
             self.action_skip()
 
     def _draw(self) -> None:
-        """One Text, built row by row, so the block centres as a block.
+        """The canvas, coloured by how lit each character is.
 
-        Every row is padded to the same width before it is centred. Centring
-        each row on its own content would let the wordmark shuffle sideways as
-        the tracking changes, which is the one movement it must not make.
+        Colour follows luminance rather than position. The shading already
+        carries the form, so a gradient by row would be a second, unrelated
+        story told over the top of it: the dim rim of the slab sits just out of
+        the background and the fully lit face reaches the accent's brightest
+        step, which is what makes the settled wordmark read as solid.
+
+        Runs of equal brightness are appended together. A style per character
+        would be nine hundred spans a frame, thirty times a second.
         """
-        grid = splash.frame(self._elapsed)
-        cells = max((len(row) for row in grid), default=0)
-
-        room = self.size.width or self.app.size.width or FALLBACK_WIDTH
-        wide = cells * 2 <= room
-        lines = splash.render(
-            grid, cell="██" if wide else "█", blank="  " if wide else " "
-        )
-
-        width = max(
-            max((len(line) for line in lines), default=0), len(splash.STRAPLINE)
-        )
-        top, bottom = colour("c-accent"), colour("c-accent-lift")
-
-        # The ramp runs across the drawn rows rather than across the block. The
-        # block is a constant height and the word inside it is not, so spreading
-        # the gradient over the padding as well left the wordmark using only the
-        # middle of the ramp -- and using a different part of it at every height.
-        inked = [at for at, line in enumerate(lines) if line.strip()]
-        first, final = (inked[0], inked[-1]) if inked else (0, 1)
-        depth = max(final - first, 1)
+        levels = splash.luminance(self._elapsed)
+        width = max(splash.CANVAS_WIDTH, len(splash.STRAPLINE))
+        margin = " " * ((width - splash.CANVAS_WIDTH) // 2)
 
         art = Text(no_wrap=True)
-        for index, line in enumerate(lines):
-            down = min(1.0, max(0.0, (index - first) / depth))
-            art.append(line.center(width), style=f"bold {_blend(top, bottom, down)}")
+        for row in levels:
+            art.append(margin)
+            at = 0
+            while at < len(row):
+                level = row[at]
+                run = at
+                while run < len(row) and row[run] == level:
+                    run += 1
+                if level < 0:
+                    art.append(" " * (run - at))
+                else:
+                    art.append(
+                        splash.RAMP[level] * (run - at), style=f"bold {_shade(level)}"
+                    )
+                at = run
             art.append("\n")
+
         art.append("\n")
-        arrived = splash.strapline_fade(self._elapsed)
         art.append(
             splash.STRAPLINE.center(width),
-            style=_blend(BACKGROUND, colour("c-muted"), arrived),
+            style=_blend(
+                BACKGROUND, colour("c-muted"), splash.strapline_fade(self._elapsed)
+            ),
         )
         self.query_one("#splash-art", Static).update(art)
 
