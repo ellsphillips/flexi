@@ -10,6 +10,7 @@ from click.testing import CliRunner
 
 from flexi import wallclock
 from flexi.__main__ import cli
+from flexi.locations import database_file
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import Services
@@ -19,8 +20,17 @@ YESTERDAY = wallclock.today() - timedelta(days=1)
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A database somewhere harmless, with a short day recorded on it."""
-    db = tmp_path / "db.db"
+    """A database somewhere harmless, with a short day recorded on it.
+
+    The path comes from `database_file()` under the throwaway XDG home the
+    root conftest sets, rather than from monkeypatching the binding in every
+    module that imported it. Doing it the second way meant remembering all of
+    them, and this fixture patched three of the four: `flexi.services.setup`
+    was missed, so the guard on every balance command read the developer's own
+    machine instead of the temporary one.
+    """
+    db = database_file()
+    db.parent.mkdir(parents=True, exist_ok=True)
     # Through alembic, not create_all: the CLI migrates on every invocation, and
     # a schema built behind its back has no version stamped on it.
     run_migrations(db)
@@ -39,9 +49,6 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     session.close()
     engine.dispose()
 
-    monkeypatch.setattr("flexi.locations.database_file", lambda: db)
-    monkeypatch.setattr("flexi.models.database.migrate.database_file", lambda: db)
-    monkeypatch.setattr("flexi.models.database.app.database_file", lambda: db)
     return db
 
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
+from flexi.services import setup
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -23,6 +24,31 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ["TZ"] = "UTC"
     if hasattr(time, "tzset"):  # POSIX only; the suite does not run on Windows
         time.tzset()
+
+
+@pytest.fixture(autouse=True)
+def _never_the_real_home(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No test may reach the database the developer actually uses.
+
+    Every module asks :func:`flexi.locations.database_file` where the database
+    is, and that function reads the environment each time it is called -- so one
+    variable redirects all of them, including a module added next year. Fixtures
+    that patched the binding module by module missed whichever module they had
+    not heard of: `tests/test_balance_cli.py` covered three and not
+    `flexi.services.setup`, so `requires_setup` consulted the real machine.
+
+    The consequence was a suite that passed or failed on whether the person
+    running it had ever set Flexi up. It went green for months and then turned
+    red the first time a reset removed the developer's own records -- which is a
+    worse failure than a red suite, because for all that time it was reporting
+    on a database no test had written.
+    """
+    home = tmp_path_factory.mktemp("xdg")
+    monkeypatch.setenv("XDG_DATA_HOME", str(home / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "config"))
+    setup._INITIALISED.clear()
 
 
 @pytest.fixture
