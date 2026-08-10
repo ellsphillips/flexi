@@ -51,6 +51,25 @@ def _never_the_real_home(
     setup._INITIALISED.clear()
 
 
+@pytest.fixture(autouse=True)
+def _never_the_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may ask PyPI whether there is a newer Flexi.
+
+    `FlexiApp.on_mount` starts a worker that does, and Textual waits for its
+    workers as the application exits, so every one of the hundred-odd interface
+    tests paid for a name lookup. On a machine that resolves quickly that is
+    invisible. On one that does not it took the suite from two minutes to nine,
+    which makes the timing of CI a function of the weather rather than of the
+    code, and makes a slow afternoon look like somebody's regression.
+
+    Patched where it is bound, not where it is defined: `flexi.app` imports the
+    function by name at module scope, so rebinding it in `flexi.versioning`
+    would leave the application holding the original.
+    """
+    monkeypatch.setattr("flexi.app.available_update", lambda: None)
+    monkeypatch.setattr("flexi.versioning.available_update", lambda: None)
+
+
 @pytest.fixture
 def in_london() -> Iterator[None]:
     """Run a test on a British clock, then put the machine back.
