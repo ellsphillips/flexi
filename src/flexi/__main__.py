@@ -181,7 +181,9 @@ def _ask_the_questions(ctx: click.Context, db_path: Path) -> None:
         )
         ctx.exit(1)
 
-    App().run()
+    app = App()
+    app.show_splash = True
+    app.run()
     if is_initialised():
         click.secho(f"Flexi is set up. Its records are at {db_path}.", fg="green")
     else:
