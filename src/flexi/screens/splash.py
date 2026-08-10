@@ -82,22 +82,29 @@ class SplashScreen(Screen[None]):
         self.query_one("#splash-art", Static).update(art)
 
     def action_skip(self) -> None:
-        """Dismiss once, and stop the clock that would dismiss it again.
+        """Dismiss once, dismiss only itself, and stop the clock behind it.
 
-        ``dismiss`` resolves a future, and resolving a future twice raises
-        ``InvalidStateError``. Dismissal is not synchronous -- the screen is
-        popped when the message is processed -- so ``is_running`` is still true
-        when the next frame arrives thirty-three milliseconds later, and the
-        timer was never stopped, so a next frame always arrived. Every first
-        run ended in a traceback the moment the animation reached its end.
+        ``dismiss`` pops the top of the stack rather than the screen it is
+        called on. With the splash pushed underneath the setup form, reaching
+        the end of the animation therefore deleted the *form* -- leaving its
+        own last frame on screen with nothing behind it and no way to finish
+        setting up. ``is_running`` did not catch that: it means mounted, not
+        frontmost.
+
+        Dismissal is also not synchronous, so without the latch the next frame
+        thirty-three milliseconds later resolves the same future a second time,
+        which is an ``InvalidStateError``.
+
+        Not being frontmost is left retryable rather than latched: the next
+        frame simply tries again, so a splash that is briefly covered still
+        lifts once it is back on top.
         """
-        if self._finished:
+        if self._finished or self.app.screen is not self:
             return
         self._finished = True
         if self._timer is not None:
             self._timer.stop()
-        if self.is_running:
-            self.dismiss(None)
+        self.dismiss(None)
 
 
 def wanted(*, animation_level: str) -> bool:
