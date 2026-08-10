@@ -1,27 +1,31 @@
-"""The word `flexi`, squished and stretched like something soft.
+"""The word `flexi`, extruded into three dimensions and flexed.
 
-A terminal cannot scale a glyph, so the first version animated the *spaces*
-between five ordinary letters. It read as five ordinary letters moving apart,
-because that is what it was. The wordmark is drawn here instead: a bitmap seven
-rows tall, in the same block characters the punch strip fills a working day
-with, so the thing being squashed is an actual shape with actual mass.
+The image is computed rather than drawn. The wordmark is a bitmap font seven
+rows tall; every inked cell is extruded into a cuboid, the exposed faces of
+those cuboids are sampled into a cloud of points carrying surface normals, and
+each frame the cloud is rotated, projected through a pinhole, depth-sorted into
+a z-buffer and shaded by how squarely each normal faces the light. Luminance
+picks a character out of a ramp. That is the machinery a certain spinning
+doughnut runs on, pointed at a logo instead of a torus.
 
-That buys real squash and stretch, which is the whole of the effect. A plushy
-pressed flat spreads sideways and a plushy released springs tall and narrow --
-volume is conserved -- so height and tracking are driven from one damped
-oscillation about rest, in opposite directions. Compressing folds rows together
-rather than dropping them, because squashing something soft compacts it instead
-of deleting parts of it.
+What is not borrowed is the flex. The product is called flexi, so the wordmark
+behaves like something flexible: as it lands it twists about its own long axis,
+each letter carrying a little more rotation than the one before it, and the
+twist rings down as a damped oscillation until the word lies flat and face-on.
+The last frame is exactly the flat bitmap at full brightness, so the spectacle
+resolves into something legible rather than merely stopping.
 
-Everything is a pure function of elapsed seconds, so the shape of the animation
-is tested frame by frame in microseconds without a clock, a terminal or a sleep.
-Rendering is left to the caller: this module deals in a grid of on and off, and
-knows nothing about how wide a cell is.
+Everything is a pure function of elapsed seconds and none of it knows a terminal
+exists, so the animation is tested frame by frame with no clock, no screen and
+no sleeping. The point cloud is built once and cached; a frame is then a
+rotation and a projection over a few thousand points, which is what keeps
+thirty of them a second affordable on the interface thread.
 """
 
 from __future__ import annotations
 
 import math
+from functools import cache
 from typing import Final
 
 WORD: Final = "flexi."
@@ -31,8 +35,10 @@ ROWS: Final = 7
 """Rows in the drawn wordmark. Ascenders take all seven; `e` and `x` sit in the
 lower five, and the dot of the `i` rides on the top one."""
 
-# Seven rows apiece, ink as `#`. Lowercase with real ascenders, because "flexi"
-# in capitals is a different word about a different kind of company.
+INK: Final = "#"
+
+# Seven rows apiece. Lowercase with real ascenders, because "flexi" in capitals
+# is a different word about a different kind of company.
 GLYPHS: Final[dict[str, tuple[str, ...]]] = {
     "f": (".###", ".#..", "###.", ".#..", ".#..", ".#..", ".#.."),
     "l": ("##.", ".#.", ".#.", ".#.", ".#.", ".#.", ".##"),
@@ -42,163 +48,231 @@ GLYPHS: Final[dict[str, tuple[str, ...]]] = {
     ".": ("..", "..", "..", "..", "..", "..", "##"),
 }
 
-INK: Final = "#"
+TRACKING: Final = 1
+"""Blank columns between letters."""
 
-SQUASH: Final = 0.55
-"""Seconds held flat before it is let go. The pause is what makes the release
-read as a release rather than as a start."""
+RAMP: Final = " ·-:+*░▒▓█"
+"""Luminance, dimmest first. It ends in a solid block so that a face-on, fully
+lit surface resolves into exactly the flat wordmark rather than into a dither."""
 
-SPRING: Final = 1.20
-"""Seconds the spring takes to ring down to rest."""
+DEPTH: Final = 2.6
+"""How far the wordmark is extruded, in cells. Enough that the sides catch the
+light while it turns, little enough that it still reads as lettering."""
 
-STRAPLINE_IN: Final = 0.45
-"""Seconds the strapline takes to arrive, once the word has settled."""
+CANVAS_WIDTH: Final = 62
+CANVAS_HEIGHT: Final = 15
+"""A constant canvas, so the block never moves or resizes on the screen."""
 
-HOLD: Final = 1.20
+VIEWER: Final = 60.0
+"""Distance from the eye to the middle of the word.
+
+Far enough that the perspective on the extrusion is gentle. Closer in, the near
+face of the slab is scaled enough more than the far one that a cell at the top
+or bottom of the word spans two rows instead of one, and the settled wordmark
+comes out with its first and last rows drawn twice."""
+
+SCALE: Final = 60.0
+"""Projection scale. Equal to VIEWER, so a face-on cell is one cell wide."""
+
+LIGHT: Final = (-0.24, 0.33, -0.91)
+"""Unit vector towards the light: mostly head on, a little above and to the
+left, so the extruded sides are lit differently from the face while it turns.
+
+Head on enough that a face-on surface reads at the top of the ramp: the settled
+wordmark has to be solid blocks, not the shade below them."""
+
+EDGE_ON: Final = -0.15
+"""How squarely a face must meet the eye to be drawn at all.
+
+Culling only what points strictly away is not enough. At rest the four sides of
+every cell are exactly edge-on -- no projected area whatsoever -- but their
+normals are perpendicular rather than turned away, so they were still being
+painted, one column to the side of the cell they belong to. That filled in the
+counters: the hole in the `e` closed up and the wordmark became a slab."""
+
+SPIN: Final = 1.55
+"""Seconds the word takes to turn in and stop."""
+
+TURNS: Final = 1.75
+"""Rotations it makes on the way in."""
+
+FLEX: Final = 1.45
+"""Seconds the twist takes to ring down once the word has landed."""
+
+TWIST: Final = 1.15
+"""Radians of twist between the middle of the word and either end, at the
+deepest point of the flex."""
+
+TILT: Final = 0.42
+"""Radians the word is pitched over at the start, easing to nothing."""
+
+STRAPLINE_IN: Final = 0.5
+"""Seconds the strapline takes to fade up, once the word is still."""
+
+HOLD: Final = 1.25
 """Seconds the finished wordmark simply sits there.
 
-Somebody sees this once. Snatching it away the instant the last letter lands
-wastes the only moment the application has to introduce itself, and reads as a
-glitch rather than as a title."""
+Somebody sees this once. Snatching it away the instant it settles wastes the
+only moment the application has to introduce itself."""
 
-DURATION: Final = SQUASH + SPRING + STRAPLINE_IN + HOLD
+DURATION: Final = SPIN + FLEX + STRAPLINE_IN + HOLD
 
-REST: Final = ROWS
-"""Height it settles at."""
-
-FLAT: Final = 3
-"""Height while held compressed."""
-
-STRETCH: Final = 11
-"""Height at the top of the spring, taller than the wordmark really is. Rows are
-repeated to get there, which is what makes it read as stretched."""
-
-REST_TRACKING: Final = 1
-"""Columns between letters at rest. One is the wordmark, breathing."""
-
-WIDEST_TRACKING: Final = 2
-"""Columns between letters when flattest. Wider than this and it stops reading
-as one word, and stops fitting an eighty-column terminal."""
-
-DECAY: Final = 1.8
-"""How fast the wobble dies away. Lower rings for longer."""
+DECAY: Final = 3.2
+"""How fast the flex dies away. Lower rings for longer."""
 
 WOBBLES: Final = 2.5
-"""Oscillations across the spring, in half-turns.
+"""Half-turns of twist across the flex. A whole number and a half puts a zero of
+the cosine exactly at the end, so the word arrives flat rather than being cut
+off part way through a wobble."""
 
-Two and a half puts a zero of the cosine exactly at the end of the spring, so
-the wobble arrives at rest instead of being cut off part way up. At 2.2 it
-finished an eighth of a row short and the wordmark settled one row flatter than
-it is drawn, with the bottom two rows of every letter still folded together."""
+_FACE_SAMPLES: Final = 6
+"""Samples across a face, per axis.
+
+Taken at the middle of each sub-division rather than at its edges, so that the
+samples sit wholly inside the cell and neighbouring cells tile instead of
+overlapping. Sampling the edges put a mark half a cell beyond the glyph on every
+side, which thickened the wordmark and closed up its counters."""
+
+_DEPTH_SAMPLES: Final = 9
+"""Samples through the narrow faces of the extrusion.
+
+The word is a thin slab, so for a good part of every turn the faces are culled
+and the only thing left to draw is its edge. Two samples through the depth left
+that edge as scattered speckle rather than a solid rim, which read as noise
+instead of as an object."""
 
 
-def extension(elapsed: float) -> float:
-    """How far from rest the spring is: -1 fully compressed, +1 fully stretched.
+# -- the model ---------------------------------------------------------------
 
-    Held at -1, then released as a damped cosine that passes through rest,
-    overshoots, and rings down to zero. A single ease would read as a slide; the
-    ringing is what reads as soft.
+
+def cells() -> list[tuple[int, int]]:
+    """Every inked cell of the wordmark, as (column, row) from the top left."""
+    inked: list[tuple[int, int]] = []
+    column = 0
+    for character in WORD:
+        glyph = GLYPHS[character]
+        for row, line in enumerate(glyph):
+            inked.extend(
+                (column + offset, row)
+                for offset, mark in enumerate(line)
+                if mark == INK
+            )
+        column += len(glyph[0]) + TRACKING
+    return inked
+
+
+def extent() -> tuple[int, int]:
+    """Columns and rows the wordmark occupies."""
+    return max(column for column, _ in cells()) + 1, ROWS
+
+
+@cache
+def surface() -> tuple[tuple[float, float, float, float, float, float], ...]:
+    """The wordmark as a cloud of lit points: position, then surface normal.
+
+    Each inked cell is a cuboid. Only faces with no neighbouring cell against
+    them are sampled -- an interior wall between two touching cells is never
+    visible, and sampling it would be most of the work for none of the picture.
     """
-    if elapsed < SQUASH:
-        return -1.0
-    progress = (elapsed - SQUASH) / SPRING
-    if progress >= 1.0:
-        # Exactly rest, rather than however much wobble was left. The wordmark
-        # is on screen for over a second afterwards, and a resting shape that
-        # is a row short of the one in the font is the sort of thing nobody
-        # can name but everybody can see.
+    inked = set(cells())
+    width, height = extent()
+    middle_x, middle_y = (width - 1) / 2, (height - 1) / 2
+    half = DEPTH / 2
+
+    points: list[tuple[float, float, float, float, float, float]] = []
+    for column, row in inked:
+        # Model space: x to the right, y up, z away from the eye.
+        x0, y0 = column - middle_x, middle_y - row
+
+        for towards in (-1.0, 1.0):
+            points.extend(
+                (
+                    x0 + ((across + 0.5) / _FACE_SAMPLES - 0.5),
+                    y0 + ((down + 0.5) / _FACE_SAMPLES - 0.5),
+                    towards * half,
+                    0.0,
+                    0.0,
+                    towards,
+                )
+                for across in range(_FACE_SAMPLES)
+                for down in range(_FACE_SAMPLES)
+            )
+
+        sides = (
+            ((-1, 0), (-0.5, 0.0), (-1.0, 0.0, 0.0)),
+            ((1, 0), (0.5, 0.0), (1.0, 0.0, 0.0)),
+            ((0, -1), (0.0, 0.5), (0.0, 1.0, 0.0)),
+            ((0, 1), (0.0, -0.5), (0.0, -1.0, 0.0)),
+        )
+        for (step_x, step_y), (offset_x, offset_y), normal in sides:
+            if (column + step_x, row + step_y) in inked:
+                continue
+            points.extend(
+                (
+                    x0
+                    + offset_x
+                    + (0.0 if step_x else (along + 0.5) / _FACE_SAMPLES - 0.5),
+                    y0
+                    + offset_y
+                    + (0.0 if step_y else (along + 0.5) / _FACE_SAMPLES - 0.5),
+                    (deep / (_DEPTH_SAMPLES - 1) - 0.5) * DEPTH,
+                    *normal,
+                )
+                for along in range(_FACE_SAMPLES)
+                for deep in range(_DEPTH_SAMPLES)
+            )
+    return tuple(points)
+
+
+# -- the motion --------------------------------------------------------------
+
+
+def _ease_out(progress: float) -> float:
+    """Fast, then slowing to a stop. Cubic, the gentlest that still reads."""
+    return 1.0 - (1.0 - progress) ** 3
+
+
+def yaw(elapsed: float) -> float:
+    """Rotation about the upright axis: several turns, arriving square on."""
+    if elapsed >= SPIN:
         return 0.0
-    swing = math.exp(-DECAY * progress)
-    return -swing * math.cos(WOBBLES * math.pi * progress)
+    return TURNS * 2.0 * math.pi * (1.0 - _ease_out(max(0.0, elapsed) / SPIN))
 
 
-def height(elapsed: float) -> int:
-    """Rows the wordmark occupies at this moment."""
-    reach = extension(elapsed)
-    span = (REST - FLAT) if reach < 0 else (STRETCH - REST)
-    return max(1, round(REST + reach * span))
+def pitch(elapsed: float) -> float:
+    """Tilt towards the eye, easing away as the word lands."""
+    if elapsed >= SPIN:
+        return 0.0
+    return TILT * (1.0 - _ease_out(max(0.0, elapsed) / SPIN))
 
 
-def tracking(elapsed: float) -> int:
-    """Columns between letters -- wide when flat, closed up when stretched."""
-    reach = extension(elapsed)
-    spread = REST_TRACKING - reach * (WIDEST_TRACKING - REST_TRACKING)
-    return max(0, min(WIDEST_TRACKING, round(spread)))
+def twist(elapsed: float) -> float:
+    """Radians of twist per half-width, ringing down after the word lands.
 
-
-def lift(elapsed: float) -> int:
-    """Blank rows above, so the block is a constant height on the screen.
-
-    The word squashes and swells about its own middle rather than settling onto
-    a floor. A baseline-planted version leaves the resting wordmark sitting four
-    rows below the centre of the terminal, which is the one thing a splash may
-    not do; growing from the middle keeps it centred at every frame.
-
-    Without any padding the whole word jumps up and down the screen as it
-    springs, which reads as the terminal scrolling rather than as weight.
+    This is the flex, and it is the part no doughnut does. The product is called
+    flexi, so on arrival the wordmark behaves like something flexible rather
+    than something rigid that has merely stopped: each letter carries a little
+    more rotation than the one before, the whole word wrung about its own long
+    axis, and the wringing damps out to nothing.
     """
-    return (STRETCH - height(elapsed) + 1) // 2
-
-
-def _merge(over: list[str]) -> str:
-    """Several rows folded into one, keeping every mark."""
-    return "".join(
-        INK if any(row[at] == INK for row in over) else "."
-        for at in range(len(over[0]))
-    )
-
-
-def _scaled(rows: tuple[str, ...], to: int) -> list[str]:
-    """One glyph at a given height.
-
-    Compressing folds rows together rather than dropping them. Squashing
-    something soft compacts it; it does not delete parts of it, and slicing
-    every other row out of a lowercase alphabet leaves scattered marks that
-    read as noise rather than as a flattened word.
-
-    Stretching repeats rows, which is the only way a cell grid can grow.
-    """
-    if to <= 0:
-        return []
-    if to == len(rows):
-        return list(rows)
-    if to > len(rows):
-        return [rows[min(len(rows) - 1, i * len(rows) // to)] for i in range(to)]
-    folded = []
-    for band in range(to):
-        first = band * len(rows) // to
-        last = max(first + 1, (band + 1) * len(rows) // to)
-        folded.append(_merge(list(rows[first:last])))
-    return folded
-
-
-def bitmap(elapsed: float) -> list[str]:
-    """The wordmark at this moment, as rows of ink and space."""
-    tall = height(elapsed)
-    gap = "." * tracking(elapsed)
-    letters = [_scaled(GLYPHS[character], tall) for character in WORD]
-    return [gap.join(letter[row] for letter in letters) for row in range(tall)]
-
-
-def render(rows: list[str], *, cell: str = "██", blank: str = "  ") -> list[str]:
-    """A grid turned into text, one cell at whatever width the caller wants.
-
-    Two characters per cell squares up the pixel, because a terminal cell is
-    about twice as tall as it is wide. One character is the fallback for a
-    terminal too narrow to hold the wordmark at full size.
-    """
-    return [row.replace(INK, cell).replace(".", blank) for row in rows]
+    if elapsed < SPIN:
+        return 0.0
+    progress = (elapsed - SPIN) / FLEX
+    if progress >= 1.0:
+        # Exactly flat, rather than however much wobble was left over. The word
+        # is on screen for well over a second after this.
+        return 0.0
+    return TWIST * math.exp(-DECAY * progress) * math.cos(WOBBLES * math.pi * progress)
 
 
 def strapline_fade(elapsed: float) -> float:
     """How far the strapline has arrived, nought to one.
 
     A fade rather than a typewriter. Letters appearing one at a time is the
-    oldest gesture a terminal has, and next to a wordmark this size it reads as
-    a different piece of software; it also changes the width of the line on
-    every frame, which is a poor thing to do underneath something being centred.
+    oldest gesture a terminal has, and it changes the width of the line on every
+    frame, which is a poor thing to do underneath something being centred.
     """
-    begins = SQUASH + SPRING
+    begins = SPIN + FLEX
     if elapsed < begins:
         return 0.0
     return min(1.0, (elapsed - begins) / STRAPLINE_IN)
@@ -208,19 +282,71 @@ def is_finished(elapsed: float) -> bool:
     return elapsed >= DURATION
 
 
-def frame(elapsed: float) -> list[str]:
-    """Every row of the splash at this moment, top to bottom, as a grid.
+# -- rendering ---------------------------------------------------------------
 
-    Padded to a constant height so the block never moves on the screen, and to
-    a constant width so the centring cannot shift under it either.
+
+def luminance(elapsed: float) -> list[list[int]]:
+    """The canvas as one brightness per character cell, or -1 for nothing.
+
+    A z-buffer keeps the nearest surface in each cell, so the word occludes
+    itself correctly while it turns. Faces pointing away from the eye are
+    dropped before they are projected, which is half the cloud on any frame.
     """
-    drawn = bitmap(elapsed)
-    width = max((len(row) for row in drawn), default=0)
-    blank = "." * width
-    rows = [blank for _ in range(lift(elapsed))]
-    rows.extend(row.ljust(width, ".") for row in drawn)
-    rows.extend(blank for _ in range(STRETCH - len(rows)))
-    return rows
+    turn, lean, wring = yaw(elapsed), pitch(elapsed), twist(elapsed)
+    width, _ = extent()
+    half_width = max((width - 1) / 2, 1.0)
+
+    cos_turn, sin_turn = math.cos(turn), math.sin(turn)
+    light_x, light_y, light_z = LIGHT
+    levels = len(RAMP) - 1
+
+    nearest = [[0.0] * CANVAS_WIDTH for _ in range(CANVAS_HEIGHT)]
+    shade = [[-1] * CANVAS_WIDTH for _ in range(CANVAS_HEIGHT)]
+    centre_x, centre_y = CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2
+
+    for x, y, z, nx, ny, nz in surface():
+        # Twist first: a rotation about the long axis whose angle grows with
+        # distance from the middle, which bends the word rather than turning it.
+        angle = lean + wring * (x / half_width)
+        cos_bend, sin_bend = math.cos(angle), math.sin(angle)
+        y1, z1 = y * cos_bend - z * sin_bend, y * sin_bend + z * cos_bend
+        ny1, nz1 = ny * cos_bend - nz * sin_bend, ny * sin_bend + nz * cos_bend
+
+        # Then the turn, about the upright axis.
+        x2, z2 = x * cos_turn + z1 * sin_turn, -x * sin_turn + z1 * cos_turn
+        nx2, nz2 = nx * cos_turn + nz1 * sin_turn, -nx * sin_turn + nz1 * cos_turn
+
+        if nz2 > EDGE_ON:
+            continue
+
+        lit = nx2 * light_x + ny1 * light_y + nz2 * light_z
+        if lit <= 0.0:
+            continue
+
+        over = 1.0 / (z2 + VIEWER)
+        # Doubled across, because a terminal cell is about twice as tall as wide.
+        # Two columns per cell across, one row down: a terminal cell is about
+        # twice as tall as it is wide. The half added to the row is what makes a
+        # cell land wholly inside one row instead of straddling the boundary
+        # between two and drawing every glyph row twice at a different weight.
+        column = math.floor(centre_x + SCALE * over * x2 * 2.0)
+        row = math.floor(centre_y - SCALE * over * y1 + 0.5)
+        if not (0 <= column < CANVAS_WIDTH and 0 <= row < CANVAS_HEIGHT):
+            continue
+        if over <= nearest[row][column]:
+            continue
+
+        nearest[row][column] = over
+        shade[row][column] = min(levels, int(lit * levels) + 1)
+    return shade
+
+
+def frame(elapsed: float) -> list[str]:
+    """The canvas as text, one character per cell."""
+    return [
+        "".join(RAMP[level] if level >= 0 else " " for level in row)
+        for row in luminance(elapsed)
+    ]
 
 
 def should_play(*, interactive: bool, animations: bool) -> bool:
