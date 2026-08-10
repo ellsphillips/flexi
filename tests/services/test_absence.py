@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Portion
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import BankHolidayCache, Base
 from flexi.services.absence import AbsenceService
@@ -147,6 +147,43 @@ class TestRejections:
         result = absence.mark_absence(d, AbsenceType.ANNUAL)
         assert result.success is False
         assert "recorded work" in result.message
+
+    @pytest.mark.parametrize(
+        ("worked_from", "worked_to", "refused", "allowed"),
+        [
+            (9, 11, Portion.AM, Portion.PM),
+            (14, 16, Portion.PM, Portion.AM),
+        ],
+    )
+    def test_a_half_day_is_refused_only_over_the_half_that_was_worked(
+        self,
+        absence: AbsenceService,
+        session: Session,
+        worked_from: int,
+        worked_to: int,
+        refused: Portion,
+        allowed: Portion,
+    ) -> None:
+        """`flexi leave sick today pm` is one of the command's own examples.
+
+        `Portion.FULL` returns before any time is compared, so the whole-day
+        test above never reached the comparison. Once clock events began coming
+        back from `moment_of` as aware datetimes, the naive midday built beside
+        them raised `TypeError: can't compare offset-naive and offset-aware`
+        for every half day booked against a day with work on it.
+        """
+        d = _next_weekday(date(2026, 7, 6), 0)
+        clock = ClockService(session)
+        midnight = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
+        clock.clock_in(now=midnight.replace(hour=worked_from))
+        clock.clock_out(now=midnight.replace(hour=worked_to))
+
+        over_the_work = absence.mark_absence(d, AbsenceType.SICK, portion=refused)
+        assert over_the_work.success is False
+        assert "recorded work" in over_the_work.message
+
+        the_other_half = absence.mark_absence(d, AbsenceType.SICK, portion=allowed)
+        assert the_other_half.success is True, the_other_half.message
 
 
 # ---------- removal ----------
