@@ -95,6 +95,8 @@ class FlexiApp(TextualApp[None]):
         self.jumper: Jumper | None = None
         self.show_splash = False
         """Set by `flexi init`. Only the first run earns the animation."""
+        self.open_settings = False
+        """Set by `flexi init` when the answer chosen there was to change them."""
         self._pushed: InsightsScreen | LeaveScreen | None = None
         """The screen `action_go_to` pushed, so `f1` can dismiss it.
 
@@ -115,6 +117,10 @@ class FlexiApp(TextualApp[None]):
                 self.push_screen(SplashScreen())
         if self.services.settings.is_setup_complete():
             self.push_screen(DashboardScreen(self.services, id="dashboard"))
+            if self.open_settings:
+                self.push_screen(
+                    SettingsScreen(self.services), callback=self._on_settings_saved
+                )
         else:
             self.push_screen(SetupScreen(self.services), callback=self._on_setup_done)
         self._check_for_updates()

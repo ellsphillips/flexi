@@ -1,28 +1,55 @@
 """Setting Flexi up, and starting again when that is really what is meant.
 
 ``flexi init`` on a clean machine creates the database and asks the five
-questions. On a machine that already has records it says so and stops, because
-the only other thing it could do is destroy them.
+questions. On a machine that already has records it shows what is there and
+offers what can be done about it -- including erasing the lot, which is the one
+thing in Flexi that loses data.
 
-``flexi init --reset`` is that other thing. It is the one command in Flexi that
-loses data, so it counts what it is about to take, says it out loud, takes a
-verified snapshot first, and asks for a word rather than a keystroke. It refuses
-outright without a terminal: a prompt reads stdin, and ``yes | flexi init
---reset`` would otherwise wipe a year of records with nobody present.
+That option is not a flag. ``--reset`` sat in the help text of a command most
+people run once, where the only two ways to meet it were to go looking or to
+find it by accident, and neither is how somebody should arrive at deleting a
+year of records. It is a line on a menu that appears only when there is
+something to erase, it is drawn in the deficit red, it says how many records it
+would take, and it asks for a word rather than a keystroke.
+
+Without a terminal there is no menu and no erasing: the command reports what is
+there and stops. There is deliberately no way to erase Flexi's records without a
+person present to type the word.
 """
 
 from __future__ import annotations
 
 import sqlite3
-import sys
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import click
+from rich.text import Text
 
+from flexi.cli import ui
+from flexi.cli.ui.prompt import interactive
 from flexi.models.database.backup import snapshot, verify
 
+__all__ = [
+    "Choice",
+    "Contents",
+    "ask",
+    "describe",
+    "interactive",
+    "overview",
+    "reset",
+    "settled",
+]
+
 CONFIRM_WORD = "reset"
+
+READ_TIMEOUT = 1.0
+"""Seconds to wait for a locked database.
+
+The application holds a write lock while it commits. Waiting the SQLite default
+of five seconds per table turns "what is in here?" into a half-minute stall with
+nothing on screen, and the answer to a database that is busy is to say so."""
 
 COUNTED: tuple[tuple[str, str], ...] = (
     ("clock events", "clock_events"),
@@ -33,11 +60,25 @@ COUNTED: tuple[tuple[str, str], ...] = (
 )
 
 
+class Choice(StrEnum):
+    """What somebody can do about a Flexi that is already set up."""
+
+    OPEN = "open"
+    SETTINGS = "settings"
+    RESET = "reset"
+
+
 @dataclass(frozen=True, slots=True)
 class Contents:
-    """What a database holds, for a prompt that has to be specific."""
+    """What a database holds, for a prompt that has to be specific.
 
-    counts: tuple[tuple[str, int], ...]
+    ``unreadable`` is not the same as empty, and conflating them is how a
+    confirmation ends up reassuring somebody that there is nothing to lose while
+    a locked or damaged file sits there full of records.
+    """
+
+    counts: tuple[tuple[str, int], ...] = ()
+    unreadable: bool = False
 
     @property
     def total(self) -> int:
@@ -45,57 +86,123 @@ class Contents:
 
     @property
     def is_empty(self) -> bool:
-        return self.total == 0
+        return not self.unreadable and self.total == 0
 
 
 def describe(db_path: Path) -> Contents:
     """Count the rows a reset would take, in reading order."""
+    if not db_path.is_file():
+        # Absent is not the same as unreadable. There is genuinely nothing to
+        # lose here, and saying so is the truthful answer rather than a hedge.
+        return Contents()
+
     counts: list[tuple[str, int]] = []
     try:
-        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as connection:
+        with sqlite3.connect(
+            f"file:{db_path}?mode=ro", uri=True, timeout=READ_TIMEOUT
+        ) as connection:
+            # Ask whether the file is a database at all before asking what is
+            # in it. "not a database" and "no such table" both arrive as
+            # DatabaseError, and the loop below has to forgive the second --
+            # COUNTED is maintained by hand, so a table renamed by a later
+            # migration must not blank the count. Without this probe that
+            # forgiveness swallows the first too, and a corrupt file holding a
+            # year of records is described to its owner as empty.
+            connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
+
             for label, table in COUNTED:
                 try:
                     row = connection.execute(
                         f"SELECT count(*) FROM {table}"  # noqa: S608 - fixed names
                     ).fetchone()
                 except sqlite3.DatabaseError:
+                    # One missing table is a schema older or newer than this
+                    # list, not an unreadable file. The rest still counts.
                     continue
                 if row and row[0]:
                     counts.append((label, row[0]))
     except sqlite3.DatabaseError:
-        return Contents(())
+        return Contents(unreadable=True)
     return Contents(tuple(counts))
 
 
-def interactive() -> bool:
-    """A real terminal on both ends.
-
-    click.confirm reads stdin, not the terminal, so a pipe answers for the
-    user. Nothing destructive happens without somebody there to say so.
-    """
-    return sys.stdin.isatty() and sys.stderr.isatty()
-
-
-def confirm_reset(db_path: Path, contents: Contents) -> bool:
-    """Say what will be lost, then require the word rather than a keystroke."""
-    click.secho("This will erase everything Flexi has recorded.", fg="red", bold=True)
-    click.echo(f"  {db_path}")
-    if contents.is_empty:
-        click.echo("  (nothing recorded yet)")
+def overview(db_path: Path, contents: Contents) -> list[Text]:
+    """The block that opens the rail: where the records are, and what they are."""
+    lines = [
+        ui.wordmark(),
+        ui.body(),
+        ui.step("Already set up", tone=ui.Tone.DONE, marker="●"),
+        ui.body(str(db_path)),
+        ui.body(),
+    ]
+    if contents.unreadable:
+        lines.append(ui.body("This database could not be read.", style="bold"))
+        lines.append(ui.body("It may still hold records."))
+    elif contents.is_empty:
+        lines.append(ui.body("Nothing recorded yet."))
     else:
-        for label, count in contents.counts:
-            click.echo(f"  {count:>6}  {label}")
-    click.echo()
-    click.echo("A snapshot is taken first, and kept in the backups directory.")
-    click.echo("Nothing else can undo this.")
-    click.echo()
+        lines.extend(ui.measure(count, label) for label, count in contents.counts)
+    lines.append(ui.body())
+    return lines
 
-    typed: str = click.prompt(
-        f"Type {CONFIRM_WORD!r} to continue, or anything else to stop",
-        default="",
-        show_default=False,
+
+def _options(contents: Contents) -> list[ui.Option]:
+    total = contents.total
+    erase = (
+        "erase everything"
+        if contents.is_empty
+        else f"erase {total} record{'' if total == 1 else 's'}"
     )
-    return typed.strip().lower() == CONFIRM_WORD
+    return [
+        ui.Option(Choice.OPEN, "Open Flexi", "your records, as they are"),
+        ui.Option(Choice.SETTINGS, "Change settings", "leave year, hours, region"),
+        ui.Option(Choice.RESET, "Start again", erase, grave=True),
+    ]
+
+
+def ask(db_path: Path, contents: Contents) -> Choice | None:
+    """Show what is there, and return what was chosen about it."""
+    ui.write(overview(db_path, contents))
+    picked = ui.choose("What would you like to do?", _options(contents))
+    return Choice(picked.value) if picked is not None else None
+
+
+def confirm_reset(contents: Contents) -> bool:
+    """The last gate. Says what goes, then asks for the word."""
+    grave = ui.Tone.GRAVE
+    lines = [
+        ui.body(),
+        ui.step(
+            "This erases everything and cannot be undone",
+            tone=grave,
+            marker="▲",
+        ),
+        ui.body(tone=grave),
+    ]
+    if contents.unreadable:
+        lines.append(
+            ui.body("This database could not be read.", tone=grave, style="bold")
+        )
+        lines.append(ui.body("It may hold more than is listed here.", tone=grave))
+    else:
+        lines.extend(
+            ui.measure(count, label, tone=grave) for label, count in contents.counts
+        )
+    lines.extend(
+        [
+            ui.body(tone=grave),
+            ui.body("A verified snapshot is written to the backups", tone=grave),
+            ui.body("directory first. Nothing else brings these back.", tone=grave),
+            ui.body(tone=grave),
+        ]
+    )
+    ui.write(lines)
+    return ui.type_the_word(CONFIRM_WORD, f"Type {CONFIRM_WORD!r} to continue")
+
+
+def settled(message: str) -> None:
+    """Close the rail with something having happened."""
+    ui.write([ui.step(message, tone=ui.Tone.DONE, marker="●"), ui.tail()])
 
 
 def reset(db_path: Path) -> Path | None:

@@ -182,9 +182,16 @@ bank holidays are listed rather than silently dropped, so a fortnight that books
 twelve of fourteen days tells you which two it left and why. `--dry-run` stops
 after the plan; `--yes` skips the question for a script.
 
-`flexi init` sets Flexi up, and `flexi init --reset` erases everything and starts
-again — the one command here that loses data. It takes a verified snapshot
-first, tells you what it is about to remove, and asks you to type the word.
+`flexi init` sets Flexi up. Run it again on a machine that already has records
+and it shows you what is there and offers what can be done about it: open, change
+your settings, or start again.
+
+Starting again is the one thing in Flexi that loses data, so it is not a flag.
+It appears only when there is something to erase, it says how many records it
+would take, it writes a verified snapshot that the backup pruner will never age
+out, and it asks you to type a word rather than press a key. Without a terminal
+there is no menu and nothing is erased — there is deliberately no way to wipe
+your records with nobody present.
 
 ## Your data
 
