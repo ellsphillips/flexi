@@ -152,6 +152,51 @@ def clock_out(ctx: click.Context) -> None:
     ctx.obj["engine"].dispose()
 
 
+@cli.command(
+    context_settings={"ignore_unknown_options": True},
+    short_help="Book or cancel leave in one line.",
+)
+@click.argument("words", nargs=-1, required=True)
+@click.option("--note", default=None, help="A note, required for `other`.")
+@click.option("--yes", is_flag=True, help="Skip the confirmation.")
+@click.option("--dry-run", is_flag=True, help="Show the plan and stop.")
+@click.pass_context
+@requires_setup
+def leave(
+    ctx: click.Context,
+    words: tuple[str, ...],
+    note: str | None,
+    *,
+    yes: bool,
+    dry_run: bool,
+) -> None:
+    r"""Book or cancel leave without opening the application.
+
+    \b
+    flexi leave annual friday
+    flexi leave annual monday to friday
+    flexi leave sick today pm
+    flexi leave toil 12 jun
+    flexi leave cancel next monday
+
+    The plan is shown before anything is written.
+    """
+    from flexi.cli import leave as leave_cli
+    from flexi.services.registry import Services
+
+    services = Services.build(ctx.obj["session"])
+    code = leave_cli.run(
+        services,
+        words,
+        note=note,
+        assume_yes=yes,
+        dry_run=dry_run,
+        today=wallclock.today(),
+    )
+    _close(ctx)
+    ctx.exit(code)
+
+
 @cli.group()
 def balance() -> None:
     """Read and correct the flexi balance."""

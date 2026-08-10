@@ -96,6 +96,19 @@ _ABSENCE_SHORT: dict[AbsenceType, str] = {
 
 # `flexi` is stored, `toil` is displayed and themed: the database value is
 # historical, and the colour token reads better beside the other four.
+CANCEL_WORD = "cancel"
+
+
+def absence_from_word(word: str) -> AbsenceType | None:
+    """The type a spoken word names, or ``None``.
+
+    ``toil`` is the spoken name for the stored ``flexi`` value. The enum spells
+    it ``flexi`` because that is what the balance is called, but
+    ``flexi leave flexi tomorrow`` reads as a typo of the program name.
+    """
+    return _SPOKEN.get(word.strip().lower())
+
+
 _ABSENCE_TOKENS: dict[AbsenceType, str] = {
     AbsenceType.ANNUAL: "annual",
     AbsenceType.SICK: "sick",
@@ -135,6 +148,17 @@ class Verdict(enum.Enum):
     def is_skip(self) -> bool:
         """True when the date was passed over rather than refused."""
         return self in {Verdict.NON_WORKING, Verdict.BANK_HOLIDAY}
+
+
+_SPOKEN: dict[str, AbsenceType] = {
+    **{token: kind for kind, token in _ABSENCE_TOKENS.items()},
+    "flexi": AbsenceType.FLEXI,
+    "holiday": AbsenceType.ANNUAL,
+    "al": AbsenceType.ANNUAL,
+    "leave": AbsenceType.ANNUAL,
+}
+
+LEAVE_WORDS: frozenset[str] = frozenset({*_SPOKEN, CANCEL_WORD})
 
 
 class Portion(enum.Enum):
