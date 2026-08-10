@@ -170,7 +170,14 @@ class AbsencePlan:
 
     @property
     def warning(self) -> str | None:
-        """Overdrawing the flexi balance is allowed, and worth saying out loud."""
+        """Overdrawing the flexi balance is allowed, and worth saying out loud.
+
+        Only when *this* plan does the overdrawing. Annual leave does not touch
+        the balance, so a balance that was already in deficit is not news, and
+        saying so on every annual booking teaches people to ignore the line.
+        """
+        if not self.absence_type.draws_down_balance:
+            return None
         after = self.toil_after
         if after is None or after >= 0:
             return None
