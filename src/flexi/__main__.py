@@ -1,6 +1,7 @@
 import functools
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 
 import click
 
@@ -107,6 +108,85 @@ def _run_demo() -> None:
         session.close()
         engine.dispose()
         App(db_path=path).run()
+
+
+@cli.command()
+@click.option("--reset", is_flag=True, help="Erase the records and set up again.")
+@click.option(
+    "--force", is_flag=True, help="Skip the reset confirmation. Needs --reset."
+)
+@click.pass_context
+def init(ctx: click.Context, *, reset: bool, force: bool) -> None:
+    """Set Flexi up on this machine.
+
+    Creates the database and asks five questions. With --reset it erases
+    everything recorded and starts again, which cannot be undone.
+    """
+    from flexi.locations import database_file
+
+    if force and not reset:
+        msg = "--force only means something with --reset."
+        raise click.UsageError(msg)
+
+    db_path = database_file()
+
+    if is_initialised():
+        if not reset:
+            click.echo(f"Flexi is already set up. Its records are at {db_path}.")
+            click.echo("Run `flexi init --reset` to erase them and start again.")
+            return
+        _erase(ctx, db_path, force=force)
+
+    run_migrations()
+    if is_initialised():
+        click.secho("Flexi is set up.", fg="green")
+        return
+    _ask_the_questions(ctx, db_path)
+
+
+def _erase(ctx: click.Context, db_path: Path, *, force: bool) -> None:
+    """Confirm, snapshot, and remove the records."""
+    from flexi.cli import init as init_cli
+    from flexi.services import setup as setup_service
+
+    if not force:
+        if not init_cli.interactive():
+            click.secho(
+                "Refusing to erase anything without a terminal to ask at.\n"
+                "Run this yourself, or pass --force if you meant it.",
+                fg="red",
+                err=True,
+            )
+            ctx.exit(1)
+        if not init_cli.confirm_reset(db_path, init_cli.describe(db_path)):
+            click.echo("Nothing was erased.")
+            ctx.exit(1)
+
+    taken = init_cli.reset(db_path)
+    setup_service.forget(db_path)
+    if taken is not None:
+        click.secho(f"Snapshot kept at {taken}", fg="yellow")
+
+
+def _ask_the_questions(ctx: click.Context, db_path: Path) -> None:
+    """Open the setup form, which is a full screen and needs a terminal."""
+    from flexi.cli import init as init_cli
+
+    if not init_cli.interactive():
+        click.secho(
+            f"The database is ready at {db_path}, but setup needs answering.\n"
+            "Run `flexi init` from a terminal to finish.",
+            fg="yellow",
+            err=True,
+        )
+        ctx.exit(1)
+
+    App().run()
+    if is_initialised():
+        click.secho(f"Flexi is set up. Its records are at {db_path}.", fg="green")
+    else:
+        click.echo("Setup was not completed.")
+        ctx.exit(1)
 
 
 @cli.group()
