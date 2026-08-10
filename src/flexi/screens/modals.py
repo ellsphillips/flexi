@@ -9,7 +9,7 @@ written rather than the day somebody remembers to add a test.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, ClassVar
 
 from textual.app import ComposeResult
@@ -19,6 +19,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
 
 from flexi.constants import AbsenceType, Portion
+from flexi.domain.dates import parse_date
 from flexi.domain.format import days as fmt_days
 
 
@@ -215,67 +216,6 @@ class GoToDateModal(FlexiModal[date]):
 
     def result(self) -> date:
         return parse_date(self.query_one("#goto-input", Input).value, today=self._today)
-
-
-OFFSET_UNITS = {"d": 1, "w": 7}
-
-
-def parse_date(raw: str, *, today: date) -> date:
-    """Read the several ways somebody might type a date.
-
-    Accepts ``2026-06-12``, ``12 Jun``, ``12`` (this month), and offsets from
-    today like ``+3d`` or ``-2w``. Anything else raises with a sentence naming
-    the forms it does understand, because "invalid date" tells nobody anything.
-    """
-    text = raw.strip()
-    if not text:
-        msg = "Type a date, a day of the month, or an offset like +3d"
-        raise ValueError(msg)
-
-    if text[0] in "+-" and text[-1].lower() in "dwmy":
-        return _apply_offset(text, today)
-
-    for pattern in ("%Y-%m-%d", "%d %b %Y", "%d %b", "%d/%m/%Y", "%d/%m"):
-        try:
-            parsed = date.fromisoformat(text) if pattern == "%Y-%m-%d" else None
-            if parsed is None:
-                from datetime import datetime
-
-                parsed = datetime.strptime(text, pattern).date()  # noqa: DTZ007
-                if "%Y" not in pattern:
-                    parsed = parsed.replace(year=today.year)
-        except ValueError:
-            continue
-        else:
-            return parsed
-
-    if text.isdigit():
-        day = int(text)
-        try:
-            return today.replace(day=day)
-        except ValueError as error:
-            msg = f"{today.strftime('%B')} has no day {day}"
-            raise ValueError(msg) from error
-
-    msg = "Try 2026-06-12, 12 Jun, 12, or an offset like +3d"
-    raise ValueError(msg)
-
-
-def _apply_offset(text: str, today: date) -> date:
-    unit = text[-1].lower()
-    try:
-        count = int(text[:-1])
-    except ValueError as error:
-        msg = "An offset looks like +3d, -2w, +1m"
-        raise ValueError(msg) from error
-    if unit in OFFSET_UNITS:
-        return today + timedelta(days=count * OFFSET_UNITS[unit])
-    months = count * (12 if unit == "y" else 1)
-    total = today.year * 12 + today.month - 1 + months
-    year, month = total // 12, total % 12 + 1
-    import calendar
-
-    return date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
 
 
 def _selected_name(screen: ModalScreen[Any], selector: str, fallback: str) -> str:
