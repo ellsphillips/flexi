@@ -168,10 +168,23 @@ There is a small CLI for the things that do not need a full screen:
 
 ```bash
 flexi clock in                      # and `clock out`
+flexi leave annual friday           # book leave in one line
+flexi leave annual mon to fri       # or a whole week
+flexi leave sick today pm           # or half a day
+flexi leave cancel next monday      # and take it back
 flexi balance show                  # where you stand
 flexi balance zero --reason "..."   # settle a stretch you never tracked
 flexi balance log                   # every adjustment, and `undo <id>`
 ```
+
+`flexi leave` prints the plan and asks before it writes anything. Weekends and
+bank holidays are listed rather than silently dropped, so a fortnight that books
+twelve of fourteen days tells you which two it left and why. `--dry-run` stops
+after the plan; `--yes` skips the question for a script.
+
+`flexi init` sets Flexi up, and `flexi init --reset` erases everything and starts
+again — the one command here that loses data. It takes a verified snapshot
+first, tells you what it is about to remove, and asks you to type the word.
 
 ## Your data
 

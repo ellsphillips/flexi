@@ -112,3 +112,25 @@ def test_the_answer_is_remembered_but_only_when_it_is_yes(tmp_path: Path) -> Non
     db = tmp_path / "db.db"
     assert setup.is_initialised(db) is False
     assert db not in setup._INITIALISED
+
+
+def test_the_bare_command_sets_itself_up_rather_than_refusing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The documented install path is `uv tool install flexi` then `flexi`.
+
+    The guard exists to stop clock, leave and balance inventing answers from
+    defaults nobody chose. Making the application decline to open was a
+    different thing, and it broke every install instruction in the README.
+    """
+    opened: list[str] = []
+    monkeypatch.setattr(
+        "flexi.__main__._ask_the_questions",
+        lambda *_args, **_kwargs: opened.append("setup"),
+    )
+    monkeypatch.setattr("flexi.__main__.run_migrations", lambda: None)
+
+    result = _run()
+
+    assert opened == ["setup"], "it offers to set up"
+    assert "not set up" not in result.output
