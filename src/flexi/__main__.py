@@ -50,7 +50,7 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
     if not is_initialised():
         _ask_the_questions(ctx, database_file())
         return
-    App().run()
+    _launch().run()
 
 
 NOT_INITIALISED = (
@@ -76,6 +76,26 @@ def requires_setup(command: Callable[..., None]) -> Callable[..., None]:
         ctx.invoke(command, *args, **kwargs)
 
     return guarded
+
+
+def _launch(*, settings: bool = False, splash: bool = False) -> App:
+    """Every way into the application goes through here.
+
+    ``App.__init__`` builds an engine, opens a session and reads the settings
+    row, so opening it against a database with no tables raises before a single
+    screen is drawn. Leaving each caller to migrate first meant the invariant
+    lived everywhere except where it was needed, and the reset path -- which
+    deletes the database and then asks the five questions -- duly forgot.
+
+    ``run_migrations`` returns as soon as it finds the schema already at head,
+    so calling it on every path costs one revision check and takes no extra
+    backup. That is a cheap price for the guarantee.
+    """
+    run_migrations()
+    app = App()
+    app.open_settings = settings
+    app.show_splash = splash
+    return app
 
 
 def _open_database(ctx: click.Context) -> None:
@@ -166,10 +186,7 @@ def _already_set_up(ctx: click.Context, db_path: Path) -> None:
 
 
 def _open_app(*, settings: bool = False) -> None:
-    run_migrations()
-    app = App()
-    app.open_settings = settings
-    app.run()
+    _launch(settings=settings).run()
 
 
 def _erase(db_path: Path) -> None:
@@ -203,9 +220,7 @@ def _ask_the_questions(
         )
         ctx.exit(1)
 
-    app = App()
-    app.show_splash = True
-    app.run()
+    _launch(splash=True).run()
 
     if not is_initialised():
         click.echo("Setup was not completed.")

@@ -10,6 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container
 from textual.screen import Screen
+from textual.timer import Timer
 from textual.widgets import Static
 
 from flexi.components import splash
@@ -41,6 +42,8 @@ class SplashScreen(Screen[None]):
     def __init__(self) -> None:
         super().__init__()
         self._elapsed = 0.0
+        self._timer: Timer | None = None
+        self._finished = False
 
     def compose(self) -> ComposeResult:
         with Container(id="splash-body"):
@@ -48,7 +51,7 @@ class SplashScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self._draw()
-        self.set_interval(FRAME_SECONDS, self._tick)
+        self._timer = self.set_interval(FRAME_SECONDS, self._tick)
 
     def _tick(self) -> None:
         self._elapsed += FRAME_SECONDS
@@ -79,6 +82,20 @@ class SplashScreen(Screen[None]):
         self.query_one("#splash-art", Static).update(art)
 
     def action_skip(self) -> None:
+        """Dismiss once, and stop the clock that would dismiss it again.
+
+        ``dismiss`` resolves a future, and resolving a future twice raises
+        ``InvalidStateError``. Dismissal is not synchronous -- the screen is
+        popped when the message is processed -- so ``is_running`` is still true
+        when the next frame arrives thirty-three milliseconds later, and the
+        timer was never stopped, so a next frame always arrived. Every first
+        run ended in a traceback the moment the animation reached its end.
+        """
+        if self._finished:
+            return
+        self._finished = True
+        if self._timer is not None:
+            self._timer.stop()
         if self.is_running:
             self.dismiss(None)
 
