@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from flexi.cli import init as init_cli
+from flexi.cli import ui
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.backup import snapshot, verify
 from flexi.models.database.db import Base
@@ -124,6 +125,61 @@ def test_a_torn_snapshot_stops_the_reset(
 
 
 def test_a_pipe_is_not_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`yes | flexi init --reset` must never answer for a person."""
+    """`yes | flexi init` must never answer for a person."""
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     assert init_cli.interactive() is False
+
+
+def test_a_database_that_cannot_be_read_is_not_reported_as_empty(
+    tmp_path: Path,
+) -> None:
+    """Absent means nothing to lose. Unreadable means nobody knows.
+
+    Collapsing the two is how a confirmation ends up printing "nothing recorded
+    yet" over a file that is merely locked by the application in another window.
+    """
+    rubbish = tmp_path / "not-a-database.db"
+    rubbish.write_bytes(b"this is not a SQLite file at all, not even close")
+
+    contents = init_cli.describe(rubbish)
+
+    assert contents.unreadable
+    assert not contents.is_empty, "it must not claim there is nothing to lose"
+
+
+def test_an_absent_database_is_empty_rather_than_unreadable(tmp_path: Path) -> None:
+    contents = init_cli.describe(tmp_path / "absent.db")
+    assert contents.is_empty
+    assert not contents.unreadable
+
+
+def erase_option(contents: init_cli.Contents) -> ui.Option:
+    options = init_cli._options(contents)
+    return next(o for o in options if o.value == init_cli.Choice.RESET)
+
+
+def test_the_menu_says_how_much_it_would_erase() -> None:
+    """A number somebody recognises is what separates reading from skimming."""
+    assert erase_option(init_cli.Contents((("days", 1),))).hint == "erase 1 record"
+    assert erase_option(init_cli.Contents((("days", 9),))).hint == "erase 9 records"
+    assert erase_option(init_cli.Contents()).hint == "erase everything"
+
+
+def test_the_destructive_row_is_drawn_in_the_deficit_red(populated: Path) -> None:
+    assert erase_option(init_cli.describe(populated)).grave
+
+
+def test_the_safe_option_is_first(populated: Path) -> None:
+    """Enter on arrival must never be the keystroke that erases anything."""
+    first = init_cli._options(init_cli.describe(populated))[0]
+    assert first.value == init_cli.Choice.OPEN
+    assert not first.grave
+
+
+def test_the_overview_lists_what_is_there(populated: Path) -> None:
+    drawn = "\n".join(
+        line.plain
+        for line in init_cli.overview(populated, init_cli.describe(populated))
+    )
+    assert "clock events" in drawn
+    assert str(populated) in drawn

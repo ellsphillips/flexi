@@ -114,29 +114,18 @@ def _run_demo() -> None:
 
 
 @cli.command()
-@click.option("--reset", is_flag=True, help="Erase the records and set up again.")
-@click.option(
-    "--force", is_flag=True, help="Skip the reset confirmation. Needs --reset."
-)
 @click.pass_context
-def init(ctx: click.Context, *, reset: bool, force: bool) -> None:
+def init(ctx: click.Context) -> None:
     """Set Flexi up on this machine.
 
-    Creates the database and asks five questions. With --reset it erases
-    everything recorded and starts again, which cannot be undone.
+    On a machine that already has records, this shows what is there and offers
+    what can be done about it, including starting again.
     """
-    if force and not reset:
-        msg = "--force only means something with --reset."
-        raise click.UsageError(msg)
-
     db_path = database_file()
 
     if is_initialised():
-        if not reset:
-            click.echo(f"Flexi is already set up. Its records are at {db_path}.")
-            click.echo("Run `flexi init --reset` to erase them and start again.")
-            return
-        _erase(ctx, db_path, force=force)
+        _already_set_up(ctx, db_path)
+        return
 
     run_migrations()
     if is_initialised():
@@ -145,28 +134,53 @@ def init(ctx: click.Context, *, reset: bool, force: bool) -> None:
     _ask_the_questions(ctx, db_path, then_open=False)
 
 
-def _erase(ctx: click.Context, db_path: Path, *, force: bool) -> None:
-    """Confirm, snapshot, and remove the records."""
+def _already_set_up(ctx: click.Context, db_path: Path) -> None:
+    """Show what is recorded, and do what is chosen about it."""
+    from flexi.cli import init as init_cli
+    from flexi.cli import ui
+
+    if not init_cli.interactive():
+        # The whole of the headless behaviour, deliberately: report and stop.
+        # There is no flag that erases Flexi's records with nobody present.
+        click.echo(f"Flexi is set up. Its records are at {db_path}.")
+        click.echo("Run `flexi init` from a terminal to change or reset them.")
+        return
+
+    contents = init_cli.describe(db_path)
+    choice = init_cli.ask(db_path, contents)
+
+    if choice is None:
+        return
+    if choice is init_cli.Choice.OPEN:
+        _open_app()
+        return
+    if choice is init_cli.Choice.SETTINGS:
+        _open_app(settings=True)
+        return
+
+    if not init_cli.confirm_reset(contents):
+        ui.abandon("Nothing was erased.")
+        return
+    _erase(db_path)
+    _ask_the_questions(ctx, db_path, then_open=False)
+
+
+def _open_app(*, settings: bool = False) -> None:
+    run_migrations()
+    app = App()
+    app.open_settings = settings
+    app.run()
+
+
+def _erase(db_path: Path) -> None:
+    """Snapshot, remove the records, and forget that this path was ever set up."""
     from flexi.cli import init as init_cli
     from flexi.services import setup as setup_service
-
-    if not force:
-        if not init_cli.interactive():
-            click.secho(
-                "Refusing to erase anything without a terminal to ask at.\n"
-                "Run this yourself, or pass --force if you meant it.",
-                fg="red",
-                err=True,
-            )
-            ctx.exit(1)
-        if not init_cli.confirm_reset(db_path, init_cli.describe(db_path)):
-            click.echo("Nothing was erased.")
-            ctx.exit(1)
 
     taken = init_cli.reset(db_path)
     setup_service.forget(db_path)
     if taken is not None:
-        click.secho(f"Snapshot kept at {taken}", fg="yellow")
+        init_cli.settled(f"Erased. Snapshot kept at {taken}")
 
 
 def _ask_the_questions(

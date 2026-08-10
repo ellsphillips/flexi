@@ -46,14 +46,28 @@ def backup_database(db_path: Path | None = None) -> Path | None:
 
 
 def _cleanup_old_backups() -> None:
-    """Keep only the latest MAX_BACKUPS files.
+    """Keep only the latest MAX_BACKUPS files, and every protected one.
 
     Housekeeping runs after a backup has already been taken, so a full disk or
     a read-only directory here must not fail the migration that motivated it.
+
+    Snapshots taken before a reset are never pruned. They are the only copy of
+    records somebody chose to erase, `flexi init` calls them the one way back,
+    and ten routine migration backups would otherwise age one out inside a
+    fortnight of ordinary upgrades.
     """
+    from flexi.models.database.backup import PROTECTED_PREFIX
+
     try:
         backup_dir = backups_directory()
-        backups = sorted(backup_dir.glob("*.bak"), key=lambda p: p.stat().st_mtime)
+        backups = sorted(
+            (
+                path
+                for path in backup_dir.glob("*.bak")
+                if not path.name.startswith(PROTECTED_PREFIX)
+            ),
+            key=lambda p: p.stat().st_mtime,
+        )
         for old in backups[:-MAX_BACKUPS]:
             old.unlink()
     except OSError:
