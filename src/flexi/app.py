@@ -93,6 +93,8 @@ class FlexiApp(TextualApp[None]):
         self.register_theme(flexi_theme())
         self.theme = THEME_NAME
         self.jumper: Jumper | None = None
+        self.show_splash = False
+        """Set by `flexi init`. Only the first run earns the animation."""
         self._pushed: InsightsScreen | LeaveScreen | None = None
         """The screen `action_go_to` pushed, so `f1` can dismiss it.
 
@@ -106,6 +108,11 @@ class FlexiApp(TextualApp[None]):
         return iter(())
 
     def on_mount(self) -> None:
+        if self.show_splash:
+            from flexi.screens.splash import SplashScreen, wanted
+
+            if wanted(animation_level=self.animation_level):
+                self.push_screen(SplashScreen())
         if self.services.settings.is_setup_complete():
             self.push_screen(DashboardScreen(self.services, id="dashboard"))
         else:
