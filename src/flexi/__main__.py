@@ -9,6 +9,7 @@ import flexi
 from flexi import wallclock
 from flexi.app import App
 from flexi.domain.format import long_date, stamp
+from flexi.locations import database_file
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.clock import ClockService
@@ -42,11 +43,13 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
     if ctx.invoked_subcommand is not None:
         return
 
-    if not is_initialised():
-        click.secho(NOT_INITIALISED, fg="yellow", err=True)
-        ctx.exit(1)
-
+    # Bare `flexi` on a new machine sets itself up rather than refusing. The
+    # guard exists to stop clock, leave and balance inventing answers from
+    # defaults nobody chose -- not to make the application decline to open.
     run_migrations()
+    if not is_initialised():
+        _ask_the_questions(ctx, database_file())
+        return
     App().run()
 
 
@@ -122,8 +125,6 @@ def init(ctx: click.Context, *, reset: bool, force: bool) -> None:
     Creates the database and asks five questions. With --reset it erases
     everything recorded and starts again, which cannot be undone.
     """
-    from flexi.locations import database_file
-
     if force and not reset:
         msg = "--force only means something with --reset."
         raise click.UsageError(msg)
@@ -141,7 +142,7 @@ def init(ctx: click.Context, *, reset: bool, force: bool) -> None:
     if is_initialised():
         click.secho("Flexi is set up.", fg="green")
         return
-    _ask_the_questions(ctx, db_path)
+    _ask_the_questions(ctx, db_path, then_open=False)
 
 
 def _erase(ctx: click.Context, db_path: Path, *, force: bool) -> None:
@@ -168,8 +169,15 @@ def _erase(ctx: click.Context, db_path: Path, *, force: bool) -> None:
         click.secho(f"Snapshot kept at {taken}", fg="yellow")
 
 
-def _ask_the_questions(ctx: click.Context, db_path: Path) -> None:
-    """Open the setup form, which is a full screen and needs a terminal."""
+def _ask_the_questions(
+    ctx: click.Context, db_path: Path, *, then_open: bool = True
+) -> None:
+    """Open the setup form, which is a full screen and needs a terminal.
+
+    ``then_open`` is what separates the two ways in. Bare ``flexi`` carries
+    straight on into the application once the questions are answered, because
+    that is what the person asked for; ``flexi init`` stops and says so.
+    """
     from flexi.cli import init as init_cli
 
     if not init_cli.interactive():
@@ -184,11 +192,12 @@ def _ask_the_questions(ctx: click.Context, db_path: Path) -> None:
     app = App()
     app.show_splash = True
     app.run()
-    if is_initialised():
-        click.secho(f"Flexi is set up. Its records are at {db_path}.", fg="green")
-    else:
+
+    if not is_initialised():
         click.echo("Setup was not completed.")
         ctx.exit(1)
+    if not then_open:
+        click.secho(f"Flexi is set up. Its records are at {db_path}.", fg="green")
 
 
 @cli.group()

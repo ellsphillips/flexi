@@ -9,7 +9,7 @@ A terminal app for people on flexitime. It records when you were on the clock, w
 [![uv](https://shieldcn.dev/badge/packaging-uv-00AAAD.svg?logo=uv&variant=outline)](https://docs.astral.sh/uv/)
 
 [![ci](https://shieldcn.dev/github/ci/ellsphillips/flexi.svg?variant=outline)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
-[![tests](https://shieldcn.dev/badge/tests-489_passing-2E9E52.svg?logo=pytest)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
+[![tests](https://shieldcn.dev/badge/tests-647_passing-2E9E52.svg?logo=pytest)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
 [![mypy](https://shieldcn.dev/badge/mypy-strict-2E9E52.svg)](https://mypy-lang.org)
 [![ruff](https://shieldcn.dev/badge/ruff-select_ALL-2E9E52.svg?logo=ruff)](https://github.com/astral-sh/ruff)
 [![licence](https://shieldcn.dev/badge/licence-MIT-2E9E52.svg)](LICENSE)
@@ -168,10 +168,23 @@ There is a small CLI for the things that do not need a full screen:
 
 ```bash
 flexi clock in                      # and `clock out`
+flexi leave annual friday           # book leave in one line
+flexi leave annual mon to fri       # or a whole week
+flexi leave sick today pm           # or half a day
+flexi leave cancel next monday      # and take it back
 flexi balance show                  # where you stand
 flexi balance zero --reason "..."   # settle a stretch you never tracked
 flexi balance log                   # every adjustment, and `undo <id>`
 ```
+
+`flexi leave` prints the plan and asks before it writes anything. Weekends and
+bank holidays are listed rather than silently dropped, so a fortnight that books
+twelve of fourteen days tells you which two it left and why. `--dry-run` stops
+after the plan; `--yes` skips the question for a script.
+
+`flexi init` sets Flexi up, and `flexi init --reset` erases everything and starts
+again — the one command here that loses data. It takes a verified snapshot
+first, tells you what it is about to remove, and asks you to type the word.
 
 ## Your data
 
@@ -203,7 +216,7 @@ cd flexi
 uv sync
 uv run pre-commit install
 
-uv run pytest -q                    # 489 tests, about a minute
+uv run pytest -q                    # 647 tests, about a minute
 uv run mypy                         # strict, over src and tests
 uv run ruff check
 uv run python scripts/shoot.py      # regenerate the screenshots above
