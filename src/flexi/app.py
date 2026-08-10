@@ -110,11 +110,6 @@ class FlexiApp(TextualApp[None]):
         return iter(())
 
     def on_mount(self) -> None:
-        if self.show_splash:
-            from flexi.screens.splash import SplashScreen, wanted
-
-            if wanted(animation_level=self.animation_level):
-                self.push_screen(SplashScreen())
         if self.services.settings.is_setup_complete():
             self.push_screen(DashboardScreen(self.services, id="dashboard"))
             if self.open_settings:
@@ -123,6 +118,17 @@ class FlexiApp(TextualApp[None]):
                 )
         else:
             self.push_screen(SetupScreen(self.services), callback=self._on_setup_done)
+
+        # Last, so it covers what is already there. `Screen.dismiss` pops the
+        # top of the stack rather than the screen it is called on, so a splash
+        # pushed first sits *underneath* the setup form and dismisses the form
+        # instead of itself -- leaving the animation's last frame on screen with
+        # nothing behind it and no way to finish setting up.
+        if self.show_splash:
+            from flexi.screens.splash import SplashScreen, wanted
+
+            if wanted(animation_level=self.animation_level):
+                self.push_screen(SplashScreen())
         self._check_for_updates()
 
     def _on_setup_done(self, completed: bool | None) -> None:

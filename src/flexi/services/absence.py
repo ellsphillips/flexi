@@ -653,13 +653,17 @@ class AbsenceService:
             return False
         if portion is Portion.FULL:
             return True
-        midday = datetime.combine(day, time(MIDDAY_HOUR, 0))
+        # Both boundaries are localised, because the ones they are compared
+        # against come from `moment_of` and are aware. A manufactured wall time
+        # sitting next to a stored one has to be given the same offset or the
+        # comparison is a TypeError rather than an answer.
+        midday = wallclock.local(datetime.combine(day, time(MIDDAY_HOUR, 0)))
         for work in sessions:
             start = moment_of(work.clock_in_event)
             end = (
                 moment_of(work.clock_out_event)
                 if work.clock_out_event is not None
-                else datetime.combine(day, time.max)
+                else wallclock.local(datetime.combine(day, time.max))
             )
             if portion is Portion.AM and start < midday:
                 return True
