@@ -1,3 +1,5 @@
+import functools
+from collections.abc import Callable
 from datetime import datetime
 
 import click
@@ -9,6 +11,7 @@ from flexi.domain.format import long_date, stamp
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.clock import ClockService
+from flexi.services.setup import is_initialised
 from flexi.services.startup import run_startup_cleanup
 
 
@@ -21,25 +24,65 @@ from flexi.services.startup import run_startup_cleanup
 )
 @click.pass_context
 def cli(ctx: click.Context, *, demo: bool = False) -> None:
-    """Flexi CLI."""
+    """Track flexitime from the terminal."""
+    if demo and ctx.invoked_subcommand is not None:
+        msg = "--demo opens the sample application; it does not take a command."
+        raise click.UsageError(msg)
     if demo:
         _run_demo()
         return
 
-    run_migrations()
-
     ctx.ensure_object(dict)
 
+    # Nothing is opened here. A guard in the group callback runs before click
+    # has resolved the subcommand, so it would refuse `flexi init` on the very
+    # machine that needs it, and block `flexi clock --help`. Each command opens
+    # the database itself, through @requires_setup.
     if ctx.invoked_subcommand is not None:
-        engine = create_db_engine()
-        session = get_session(engine)
-        run_startup_cleanup(session)
-        ctx.obj["engine"] = engine
-        ctx.obj["session"] = session
         return
 
-    app = App()
-    app.run()
+    if not is_initialised():
+        click.secho(NOT_INITIALISED, fg="yellow", err=True)
+        ctx.exit(1)
+
+    run_migrations()
+    App().run()
+
+
+NOT_INITIALISED = (
+    "Flexi is not set up on this machine yet.\n"
+    "Run `flexi init` to choose your leave year, hours and bank holidays."
+)
+
+
+def requires_setup(command: Callable[..., None]) -> Callable[..., None]:
+    """Refuse before setup; migrate and open a session after it.
+
+    Applied per command rather than to the group, so `flexi init` and every
+    `--help` remain reachable on a machine with no database.
+    """
+
+    @functools.wraps(command)
+    @click.pass_context
+    def guarded(ctx: click.Context, /, *args: object, **kwargs: object) -> None:
+        if not is_initialised():
+            click.secho(NOT_INITIALISED, fg="yellow", err=True)
+            ctx.exit(1)
+        _open_database(ctx)
+        ctx.invoke(command, *args, **kwargs)
+
+    return guarded
+
+
+def _open_database(ctx: click.Context) -> None:
+    """Migrate, connect, sweep, and stash on the context."""
+    run_migrations()
+    engine = create_db_engine()
+    session = get_session(engine)
+    run_startup_cleanup(session)
+    ctx.ensure_object(dict)
+    ctx.obj["engine"] = engine
+    ctx.obj["session"] = session
 
 
 def _run_demo() -> None:
@@ -72,6 +115,7 @@ def clock() -> None:
 
 
 @clock.command(name="in")
+@requires_setup
 @click.pass_context
 def clock_in(ctx: click.Context) -> None:
     """Clock in to start a work session."""
@@ -90,6 +134,7 @@ def clock_in(ctx: click.Context) -> None:
 
 
 @clock.command(name="out")
+@requires_setup
 @click.pass_context
 def clock_out(ctx: click.Context) -> None:
     """Clock out to end the current work session."""
@@ -120,6 +165,7 @@ def balance() -> None:
     default=None,
     help="Report the balance as at the end of this date. Defaults to today.",
 )
+@requires_setup
 @click.pass_context
 def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
     """Print the running balance and what it is made of."""
@@ -154,6 +200,7 @@ def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
 )
 @click.option("--reason", default=None, help="Why the balance was settled.")
 @click.option("--yes", is_flag=True, help="Do not ask.")
+@requires_setup
 @click.pass_context
 def balance_zero(
     ctx: click.Context,
@@ -196,6 +243,7 @@ def balance_zero(
 
 
 @balance.command(name="log")
+@requires_setup
 @click.pass_context
 def balance_log(ctx: click.Context) -> None:
     """List every correction ever recorded."""
@@ -218,6 +266,7 @@ def balance_log(ctx: click.Context) -> None:
 
 @balance.command(name="undo")
 @click.argument("adjustment_id", type=int)
+@requires_setup
 @click.pass_context
 def balance_undo(ctx: click.Context, adjustment_id: int) -> None:
     """Remove a correction by its id, as listed by `flexi balance log`."""
