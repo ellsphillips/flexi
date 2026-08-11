@@ -19,9 +19,25 @@ SRC = Path(__file__).resolve().parent.parent / "src" / "flexi"
 
 FORBIDDEN: dict[str, frozenset[str]] = {
     "domain": frozenset({"textual", "sqlalchemy", "flexi.services", "flexi.models"}),
-    "components": frozenset({"sqlalchemy", "flexi.models"}),
+    "components": frozenset({"sqlalchemy", "flexi.models", "flexi.services.wallet"}),
     "screens": frozenset({"sqlalchemy"}),
+    "services": frozenset(
+        {"textual", "flexi.app", "flexi.screens", "flexi.components", "flexi.cli"}
+    ),
+    "cli": frozenset({"flexi.app", "flexi.screens", "flexi.components"}),
 }
+"""Which packages may not reach which.
+
+`services` and `cli` were unconstrained, so nothing stopped a service importing
+a widget or the command line importing a screen -- the two directions that would
+make the CLI unusable without a terminal.
+
+`components` forbids `sqlalchemy` but permits `flexi.services`, and a widget
+imported two value objects from `flexi.services.wallet`, dragging a hundred and
+twenty SQLAlchemy modules behind them: the rule satisfied literally and defeated
+in substance. Those values live in `flexi.domain.wallet` now, and that one
+module is named here so the loophole cannot be reopened by moving them back.
+"""
 
 
 def imported_modules(source: Path) -> Iterator[str]:

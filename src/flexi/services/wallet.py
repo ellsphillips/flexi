@@ -1,106 +1,22 @@
-"""What is left in each allowance, and what the balance is doing.
+"""Assembling the wallet from the database.
 
-Every allowance carries a pace -- where the figure would be if it were being
-spent evenly -- because "18.5 days" is comfortable or alarming depending
-entirely on how much of the leave year is left.
-
-Numbers only. Whether an underspent allowance is good news is a question about
-leave policy, and it is answered in the wallet module.
+The values it assembles -- `Allowance` and `WalletData`, and the judgement about
+whether an allowance is running ahead -- live in `flexi.domain.wallet`, where
+they can be read and tested without a session.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import AbsenceType
-from flexi.domain.balance import BalanceSummary
-from flexi.domain.ledger import DayLedger
+from flexi.domain.wallet import Allowance, WalletData
 from flexi.services.absence import AbsenceService
 from flexi.services.ledger import LedgerService
 from flexi.services.settings import SettingsService
-
-
-@dataclass(frozen=True, slots=True)
-class Allowance:
-    """One line of the wallet."""
-
-    type: AbsenceType
-    used: float
-    """Days spent, counting a half as a half."""
-    occurrences: int
-    """How many separate bookings — two half-days are two occasions, one day."""
-    total: float | None = None
-    """The entitlement, where there is one. ``None`` means uncapped."""
-    pace: float | None = None
-    """Where ``used`` would be if the allowance were spent evenly over the year."""
-    balance_days: float | None = None
-    """For TOIL: days of flexi balance available rather than an entitlement."""
-
-    @property
-    def label(self) -> str:
-        """The name shown to a reader."""
-        return self.type.label
-
-    @property
-    def token(self) -> str:
-        """The stem of this allowance's colour tokens."""
-        return self.type.token
-
-    @property
-    def remaining(self) -> float | None:
-        """Days left, or ``None`` when nothing has been recorded to draw against.
-
-        ``None`` is not zero, and the interface must not draw it as zero: a fresh
-        install with no entitlement recorded has not run out of leave.
-        """
-        if self.type.draws_down_balance:
-            return self.balance_days
-        if self.total is None:
-            return None
-        return self.total - self.used
-
-    @property
-    def is_capped(self) -> bool:
-        """True when there is an entitlement to run out of."""
-        return self.total is not None
-
-    @property
-    def ahead_of_pace(self) -> bool | None:
-        """True when more has been spent than an even spread would have spent."""
-        if self.pace is None:
-            return None
-        return self.used > self.pace
-
-
-@dataclass(frozen=True, slots=True)
-class WalletData:
-    """Everything the wallet module draws."""
-
-    leave_year: tuple[date, date]
-    elapsed: float
-    """How far through the leave year today is, 0.0 to 1.0."""
-    balance: BalanceSummary
-    """The running flexi balance, leave-year to date."""
-    period: BalanceSummary
-    """The same figures for the period currently on screen."""
-    today: DayLedger
-    contracted: timedelta
-    allowances: tuple[Allowance, ...]
-
-    @property
-    def balance_days(self) -> float:
-        """The flexi balance expressed in working days."""
-        if not self.contracted:
-            return 0.0
-        return self.balance.delta / self.contracted
-
-    def allowance(self, kind: AbsenceType) -> Allowance:
-        """One allowance by type."""
-        return next(item for item in self.allowances if item.type is kind)
 
 
 class WalletService:
