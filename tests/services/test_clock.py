@@ -17,7 +17,10 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.models.database.db import BankHolidayCache, ClockEvent, WorkSession
-from flexi.services.clock import ClockService
+from flexi.services.absence import AbsenceResult
+from flexi.services.adjustments import AdjustmentResult
+from flexi.services.clock import ClockResult, ClockService
+from flexi.services.outcome import Outcome
 from flexi.services.registry import Services
 
 SCOTTISH_HOLIDAY = date(2027, 1, 4)
@@ -214,3 +217,20 @@ class TestBankHolidayDivision:
         at = datetime.combine(ENGLISH_HOLIDAY, time(9), tzinfo=UTC)
 
         assert services.clock.clock_in(now=at).success is False
+
+
+def test_every_result_the_status_bar_sees_satisfies_the_protocol() -> None:
+    """Green or red is one decision, made in one place.
+
+    That place typed its parameter as `object` and read it with getattr, so
+    it was the one thing --strict could not check.
+    """
+    for result in (
+        ClockResult(success=True, message="Clocked in"),
+        AbsenceResult(success=False, message="no"),
+        AdjustmentResult(success=True, message="adjusted"),
+    ):
+        assert isinstance(result, Outcome)
+        assert isinstance(result.success, bool)
+        assert isinstance(result.message, str)
+        assert result.warning is None or isinstance(result.warning, str)

@@ -32,6 +32,7 @@ class ClockResult:
     success: bool
     message: str
     event: ClockEvent | None = None
+    warning: str | None = None
     session: WorkSession | None = None
 
 
