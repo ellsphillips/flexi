@@ -5,6 +5,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from flexi.domain import leaveyear
 from flexi.domain.period import Granularity, Period
 from tests import strategies
 
@@ -206,3 +207,20 @@ def test_shifting_back_and_forward_settles_after_one_clamp(
     """
     moved = period.shift(count)
     assert moved.shift(-count).shift(count) == moved
+
+
+@given(period=periods())
+def test_a_year_period_is_the_leave_year_the_services_use(period: Period) -> None:
+    """One question, one answer, whichever surface is asking.
+
+    `Period.end` derived the next start from *this* start, which clamps twice: a
+    leave year beginning on 29 February starts on the 28th in a common year, and
+    carrying that 28th forward ended the year on 28 February instead of 29. The
+    Leave screen therefore drew a year one day shorter than every service
+    counted, and 28 February 2020 belonged to neither year on screen.
+    """
+    if period.granularity is not Granularity.YEAR:
+        return
+    assert (period.start, period.end) == leaveyear.bounds(
+        period.anchor, *period.year_start
+    )

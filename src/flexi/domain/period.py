@@ -125,10 +125,14 @@ class Period:
                 last = calendar.monthrange(self.anchor.year, self.anchor.month)[1]
                 return self.anchor.replace(day=last)
             case Granularity.YEAR:
-                start = self._year_start()
-                return _clamp_day(start.year + 1, start.month, start.day) - timedelta(
-                    days=1
-                )
+                # Asked of `leaveyear`, not recomputed. Deriving the next start
+                # from *this* start clamps twice: a leave year beginning on 29
+                # February starts on the 28th in a common year, and taking the
+                # 28th forward gave 28 February rather than 29, so the year
+                # ended a day early and the 28th belonged to neither year. On
+                # screen it simply vanished, while every service — which does
+                # ask `leaveyear` — still counted it.
+                return leaveyear.bounds(self.anchor, *self.year_start)[1]
 
     def _year_start(self) -> date:
         month, day = self.year_start
