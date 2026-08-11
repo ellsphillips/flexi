@@ -361,8 +361,8 @@ def clock_out(ctx: click.Context) -> None:
 @click.option("--note", default=None, help="A note, required for `other`.")
 @click.option("--yes", is_flag=True, help="Skip the confirmation.")
 @click.option("--dry-run", is_flag=True, help="Show the plan and stop.")
-@click.pass_context
 @requires_setup
+@click.pass_context
 def leave(
     ctx: click.Context,
     words: tuple[str, ...],
