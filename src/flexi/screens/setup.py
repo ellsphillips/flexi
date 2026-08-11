@@ -119,12 +119,11 @@ class Rail(Static):
         self.animate("marker", value=float(row), duration=SLIDE, easing="out_cubic")
 
     def _draw(self) -> None:
-        """The line, with the marker on it and the segment it holds lit.
+        """The line, with the marker on it.
 
-        A question occupies two rows: itself, and the space under it. Lighting
-        that second row picks out the whole segment the marker is standing in,
-        so the live question reads as a stretch of rail rather than as a point
-        on it -- and the diamond has something to sit against.
+        The marker is the only thing lit. Lighting the row beneath it as well,
+        to pick out the whole two-row segment a question occupies, made the rail
+        busier without saying anything the diamond had not already said.
 
         The foot wears the same grey as the rest of the line. It is structure,
         not content, and a brighter one drew the eye to the end of the form.
@@ -138,8 +137,6 @@ class Rail(Static):
                 glyph, tone = TAIL, colour("c-line")
             elif row == at:
                 glyph, tone = MARK_LIVE, colour("c-accent")
-            elif row == at + 1:
-                glyph, tone = RAIL_SETTLED, colour("c-muted")
             else:
                 glyph, tone = RAIL_SETTLED, colour("c-line")
             line.append(GUTTER)

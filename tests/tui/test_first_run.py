@@ -417,13 +417,14 @@ async def test_the_foot_of_the_rail_matches_the_line_above_it(
         assert foot[1] == hairline
 
 
-async def test_the_segment_holding_the_marker_is_lit(
+async def test_the_marker_is_the_only_thing_lit_on_the_rail(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A question is two rows: itself, and the space under it.
+    """The rail is one weight from top to bottom, and the diamond sits on it.
 
-    Lighting the second picks out the whole segment the marker stands in, so the
-    live question reads as a stretch of rail rather than as a point on it.
+    Lighting the row beneath the marker as well, to pick out the two-row segment
+    a question occupies, made the rail busier without saying anything the
+    diamond had not already said.
     """
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
@@ -439,7 +440,10 @@ async def test_the_segment_holding_the_marker_is_lit(
         drawn = _rail_column(app, rail)
         marker = round(rail.marker)
 
+        hairline = colour("c-line").upper()
         assert drawn[marker][0] == MARK_LIVE
         assert drawn[marker][1] == colour("c-accent").upper()
-        assert drawn[marker + 1][1] == colour("c-muted").upper(), "the segment under it"
-        assert drawn[marker + 2][1] == colour("c-line").upper(), "and no further"
+        assert drawn[marker + 1][1] == hairline, "nothing lit under the marker"
+        assert {tone for _, tone in drawn[1:-1] if tone != drawn[marker][1]} == {
+            hairline
+        }, "one weight for the whole line"
