@@ -26,7 +26,8 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain import leaveyear
-from flexi.domain.format import short_date
+from flexi.domain.format import days as fmt_days
+from flexi.domain.format import plural, short_date
 from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
@@ -38,6 +39,22 @@ def _walk(start: date, end: date) -> list[date]:
     """Every date from start to end, inclusive."""
     span = (end - start).days
     return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
+
+
+def deficit(shortfall: float) -> str:
+    """How far past zero this goes, phrased once for both places that say it.
+
+    Booking a day of TOIL and previewing a week of it are the same news, and
+    assembling the sentence twice is how one of them came to read "3 day".
+
+    Examples:
+        >>> deficit(1)
+        'the flexi balance 1 day into deficit'
+        >>> deficit(2.5)
+        'the flexi balance 2.5 days into deficit'
+    """
+    short = f"{fmt_days(shortfall)} {plural(shortfall, 'day')}"
+    return f"the flexi balance {short} into deficit"
 
 
 @dataclass(frozen=True)
@@ -87,7 +104,7 @@ class RangeResult:
                 if len(self.reasons) == 1
                 else (f"Nothing {what}: " + "; ".join(self.reasons))
             )
-        days = f"{len(self.booked)} day" + ("" if len(self.booked) == 1 else "s")
+        days = f"{len(self.booked)} {plural(len(self.booked), 'day')}"
         if not self.skipped:
             return f"{days} {what}"
         missed = f"{len(self.skipped)} skipped"
@@ -154,6 +171,17 @@ class AbsencePlan:
         return tuple(seen)
 
     @property
+    def headline(self) -> str:
+        """What this plan would do, in one line.
+
+        Says "of fourteen" only when the two differ, so a clean span reads as a
+        statement and a partial one reads as a question.
+        """
+        booked = len(self.bookable)
+        span = f" of {len(self.days)}" if booked != len(self.days) else ""
+        return f"{booked} {plural(booked, 'day')}{span}, {fmt_days(self.cost)} used"
+
+    @property
     def annual_after(self) -> float | None:
         if self.annual_remaining is None:
             return None
@@ -182,7 +210,7 @@ class AbsencePlan:
         after = self.toil_after
         if after is None or after >= 0:
             return None
-        return f"This takes the flexi balance {abs(after):g} day into deficit"
+        return f"This takes {deficit(abs(after))}"
 
 
 class AbsenceService:
@@ -443,10 +471,7 @@ class AbsenceService:
             return None
         if available_toil_days >= portion.days:
             return None
-        overdraft = portion.days - available_toil_days
-        return (
-            f"Booked, but this takes the flexi balance {overdraft:g} day into deficit"
-        )
+        return f"Booked, but this takes {deficit(portion.days - available_toil_days)}"
 
     # -- planning -----------------------------------------------------------
 
