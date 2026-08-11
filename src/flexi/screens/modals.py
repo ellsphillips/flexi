@@ -21,6 +21,7 @@ from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.dates import parse_date
 from flexi.domain.format import days as fmt_days
+from flexi.domain.format import plural
 
 
 class FlexiModal[ResultT](ModalScreen[ResultT | None]):
@@ -165,9 +166,11 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         """What is left, so the decision does not need another screen."""
         parts: list[str] = []
         if self._remaining is not None:
-            parts.append(f"{fmt_days(self._remaining)} days annual leave left")
+            left = self._remaining
+            parts.append(f"{fmt_days(left)} {plural(left, 'day')} annual leave left")
         if self._toil_days is not None:
-            parts.append(f"{fmt_days(round(self._toil_days, 1))} days of TOIL banked")
+            banked = round(self._toil_days, 1)
+            parts.append(f"{fmt_days(banked)} {plural(banked, 'day')} of TOIL banked")
         return " · ".join(parts)
 
     def result(self) -> AbsenceBooking:

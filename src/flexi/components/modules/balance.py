@@ -17,7 +17,7 @@ from textual.app import ComposeResult
 from textual.widgets import Digits, Static
 
 from flexi.components.modules.base import Module
-from flexi.domain.format import delta, digits, hm, signed_days, stamp
+from flexi.domain.format import delta, digits, hm, plural, signed_days, stamp
 from flexi.messages import Scope
 
 STATE_CLASSES = ("surplus", "deficit", "muted")
@@ -67,9 +67,9 @@ class BalanceModule(Module):
             return "Level with contracted hours"
         if not contracted:
             return delta(value)
-        days = value / contracted
+        days = round(value / contracted, 1)
         word = "banked" if value > timedelta() else "owed"
-        return f"{hm(value)} {word} · {signed_days(round(days, 1))} days"
+        return f"{hm(value)} {word} · {signed_days(days)} {plural(abs(days), 'day')}"
 
 
 def _state_class(value: timedelta) -> str:

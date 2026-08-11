@@ -9,6 +9,8 @@ from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
 from flexi.constants import DEFAULT_DIVISION, Division
+from flexi.domain.format import days as fmt_days
+from flexi.domain.format import plural
 from flexi.services.registry import Services
 
 
@@ -120,7 +122,10 @@ class SettingsScreen(Screen[bool]):
             default_days = 25.0
 
         self._svc.save_entitlement(next_year, default_days)
-        self.notify(f"Added {next_year} with {default_days} days")
+        self.notify(
+            f"Added {next_year} with {fmt_days(default_days)}"
+            f" {plural(default_days, 'day')}"
+        )
         # Refresh screen
         self.dismiss(True)
 

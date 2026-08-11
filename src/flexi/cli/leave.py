@@ -30,7 +30,7 @@ from flexi.constants import (
 )
 from flexi.domain.dates import Preference, parse_span
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import long_date, short_date
+from flexi.domain.format import long_date, plural, short_date
 from flexi.services.absence import AbsencePlan
 from flexi.services.registry import Services
 
@@ -77,7 +77,7 @@ def parse_request(words: tuple[str, ...]) -> tuple[str, Portion, str]:
 
 def render(plan: AbsencePlan, *, cancelling: bool = False) -> str:
     """The plan as a block somebody can check before agreeing to it."""
-    verb = "Cancelling" if cancelling else f"Booking {plan.absence_type.label.lower()}"
+    verb = "Cancelling" if cancelling else f"Booking {plan.absence_type.phrase}"
     portion = "" if plan.portion is Portion.FULL else f" ({plan.portion.label.lower()})"
     lines = [f"{verb}{portion}"]
 
@@ -97,12 +97,11 @@ def render(plan: AbsencePlan, *, cancelling: bool = False) -> str:
 
     booked = len(plan.bookable)
     lines.append("")
-    plural = "" if booked == 1 else "s"
-    lines.append(f"{booked} day{plural}, {fmt_days(plan.cost)} used")
+    lines.append(f"{booked} {plural(booked, 'day')}, {fmt_days(plan.cost)} used")
     if plan.annual_after is not None and plan.absence_type.draws_down_entitlement:
         lines.append(
             f"Annual leave: {fmt_days(plan.annual_remaining or 0)}"
-            f" → {fmt_days(plan.annual_after)} days left"
+            f" → {fmt_days(plan.annual_after)} {plural(plan.annual_after, 'day')} left"
         )
     if plan.warning:
         lines.append(plan.warning)

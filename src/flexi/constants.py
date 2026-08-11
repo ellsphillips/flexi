@@ -86,6 +86,15 @@ class AbsenceType(enum.Enum):
         return _DETAILS[self].label
 
     @property
+    def phrase(self) -> str:
+        """The name as it reads inside a sentence, e.g. "Book annual leave?".
+
+        Not ``label.lower()``: that is how "Book TOIL?" became "Book toil?" in
+        six places at once. An acronym is lower case in no sentence.
+        """
+        return _DETAILS[self].phrase
+
+    @property
     def short(self) -> str:
         """A one-word name, for a gauge label in a narrow sidebar.
 
@@ -137,16 +146,17 @@ class _Details:
     """Everything an absence type carries besides its stored value."""
 
     label: str
+    phrase: str
     short: str
     token: str
 
 
 _DETAILS: dict[AbsenceType, _Details] = {
-    AbsenceType.ANNUAL: _Details("Annual leave", "ANNUAL", "annual"),
-    AbsenceType.SICK: _Details("Sickness", "SICK", "sick"),
-    AbsenceType.FLEXI: _Details("TOIL", "TOIL", "toil"),
-    AbsenceType.UNPAID: _Details("Unpaid leave", "UNPAID", "unpaid"),
-    AbsenceType.OTHER: _Details("Other", "OTHER", "other"),
+    AbsenceType.ANNUAL: _Details("Annual leave", "annual leave", "ANNUAL", "annual"),
+    AbsenceType.SICK: _Details("Sickness", "sickness", "SICK", "sick"),
+    AbsenceType.FLEXI: _Details("TOIL", "TOIL", "TOIL", "toil"),
+    AbsenceType.UNPAID: _Details("Unpaid leave", "unpaid leave", "UNPAID", "unpaid"),
+    AbsenceType.OTHER: _Details("Other", "other leave", "OTHER", "other"),
 }
 """One table rather than three parallel ones.
 

@@ -85,8 +85,8 @@ class FlexiCommands(Provider):
 
         for kind in AbsenceType:
             yield _Command(
-                f"Book {kind.label.lower()}…",
-                f"Record {kind.label.lower()} on the selected day",
+                f"Book {kind.phrase}…",
+                f"Record {kind.phrase} on the selected day",
                 partial(screen.open_absence_modal, screen.period.anchor, kind),
             )
 

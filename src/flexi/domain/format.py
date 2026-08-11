@@ -131,6 +131,22 @@ def days(value: float) -> str:
     return f"{value:g}"
 
 
+def plural(count: float, noun: str) -> str:
+    """``noun`` agreeing with ``count``, so nothing reads "1 days".
+
+    A half is plural: half a day is not one of anything.
+
+    Examples:
+        >>> plural(1, "day")
+        'day'
+        >>> plural(0.5, "day")
+        'days'
+        >>> plural(2, "bank holiday")
+        'bank holidays'
+    """
+    return noun if count == 1 else f"{noun}s"
+
+
 def signed_days(value: float) -> str:
     """A signed count of days.
 
