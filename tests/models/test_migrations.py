@@ -14,10 +14,12 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.runtime.migration import MigrationContext
 
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import AbsenceDay, Settings
+from flexi.models.database.db import AbsenceDay, Base, Settings
 from flexi.models.database.migrate import _get_alembic_config
 
 BEFORE_HALF_DAYS = "0006"
@@ -239,3 +241,33 @@ def test_head_downgrades_and_upgrades_again(db: Path) -> None:
         assert session.query(AbsenceDay).count() == 1
     finally:
         session.close()
+
+
+def test_the_migrations_build_the_schema_the_models_describe(db: Path) -> None:
+    """What real users get, compared against what every fixture gets.
+
+    Fixtures call `Base.metadata.create_all`; a person who installs Flexi gets
+    `run_migrations`. Nothing compared the two, so a model changed without a
+    migration would pass the whole suite and fail on the first real launch --
+    and a migration that drifted from the models would do the reverse.
+
+    There is no drift today. That is exactly why this is cheap to add now: it
+    fails the moment somebody edits `db.py` and forgets the revision.
+    """
+    command.upgrade(_get_alembic_config(db), HEAD)
+
+    engine = create_db_engine(db)
+    try:
+        with engine.connect() as connection:
+            context = MigrationContext.configure(connection)
+            differences = compare_metadata(context, Base.metadata)
+    finally:
+        engine.dispose()
+
+    # Alembic reports the version table it owns; the models do not describe it.
+    real = [
+        difference
+        for difference in differences
+        if "alembic_version" not in str(difference)
+    ]
+    assert real == [], f"the migrations and the models disagree: {real}"
