@@ -19,6 +19,7 @@ from flexi.models.database.db import Base
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
 from flexi.services.settings import SettingsService
+from flexi.theme import MARK_LIVE, TAIL, colour
 from tests.tui.conftest import WIDE, showing
 
 
@@ -375,3 +376,70 @@ async def test_the_marker_travels_rather_than_jumps(
             await pilot.pause()
 
     assert "marker" in asked, "the marker should be animated along the rail"
+
+
+def _rail_column(app: FlexiApp, rail: Rail) -> list[tuple[str, str]]:
+    """The glyph and the colour actually drawn on each row of the rail."""
+    strips = app.screen._compositor.render_strips()
+    column = rail.region.x + len(GUTTER)
+    drawn: list[tuple[str, str]] = []
+    for step in range(rail.region.height):
+        at = 0
+        for segment in strips[rail.region.y + step]:
+            if at <= column < at + len(segment.text):
+                style = segment.style
+                triplet = style.color.triplet if style and style.color else None
+                drawn.append(
+                    (segment.text[column - at], triplet.hex.upper() if triplet else "")
+                )
+                break
+            at += len(segment.text)
+    return drawn
+
+
+async def test_the_foot_of_the_rail_matches_the_line_above_it(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It is structure, not content. A brighter one drew the eye to the end."""
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(112, 40)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one(Wordmark).skip()
+        for _ in range(24):
+            await pilot.pause()
+
+        drawn = _rail_column(app, screen.query_one(Rail))
+        foot, hairline = drawn[-1], colour("c-line").upper()
+        assert foot[0] == TAIL
+        assert foot[1] == hairline
+
+
+async def test_the_segment_holding_the_marker_is_lit(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A question is two rows: itself, and the space under it.
+
+    Lighting the second picks out the whole segment the marker stands in, so the
+    live question reads as a stretch of rail rather than as a point on it.
+    """
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(112, 40)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one(Wordmark).skip()
+        for _ in range(24):
+            await pilot.pause()
+
+        rail = screen.query_one(Rail)
+        drawn = _rail_column(app, rail)
+        marker = round(rail.marker)
+
+        assert drawn[marker][0] == MARK_LIVE
+        assert drawn[marker][1] == colour("c-accent").upper()
+        assert drawn[marker + 1][1] == colour("c-muted").upper(), "the segment under it"
+        assert drawn[marker + 2][1] == colour("c-line").upper(), "and no further"
