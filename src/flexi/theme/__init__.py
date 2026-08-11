@@ -18,6 +18,19 @@ from typing import Final
 
 from textual.theme import Theme
 
+# The rail. Flexi's structural vocabulary, kept beside the palette because it
+# is part of the same design system: a line down the left margin, heavy through
+# the step being answered and hairline through the rest, with a marker at each
+# moment. The terminal prompts and the setup screen both draw from here, so the
+# two are visibly the same product rather than two that happen to share a name.
+RAIL_LIVE: Final = "┃"
+RAIL_SETTLED: Final = "│"
+MARK_LIVE: Final = "◆"
+MARK_DONE: Final = "●"
+MARK_GRAVE: Final = "▲"
+CURSOR: Final = "▸"
+TAIL: Final = "╰"
+
 THEME_NAME: Final = "flexi"
 THEME_PATH: Final[Path] = Path(__file__).with_name("flexi.tcss")
 
@@ -146,6 +159,13 @@ def flexi_theme() -> Theme:
 
 
 __all__ = [
+    "CURSOR",
+    "MARK_DONE",
+    "MARK_GRAVE",
+    "MARK_LIVE",
+    "RAIL_LIVE",
+    "RAIL_SETTLED",
+    "TAIL",
     "THEME_NAME",
     "THEME_PATH",
     "colour",
