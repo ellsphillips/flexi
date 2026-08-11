@@ -7,6 +7,7 @@ after their first day -- so it is the one most likely to rot unnoticed.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from textual.widgets import Input, Select
@@ -16,7 +17,7 @@ from flexi.components.wordmark import Wordmark
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
 from flexi.screens.dashboard import DashboardScreen
-from flexi.screens.setup import SetupScreen
+from flexi.screens.setup import CHROME_ROWS, QUESTION_ROWS, Question, SetupScreen
 from flexi.services.settings import SettingsService
 from tests.tui.conftest import WIDE, showing
 
@@ -151,3 +152,136 @@ async def test_the_wordmark_lands_and_the_questions_arrive_under_it(
         stored = SettingsService(session).get_settings()
         assert stored is not None, "the answers survived the animation"
         assert stored.leave_year_start == "04-06"
+
+
+def _logo_span(app: FlexiApp) -> tuple[int, int]:
+    """The first and last column the drawn wordmark occupies."""
+    rows = [
+        "".join(segment.text for segment in strip).rstrip()
+        for strip in app.screen._compositor.render_strips()
+    ]
+    ink = [row for row in rows if "█" in row]
+    assert ink, "the wordmark should be on screen"
+    return min(len(row) - len(row.lstrip()) for row in ink), max(
+        len(row) for row in ink
+    )
+
+
+@pytest.mark.parametrize("width", [92, 104, 120])
+async def test_the_wordmark_is_centred_over_the_questions(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch, width: int
+) -> None:
+    """It was as wide as its canvas, and the questions are wider than that.
+
+    A narrower widget sits against the left edge of the column it is in, which
+    is correctly centred as a block and visibly off to one side as a logo.
+    """
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(width, 34)) as pilot:
+        await pilot.pause()
+        showing(app, SetupScreen).query_one(Wordmark).skip()
+        for _ in range(24):
+            await pilot.pause()
+
+        left, right = _logo_span(app)
+        questions = app.screen.query_one("#setup-questions").region
+        assert abs((left + right) / 2 - (questions.x + questions.width / 2)) <= 1
+
+
+async def test_the_wordmark_does_not_move_sideways_when_the_questions_arrive(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reveal widens the column, and the logo used to slide left with it."""
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(112, 34)) as pilot:
+        await pilot.pause()
+        wordmark = showing(app, SetupScreen).query_one(Wordmark)
+        before = wordmark.region.x
+
+        wordmark.skip()
+        for _ in range(24):
+            await pilot.pause()
+
+        assert wordmark.region.x == before
+
+
+async def test_the_wordmark_rises_to_make_room(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The questions open out and push the logo up, rather than replacing it."""
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(112, 34)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        wordmark = screen.query_one(Wordmark)
+        questions = screen.query_one("#setup-questions")
+        assert questions.region.height == 0, "closed until the word has stopped"
+        settled = wordmark.region.y
+
+        wordmark.skip()
+        for _ in range(24):
+            await pilot.pause()
+
+        assert wordmark.region.y < settled, "the logo should have moved up"
+        assert questions.region.height > 0
+
+
+async def test_the_counted_height_is_the_real_one(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rise animates to a counted height, because measuring means a flash.
+
+    Counting is only safe while it agrees with what the stylesheet lays out, so
+    this is the thing that stops the two drifting apart in silence.
+    """
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(112, 40)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one(Wordmark).skip()
+        for _ in range(24):
+            await pilot.pause()
+
+        counted = len(screen.query(Question)) * QUESTION_ROWS + CHROME_ROWS
+        assert screen.query_one("#setup-questions").region.height == counted
+
+
+async def test_the_questions_open_out_rather_than_appear(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Headless, animations resolve at once, so the rise cannot be watched.
+
+    `test_the_wordmark_rises_to_make_room` checks where everything ends up, and
+    passes just as happily if the height is assigned instead of animated. What
+    can still be checked is that the rise is asked for -- and that is the whole
+    difference between a logo making room and a screen jumping.
+    """
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    asked: list[str] = []
+
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(112, 34)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        questions = screen.query_one("#setup-questions")
+        animate = questions.styles.animate
+
+        def spy(attribute: str, *args: Any, **kwargs: Any) -> Any:
+            asked.append(attribute)
+            return animate(attribute, *args, **kwargs)
+
+        monkeypatch.setattr(questions.styles, "animate", spy)
+        screen.query_one(Wordmark).skip()
+        await pilot.pause()
+
+    assert "height" in asked, "the questions should open out, not switch on"
+    assert "opacity" in asked, "and fade up as they do"

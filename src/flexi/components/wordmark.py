@@ -67,7 +67,7 @@ class Wordmark(Static):
     """`flexi`, computed in three dimensions, turning in and settling."""
 
     DEFAULT_CSS = """
-    Wordmark { width: auto; height: auto; }
+    Wordmark { width: auto; }
     """
 
     STRAPLINE_ROWS: Final = 2
@@ -84,17 +84,25 @@ class Wordmark(Static):
         self._landed = False
 
     def on_mount(self) -> None:
-        # Sized from the canvas rather than measured off the content. The canvas
-        # is a known, constant size, and leaving it to `height: auto` inside a
-        # vertical alongside the questions resolved it to a single row -- the
-        # animation played, correctly, one row tall.
-        self.styles.width = splash.CANVAS_WIDTH
+        # Height from the canvas rather than measured off the content: leaving
+        # it to `height: auto` inside a vertical alongside other things resolved
+        # it to a single row, and the animation played, correctly, one row tall.
+        # The width is left to the stylesheet, so the wordmark can be told to
+        # fill whatever it is centred over.
         self.styles.height = splash.CANVAS_HEIGHT + self.STRAPLINE_ROWS
         self._draw()
         if not self._plays:
             self._land()
             return
         self._timer = self.set_interval(FRAME_SECONDS, self._tick)
+
+    def on_resize(self) -> None:
+        """Redraw at the new width, so the centring follows the widget.
+
+        Without this a wordmark that is not animating is drawn once, before
+        layout has given it a width, and stays centred on the fallback.
+        """
+        self._draw()
 
     def _tick(self) -> None:
         self._elapsed += FRAME_SECONDS
@@ -132,7 +140,9 @@ class Wordmark(Static):
         would be nine hundred spans a frame, thirty times a second.
         """
         levels = splash.luminance(self._elapsed)
-        width = max(splash.CANVAS_WIDTH, len(splash.STRAPLINE))
+        # Centred on the widget, not on the canvas: the widget is as wide as
+        # whatever sits under it, and the logo has to be centred over that.
+        width = max(splash.CANVAS_WIDTH, len(splash.STRAPLINE), self.size.width)
         margin = " " * ((width - splash.CANVAS_WIDTH) // 2)
 
         art = Text(no_wrap=True)
