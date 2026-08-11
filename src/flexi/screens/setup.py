@@ -35,20 +35,60 @@ DIVISIONS = [
 GUTTER = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
 
+QUESTION_ROWS = 2
+"""Rows a question occupies: the row itself, and the one of margin under it."""
+
+CHROME_ROWS = 4
+"""Rows either side of the questions: the heading and the tail, with a spacer
+apiece."""
+
+RISE = 0.45
+"""Seconds the questions take to open out, and the wordmark to rise off them."""
+
+RAIL_WIDTH = 5
+ASK_WIDTH = 22
+FIELD_WIDTH = 24
+NOTE_WIDTH = 36
+FORM_WIDTH = RAIL_WIDTH + ASK_WIDTH + FIELD_WIDTH + NOTE_WIDTH
+"""The four columns of a question, and the width of everything on this screen.
+
+Written down rather than left to `width: auto`, because the wordmark has to be
+the same width as the questions to be centred over them. An auto-width column
+is exactly as wide as its widest child, so a narrower wordmark sat against its
+left edge -- correctly centred as a block, visibly off-centre as a logo."""
+
+
+def _sized(css: str) -> str:
+    """Fill the column widths into a stylesheet.
+
+    The widths have to be known in Python -- the wordmark is told to be as wide
+    as the questions so it can be centred over them -- and repeating them in the
+    CSS is how the two quietly stop agreeing.
+    """
+    for token, width in (
+        ("RAIL_W", RAIL_WIDTH),
+        ("ASK_W", ASK_WIDTH),
+        ("FIELD_W", FIELD_WIDTH),
+        ("NOTE_W", NOTE_WIDTH),
+        ("FORM_W", FORM_WIDTH),
+    ):
+        css = css.replace(token, str(width))
+    return css
+
 
 class Question(Horizontal):
     """One moment on the rail: a marker, a label, a field and a note."""
 
-    DEFAULT_CSS = """
+    DEFAULT_CSS = _sized("""
     Question {
         height: 1;
         width: auto;
         margin-bottom: 1;
     }
-    Question .rail { width: 5; color: $c-line; }
-    Question .ask { width: 22; color: $c-muted; }
+    Question .rail { width: RAIL_W; color: $c-line; }
+    Question .ask { width: ASK_W; color: $c-muted; }
     Question Input {
-        width: 24;
+        width: FIELD_W;
         height: 1;
         border: none;
         padding: 0;
@@ -56,15 +96,15 @@ class Question(Horizontal):
         color: $c-paper;
     }
     Question Select {
-        width: 24;
+        width: FIELD_W;
         height: 1;
     }
     Question Select SelectCurrent { border: none; padding: 0; }
-    Question .note { width: 36; padding-left: 2; color: $c-line; }
+    Question .note { width: NOTE_W; padding-left: 2; color: $c-line; }
     Question.-live .rail { color: $c-accent; text-style: bold; }
     Question.-live .ask { color: $c-paper; text-style: bold; }
     Question.-live .note { color: $c-muted; }
-    """
+    """)
 
     def __init__(self, ask: str, field: Widget, note: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -93,17 +133,28 @@ class SetupScreen(Screen[bool]):
         Binding("ctrl+s", "save", "Save"),
     ]
 
-    DEFAULT_CSS = """
+    DEFAULT_CSS = _sized("""
     SetupScreen { align: center middle; background: $c-ink; }
 
-    #setup { width: auto; height: auto; }
+    /* The questions are wider than the wordmark, so the block grows sideways
+       when they arrive. Centring the children keeps the wordmark on the middle
+       of the screen instead of against the left edge of a container that is
+       itself centred. */
+    #setup { width: FORM_W; height: auto; }
 
-    #setup-questions { width: auto; height: auto; display: none; }
-    #setup-questions.-arrived { display: block; }
+    /* No height and clipped, rather than `display: none`. The height is what is
+       animated: as it opens the block is re-centred every frame, so the
+       wordmark rises off the questions instead of jumping to make room. */
+    #setup-questions {
+        width: FORM_W;
+        height: 0;
+        opacity: 0;
+        overflow: hidden;
+    }
 
     #setup-heading { color: $c-paper; text-style: bold; padding-bottom: 1; }
     #setup-tail { color: $c-line; padding-top: 1; }
-    """
+    """)
 
     def __init__(
         self, services: Services, *, animate: bool = False, **kwargs: Any
@@ -157,11 +208,40 @@ class SetupScreen(Screen[bool]):
                     id="setup-tail",
                 )
 
+    def on_mount(self) -> None:
+        """Tell the wordmark how wide to be.
+
+        It has to be exactly as wide as the questions, because it centres its
+        own content and is centred over them. Left to itself it is as wide as
+        the canvas, which is narrower, and a narrower widget sits against the
+        left edge of the column -- correctly centred as a block, and visibly off
+        to one side as a logo. The screen is the only thing that knows both
+        widths, so the screen is what says it.
+        """
+        self.query_one(Wordmark).styles.width = FORM_WIDTH
+
     # -- arrival -----------------------------------------------------------
 
     def on_wordmark_landed(self, _event: Wordmark.Landed) -> None:
-        """The word has stopped. Bring the questions up under it."""
-        self.query_one("#setup-questions").add_class("-arrived")
+        """The word has stopped. Open the questions out underneath it.
+
+        The height is animated rather than switched on, because the whole block
+        is centred: growing it pushes the wordmark up a row at a time, which
+        reads as the logo making room. Switching it on moved everything at once
+        and read as a redraw.
+
+        The height is counted rather than measured. Measuring means laying the
+        questions out at full height first, which is the flash this exists to
+        avoid; counting is checked against the real thing by a test, so it
+        cannot drift without saying so.
+        """
+        questions = self.query_one("#setup-questions")
+        questions.add_class("-arrived")
+        rows = len(self.query(Question)) * QUESTION_ROWS + CHROME_ROWS
+        questions.styles.animate(
+            "height", value=rows, duration=RISE, easing="out_cubic"
+        )
+        questions.styles.animate("opacity", value=1.0, duration=RISE, delay=RISE / 2)
         self.query_one("#input-leave-start", Input).focus()
 
     def on_key(self, event: object) -> None:
