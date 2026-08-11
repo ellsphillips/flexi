@@ -31,6 +31,7 @@ class AdjustmentResult:
     success: bool
     message: str
     adjustment: BalanceAdjustment | None = None
+    warning: str | None = None
 
 
 class AdjustmentService:

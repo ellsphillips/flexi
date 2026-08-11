@@ -7,6 +7,7 @@ domain, the services and the widgets without a cycle.
 from __future__ import annotations
 
 import enum
+from dataclasses import dataclass
 from enum import StrEnum, auto
 
 
@@ -20,6 +21,42 @@ class StatusOption(StrEnum):
     def from_str(cls, action: str) -> StatusOption:
         """The option named by a word or by its initial."""
         return cls.ARRIVE if action.lower().startswith("a") else cls.DEPART
+
+
+class Division(StrEnum):
+    """A GOV.UK bank holiday division.
+
+    The three are a closed vocabulary and every other closed vocabulary in this
+    module is an enum, but this one was a bare string in nine places across six
+    files -- including a default argument that silently gave two of the three
+    regions the wrong calendar. A `StrEnum` keeps the stored value a string, so
+    nothing about the database or the GOV.UK payload changes.
+    """
+
+    ENGLAND_AND_WALES = "england-and-wales"
+    SCOTLAND = "scotland"
+    NORTHERN_IRELAND = "northern-ireland"
+
+    @property
+    def label(self) -> str:
+        """The name shown to a reader."""
+        return _DIVISION_LABELS[self]
+
+    @classmethod
+    def choices(cls) -> list[tuple[str, str]]:
+        """Label and value, for a Select or a click.Choice."""
+        return [(member.label, member.value) for member in cls]
+
+
+_DIVISION_LABELS: dict[Division, str] = {
+    Division.ENGLAND_AND_WALES: "England & Wales",
+    Division.SCOTLAND: "Scotland",
+    Division.NORTHERN_IRELAND: "Northern Ireland",
+}
+
+DEFAULT_DIVISION = Division.ENGLAND_AND_WALES
+"""What to assume before anybody has chosen. Named, so the assumption is
+visible wherever it is made rather than spelled out as a literal."""
 
 
 class ClockAction(enum.Enum):
@@ -46,7 +83,7 @@ class AbsenceType(enum.Enum):
     @property
     def label(self) -> str:
         """The name shown to a reader."""
-        return _ABSENCE_LABELS[self]
+        return _DETAILS[self].label
 
     @property
     def short(self) -> str:
@@ -55,12 +92,16 @@ class AbsenceType(enum.Enum):
         "Sickness" truncated to fit is "Sicknes", which reads as a typo rather
         than as an abbreviation.
         """
-        return _ABSENCE_SHORT[self]
+        return _DETAILS[self].short
 
     @property
     def token(self) -> str:
-        """The stem of this type's CSS colour tokens, e.g. ``annual``."""
-        return _ABSENCE_TOKENS[self]
+        """The stem of this type's CSS colour tokens, e.g. ``annual``.
+
+        `flexi` is stored and `toil` is displayed: the database value is
+        historical, and the colour token reads better beside the other four.
+        """
+        return _DETAILS[self].token
 
     @property
     def draws_down_entitlement(self) -> bool:
@@ -78,24 +119,6 @@ class AbsenceType(enum.Enum):
         return self is AbsenceType.OTHER
 
 
-_ABSENCE_LABELS: dict[AbsenceType, str] = {
-    AbsenceType.ANNUAL: "Annual leave",
-    AbsenceType.SICK: "Sickness",
-    AbsenceType.FLEXI: "TOIL",
-    AbsenceType.UNPAID: "Unpaid leave",
-    AbsenceType.OTHER: "Other",
-}
-
-_ABSENCE_SHORT: dict[AbsenceType, str] = {
-    AbsenceType.ANNUAL: "ANNUAL",
-    AbsenceType.SICK: "SICK",
-    AbsenceType.FLEXI: "TOIL",
-    AbsenceType.UNPAID: "UNPAID",
-    AbsenceType.OTHER: "OTHER",
-}
-
-# `flexi` is stored, `toil` is displayed and themed: the database value is
-# historical, and the colour token reads better beside the other four.
 CANCEL_WORD = "cancel"
 
 
@@ -109,13 +132,41 @@ def absence_from_word(word: str) -> AbsenceType | None:
     return _SPOKEN.get(word.strip().lower())
 
 
-_ABSENCE_TOKENS: dict[AbsenceType, str] = {
-    AbsenceType.ANNUAL: "annual",
-    AbsenceType.SICK: "sick",
-    AbsenceType.FLEXI: "toil",
-    AbsenceType.UNPAID: "unpaid",
-    AbsenceType.OTHER: "other",
+@dataclass(frozen=True, slots=True)
+class _Details:
+    """Everything an absence type carries besides its stored value."""
+
+    label: str
+    short: str
+    token: str
+
+
+_DETAILS: dict[AbsenceType, _Details] = {
+    AbsenceType.ANNUAL: _Details("Annual leave", "ANNUAL", "annual"),
+    AbsenceType.SICK: _Details("Sickness", "SICK", "sick"),
+    AbsenceType.FLEXI: _Details("TOIL", "TOIL", "toil"),
+    AbsenceType.UNPAID: _Details("Unpaid leave", "UNPAID", "unpaid"),
+    AbsenceType.OTHER: _Details("Other", "OTHER", "other"),
 }
+"""One table rather than three parallel ones.
+
+The label, the short name and the colour token were three dicts keyed by member,
+with a fourth derived from one of them. Adding a type and forgetting one was a
+KeyError on the booking path with mypy clean and the suite green: four places to
+remember and nothing to remind you.
+
+Carrying the data on the members themselves, through `__new__`, would be
+stronger still -- but it makes `AbsenceType("annual")` look like a four-argument
+constructor to a type checker, and reading a stored value back out of the
+database is the single commonest thing this enum does. One table and the check
+below buys the same guarantee without spending that.
+"""
+
+_undeclared = set(AbsenceType) - set(_DETAILS)
+if _undeclared:  # pragma: no cover - fails at import, before anything runs
+    _names = ", ".join(sorted(kind.name for kind in _undeclared))
+    _msg = f"AbsenceType members with no details declared: {_names}"
+    raise RuntimeError(_msg)
 
 
 class Verdict(enum.Enum):
@@ -151,7 +202,7 @@ class Verdict(enum.Enum):
 
 
 _SPOKEN: dict[str, AbsenceType] = {
-    **{token: kind for kind, token in _ABSENCE_TOKENS.items()},
+    **{kind.token: kind for kind in AbsenceType},
     "flexi": AbsenceType.FLEXI,
     "holiday": AbsenceType.ANNUAL,
     "al": AbsenceType.ANNUAL,

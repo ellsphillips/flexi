@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from datetime import date, time, timedelta
 
@@ -7,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.domain import leaveyear
 from flexi.domain.stitch import MONTHS_IN_YEAR
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
@@ -17,6 +19,12 @@ from flexi.models.database.db import (
 )
 
 LONGEST_MONTH = 31
+HOURS_IN_DAY = 24
+MINUTES_IN_HOUR = 60
+NOON = 12
+
+DEFAULT_AUTO_CLOSE = time(18, 0)
+"""When a session somebody forgot to close is closed for them."""
 
 
 class SettingsService:
@@ -53,11 +61,15 @@ class SettingsService:
         day_window_start: str | None = None,
         day_window_end: str | None = None,
     ) -> Settings:
-        # Both fields are normalised here rather than at the call sites, so
-        # nothing unreadable can reach the database whichever screen wrote it.
+        # Every parseable field is normalised here rather than at the call
+        # sites, so nothing unreadable can reach the database whichever screen
+        # wrote it. `auto_close_time` was the one that was not, and a stored
+        # "6pm" made every later launch die reading it back.
         month, day = parse_month_day(leave_year_start)
         normalised_start = f"{month:02d}-{day:02d}"
         working_days = ",".join(str(i) for i in parse_working_days(working_days))
+        hour, minute = parse_clock_time(auto_close_time)
+        auto_close_time = f"{hour:02d}:{minute:02d}"
 
         settings = self.get_settings()
         if settings is None:
@@ -126,11 +138,23 @@ class SettingsService:
         return weekday in self.get_working_day_indices()
 
     def get_auto_close_time(self) -> time:
+        """When to close a session nobody closed.
+
+        Falls back rather than raising, for the same reason
+        :meth:`get_working_day_indices` does -- and for one more. Values written
+        before this was validated are still in databases, and this is read from
+        `_open_database` on every command and from `App.on_mount` before a screen
+        is drawn. Raising here is not a settings error; it is an application that
+        will not open, with no way in to correct the setting.
+        """
         settings = self.get_settings()
         if settings is None:
-            return time(18, 0)
-        h, m = settings.auto_close_time.split(":")
-        return time(int(h), int(m))
+            return DEFAULT_AUTO_CLOSE
+        try:
+            hour, minute = parse_clock_time(settings.auto_close_time)
+        except ValueError:
+            return DEFAULT_AUTO_CLOSE
+        return time(hour, minute)
 
     def get_leave_year_start(self) -> tuple[int, int]:
         """Return (month, day) of leave year start."""
@@ -139,12 +163,9 @@ class SettingsService:
         return parse_month_day(raw)
 
     def active_leave_year(self, ref: date | None = None) -> int:
-        """Return the calendar year of the active leave year containing ref."""
-        if ref is None:
-            ref = wallclock.today()
-        m, d = self.get_leave_year_start()
-        start_this_year = date(ref.year, m, d)
-        return ref.year if ref >= start_this_year else ref.year - 1
+        """The calendar year the active leave year is filed under."""
+        month, day = self.get_leave_year_start()
+        return leaveyear.active_year(ref or wallclock.today(), month, day)
 
     # ---- entitlements ----
 
@@ -253,13 +274,55 @@ def format_working_days(indices: Sequence[int]) -> str:
     return ", ".join(DAY_NAMES[index][:3].title() for index in sorted(set(indices)))
 
 
+_CLOCK = re.compile(r"^(\d{1,2})(?:[:.](\d{1,2}))?\s*([ap]m?)?$", re.IGNORECASE)
+
+
+def parse_clock_time(raw: str) -> tuple[int, int]:
+    """Hour and minute from whatever somebody typed.
+
+    A field labelled "auto-close time" invites `6pm` as readily as `18:00`, so
+    it takes both. What it will not do is accept something it cannot read: this
+    used to be saved unchecked, and every later launch then died unpacking it.
+
+    Examples:
+        >>> parse_clock_time("18:00")
+        (18, 0)
+        >>> parse_clock_time("6pm")
+        (18, 0)
+        >>> parse_clock_time("9.30am")
+        (9, 30)
+        >>> parse_clock_time("18")
+        (18, 0)
+        >>> parse_clock_time("12am")
+        (0, 0)
+    """
+    found = _CLOCK.match(raw.strip())
+    if found is None:
+        msg = f"'{raw}' is not a time: use HH:MM, like 18:00"
+        raise ValueError(msg)
+
+    hour, minute = int(found.group(1)), int(found.group(2) or 0)
+    meridiem = (found.group(3) or "").lower()
+    if meridiem:
+        if not 1 <= hour <= NOON:
+            msg = f"'{raw}' is not a time: {hour} does not take am or pm"
+            raise ValueError(msg)
+        hour = hour % NOON + (NOON if meridiem.startswith("p") else 0)
+
+    if not 0 <= hour < HOURS_IN_DAY:
+        msg = f"Hour {hour} out of range 0-23"
+        raise ValueError(msg)
+    if not 0 <= minute < MINUTES_IN_HOUR:
+        msg = f"Minute {minute} out of range 0-59"
+        raise ValueError(msg)
+    return hour, minute
+
+
 def parse_month_day(raw: str) -> tuple[int, int]:
     """Parse a MM-DD or MM/DD string into (month, day).
 
     Raises ValueError if the string is not a valid month-day.
     """
-    import re
-
     m = re.match(r"^(\d{1,2})[/\-](\d{1,2})$", raw.strip())
     if not m:
         msg = f"Invalid date format '{raw}', expected MM-DD or MM/DD"

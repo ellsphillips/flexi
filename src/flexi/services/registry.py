@@ -7,11 +7,12 @@ widget never constructs its own and never reaches for the session behind it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.constants import DEFAULT_DIVISION
 from flexi.services.absence import AbsenceService
 from flexi.services.adjustments import (
     OPENING_BALANCE,
@@ -45,12 +46,12 @@ class Services:
         division = _division(settings)
         bank_holidays = BankHolidayService(session, division)
         absence = AbsenceService(session, settings, bank_holidays)
-        ledger = LedgerService(session, settings, division)
+        ledger = LedgerService(session, settings, bank_holidays)
         return cls(
             session=session,
             settings=settings,
             bank_holidays=bank_holidays,
-            clock=ClockService(session, _minimum_session()),
+            clock=ClockService(session, settings, bank_holidays, _minimum_session()),
             absence=absence,
             adjustments=AdjustmentService(session),
             ledger=ledger,
@@ -85,10 +86,6 @@ class Services:
             self.invalidate()
         return result
 
-    def now(self) -> datetime:
-        """The current local moment, in one place so tests can patch one thing."""
-        return wallclock.now()
-
 
 def _minimum_session() -> timedelta:
     """How long a session has to last to count.
@@ -104,5 +101,5 @@ def _division(settings: SettingsService) -> str:
     """The configured bank-holiday division, or the default before setup runs."""
     stored = settings.get_settings()
     if stored is None or not stored.bank_holiday_division:
-        return "england-and-wales"
+        return DEFAULT_DIVISION.value
     return stored.bank_holiday_division

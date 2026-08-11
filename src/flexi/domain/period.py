@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from enum import StrEnum
 
+from flexi.domain import leaveyear
 from flexi.domain.format import day_month, long_date
 
 MONTH_NAMES = (
@@ -60,7 +61,7 @@ class Granularity(StrEnum):
 
 def _clamp_day(year: int, month: int, day: int) -> date:
     """The given day of the given month, or its last day if it is shorter."""
-    return date(year, month, min(day, calendar.monthrange(year, month)[1]))
+    return leaveyear.clamp(year, month, day)
 
 
 def _add_months(anchor: date, months: int) -> date:
@@ -131,10 +132,7 @@ class Period:
 
     def _year_start(self) -> date:
         month, day = self.year_start
-        this_year = _clamp_day(self.anchor.year, month, day)
-        if self.anchor >= this_year:
-            return this_year
-        return _clamp_day(self.anchor.year - 1, month, day)
+        return leaveyear.start_of(self.anchor, month, day)
 
     def days(self) -> Iterator[date]:
         """Every date in the span, in order."""

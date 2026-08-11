@@ -45,6 +45,7 @@ from flexi.screens.modals import (
     ConfirmModal,
     GoToDateModal,
 )
+from flexi.services.outcome import Outcome
 from flexi.services.registry import Services
 
 GRANULARITY_KEYS = {
@@ -341,13 +342,12 @@ class DashboardScreen(Screen[None]):
 
     # -- reporting ---------------------------------------------------------
 
-    def _report(self, result: object, scope: Scope = Scope.CLOCK) -> None:
+    def _report(self, result: Outcome, scope: Scope = Scope.CLOCK) -> None:
         """Put a service result on the status bar, and redraw if it wrote."""
-        success = bool(getattr(result, "success", False))
-        message = _with_time(str(getattr(result, "message", "")), result)
-        warning = getattr(result, "warning", None)
-        if success and warning:
-            self.status(str(warning), Tone.WARN)
+        success = result.success
+        message = _with_time(result.message, result)
+        if success and result.warning:
+            self.status(result.warning, Tone.WARN)
         else:
             self.status(message, Tone.OK if success else Tone.ERR)
         if success:
@@ -360,13 +360,15 @@ class DashboardScreen(Screen[None]):
             footer.set_status(message, tone)
 
 
-def _with_time(message: str, result: object) -> str:
+def _with_time(message: str, result: Outcome) -> str:
     """Stamp a clock result with the time it recorded.
 
     "Clocked out" is a fact about the past tense; "Clocked out at 12:04" is a
     fact somebody can check against the clock on their wall, which is what makes
     a mistaken keystroke visible the moment it happens.
     """
+    # Only a clock result carries an event; the protocol does not promise one,
+    # and asking for it is cheaper than a second protocol for one field.
     event = getattr(result, "event", None)
     stamp = getattr(event, "timestamp", None)
     if stamp is None or not message.startswith("Clocked"):

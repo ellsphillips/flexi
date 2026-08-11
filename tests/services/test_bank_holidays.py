@@ -147,3 +147,72 @@ class TestTitleLookup:
         svc = BankHolidayService(session, "england-and-wales")
         assert svc.get_title(date(2026, 12, 25)) == "Christmas Day"
         assert svc.get_title(date(2026, 6, 15)) is None
+
+
+class TestFillingTheCache:
+    """Nothing in the application ever filled it.
+
+    `ensure_cache` had no caller in `src/`; the only route to a populated cache
+    was a Textual command-palette entry, so a person who used Flexi from the
+    command line could not reach one. An empty cache is not a quiet state: every
+    leave booking is refused, and every bank holiday is counted as a working day
+    nobody worked.
+    """
+
+    def test_it_fetches_when_there_is_nothing_at_all(self, session: Session) -> None:
+        svc = BankHolidayService(session, "england-and-wales")
+        assert svc.is_available() is False
+
+        # The suite refuses outbound requests, so this is the offline first run.
+        assert svc.fill_if_empty() is False
+
+    def test_it_does_not_fetch_when_there_is_already_a_calendar(
+        self, session: Session
+    ) -> None:
+        """Stale is not empty.
+
+        A stale calendar answers correctly for the year it holds, so refreshing
+        it on the command line would put a network timeout in front of `flexi
+        clock in` once a week.
+        """
+        session.add(
+            BankHolidayCache(
+                division="england-and-wales",
+                date=date(2020, 1, 1),
+                title="ancient",
+                fetched_at=datetime(2020, 1, 1),
+            )
+        )
+        session.commit()
+        svc = BankHolidayService(session, "england-and-wales")
+
+        assert svc._cache_is_fresh() is False, "the fixture should be stale"
+        assert svc.fill_if_empty() is True, "and stale is good enough to keep"
+
+
+class TestTellingEmptyFromAbsent:
+    def test_no_calendar_is_not_the_same_as_no_holidays(self, session: Session) -> None:
+        """They used to be the same mapping, and the difference is a real day.
+
+        `LedgerService` queried the cache table directly, so an absent calendar
+        looked exactly like a span with no holidays in it -- and a fresh install
+        booked a full day's deficit against every bank holiday without a word.
+        """
+        svc = BankHolidayService(session, "england-and-wales")
+        assert svc.titles_between(date(2026, 1, 1), date(2026, 12, 31)) is None
+
+        session.add(
+            BankHolidayCache(
+                division="england-and-wales",
+                date=date(2026, 12, 25),
+                title="Christmas Day",
+                fetched_at=datetime(2026, 1, 1),
+            )
+        )
+        session.commit()
+
+        found = svc.titles_between(date(2026, 1, 1), date(2026, 6, 30))
+        assert found == {}, "a span with none in it is an empty mapping"
+        assert svc.titles_between(date(2026, 1, 1), date(2026, 12, 31)) == {
+            date(2026, 12, 25): "Christmas Day"
+        }

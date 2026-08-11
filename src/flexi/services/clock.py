@@ -10,6 +10,8 @@ from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 from flexi.models.database.moment import columns, moment_of
+from flexi.services.bank_holidays import BankHolidayService
+from flexi.services.settings import SettingsService
 
 SECONDS_PER_MINUTE = 60
 
@@ -30,6 +32,7 @@ class ClockResult:
     success: bool
     message: str
     event: ClockEvent | None = None
+    warning: str | None = None
     session: WorkSession | None = None
 
 
@@ -43,9 +46,21 @@ class ClockService:
     def __init__(
         self,
         session: Session,
-        minimum_session: timedelta = DEFAULT_MINIMUM_SESSION,
+        settings: SettingsService,
+        holidays: BankHolidayService,
+        minimum_session: timedelta,
     ) -> None:
+        """Every collaborator is required, and none of them has a default.
+
+        This service used to build its own `BankHolidayService` inside
+        `clock_in`, which took the default division and ignored the configured
+        one, and to accept a default minimum that disagreed with the value the
+        registry hands every other surface. Both were invisible because both
+        had somewhere plausible to fall back to.
+        """
         self._session = session
+        self._settings = settings
+        self._holidays = holidays
         self._minimum = minimum_session
 
     def get_open_session(self) -> WorkSession | None:
@@ -60,7 +75,7 @@ class ClockService:
         """Run stale-session cleanup before clock actions."""
         from flexi.services.startup import run_startup_cleanup
 
-        run_startup_cleanup(self._session)
+        run_startup_cleanup(self._session, self, self._settings.get_auto_close_time())
 
     def clock_in(
         self,
@@ -77,11 +92,7 @@ class ClockService:
         work_date = moment.date()
 
         # Block clocking on bank holidays (if data available)
-        from flexi.services.bank_holidays import BankHolidayService
-
-        bh_svc = BankHolidayService(self._session)
-        bh = bh_svc.is_bank_holiday(work_date)
-        if bh is True:
+        if self._holidays.is_bank_holiday(work_date) is True:
             return ClockResult(
                 success=False, message="Cannot clock in on a bank holiday"
             )

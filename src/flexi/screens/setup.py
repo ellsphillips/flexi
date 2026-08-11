@@ -31,14 +31,9 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, Select, Static
 
 from flexi.components.wordmark import Wordmark
+from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.services.registry import Services
 from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
-
-DIVISIONS = [
-    ("England & Wales", "england-and-wales"),
-    ("Scotland", "scotland"),
-    ("Northern Ireland", "northern-ireland"),
-]
 
 GUTTER = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
@@ -246,7 +241,11 @@ class SetupScreen(Screen[bool]):
             ),
             Question(
                 "Bank holidays",
-                Select(DIVISIONS, value="england-and-wales", id="select-division"),
+                Select(
+                    Division.choices(),
+                    value=DEFAULT_DIVISION.value,
+                    id="select-division",
+                ),
                 "the GOV.UK division to follow",
                 id="ask-division",
             ),

@@ -18,7 +18,7 @@ from flexi.cli import ui
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.backup import snapshot, verify
 from flexi.models.database.db import Base
-from flexi.services.clock import ClockService
+from flexi.services.registry import Services
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def populated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             __import__("sqlalchemy").text("INSERT INTO alembic_version VALUES ('0010')")
         )
         session.commit()
-        clock = ClockService(session)
+        clock = Services.build(session).clock
         clock.clock_in()
     engine.dispose()
     return db

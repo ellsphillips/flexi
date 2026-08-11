@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
+from flexi.domain.wallet import Pace
 from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import Services
 
@@ -109,7 +110,7 @@ def test_pace_marks_where_an_even_spread_would_be(services: Services) -> None:
     #  Half a year gone, none of it spent: behind pace, which is the warning.
     assert annual.pace is not None
     assert 11.0 < annual.pace < 14.0
-    assert annual.ahead_of_pace is False
+    assert annual.pace_state is Pace.ON_TRACK
 
 
 def test_an_unrecorded_entitlement_reads_as_unknown_not_zero(session: Session) -> None:

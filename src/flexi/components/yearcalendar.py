@@ -23,7 +23,8 @@ from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
 from flexi import wallclock
-from flexi.constants import Portion
+from flexi.config import CONFIG
+from flexi.constants import AbsenceType, Portion
 from flexi.domain.ledger import DayLedger
 from flexi.domain.stitch import (
     DAYS_IN_WEEK,
@@ -433,9 +434,10 @@ def legend() -> Text:
     already looking.
     """
     text = Text(no_wrap=False, end="")
+    booking = [(CONFIG.hotkeys.book(kind), kind.token) for kind in AbsenceType]
     for row in (
-        [("A", "annual"), ("S", "sick"), ("T", "toil")],
-        [("U", "unpaid"), ("O", "other"), ("x", "remove")],
+        booking[:3],
+        [*booking[3:], ("x", "remove")],
         [("␣", "half"), ("e", "edit"), ("g", "go to")],
     ):
         for index, (key, what) in enumerate(row):

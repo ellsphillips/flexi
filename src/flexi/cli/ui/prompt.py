@@ -58,7 +58,7 @@ def interactive() -> bool:
 
 
 @contextmanager
-def _unbuffered() -> Iterator[int | None]:
+def _unbuffered() -> Iterator[int]:
     """The terminal delivering keys as they are struck.
 
     ``cbreak`` rather than ``raw``: it leaves signal handling on, so ctrl-c
@@ -68,9 +68,12 @@ def _unbuffered() -> Iterator[int | None]:
     try:
         import termios
         import tty
-    except ImportError:  # pragma: no cover - Windows
-        yield None
-        return
+    except ImportError as missing:  # pragma: no cover - not POSIX
+        # Said rather than worked around. There was a Windows key reader here,
+        # untestable by a suite that does not run on Windows and therefore an
+        # untested claim of support. Refusing is honest; guessing is not.
+        msg = "flexi's prompts need a POSIX terminal"
+        raise RuntimeError(msg) from missing
 
     descriptor = sys.stdin.fileno()
     saved = termios.tcgetattr(descriptor)
@@ -95,25 +98,8 @@ def _read_posix(descriptor: int) -> Key:
     return decode(sequence)
 
 
-def _read_windows() -> Key:  # pragma: no cover - Windows
-    """Windows sends a lead byte and then the key, rather than an ANSI sequence.
-
-    The ``getwch`` calls are unresolvable when type checking on any other
-    platform, which is what the ignores are for -- not a doubt about the call.
-    """
-    import msvcrt
-
-    struck: str = msvcrt.getwch()  # type: ignore[attr-defined]
-    if struck in ("\x00", "\xe0"):
-        second: str = msvcrt.getwch()  # type: ignore[attr-defined]
-        return {"H": Key.UP, "P": Key.DOWN}.get(second, Key.UNKNOWN)
-    return decode(struck)
-
-
-def read_key(descriptor: int | None) -> Key:
-    """One key press, however this platform delivers it."""
-    if descriptor is None:  # pragma: no cover - Windows
-        return _read_windows()
+def read_key(descriptor: int) -> Key:
+    """One key press, as this platform delivers it."""
     return _read_posix(descriptor)
 
 

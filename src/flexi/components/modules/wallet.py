@@ -19,16 +19,8 @@ from flexi.components.common import Gauge, Tone
 from flexi.components.modules.base import Module
 from flexi.constants import AbsenceType
 from flexi.domain.format import days, delta, signed_days
+from flexi.domain.wallet import Allowance, Pace, WalletData
 from flexi.messages import Scope
-from flexi.services.wallet import Allowance, WalletData
-
-PACE_TOLERANCE = 0.15
-"""How far ahead of an even spread an allowance may run before it is amber.
-
-Fifteen per cent of a year's entitlement is roughly a long weekend on twenty-five
-days — close enough to the noise of when school holidays fall that flagging
-anything tighter would cry wolf every April.
-"""
 
 TRACKED: tuple[AbsenceType, ...] = (
     AbsenceType.ANNUAL,
@@ -150,10 +142,11 @@ def _pace_tone(allowance: Allowance) -> Tone:
     """
     if allowance.remaining is not None and allowance.remaining <= 0:
         return Tone.ERR
-    if allowance.pace is None or allowance.total is None:
-        return Tone.NEUTRAL
-    overspend = (allowance.used - allowance.pace) / allowance.total
-    return Tone.WARN if overspend > PACE_TOLERANCE else Tone.OK
+    return {
+        Pace.UNKNOWN: Tone.NEUTRAL,
+        Pace.ON_TRACK: Tone.OK,
+        Pace.AHEAD: Tone.WARN,
+    }[allowance.pace_state]
 
 
 def _period_subtitle(data: WalletData) -> str:

@@ -16,7 +16,14 @@ REQUEST_TIMEOUT = 5.0
 class BankHolidayService:
     """Fetch, cache (in DB), and validate GOV.UK bank holidays."""
 
-    def __init__(self, session: Session, division: str = "england-and-wales") -> None:
+    def __init__(self, session: Session, division: str) -> None:
+        """The division is required.
+
+        It defaulted to England & Wales, and every caller that forgot to pass
+        one got the English calendar silently. `ClockService` was one of them,
+        so the bank-holiday guard was inverted for Scotland and Northern
+        Ireland: blocked on an English holiday, allowed on their own.
+        """
         self._session = session
         self._division = division
 
@@ -73,10 +80,44 @@ class BankHolidayService:
         return True
 
     def ensure_cache(self) -> bool:
-        """Refresh cache if stale. Returns True if cache is available."""
+        """Refresh the cache if stale. True if there is data to read afterwards.
+
+        Nothing in the application called this. The only route to a populated
+        cache was a command-palette entry, so a person who only ever used the
+        command line could not reach one -- and an empty cache is not a quiet
+        state. `book_range` refuses every day of it, and the ledger counts every
+        bank holiday as a working day nobody worked.
+        """
         if self._cache_is_fresh():
             return True
         return self.fetch_and_cache()
+
+    def fill_if_empty(self) -> bool:
+        """Fetch only when there is nothing at all. True if data is available.
+
+        The difference between empty and stale matters on the command line. A
+        stale cache still answers every question correctly for the year it
+        holds, so paying a network round trip for it would put a timeout in
+        front of `flexi clock in` once a week. An empty one answers nothing.
+        """
+        if self.is_available():
+            return True
+        return self.fetch_and_cache()
+
+    def titles_between(self, start: date, end: date) -> dict[date, str] | None:
+        """The holidays in a span, or None when there is no calendar at all.
+
+        Returning an empty mapping for both cases is what let a fresh install
+        book a full day's deficit against every bank holiday without saying so.
+        """
+        if not self.is_available():
+            return None
+        stmt = select(BankHolidayCache.date, BankHolidayCache.title).where(
+            BankHolidayCache.division == self._division,
+            BankHolidayCache.date >= start,
+            BankHolidayCache.date <= end,
+        )
+        return {row.date: row.title for row in self._session.execute(stmt)}
 
     # ---- validation helpers ----
 
