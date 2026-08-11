@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.constants import DEFAULT_DIVISION
 from flexi.services.absence import AbsenceService
 from flexi.services.adjustments import (
     OPENING_BALANCE,
@@ -100,5 +101,5 @@ def _division(settings: SettingsService) -> str:
     """The configured bank-holiday division, or the default before setup runs."""
     stored = settings.get_settings()
     if stored is None or not stored.bank_holiday_division:
-        return "england-and-wales"
+        return DEFAULT_DIVISION.value
     return stored.bank_holiday_division

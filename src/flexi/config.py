@@ -4,8 +4,10 @@ Distinct from *settings*, which live in the database because the balance depends
 on them. Config is preference: which key clocks in, which period opens.
 
 Bindings read :data:`CONFIG` at class-definition time, so this module is
-imported before any widget module and must import nothing from Flexi except
-:mod:`flexi.locations`.
+imported before any widget module and must import nothing from Flexi that could
+import it back. :mod:`flexi.locations` and :mod:`flexi.constants` are the two it
+may reach for: both are leaves that import nothing from Flexi at all, which is
+the property that matters rather than the count.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from flexi.constants import AbsenceType
 from flexi.locations import config_file
 
 
@@ -55,6 +58,16 @@ class Hotkeys(BaseModel):
     book_unpaid: str = "U"
     book_other: str = "O"
     book_absence: str = "a"
+
+    def book(self, kind: AbsenceType) -> str:
+        """The key that books one kind of absence.
+
+        Derived from the type rather than restated beside it, so a legend or a
+        prompt cannot disagree with the binding it is describing. The field
+        names follow the display token, which is why TOIL is `book_toil` while
+        the stored value is `flexi`.
+        """
+        return str(getattr(self, f"book_{kind.token}"))
 
 
 class Defaults(BaseModel):

@@ -8,13 +8,8 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
+from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.services.registry import Services
-
-DIVISIONS = [
-    ("England & Wales", "england-and-wales"),
-    ("Scotland", "scotland"),
-    ("Northern Ireland", "northern-ireland"),
-]
 
 
 class SettingsScreen(Screen[bool]):
@@ -65,7 +60,9 @@ class SettingsScreen(Screen[bool]):
         settings = self._svc.get_settings()
         leave_start = settings.leave_year_start if settings else "01-01"
         working = settings.working_days if settings else "0,1,2,3,4"
-        division = settings.bank_holiday_division if settings else "england-and-wales"
+        division = (
+            settings.bank_holiday_division if settings else DEFAULT_DIVISION.value
+        )
         auto_close = settings.auto_close_time if settings else "18:00"
 
         with Container(id="settings-dialog"):
@@ -81,7 +78,7 @@ class SettingsScreen(Screen[bool]):
 
             with Horizontal(classes="settings-row"):
                 yield Label("Bank holiday region")
-                yield Select(DIVISIONS, value=division, id="select-division")
+                yield Select(Division.choices(), value=division, id="select-division")
 
             with Horizontal(classes="settings-row"):
                 yield Label("Auto-close time")

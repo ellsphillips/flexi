@@ -8,6 +8,8 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
+from flexi.config import CONFIG
+from flexi.constants import DEFAULT_DIVISION, AbsenceType, Division
 from flexi.models.database.app import get_session
 from flexi.services.settings import SettingsService, parse_month_day
 
@@ -260,3 +262,36 @@ def test_a_stored_time_that_cannot_be_read_falls_back(
     session.commit()
 
     assert svc.get_auto_close_time() == time(18, 0)
+
+
+# ---- the closed vocabularies ----
+
+
+def test_every_absence_type_declares_its_details() -> None:
+    """Adding a member and forgetting the table used to be a KeyError.
+
+    On the booking path, with mypy clean and the suite green. The guard is at
+    import time, so this test is really asserting that the guard is still there
+    and still reachable.
+    """
+    for kind in AbsenceType:
+        assert kind.label, kind.name
+        assert kind.short, kind.name
+        assert kind.token, kind.name
+
+
+def test_every_absence_type_has_a_key_that_books_it() -> None:
+    """The year calendar's legend derives from this rather than restating it.
+
+    It used to hardcode `[("A", "annual"), ("S", "sick"), ("T", "toil")]` while
+    `CONFIG.hotkeys` owned those keys, so rebinding one made the legend lie.
+    """
+    keys = {kind: CONFIG.hotkeys.book(kind) for kind in AbsenceType}
+
+    assert all(keys.values()), keys
+    assert len(set(keys.values())) == len(keys), f"two types share a key: {keys}"
+
+
+def test_every_division_has_a_label() -> None:
+    assert [value for _, value in Division.choices()] == [d.value for d in Division]
+    assert DEFAULT_DIVISION in set(Division)
