@@ -237,13 +237,28 @@ class Portion(enum.Enum):
     @property
     def label(self) -> str:
         """The name shown to a reader."""
-        return _PORTION_LABELS[self]
+        return _PORTION_LABELS[self].label
+
+    @property
+    def noun(self) -> str:
+        """What one of these is called when it is being counted.
+
+        "2 mornings of TOIL" rather than "2 Mornings", and "5 days" rather than
+        "5 full days", which is only worth saying beside a half.
+        """
+        return _PORTION_LABELS[self].noun
 
 
-_PORTION_LABELS: dict[Portion, str] = {
-    Portion.FULL: "Full day",
-    Portion.AM: "Morning",
-    Portion.PM: "Afternoon",
+@dataclass(frozen=True, slots=True)
+class _PortionNames:
+    label: str
+    noun: str
+
+
+_PORTION_LABELS: dict[Portion, _PortionNames] = {
+    Portion.FULL: _PortionNames("Full day", "day"),
+    Portion.AM: _PortionNames("Morning", "morning"),
+    Portion.PM: _PortionNames("Afternoon", "afternoon"),
 }
 
 

@@ -299,6 +299,7 @@ async def test_removing_a_lot_asks_first(app_factory: AppFactory) -> None:
         await pilot.press("x")
         await pilot.pause()
         assert isinstance(app.screen, ConfirmModal)
+        assert "5 days of annual leave" in screen_text(app), "and says what would go"
         assert (
             len(
                 app.services.absence.in_range(

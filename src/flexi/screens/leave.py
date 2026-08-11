@@ -332,13 +332,19 @@ class LeaveScreen(Screen[None]):
         )
 
     def action_remove(self) -> None:
+        """Clear the selection, asking first when there is a lot of it.
+
+        The question says what would go rather than how much: "9 bookings" is a
+        number somebody has to take on trust, and nine days of annual leave and
+        nine sick mornings are not the same thing to agree to.
+        """
         selection = self.selection
-        booked = self._services.absence.in_range(selection.start, selection.end)
-        if not booked:
+        plan = self._services.absence.removal_plan(selection.start, selection.end)
+        if plan.is_empty:
             self.status("Nothing booked to remove", Tone.WARN)
             return
 
-        if len(booked) <= REMOVE_THRESHOLD:
+        if plan.count <= REMOVE_THRESHOLD:
             self._clear(selection)
             return
 
@@ -348,8 +354,8 @@ class LeaveScreen(Screen[None]):
 
         self.app.push_screen(
             ConfirmModal(
-                f"Remove {len(booked)} bookings from {selection.label()}?",
-                title="Remove leave",
+                f"Removing from {selection.label()}\n\n{plan.summary}",
+                title="Remove leave?",
             ),
             callback=confirm,
         )

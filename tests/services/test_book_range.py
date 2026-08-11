@@ -121,3 +121,46 @@ def test_a_single_day_reads_as_a_day(services: Services) -> None:
     """'1 day booked', not '1 days booked'."""
     result = services.absence.book_range(MONDAY, MONDAY, AbsenceType.SICK)
     assert result.message("booked") == "1 day booked"
+
+
+def test_a_removal_plan_names_what_would_go(services: Services) -> None:
+    """A bare count is something to take on trust; a list is something to read.
+
+    Nine days of annual leave and nine sick mornings are not the same thing to
+    agree to, and the old question could not tell them apart.
+    """
+    services.absence.book_range(MONDAY, date(2026, 8, 12), AbsenceType.ANNUAL)
+    services.absence.book_range(
+        date(2026, 8, 13), FRIDAY, AbsenceType.FLEXI, Portion.AM
+    )
+
+    plan = services.absence.removal_plan(MONDAY, FRIDAY)
+
+    assert plan.count == 5
+    assert not plan.is_empty
+    assert plan.summary == ("  3 days of annual leave\n  2 mornings of TOIL")
+
+
+def test_a_removal_plan_removes_nothing(services: Services) -> None:
+    """Planning is the half that does not write, on this side too."""
+    services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+
+    services.absence.removal_plan(MONDAY, FRIDAY)
+
+    assert len(services.absence.in_range(MONDAY, FRIDAY)) == 5
+
+
+def test_an_empty_removal_plan_is_empty(services: Services) -> None:
+    plan = services.absence.removal_plan(MONDAY, FRIDAY)
+    assert plan.is_empty
+    assert plan.count == 0
+    assert plan.summary == ""
+
+
+def test_one_of_a_kind_reads_in_the_singular(services: Services) -> None:
+    services.absence.book_range(MONDAY, MONDAY, AbsenceType.SICK)
+    services.absence.book_range(FRIDAY, FRIDAY, AbsenceType.FLEXI, Portion.PM)
+
+    plan = services.absence.removal_plan(MONDAY, FRIDAY)
+
+    assert plan.summary == ("  1 day of sickness\n  1 afternoon of TOIL")

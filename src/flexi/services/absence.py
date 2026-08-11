@@ -213,6 +213,39 @@ class AbsencePlan:
         return f"This takes {deficit(abs(after))}"
 
 
+@dataclass(frozen=True, slots=True)
+class RemovalPlan:
+    """What clearing a span would take back, decided without deleting anything.
+
+    The counterpart to `AbsencePlan`. Booking a fortnight says which days it
+    will take and what they cost; removing one used to say "Remove 9 bookings?"
+    — a number with no way to tell nine days of annual leave from nine sick
+    mornings, which is the whole of what somebody is being asked to approve.
+    """
+
+    start: date
+    end: date
+    lots: tuple[tuple[AbsenceType, Portion, int], ...]
+    """Each kind and portion present, with how many of it, in booking order."""
+
+    @property
+    def count(self) -> int:
+        """How many bookings would go."""
+        return sum(count for _kind, _portion, count in self.lots)
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.lots
+
+    @property
+    def summary(self) -> str:
+        """One line per kind, so nine of one is never nine of another."""
+        return "\n".join(
+            f"  {count} {plural(count, portion.noun)} of {kind.phrase}"
+            for kind, portion, count in self.lots
+        )
+
+
 class AbsenceService:
     """Manage absence markers."""
 
@@ -566,6 +599,16 @@ class AbsenceService:
                 available_toil_days=available_toil_days,
             )
         )
+
+    def removal_plan(self, start: date, end: date) -> RemovalPlan:
+        """What clearing a span would take back, without taking any of it back."""
+        tally: dict[tuple[AbsenceType, Portion], int] = {}
+        for row in self.in_range(start, end):
+            tally[row.absence_type, row.portion] = (
+                tally.get((row.absence_type, row.portion), 0) + 1
+            )
+        lots = tuple((kind, portion, count) for (kind, portion), count in tally.items())
+        return RemovalPlan(start, end, lots)
 
     def clear_range(self, start: date, end: date) -> RangeResult:
         """Remove every booking in a span.
