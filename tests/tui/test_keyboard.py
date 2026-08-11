@@ -22,8 +22,6 @@ from flexi.screens.insights import InsightsScreen
 from flexi.screens.modals import FlexiModal
 from tests.tui.conftest import WIDE, AppFactory, showing
 
-pytestmark = pytest.mark.usefixtures("_frozen")
-
 
 def modal_classes() -> list[type[FlexiModal[Any]]]:
     """Every modal in the package, found by walking it."""

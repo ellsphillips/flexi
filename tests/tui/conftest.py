@@ -29,8 +29,15 @@ WIDE = (120, 36)
 type AppFactory = Callable[[], FlexiApp]
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def _frozen() -> Iterator[None]:
+    """Autouse, because the docstring above has always claimed it was.
+
+    It reached tests only as a dependency of `seeded_db`, so the twenty Pilot
+    tests in `test_first_run.py` — which build their own database — ran on the
+    real system clock, and the `usefixtures("_frozen")` marks in the files that
+    do take `seeded_db` were doing nothing at all.
+    """
     with time_machine.travel(NOW, tick=False):
         yield
 

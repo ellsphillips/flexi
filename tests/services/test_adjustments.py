@@ -5,45 +5,26 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from sqlalchemy.orm import Session
+import time_machine
 
 from flexi import wallclock
-from flexi.models.database.db import BankHolidayCache
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services
+from tests.services.conftest import CONTRACTED, Configured, work
 
 MONDAY = date(2026, 6, 8)
 FRIDAY = date(2026, 6, 12)
-CONTRACTED = timedelta(minutes=444)
+NEW_YEAR = ((date(2026, 1, 1), "New Year's Day"),)
+"""A holiday well away from the test week, so the calendar answers rather than
+saying it has no data."""
 
 
 @pytest.fixture
-def services(session: Session) -> Services:
+def services(configure: Configured) -> Services:
     """A leave year that starts on the Monday of the test week."""
-    built = Services.build(session)
-    built.settings.save_settings(
-        leave_year_start="06-08",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+    return configure(
+        leave_year_start="06-08", holidays=((date(2026, 1, 1), "New Year's Day"),)
     )
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=date(2026, 1, 1),
-            title="New Year's Day",
-            fetched_at=datetime(2026, 1, 1, 9, 0),
-        )
-    )
-    session.commit()
-    return Services.build(session)
-
-
-def work(services: Services, when: date, hours: float) -> None:
-    start = datetime.combine(when, datetime.min.time(), tzinfo=UTC).replace(hour=9)
-    services.clock.clock_in(now=start)
-    services.clock.clock_out(now=start + timedelta(hours=hours))
-    services.invalidate()
 
 
 # -- the arithmetic --------------------------------------------------------
@@ -142,10 +123,22 @@ def test_zeroing_defaults_to_yesterday(services: Services) -> None:
 
     Absorbing today's contracted hours before they have been worked would leave
     the evening looking like unearned overtime.
+
+    The whole body used to sit inside `if result.success:`, so the two failures
+    it exists to catch — defaulting to today, or refusing outright — made it
+    pass having asserted nothing at all.
     """
-    result = services.zero_balance()
-    if result.success:
+    tuesday = MONDAY + timedelta(days=1)
+    work(services, MONDAY, hours=9)
+    work(services, tuesday, hours=9)
+    services.invalidate()
+
+    with time_machine.travel(datetime(2026, 6, 10, 11, 0, tzinfo=UTC), tick=False):
+        result = services.zero_balance()
+
+        assert result.success, result.message
         assert result.adjustment is not None
+        assert result.adjustment.date == tuesday
         assert result.adjustment.date == wallclock.today() - timedelta(days=1)
 
 

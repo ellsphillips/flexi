@@ -118,6 +118,19 @@ class TestHelpers:
 
 
 class TestLeaveEntitlements:
+    def test_they_are_listed_in_year_order(self, svc: SettingsService) -> None:
+        """`_add_next_year` takes `ents[-1]`, so the order is load-bearing.
+
+        Moved here from `tests/tui/test_settings_screen.py`, which held three
+        service round-trips under a name that promised a screen test.
+        """
+        svc.save_entitlement(2027, 25.0)
+        svc.save_entitlement(2026, 22.0)
+
+        years = [row.year for row in svc.all_entitlements()]
+
+        assert years == [2026, 2027]
+
     def test_half_day_support(self, svc: SettingsService) -> None:
         ent = svc.save_entitlement(2026, 25.5)
         assert ent.days == 25.5

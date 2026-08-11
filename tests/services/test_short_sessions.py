@@ -14,6 +14,7 @@ from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.services.clock import ClockService
 from flexi.services.registry import Services
 from flexi.services.startup import run_startup_cleanup
+from tests.services.conftest import Configured
 
 DAY = date(2026, 8, 10)
 NINE = datetime.combine(DAY, datetime.min.time(), tzinfo=UTC).replace(hour=9)
@@ -34,15 +35,8 @@ def _on_the_day() -> Iterator[None]:
 
 
 @pytest.fixture
-def services(session: Session) -> Services:
-    built = Services.build(session)
-    built.settings.save_settings(
-        leave_year_start="10-20",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
-    )
-    return Services.build(session)
+def services(configure: Configured) -> Services:
+    return configure()
 
 
 def rows(session: Session) -> list[WorkSession]:

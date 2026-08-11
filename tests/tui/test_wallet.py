@@ -4,15 +4,12 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
 from textual.widgets import Input, RadioButton, RadioSet
 
 from flexi.components.common import Gauge
 from flexi.constants import AbsenceType, Portion
 from flexi.screens.modals import AbsenceModal
 from tests.tui.conftest import WIDE, AppFactory, showing, status_text
-
-pytestmark = pytest.mark.usefixtures("_frozen")
 
 
 async def test_every_allowance_has_a_gauge(app_factory: AppFactory) -> None:

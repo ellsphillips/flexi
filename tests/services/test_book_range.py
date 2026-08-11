@@ -2,41 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-
-import pytest
-from sqlalchemy.orm import Session
+from datetime import date, timedelta
 
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import Services
+from tests.services.conftest import DEFAULT_HOLIDAY
 
 MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
 NEXT_FRIDAY = date(2026, 8, 21)
-BANK_HOLIDAY = date(2026, 8, 31)
-
-
-@pytest.fixture
-def services(session: Session) -> Services:
-    built = Services.build(session)
-    built.settings.save_settings(
-        leave_year_start="10-20",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
-    )
-    built.settings.save_entitlement(2025, 25.0)
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=BANK_HOLIDAY,
-            title="Summer bank holiday",
-            fetched_at=datetime(2026, 1, 1, 9, 0),
-        )
-    )
-    session.commit()
-    return Services.build(session)
+BANK_HOLIDAY = DEFAULT_HOLIDAY
 
 
 def test_a_working_week_books_five_days(services: Services) -> None:

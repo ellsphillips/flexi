@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-import pytest
 from textual.widgets import Button, Input, Switch
 
 from flexi.components.modules.clock import ClockModule
 from flexi.messages import Scope
 from tests.tui.conftest import WIDE, AppFactory, dashboard, status_text
 
-pytestmark = pytest.mark.usefixtures("_frozen")
-
 
 async def test_slash_clocks_out_and_back_in(app_factory: AppFactory) -> None:
-    """It toggles, from the dashboard, with one unshifted key."""
+    """It toggles, from the dashboard, with one unshifted key.
+
+    There is no way to clock in twice from here — the key is a toggle — which is
+    why the test that claimed to check that refusal at this layer has gone. It
+    booted the application and then called the service directly, asserting a
+    branch `tests/services/test_clock.py` already asserts in milliseconds.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         assert app.services.clock.is_clocked_in()  # the seed leaves a session open
@@ -65,16 +68,6 @@ async def test_the_switch_reflects_the_truth_without_looping(
         dashboard(app).refresh_modules(Scope.ALL)
         await pilot.pause()
         assert not app.services.clock.is_clocked_in()
-
-
-async def test_clocking_in_twice_is_refused_not_raised(app_factory: AppFactory) -> None:
-    """It reports the refusal on the status bar and carries on."""
-    app = app_factory()
-    async with app.run_test(size=WIDE) as pilot:
-        result = app.services.clock.clock_in()
-        assert not result.success
-        assert "Already clocked in" in result.message
-        await pilot.pause()
 
 
 async def test_slash_does_not_reach_a_focused_input(app_factory: AppFactory) -> None:

@@ -18,8 +18,6 @@ from flexi.domain.ledger import DayLedger
 from flexi.screens.insights import InsightsScreen
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
-pytestmark = pytest.mark.usefixtures("_frozen")
-
 CONTRACTED = timedelta(minutes=444)
 
 

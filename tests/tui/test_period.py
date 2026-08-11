@@ -11,8 +11,6 @@ from flexi.components.expandable import DAY, ExpandableTable
 from flexi.domain.period import Granularity
 from tests.tui.conftest import WIDE, AppFactory, dashboard
 
-pytestmark = pytest.mark.usefixtures("_frozen")
-
 TODAY = date(2026, 6, 11)
 
 

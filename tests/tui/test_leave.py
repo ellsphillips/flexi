@@ -17,8 +17,6 @@ from flexi.screens.modals import AbsenceModal, ConfirmModal
 from flexi.services.absence import AbsencePlan, PlannedDay
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
 
-pytestmark = pytest.mark.usefixtures("_frozen")
-
 TODAY = date(2026, 6, 11)  # a Thursday
 FREE_MONDAY = date(2026, 6, 22)  # nothing booked on it in the seed
 
@@ -117,7 +115,12 @@ async def test_a_month_step_clamps_to_a_shorter_month(app_factory: AppFactory) -
 
 
 async def test_one_key_books_a_day(app_factory: AppFactory) -> None:
-    """No modal. The cursor is the subject."""
+    """No modal. The cursor is the subject.
+
+    A dialog in front of every single-day booking would cost more than it saves,
+    and the app books a day the way it clocks in: one key, immediately, visibly.
+    `x` takes it back, which is cheaper than being asked.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -127,6 +130,7 @@ async def test_one_key_books_a_day(app_factory: AppFactory) -> None:
         await pilot.press("A")
         await pilot.pause()
 
+        assert not isinstance(app.screen, ConfirmModal), "no dialog for one day"
         booked = app.services.absence.for_date(FREE_MONDAY)
         assert [row.absence_type for row in booked] == [AbsenceType.ANNUAL]
         assert "1 day" in status_text(app)
@@ -194,27 +198,6 @@ async def test_the_preview_says_what_it_will_and_will_not_do(
             app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY + timedelta(days=6))
             == []
         ), "declining writes nothing"
-
-
-async def test_a_single_day_still_books_on_the_keystroke(
-    app_factory: AppFactory,
-) -> None:
-    """One row, and `x` takes it back.
-
-    A dialog in front of every single-day booking would cost more than it saves,
-    and the app books a day the way it clocks in: one key, immediately, visibly.
-    """
-    app = app_factory()
-    async with app.run_test(size=WIDE) as pilot:
-        await open_leave(pilot)
-        calendar(app).go_to(FREE_MONDAY)
-        await pilot.pause()
-
-        await pilot.press("A")
-        await pilot.pause()
-
-        assert not isinstance(app.screen, ConfirmModal)
-        assert len(app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY)) == 1
 
 
 async def test_space_cycles_the_portion_before_booking(app_factory: AppFactory) -> None:

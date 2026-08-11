@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
-
 from flexi.components.expandable import DAY, ExpandableTable
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.monthview import MonthView
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
-
-pytestmark = pytest.mark.usefixtures("_frozen")
 
 
 async def test_v_opens_the_overlay(app_factory: AppFactory) -> None:

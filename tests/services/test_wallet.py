@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.wallet import Pace
-from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import Services
+from tests.services.conftest import Configured
 
 MONDAY = date(2026, 6, 8)
 SUNDAY = date(2026, 6, 14)
@@ -19,34 +19,18 @@ CONTRACTED = timedelta(minutes=444)
 
 
 @pytest.fixture
-def services(session: Session) -> Services:
-    """A configured application: 25 days' leave, no holidays.
+def services(configure: Configured) -> Services:
+    """25 days' leave, and a leave year starting on the Monday of the test week.
 
-    The leave year starts on the Monday of the test week on purpose. The balance
-    accumulates from that date, so a January start would score five months of
-    unworked days as deficit and every assertion below would be about the
-    fixture rather than about the behaviour under test.
+    The start date is deliberate: the balance accumulates from it, so a January
+    start would score five months of unworked days as deficit and every
+    assertion below would be about the fixture rather than the behaviour.
     """
-    settings = Services.build(session).settings
-    settings.save_settings(
+    return configure(
         leave_year_start="06-08",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        entitlement=(2026, 25.0),
+        holidays=((date(2026, 1, 1), "New Year's Day"),),
     )
-    settings.save_entitlement(2026, 25.0)
-    # One cached row, so `is_bank_holiday` answers False rather than "no data" —
-    # which is a refusal, not an absence of holidays.
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=date(2026, 1, 1),
-            title="New Year's Day",
-            fetched_at=datetime(2026, 1, 1, 9, 0),
-        )
-    )
-    session.commit()
-    return Services.build(session)
 
 
 def work(services: Services, when: date, hours: float) -> None:

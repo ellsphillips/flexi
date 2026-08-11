@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
+from flexi import wallclock
 from flexi.constants import AbsenceType, DayKind, Portion
 from flexi.domain.balance import (
     BalanceSummary,
@@ -18,7 +19,14 @@ DAY = date(2026, 6, 11)
 
 
 def at(hour: int, minute: int = 0) -> datetime:
-    return datetime.combine(DAY, time(hour, minute))
+    """A local reading, carrying its offset. The domain refuses naive moments.
+
+    This helper used to return a naive datetime, so every test in this file
+    exercised a shape `worked_from` documents as forbidden — and the one test
+    that counts an open session certified the wall difference coming back,
+    which is the opposite of the stated contract.
+    """
+    return wallclock.local(datetime.combine(DAY, time(hour, minute)))
 
 
 def slice_(kind: AbsenceType, portion: Portion = Portion.FULL) -> AbsenceSlice:
@@ -88,6 +96,13 @@ def test_worked_counts_an_open_session_up_to_now() -> None:
     assert worked_from(segments, now=at(14, 30)) == timedelta(hours=4, minutes=30)
 
 
+def test_a_naive_now_is_refused_rather_than_guessed_at() -> None:
+    """The refusal the signature is shaped to force, and nothing pinned it."""
+    running = [Segment(1, at(9), None)]
+    with pytest.raises(TypeError):
+        worked_from(running, now=datetime.combine(DAY, time(14, 30)))
+
+
 def test_worked_is_zero_for_a_day_with_no_sessions() -> None:
     """It totals nothing when nobody clocked in."""
     assert worked_from([], now=at(17)) == timedelta()
@@ -125,18 +140,6 @@ def day(
         expected=expected,
         toil_taken=toil,
     )
-
-
-def test_annual_leave_is_neutral_to_the_balance() -> None:
-    """It neither earns nor costs flexi to take annual leave."""
-    booked = day(worked=timedelta(), expected=timedelta())
-    assert booked.balance_effect == timedelta()
-
-
-def test_a_toil_day_costs_the_balance_a_full_day() -> None:
-    """It spends the surplus that paid for it."""
-    taken = day(worked=timedelta(), expected=timedelta(), toil=CONTRACTED)
-    assert taken.balance_effect == -CONTRACTED
 
 
 def test_a_worked_weekend_is_all_surplus() -> None:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import pytest
 from sqlalchemy import event
 
 from flexi.app import FlexiApp
@@ -12,8 +11,6 @@ from flexi.components.expandable import DAY, SESSION, ExpandableTable
 from flexi.components.modules.records import RecordsModule
 from flexi.components.progress import ProgressRail, TimeProgress
 from tests.tui.conftest import WIDE, AppFactory, dashboard
-
-pytestmark = pytest.mark.usefixtures("_frozen")
 
 
 def table(app: FlexiApp) -> ExpandableTable:

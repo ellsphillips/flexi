@@ -83,7 +83,7 @@ package = true
 # somebody forgets is skipped silently rather than failed.
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests", "src/flexi/domain", "src/flexi/cli/ui"]
+testpaths = ["tests", "src/flexi/domain", "src/flexi/cli/ui", "src/flexi/services"]
 addopts = "--doctest-modules --strict-markers --strict-config -n auto --timeout=120"
 
 [tool.coverage.run]

@@ -49,14 +49,21 @@ async def test_a_fresh_database_opens_on_setup(fresh_db: Path) -> None:
         showing(app, SetupScreen)
 
 
-@pytest.mark.parametrize("working_days", ["Mon-Fri", "0,1,2,3,4", "mon, tue, wed"])
 async def test_setup_accepts_a_reasonable_answer_and_lands_on_the_dashboard(
-    fresh_db: Path, working_days: str
+    fresh_db: Path,
 ) -> None:
+    """One spelling, one boot.
+
+    This was parametrised over three spellings of a working week, spending two
+    extra full application boots to re-assert string parsing that
+    `tests/services/test_working_days.py` pins exhaustively in microseconds.
+    What the boot is here to prove is that an answer reaches the database and
+    the app moves on, and one answer proves that.
+    """
     app = FlexiApp(db_path=fresh_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-        await _answer(app, working_days)
+        await _answer(app, "Mon-Fri")
         await pilot.pause()
         showing(app, SetupScreen).action_save()
         await pilot.pause()
