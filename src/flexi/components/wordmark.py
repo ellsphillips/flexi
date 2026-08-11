@@ -70,8 +70,12 @@ class Wordmark(Static):
     Wordmark { width: auto; }
     """
 
-    STRAPLINE_ROWS: Final = 2
-    """A blank row and the strapline, under the canvas."""
+    STRAPLINE_GAP: Final = 2
+    """Rows between the foot of the settled word and the strapline.
+
+    Measured from the word, not from the canvas. The canvas is tall enough for
+    the word to turn in, so measuring from its bottom edge left the strapline
+    five rows adrift of a logo it is supposed to belong to."""
 
     class Landed(Message):
         """The word has stopped moving. Whatever waits beneath it may arrive."""
@@ -89,7 +93,7 @@ class Wordmark(Static):
         # it to a single row, and the animation played, correctly, one row tall.
         # The width is left to the stylesheet, so the wordmark can be told to
         # fill whatever it is centred over.
-        self.styles.height = splash.CANVAS_HEIGHT + self.STRAPLINE_ROWS
+        self.styles.height = splash.CANVAS_HEIGHT
         self._draw()
         if not self._plays:
             self._land()
@@ -145,8 +149,20 @@ class Wordmark(Static):
         width = max(splash.CANVAS_WIDTH, len(splash.STRAPLINE), self.size.width)
         margin = " " * ((width - splash.CANVAS_WIDTH) // 2)
 
+        # The strapline takes over one row of the canvas rather than following
+        # it. By the time it is visible the word has settled and that row is
+        # empty; the rows left under it are the gap before whatever comes next.
+        strapline_row = splash.settled_rows()[1] + self.STRAPLINE_GAP
+        faded = _blend(
+            BACKGROUND, colour("c-muted"), splash.strapline_fade(self._elapsed)
+        )
+
         art = Text(no_wrap=True)
-        for row in levels:
+        for index, row in enumerate(levels):
+            if index == strapline_row:
+                art.append(splash.STRAPLINE.center(width), style=faded)
+                art.append("\n")
+                continue
             art.append(margin)
             at = 0
             while at < len(row):
@@ -162,12 +178,4 @@ class Wordmark(Static):
                     )
                 at = run
             art.append("\n")
-
-        art.append("\n")
-        art.append(
-            splash.STRAPLINE.center(width),
-            style=_blend(
-                BACKGROUND, colour("c-muted"), splash.strapline_fade(self._elapsed)
-            ),
-        )
         self.update(art)

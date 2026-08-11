@@ -302,6 +302,20 @@ def luminance(elapsed: float) -> list[list[int]]:
     return shade
 
 
+@cache
+def settled_rows() -> tuple[int, int]:
+    """First and last canvas row the wordmark occupies once it has stopped.
+
+    The canvas is tall enough for the word to tumble in, so the settled word
+    sits in the middle of it with several blank rows either side. Anything meant
+    to read as part of the logo has to be placed against these rather than
+    against the canvas, or it ends up stranded a hand's width below the word.
+    """
+    canvas = luminance(DURATION)
+    inked = [at for at, row in enumerate(canvas) if any(level >= 0 for level in row)]
+    return inked[0], inked[-1]
+
+
 def frame(elapsed: float) -> list[str]:
     """The canvas as text, one character per cell."""
     return [

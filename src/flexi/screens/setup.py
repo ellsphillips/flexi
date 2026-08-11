@@ -6,25 +6,33 @@ than an animation on a screen of its own, dismissed to reveal a bordered dialog
 that looked like it came from somewhere else.
 
 The rail is the same one `flexi init` uses to ask what to do about an existing
-database: a line down the left margin, heavy through the question being answered
-and hairline through the rest, a marker at each moment, no boxes. Its glyphs
-come from `flexi.theme` so there is one design system rather than two.
+database: a line down the left margin, a marker at the moment being answered, no
+boxes. Its glyphs come from `flexi.theme`, so there is one design system rather
+than two that happen to agree.
+
+It is drawn as a single widget rather than a piece per question. A rail made of
+pieces has a gap wherever the rows are spaced, which is a dotted line pretending
+to be a continuous one -- and, more to the point, a marker made of pieces can
+only blink from one to the next. One widget owning the whole line means the
+marker has a position on it, and a position is a thing that can be moved.
 """
 
 from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical
+from textual.reactive import Reactive, reactive
 from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Input, Label, Select, Static
 
 from flexi.components.wordmark import Wordmark
 from flexi.services.registry import Services
-from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL
+from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
 
 DIVISIONS = [
     ("England & Wales", "england-and-wales"),
@@ -35,15 +43,23 @@ DIVISIONS = [
 GUTTER = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
 
-QUESTION_ROWS = 2
-"""Rows a question occupies: the row itself, and the one of margin under it."""
+HEADING_ROWS = 2
+"""The heading, and the row of space under it."""
 
-CHROME_ROWS = 4
-"""Rows either side of the questions: the heading and the tail, with a spacer
-apiece."""
+QUESTION_ROWS = 2
+"""A question, and the row of space under it."""
+
+TAIL_ROWS = 1
+"""The foot of the rail."""
 
 RISE = 0.45
 """Seconds the questions take to open out, and the wordmark to rise off them."""
+
+SLIDE = 0.16
+"""Seconds the marker takes to travel between two questions.
+
+Long enough to be seen as travel rather than a jump, short enough that holding
+tab still feels like moving rather than like waiting."""
 
 RAIL_WIDTH = 5
 ASK_WIDTH = 22
@@ -53,9 +69,9 @@ FORM_WIDTH = RAIL_WIDTH + ASK_WIDTH + FIELD_WIDTH + NOTE_WIDTH
 """The four columns of a question, and the width of everything on this screen.
 
 Written down rather than left to `width: auto`, because the wordmark has to be
-the same width as the questions to be centred over them. An auto-width column
-is exactly as wide as its widest child, so a narrower wordmark sat against its
-left edge -- correctly centred as a block, visibly off-centre as a logo."""
+the same width as the questions to be centred over them. An auto-width column is
+exactly as wide as its widest child, so a narrower wordmark sat against its left
+edge -- correctly centred as a block, visibly off-centre as a logo."""
 
 
 def _sized(css: str) -> str:
@@ -76,8 +92,52 @@ def _sized(css: str) -> str:
     return css
 
 
+class Rail(Static):
+    """The line down the left of the form, and the marker travelling on it."""
+
+    DEFAULT_CSS = _sized("""
+    Rail { width: RAIL_W; height: auto; }
+    """)
+
+    marker: Reactive[float] = reactive(0.0)
+    """Which row the marker is on. A float, because it is animated between rows
+    and Textual can only interpolate numbers."""
+
+    def __init__(self, rows: int, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._rows = rows
+
+    def on_mount(self) -> None:
+        self.styles.height = self._rows
+        self._draw()
+
+    def watch_marker(self) -> None:
+        self._draw()
+
+    def slide_to(self, row: int) -> None:
+        """Send the marker to a row, travelling rather than jumping."""
+        self.animate("marker", value=float(row), duration=SLIDE, easing="out_cubic")
+
+    def _draw(self) -> None:
+        at = round(self.marker)
+        line = Text(no_wrap=True)
+        for row in range(self._rows):
+            if row == 0:
+                glyph, tone = MARK_DONE, colour("c-surplus")
+            elif row == self._rows - 1:
+                glyph, tone = TAIL, colour("c-muted")
+            elif row == at:
+                glyph, tone = MARK_LIVE, colour("c-accent")
+            else:
+                glyph, tone = RAIL_SETTLED, colour("c-line")
+            line.append(GUTTER)
+            line.append(glyph, style=f"bold {tone}")
+            line.append("\n")
+        self.update(line)
+
+
 class Question(Horizontal):
-    """One moment on the rail: a marker, a label, a field and a note."""
+    """One moment on the rail: a label, a field and a note beyond it."""
 
     DEFAULT_CSS = _sized("""
     Question {
@@ -85,7 +145,6 @@ class Question(Horizontal):
         width: auto;
         margin-bottom: 1;
     }
-    Question .rail { width: RAIL_W; color: $c-line; }
     Question .ask { width: ASK_W; color: $c-muted; }
     Question Input {
         width: FIELD_W;
@@ -101,7 +160,6 @@ class Question(Horizontal):
     }
     Question Select SelectCurrent { border: none; padding: 0; }
     Question .note { width: NOTE_W; padding-left: 2; color: $c-line; }
-    Question.-live .rail { color: $c-accent; text-style: bold; }
     Question.-live .ask { color: $c-paper; text-style: bold; }
     Question.-live .note { color: $c-muted; }
     """)
@@ -113,16 +171,9 @@ class Question(Horizontal):
         self._note = note
 
     def compose(self) -> ComposeResult:
-        yield Static(f"{GUTTER}{RAIL_SETTLED}  ", classes="rail")
         yield Label(self._ask, classes="ask")
         yield self._field
         yield Static(self._note, classes="note")
-
-    def set_live(self, *, live: bool) -> None:
-        """Mark this the question being answered, or one of the others."""
-        self.set_class(live, "-live")
-        glyph = MARK_LIVE if live else RAIL_SETTLED
-        self.query_one(".rail", Static).update(f"{GUTTER}{glyph}  ")
 
 
 class SetupScreen(Screen[bool]):
@@ -136,10 +187,6 @@ class SetupScreen(Screen[bool]):
     DEFAULT_CSS = _sized("""
     SetupScreen { align: center middle; background: $c-ink; }
 
-    /* The questions are wider than the wordmark, so the block grows sideways
-       when they arrive. Centring the children keeps the wordmark on the middle
-       of the screen instead of against the left edge of a container that is
-       itself centred. */
     #setup { width: FORM_W; height: auto; }
 
     /* No height and clipped, rather than `display: none`. The height is what is
@@ -152,8 +199,11 @@ class SetupScreen(Screen[bool]):
         overflow: hidden;
     }
 
-    #setup-heading { color: $c-paper; text-style: bold; padding-bottom: 1; }
-    #setup-tail { color: $c-line; padding-top: 1; }
+    #setup-form { width: FORM_W; height: auto; }
+    #setup-asks { width: auto; height: auto; }
+
+    #setup-heading { height: 1; margin-bottom: 1; color: $c-paper; text-style: bold; }
+    #setup-tail { height: 1; color: $c-line; }
     """)
 
     def __init__(
@@ -164,49 +214,57 @@ class SetupScreen(Screen[bool]):
         self._settings_svc = services.settings
         self._plays = animate
 
-    def compose(self) -> ComposeResult:
+    def _asks(self) -> list[Question]:
         year = self._settings_svc.active_leave_year()
+        return [
+            Question(
+                "Leave year starts",
+                Input("04-06", id="input-leave-start", placeholder="MM-DD"),
+                "6 April, for most schemes",
+                id="ask-leave-start",
+            ),
+            Question(
+                "Annual entitlement",
+                Input("25.0", id="input-entitlement", placeholder="25.0"),
+                f"days for {year}, halves allowed",
+                id="ask-entitlement",
+            ),
+            Question(
+                "Working days",
+                Input("Mon-Fri", id="input-working-days", placeholder="Mon-Fri"),
+                "or Tue, Thu if you work part time",
+                id="ask-working-days",
+            ),
+            Question(
+                "Bank holidays",
+                Select(DIVISIONS, value="england-and-wales", id="select-division"),
+                "the GOV.UK division to follow",
+                id="ask-division",
+            ),
+            Question(
+                "Auto-close at",
+                Input("18:00", id="input-auto-close", placeholder="HH:MM"),
+                "when a session you forgot ends",
+                id="ask-auto-close",
+            ),
+        ]
+
+    def compose(self) -> ComposeResult:
+        asks = self._asks()
         with Vertical(id="setup"):
             yield Wordmark(animate=self._plays, id="setup-wordmark")
-            with Vertical(id="setup-questions"):
-                yield Static(
-                    f"{GUTTER}{MARK_DONE}  Five questions, then it gets out of the way",
-                    id="setup-heading",
-                )
-                yield Question(
-                    "Leave year starts",
-                    Input("04-06", id="input-leave-start", placeholder="MM-DD"),
-                    "6 April, for most schemes",
-                    id="ask-leave-start",
-                )
-                yield Question(
-                    "Annual entitlement",
-                    Input("25.0", id="input-entitlement", placeholder="25.0"),
-                    f"days for {year}, halves allowed",
-                    id="ask-entitlement",
-                )
-                yield Question(
-                    "Working days",
-                    Input("Mon-Fri", id="input-working-days", placeholder="Mon-Fri"),
-                    "or Tue, Thu if part time",
-                    id="ask-working-days",
-                )
-                yield Question(
-                    "Bank holidays",
-                    Select(DIVISIONS, value="england-and-wales", id="select-division"),
-                    "the GOV.UK division to follow",
-                    id="ask-division",
-                )
-                yield Question(
-                    "Auto-close at",
-                    Input("18:00", id="input-auto-close", placeholder="HH:MM"),
-                    "when a session you forgot ends",
-                    id="ask-auto-close",
-                )
-                yield Static(
-                    f"{GUTTER}{TAIL}  tab to move · enter to save · esc to cancel",
-                    id="setup-tail",
-                )
+            with Vertical(id="setup-questions"), Horizontal(id="setup-form"):
+                yield Rail(form_rows(len(asks)), id="setup-rail")
+                with Vertical(id="setup-asks"):
+                    yield Static(
+                        "Five questions, then it gets out of the way",
+                        id="setup-heading",
+                    )
+                    yield from asks
+                    yield Static(
+                        "tab to move · enter to save · esc to cancel",
+                        id="setup-tail",
+                    )
 
     def on_mount(self) -> None:
         """Tell the wordmark how wide to be.
@@ -237,7 +295,7 @@ class SetupScreen(Screen[bool]):
         """
         questions = self.query_one("#setup-questions")
         questions.add_class("-arrived")
-        rows = len(self.query(Question)) * QUESTION_ROWS + CHROME_ROWS
+        rows = form_rows(len(self.query(Question)))
         questions.styles.animate(
             "height", value=rows, duration=RISE, easing="out_cubic"
         )
@@ -251,20 +309,21 @@ class SetupScreen(Screen[bool]):
         again, and a splash that cannot be skipped is a splash that is in the
         way. Once the questions are up the keys belong to them.
         """
-        wordmark = self.query_one("#setup-wordmark", Wordmark)
         if not self.query_one("#setup-questions").has_class("-arrived"):
-            wordmark.skip()
+            self.query_one("#setup-wordmark", Wordmark).skip()
             event.stop()  # type: ignore[attr-defined]
 
     def on_descendant_focus(self, _event: object) -> None:
         self._mark_the_live_question()
 
     def _mark_the_live_question(self) -> None:
-        """Heavy rail through whichever question currently has the cursor."""
+        """Emphasise the question holding the cursor, and send the marker to it."""
         focused = self.focused
-        for question in self.query(Question):
+        for index, question in enumerate(self.query(Question)):
             holds = focused is not None and question in focused.ancestors_with_self
-            question.set_live(live=holds)
+            question.set_class(holds, "-live")
+            if holds:
+                self.query_one(Rail).slide_to(HEADING_ROWS + index * QUESTION_ROWS)
 
     # -- saving ------------------------------------------------------------
 
@@ -313,3 +372,13 @@ class SetupScreen(Screen[bool]):
 
     def action_cancel(self) -> None:
         self.dismiss(False)
+
+
+def form_rows(questions: int) -> int:
+    """How tall the form is, in rows.
+
+    The rail has to be exactly this tall for its foot to land under the last
+    question, and the reveal animates the block open to exactly this height, so
+    it is worked out once and asked for twice.
+    """
+    return HEADING_ROWS + questions * QUESTION_ROWS + TAIL_ROWS
