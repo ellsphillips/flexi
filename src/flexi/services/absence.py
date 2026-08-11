@@ -16,7 +16,7 @@ The rules SQLite cannot express, so this service does:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
@@ -39,6 +39,28 @@ def _walk(start: date, end: date) -> list[date]:
     """Every date from start to end, inclusive."""
     span = (end - start).days
     return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
+
+
+def covers_the_whole_day(booked: Iterable[Portion]) -> bool:
+    """True when what is booked leaves no half of the day left to work.
+
+    One rule, asked from both sides. `_has_work_in` already lets a half day be
+    booked over work in the other half; without this, the clock refused the
+    mirror image — you could book a sick morning after working it, and then not
+    work the afternoon after booking the morning.
+
+    Examples:
+        >>> covers_the_whole_day([Portion.FULL])
+        True
+        >>> covers_the_whole_day([Portion.AM, Portion.PM])
+        True
+        >>> covers_the_whole_day([Portion.AM])
+        False
+        >>> covers_the_whole_day([])
+        False
+    """
+    portions = set(booked)
+    return Portion.FULL in portions or {Portion.AM, Portion.PM} <= portions
 
 
 def deficit(shortfall: float) -> str:

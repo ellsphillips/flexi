@@ -10,6 +10,7 @@ from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 from flexi.models.database.moment import columns, moment_of
+from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 
@@ -97,8 +98,13 @@ class ClockService:
                 success=False, message="Cannot clock in on a bank holiday"
             )
 
-        stmt = select(AbsenceDay).where(AbsenceDay.date == work_date)
-        if self._session.execute(stmt).scalar_one_or_none() is not None:
+        # `scalar_one_or_none` here raised outright on two rows, which is the
+        # one arrangement `AbsenceService` documents as legal: a sick morning
+        # and an annual afternoon. Booking those made the next morning's
+        # `flexi clock in` a traceback.
+        stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
+        booked = self._session.execute(stmt).scalars().all()
+        if covers_the_whole_day(booked):
             return ClockResult(
                 success=False, message="Cannot clock in on an absence day"
             )
