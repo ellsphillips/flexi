@@ -1,9 +1,12 @@
 import functools
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import click
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session
 
 import flexi
 from flexi import wallclock
@@ -59,6 +62,33 @@ NOT_INITIALISED = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class Handles:
+    """An open database, and the means to let go of it.
+
+    Reached through :func:`handles_of` rather than out of ``ctx.obj``, which
+    Click types as ``Any`` -- thirteen accesses that ``mypy --strict`` could not
+    check, and a rename away from failing at runtime.
+    """
+
+    engine: Engine
+    session: Session
+    services: Services
+
+    def close(self) -> None:
+        self.session.close()
+        self.engine.dispose()
+
+
+def handles_of(ctx: click.Context) -> Handles:
+    """The database this command opened. Guaranteed by `requires_setup`."""
+    handles = ctx.find_object(Handles)
+    if handles is None:  # pragma: no cover - requires_setup opens it first
+        msg = "no database is open on this context"
+        raise RuntimeError(msg)
+    return handles
+
+
 def requires_setup(command: Callable[..., None]) -> Callable[..., None]:
     """Refuse before setup; migrate and open a session after it.
 
@@ -98,8 +128,14 @@ def _launch(*, settings: bool = False, splash: bool = False) -> App:
     return app
 
 
-def _open_database(ctx: click.Context) -> None:
-    """Migrate, connect, sweep, and stash on the context."""
+def _open_database(ctx: click.Context) -> Handles:
+    """Migrate, connect, sweep, and hand back an open database.
+
+    Closing is registered on the context rather than written at the end of each
+    command. `ctx.exit` raises, so every hand-written `session.close()` after a
+    failure was unreachable -- which is to say the session and the engine leaked
+    on exactly the paths where something had already gone wrong.
+    """
     run_migrations()
     engine = create_db_engine()
     session = get_session(engine)
@@ -108,10 +144,11 @@ def _open_database(ctx: click.Context) -> None:
         session, services.clock, services.settings.get_auto_close_time()
     )
     services.bank_holidays.fill_if_empty()
-    ctx.ensure_object(dict)
-    ctx.obj["engine"] = engine
-    ctx.obj["session"] = session
-    ctx.obj["services"] = services
+
+    handles = Handles(engine=engine, session=session, services=services)
+    ctx.obj = handles
+    ctx.call_on_close(handles.close)
+    return handles
 
 
 @cli.group()
@@ -126,8 +163,7 @@ def holidays_refresh(ctx: click.Context) -> None:
     """Fetch the calendar for the configured region from GOV.UK."""
     from flexi.cli import holidays as holidays_cli
 
-    code = holidays_cli.run(ctx.obj["services"])
-    _close(ctx)
+    code = holidays_cli.run(handles_of(ctx).services)
     ctx.exit(code)
 
 
@@ -261,8 +297,7 @@ def clock() -> None:
 @click.pass_context
 def clock_in(ctx: click.Context) -> None:
     """Clock in to start a work session."""
-    session = ctx.obj["session"]
-    svc = ctx.obj["services"].clock
+    svc = handles_of(ctx).services.clock
     result = svc.clock_in()
 
     if result.success:
@@ -271,17 +306,13 @@ def clock_in(ctx: click.Context) -> None:
         click.secho(result.message, fg="red")
         ctx.exit(1)
 
-    session.close()
-    ctx.obj["engine"].dispose()
-
 
 @clock.command(name="out")
 @requires_setup
 @click.pass_context
 def clock_out(ctx: click.Context) -> None:
     """Clock out to end the current work session."""
-    session = ctx.obj["session"]
-    svc = ctx.obj["services"].clock
+    svc = handles_of(ctx).services.clock
     result = svc.clock_out()
 
     if result.success:
@@ -289,9 +320,6 @@ def clock_out(ctx: click.Context) -> None:
     else:
         click.secho(result.message, fg="red")
         ctx.exit(1)
-
-    session.close()
-    ctx.obj["engine"].dispose()
 
 
 @cli.command(
@@ -324,9 +352,8 @@ def leave(
     The plan is shown before anything is written.
     """
     from flexi.cli import leave as leave_cli
-    from flexi.services.registry import Services
 
-    services = Services.build(ctx.obj["session"])
+    services = handles_of(ctx).services
     code = leave_cli.run(
         services,
         words,
@@ -335,7 +362,6 @@ def leave(
         dry_run=dry_run,
         today=wallclock.today(),
     )
-    _close(ctx)
     ctx.exit(code)
 
 
@@ -357,9 +383,8 @@ def balance() -> None:
 def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
     """Print the running balance and what it is made of."""
     from flexi.domain.format import delta, hm
-    from flexi.services.registry import Services
 
-    services = Services.build(ctx.obj["session"])
+    services = handles_of(ctx).services
     today = as_of.date() if as_of is not None else wallclock.today()
     start, _ = services.absence.leave_year_bounds(today)
     summary = services.ledger.balance(today)
@@ -385,7 +410,6 @@ def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
             fg="yellow",
             err=True,
         )
-    _close(ctx)
 
 
 @balance.command(name="zero")
@@ -417,16 +441,14 @@ def balance_zero(
 
     from flexi.domain.format import delta
     from flexi.services.adjustments import OPENING_BALANCE
-    from flexi.services.registry import Services
 
-    services = Services.build(ctx.obj["session"])
+    services = handles_of(ctx).services
     when = as_of.date() if as_of is not None else wallclock.today() - timedelta(days=1)
     standing = services.ledger.balance(when).delta
 
     click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
     if not yes and not click.confirm("Settle it to zero?", default=True):
         click.echo("Left alone.")
-        _close(ctx)
         return
 
     result = services.zero_balance(when, reason=reason or OPENING_BALANCE)
@@ -435,7 +457,6 @@ def balance_zero(
         click.echo(
             f"balance now   {delta(services.ledger.balance(wallclock.today()).delta)}"
         )
-    _close(ctx)
     if not result.success:
         ctx.exit(1)
 
@@ -448,9 +469,8 @@ def balance_log(ctx: click.Context) -> None:
     from datetime import timedelta
 
     from flexi.domain.format import delta
-    from flexi.services.registry import Services
 
-    services = Services.build(ctx.obj["session"])
+    services = handles_of(ctx).services
     rows = services.adjustments.all()
     if not rows:
         click.echo("No adjustments.")
@@ -459,7 +479,6 @@ def balance_log(ctx: click.Context) -> None:
             f"{row.id:>4}  {row.date:%Y-%m-%d}  "
             f"{delta(timedelta(minutes=row.minutes)):>9}  {row.reason}"
         )
-    _close(ctx)
 
 
 @balance.command(name="undo")
@@ -468,19 +487,11 @@ def balance_log(ctx: click.Context) -> None:
 @click.pass_context
 def balance_undo(ctx: click.Context, adjustment_id: int) -> None:
     """Remove a correction by its id, as listed by `flexi balance log`."""
-    from flexi.services.registry import Services
-
-    services = Services.build(ctx.obj["session"])
+    services = handles_of(ctx).services
     result = services.adjustments.remove(adjustment_id)
     click.secho(result.message, fg="green" if result.success else "red")
-    _close(ctx)
     if not result.success:
         ctx.exit(1)
-
-
-def _close(ctx: click.Context) -> None:
-    ctx.obj["session"].close()
-    ctx.obj["engine"].dispose()
 
 
 if __name__ == "__main__":
