@@ -174,7 +174,11 @@ class Period:
             case Granularity.MONTH:
                 return replace(self, anchor=_add_months(self.anchor, count))
             case Granularity.YEAR:
-                return replace(self, anchor=_add_months(self.anchor, count * 12))
+                # Asked of `leaveyear`, for the reason `end` is: twelve months
+                # from a clamped 29 February is a date inside the year it came
+                # from, so this key used to do nothing at all.
+                anchor = leaveyear.step(self.anchor, *self.year_start, count)
+                return replace(self, anchor=anchor)
 
     def zoom(self, granularity: Granularity) -> Period:
         """The same anchor, seen at a different width."""
