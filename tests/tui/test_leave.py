@@ -6,14 +6,16 @@ from datetime import date, timedelta
 
 import pytest
 from textual.pilot import Pilot
+from textual.widgets import Input
 
 from flexi.app import FlexiApp
 from flexi.components.common import Gauge
 from flexi.components.yearcalendar import YearCalendar
-from flexi.constants import AbsenceType, Portion
-from flexi.screens.leave import LeaveScreen
+from flexi.constants import AbsenceType, Portion, Verdict
+from flexi.screens.leave import LeaveScreen, preview
 from flexi.screens.modals import AbsenceModal, ConfirmModal
-from tests.tui.conftest import WIDE, AppFactory, showing, status_text
+from flexi.services.absence import AbsencePlan, PlannedDay
+from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
 
 pytestmark = pytest.mark.usefixtures("_frozen")
 
@@ -131,7 +133,44 @@ async def test_one_key_books_a_day(app_factory: AppFactory) -> None:
 
 
 async def test_one_key_books_a_range(app_factory: AppFactory) -> None:
-    """Five working days, and the weekend is not mentioned because it is not news."""
+    """Five working days, and the weekend is not mentioned because it is not news.
+
+    A span is previewed before it is written. The screen used to call
+    `book_range`, which plans and commits in one breath, so it could book
+    eleven days, refuse the twelfth and tell you afterwards.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        for _ in range(6):
+            await pilot.press("shift+right")
+        await pilot.pause()
+
+        await pilot.press("A")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmModal), "a span asks first"
+        assert (
+            app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY + timedelta(days=6))
+            == []
+        ), "and writes nothing until it is answered"
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        booked = app.services.absence.in_range(
+            FREE_MONDAY, FREE_MONDAY + timedelta(days=6)
+        )
+        assert len(booked) == 5
+        assert "5 days" in status_text(app)
+
+
+async def test_the_preview_says_what_it_will_and_will_not_do(
+    app_factory: AppFactory,
+) -> None:
+    """A preview that only says "5 days" is a receipt written in advance."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -144,11 +183,38 @@ async def test_one_key_books_a_range(app_factory: AppFactory) -> None:
         await pilot.press("A")
         await pilot.pause()
 
-        booked = app.services.absence.in_range(
-            FREE_MONDAY, FREE_MONDAY + timedelta(days=6)
-        )
-        assert len(booked) == 5
-        assert "5 days" in status_text(app)
+        shown = screen_text(app)
+        assert "5 days of 7" in shown, shown
+        assert "non-working" in shown, "the two it will pass over"
+        assert "Annual leave:" in shown, "and what it costs"
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert (
+            app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY + timedelta(days=6))
+            == []
+        ), "declining writes nothing"
+
+
+async def test_a_single_day_still_books_on_the_keystroke(
+    app_factory: AppFactory,
+) -> None:
+    """One row, and `x` takes it back.
+
+    A dialog in front of every single-day booking would cost more than it saves,
+    and the app books a day the way it clocks in: one key, immediately, visibly.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+
+        await pilot.press("A")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, ConfirmModal)
+        assert len(app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY)) == 1
 
 
 async def test_space_cycles_the_portion_before_booking(app_factory: AppFactory) -> None:
@@ -227,10 +293,14 @@ async def test_removing_a_lot_asks_first(app_factory: AppFactory) -> None:
         await pilot.pause()
         await pilot.press("A")
         await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
 
         await pilot.press("x")
         await pilot.pause()
         assert isinstance(app.screen, ConfirmModal)
+        assert "5 days of annual leave" in screen_text(app), "and says what would go"
         assert (
             len(
                 app.services.absence.in_range(
@@ -293,3 +363,150 @@ async def test_the_grid_never_outgrows_its_panel(app_factory: AppFactory) -> Non
             await open_leave(pilot)
             grid = calendar(app)
             assert grid.grid_width <= max(grid.content_size.width, grid.size.width)
+
+
+# -- the preview, without a screen to put it on ----------------------------
+
+
+def _plan(days: tuple[PlannedDay, ...], **kwargs: object) -> AbsencePlan:
+    """A plan built by hand, so the wording can be tested without a database."""
+    defaults: dict[str, object] = {
+        "absence_type": AbsenceType.ANNUAL,
+        "portion": Portion.FULL,
+        "note": None,
+        "start": days[0].date,
+        "end": days[-1].date,
+        "days": days,
+    }
+    return AbsencePlan(**{**defaults, **kwargs})  # type: ignore[arg-type]
+
+
+def _day(when: date, verdict: Verdict) -> PlannedDay:
+    return PlannedDay(date=when, verdict=verdict, reason="")
+
+
+def test_the_preview_tells_a_weekend_from_a_bank_holiday() -> None:
+    """Both are passed over; only one of them is a day somebody would have spent.
+
+    Lumping the two together read as "3 non-working days", which quietly
+    presented a bank holiday as though it were a Saturday.
+    """
+    monday = date(2026, 8, 24)
+    shown = preview(
+        _plan(
+            (
+                _day(monday, Verdict.BOOK),
+                _day(monday + timedelta(days=1), Verdict.BANK_HOLIDAY),
+                _day(monday + timedelta(days=5), Verdict.NON_WORKING),
+                _day(monday + timedelta(days=6), Verdict.NON_WORKING),
+            )
+        )
+    )
+
+    assert "2 non-working days" in shown
+    assert "1 bank holiday" in shown
+
+
+def test_the_preview_counts_one_of_each_in_the_singular() -> None:
+    monday = date(2026, 8, 24)
+    shown = preview(
+        _plan(
+            (
+                _day(monday, Verdict.BOOK),
+                _day(monday + timedelta(days=1), Verdict.BANK_HOLIDAY),
+                _day(monday + timedelta(days=5), Verdict.NON_WORKING),
+            )
+        )
+    )
+
+    assert "1 non-working day" in shown
+    assert "1 bank holiday" in shown
+    assert "1 day of 3" in shown, "and the headline agrees"
+
+
+def test_overdrawing_the_balance_by_one_day_reads_as_one_day() -> None:
+    """`3 day into deficit` was the sentence being assembled in two places."""
+    monday = date(2026, 8, 24)
+    days = tuple(_day(monday + timedelta(days=n), Verdict.BOOK) for n in range(3))
+
+    one = _plan(days[:1], absence_type=AbsenceType.FLEXI, toil_available=0.0)
+    three = _plan(days, absence_type=AbsenceType.FLEXI, toil_available=0.0)
+
+    assert one.warning == "This takes the flexi balance 1 day into deficit"
+    assert three.warning == "This takes the flexi balance 3 days into deficit"
+
+
+# -- the modal, on a span --------------------------------------------------
+
+
+async def test_the_modal_shows_the_span_it_would_book(
+    app_factory: AppFactory,
+) -> None:
+    """`e` on a fortnight used to show one date and write fourteen days."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        for _ in range(4):
+            await pilot.press("shift+right")
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+        modal = showing(app, AbsenceModal)
+        assert modal.query_one("#absence-until", Input).value == (
+            (FREE_MONDAY + timedelta(days=4)).isoformat()
+        ), "the last day is on screen, editable, before anything is written"
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+        booked = app.services.absence.in_range(
+            FREE_MONDAY, FREE_MONDAY + timedelta(days=4)
+        )
+        assert len(booked) == 5
+
+
+async def test_the_modal_on_one_day_asks_for_one_date(
+    app_factory: AppFactory,
+) -> None:
+    """A second field for a span of one is a field with nothing to say."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+        assert not app.screen.query("#absence-until")
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+        assert len(app.services.absence.for_date(FREE_MONDAY)) == 1
+
+
+async def test_a_backwards_span_is_refused_before_it_is_written(
+    app_factory: AppFactory,
+) -> None:
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        for _ in range(4):
+            await pilot.press("shift+right")
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+
+        until = showing(app, AbsenceModal).query_one("#absence-until", Input)
+        until.value = (FREE_MONDAY - timedelta(days=3)).isoformat()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        showing(app, AbsenceModal)  # the modal stays put
+        assert "before the first" in screen_text(app)
+        assert app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY) == []

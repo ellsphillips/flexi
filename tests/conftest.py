@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
-from flexi.services import setup
+from flexi.services import samples, setup
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -22,7 +22,7 @@ def pytest_configure(config: pytest.Config) -> None:
     # a naive target as UTC, which put the frozen clock an hour later on a BST
     # laptop than on a UTC runner. That is precisely how the committed snapshots
     # came to have an hour of British Summer Time baked into them.
-    os.environ["TZ"] = "UTC"
+    os.environ["TZ"] = samples.TIMEZONE
     if hasattr(time, "tzset"):  # POSIX only; the suite does not run on Windows
         time.tzset()
 

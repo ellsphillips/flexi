@@ -86,6 +86,15 @@ class AbsenceType(enum.Enum):
         return _DETAILS[self].label
 
     @property
+    def phrase(self) -> str:
+        """The name as it reads inside a sentence, e.g. "Book annual leave?".
+
+        Not ``label.lower()``: that is how "Book TOIL?" became "Book toil?" in
+        six places at once. An acronym is lower case in no sentence.
+        """
+        return _DETAILS[self].phrase
+
+    @property
     def short(self) -> str:
         """A one-word name, for a gauge label in a narrow sidebar.
 
@@ -137,16 +146,17 @@ class _Details:
     """Everything an absence type carries besides its stored value."""
 
     label: str
+    phrase: str
     short: str
     token: str
 
 
 _DETAILS: dict[AbsenceType, _Details] = {
-    AbsenceType.ANNUAL: _Details("Annual leave", "ANNUAL", "annual"),
-    AbsenceType.SICK: _Details("Sickness", "SICK", "sick"),
-    AbsenceType.FLEXI: _Details("TOIL", "TOIL", "toil"),
-    AbsenceType.UNPAID: _Details("Unpaid leave", "UNPAID", "unpaid"),
-    AbsenceType.OTHER: _Details("Other", "OTHER", "other"),
+    AbsenceType.ANNUAL: _Details("Annual leave", "annual leave", "ANNUAL", "annual"),
+    AbsenceType.SICK: _Details("Sickness", "sickness", "SICK", "sick"),
+    AbsenceType.FLEXI: _Details("TOIL", "TOIL", "TOIL", "toil"),
+    AbsenceType.UNPAID: _Details("Unpaid leave", "unpaid leave", "UNPAID", "unpaid"),
+    AbsenceType.OTHER: _Details("Other", "other leave", "OTHER", "other"),
 }
 """One table rather than three parallel ones.
 
@@ -227,13 +237,28 @@ class Portion(enum.Enum):
     @property
     def label(self) -> str:
         """The name shown to a reader."""
-        return _PORTION_LABELS[self]
+        return _PORTION_LABELS[self].label
+
+    @property
+    def noun(self) -> str:
+        """What one of these is called when it is being counted.
+
+        "2 mornings of TOIL" rather than "2 Mornings", and "5 days" rather than
+        "5 full days", which is only worth saying beside a half.
+        """
+        return _PORTION_LABELS[self].noun
 
 
-_PORTION_LABELS: dict[Portion, str] = {
-    Portion.FULL: "Full day",
-    Portion.AM: "Morning",
-    Portion.PM: "Afternoon",
+@dataclass(frozen=True, slots=True)
+class _PortionNames:
+    label: str
+    noun: str
+
+
+_PORTION_LABELS: dict[Portion, _PortionNames] = {
+    Portion.FULL: _PortionNames("Full day", "day"),
+    Portion.AM: _PortionNames("Morning", "morning"),
+    Portion.PM: _PortionNames("Afternoon", "afternoon"),
 }
 
 

@@ -25,9 +25,9 @@ from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import Gauge, Tone, mark_width
 from flexi.components.yearcalendar import YearCalendar, legend
 from flexi.config import CONFIG
-from flexi.constants import AbsenceType, Portion
+from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import delta, short_date
+from flexi.domain.format import delta, plural, short_date
 from flexi.domain.period import Granularity, Period
 from flexi.domain.stitch import Selection
 from flexi.messages import Scope
@@ -37,6 +37,7 @@ from flexi.screens.modals import (
     ConfirmModal,
     GoToDateModal,
 )
+from flexi.services.absence import AbsencePlan
 from flexi.services.registry import Services
 
 TRACKED: tuple[AbsenceType, ...] = (
@@ -168,7 +169,9 @@ class LeaveScreen(Screen[None]):
         """How much of the year is already spoken for."""
         booked = self._services.absence.in_range(self.period.start, self.period.end)
         total = sum(row.portion.days for row in booked)
-        return "nothing booked" if not total else f"{fmt_days(total)} days booked"
+        if not total:
+            return "nothing booked"
+        return f"{fmt_days(total)} {plural(total, 'day')} booked"
 
     def _draw_wallet(self) -> None:
         data = self._services.wallet.compute(
@@ -273,33 +276,75 @@ class LeaveScreen(Screen[None]):
         self.status(f"Booking {self.portion.label.lower()}s", Tone.ACCENT)
 
     def action_book(self, kind: str) -> None:
+        """Book the selection, asking first when there is something to ask about.
+
+        The plan layer exists so a confirmation can be a question rather than a
+        receipt, and only the command line was using it: the screen called
+        `book_range`, which plans and commits in one breath, so it booked eleven
+        days, refused the twelfth and said so afterwards.
+
+        One day still books on the keystroke. It is one row, `x` removes it, and
+        a dialog in front of every single-day booking would cost more than it
+        saves. A span is a different commitment -- finding out afterwards which
+        of fourteen days did not take means unpicking it by hand.
+        """
         absence_type = AbsenceType(kind)
         if absence_type.requires_note:
             self.action_edit()
             return
 
         selection = self.selection
-        result = self._services.absence.book_range(
+        plan = self._services.absence.plan(
             selection.start,
             selection.end,
             absence_type,
             self.portion,
             available_toil_days=self._services.toil_days(),
         )
+
+        if plan.is_empty:
+            self._after_write(_nothing_doing(plan), ok=False)
+            return
+
+        if selection.start == selection.end:
+            self._commit(plan)
+            return
+
+        def confirm(answer: bool | None) -> None:
+            if answer:
+                self._commit(plan)
+
+        self.app.push_screen(
+            ConfirmModal(
+                preview(plan),
+                title=f"Book {absence_type.phrase}?",
+            ),
+            callback=confirm,
+        )
+
+    def _commit(self, plan: AbsencePlan) -> None:
+        """Write exactly what the plan decided, and say what happened."""
+        result = self._services.absence.book_plan(plan)
         self._after_write(
-            result.message(f"of {absence_type.label.lower()} booked"),
+            result.message(f"of {plan.absence_type.phrase} booked"),
             ok=result.success,
             warning=result.warning,
         )
 
     def action_remove(self) -> None:
+        """Clear the selection, asking first when there is a lot of it.
+
+        The question says what would go rather than how much: "9 bookings" is a
+        number somebody has to take on trust, and nine days of annual leave and
+        nine sick mornings are not the same thing to agree to.
+        """
         selection = self.selection
-        booked = self._services.absence.in_range(selection.start, selection.end)
-        if not booked:
+        plan = self._services.absence.removal_plan(selection.start, selection.end)
+        if plan.is_empty:
             self.status("Nothing booked to remove", Tone.WARN)
             return
 
-        if len(booked) <= REMOVE_THRESHOLD:
+        if plan.count <= REMOVE_THRESHOLD:
             self._clear(selection)
             return
 
@@ -309,8 +354,8 @@ class LeaveScreen(Screen[None]):
 
         self.app.push_screen(
             ConfirmModal(
-                f"Remove {len(booked)} bookings from {selection.label()}?",
-                title="Remove leave",
+                f"Removing from {selection.label()}\n\n{plan.summary}",
+                title="Remove leave?",
             ),
             callback=confirm,
         )
@@ -328,14 +373,14 @@ class LeaveScreen(Screen[None]):
                 return
             result = self._services.absence.book_range(
                 booking.when,
-                booking.when if selection.single else selection.end,
+                booking.until,
                 booking.kind,
                 booking.portion,
                 note=booking.note,
                 available_toil_days=self._services.toil_days(),
             )
             self._after_write(
-                result.message(f"of {booking.kind.label.lower()} booked"),
+                result.message(f"of {booking.kind.phrase} booked"),
                 ok=result.success,
                 warning=result.warning,
             )
@@ -344,6 +389,7 @@ class LeaveScreen(Screen[None]):
             AbsenceModal(
                 selection.start,
                 AbsenceType.ANNUAL,
+                until=None if selection.single else selection.end,
                 remaining=self._services.absence.get_remaining_annual_leave(),
                 toil_days=self._services.toil_days(),
             ),
@@ -388,3 +434,39 @@ class LeaveScreen(Screen[None]):
         """Redraw on an external change, so the app can treat every screen alike."""
         del scope
         self.rebuild()
+
+
+def preview(plan: AbsencePlan) -> str:
+    """The plan as a few lines somebody can read before agreeing to it.
+
+    A summary rather than the day-by-day listing the command line prints: a
+    modal is a glance, and ninety lines in one is not a preview of anything.
+    Every figure comes off the plan, so this cannot disagree with what is about
+    to be written.
+    """
+    lines = [plan.headline]
+    lines.extend(f"  — {reason}" for reason in plan.reasons)
+    # Weekends and bank holidays are both passed over, and they are not the
+    # same news: one is the shape of the week and the other is a day off that
+    # somebody would otherwise have spent leave on.
+    weekends = sum(1 for day in plan.skipped if day.verdict is Verdict.NON_WORKING)
+    holidays = sum(1 for day in plan.skipped if day.verdict is Verdict.BANK_HOLIDAY)
+    if weekends:
+        lines.append(f"  — {weekends} non-working {plural(weekends, 'day')}")
+    if holidays:
+        lines.append(f"  — {holidays} {plural(holidays, 'bank holiday')}")
+
+    if plan.absence_type.draws_down_entitlement and plan.annual_after is not None:
+        lines.append("")
+        lines.append(
+            f"Annual leave: {fmt_days(plan.annual_remaining or 0)}"
+            f" → {fmt_days(plan.annual_after)} left"
+        )
+    if plan.warning:
+        lines.append(plan.warning)
+    return "\n".join(lines)
+
+
+def _nothing_doing(plan: AbsencePlan) -> str:
+    """Why an empty plan is empty, in one line."""
+    return plan.reasons[0] if plan.reasons else "Nothing to book in that selection"

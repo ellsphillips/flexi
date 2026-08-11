@@ -10,9 +10,12 @@ at the same six weeks.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+import time
 from pathlib import Path
 
+import httpx
 import time_machine
 from sqlalchemy.orm import Session
 
@@ -22,7 +25,36 @@ sys.path.insert(0, str(ROOT / "src"))
 from flexi.app import FlexiApp  # noqa: E402
 from flexi.models.database.app import create_db_engine, get_session  # noqa: E402
 from flexi.models.database.db import Base  # noqa: E402
-from flexi.services.samples import NOW, seed_demo  # noqa: E402
+from flexi.services.samples import NOW, TIMEZONE, seed_demo  # noqa: E402
+
+# The same pin the snapshot suite applies in `tests/conftest.py`. Without it the
+# documented way to regenerate the shots bakes the developer's timezone into
+# them -- an hour of British Summer Time that the suite, running under UTC, then
+# rejects. The command that fixes a failing snapshot cannot be the command that
+# causes one.
+os.environ["TZ"] = TIMEZONE
+if hasattr(time, "tzset"):  # POSIX only
+    time.tzset()
+
+
+def refuse_the_network() -> None:
+    """No GOV.UK, no PyPI -- the same as the snapshot suite.
+
+    The application fills an empty bank holiday cache at mount and asks PyPI
+    for a newer version, both in worker threads. Left alone, the shots came out
+    with whatever GOV.UK returned on the day, so April gained a bank holiday
+    the demo never seeded and the balance moved by seven hours. A screenshot
+    that depends on the machine's internet is not a screenshot of anything.
+    """
+
+    def refused(*_args: object, **_kwargs: object) -> None:
+        msg = "the shots do not make network requests"
+        raise httpx.ConnectError(msg)
+
+    httpx.Client.get = refused  # type: ignore[method-assign]
+
+
+refuse_the_network()
 
 SHOTS = ROOT / "docs" / "shots"
 
@@ -101,9 +133,11 @@ async def main() -> None:
     SHOTS.mkdir(parents=True, exist_ok=True)
     db = ROOT / ".demo.db"
     db.unlink(missing_ok=True)
-    build_database(db).close()
 
+    # Seeded under the frozen clock as well as captured under it, which is what
+    # `tests/snapshot/test_screens.py` does. The two have to match.
     with time_machine.travel(NOW, tick=False):
+        build_database(db).close()
         for name, size, keys in SHOOTS:
             await shoot(name, size, keys, db)
     db.unlink(missing_ok=True)

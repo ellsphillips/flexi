@@ -14,13 +14,14 @@ from typing import Any, ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
 
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.dates import parse_date
 from flexi.domain.format import days as fmt_days
+from flexi.domain.format import plural
 
 
 class FlexiModal[ResultT](ModalScreen[ResultT | None]):
@@ -34,10 +35,24 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     title_text: ClassVar[str] = ""
     confirm_label: ClassVar[str] = "Save"
 
+    tall: ClassVar[bool] = False
+    """True for a modal whose body can outgrow the screen.
+
+    A dialog is sized to its content, which is right for a question and wrong
+    for a form: `.modal` clips at 80% of the screen, so the booking modal's
+    last three rows -- the error line and both buttons -- fell off the bottom
+    of a 36-row terminal, and a rejected date looked like a key that did
+    nothing. A tall modal takes that 80% as a definite height instead, which is
+    what lets the body scroll inside it while the title, the error and the
+    buttons stay put.
+    """
+
     def compose(self) -> ComposeResult:
-        with Container(classes="modal"):
+        with Container(classes="modal -tall" if self.tall else "modal"):
             yield Static(self.title_text, classes="modal-title")
-            yield from self.compose_body()
+            with VerticalScroll(classes="modal-body"):
+                yield from self.compose_body()
+            yield from self.compose_aside()
             yield Static("", id="modal-error", classes="modal-error")
             with Horizontal(classes="modal-actions"):
                 yield Button("Cancel", id="modal-cancel", classes="-quiet")
@@ -45,6 +60,15 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
 
     def compose_body(self) -> ComposeResult:
         """The fields between the title and the buttons."""
+        return iter(())
+
+    def compose_aside(self) -> ComposeResult:
+        """What stays on screen while the fields scroll past it.
+
+        Context rather than input: how much leave is left is what the answer is
+        being weighed against, so it is worth as much at the bottom of the form
+        as at the top.
+        """
         return iter(())
 
     def action_cancel(self) -> None:
@@ -110,15 +134,22 @@ class ConfirmModal(FlexiModal[bool]):
 class AbsenceBooking:
     """What the absence modal collected."""
 
-    __slots__ = ("kind", "note", "portion", "when")
+    __slots__ = ("kind", "note", "portion", "until", "when")
 
     def __init__(
-        self, when: date, kind: AbsenceType, portion: Portion, note: str | None
+        self,
+        when: date,
+        kind: AbsenceType,
+        portion: Portion,
+        note: str | None,
+        until: date | None = None,
     ) -> None:
         self.when = when
         self.kind = kind
         self.portion = portion
         self.note = note
+        self.until = until or when
+        """The last day, inclusive. One day booked is one day, not None."""
 
 
 class AbsenceModal(FlexiModal[AbsenceBooking]):
@@ -126,24 +157,34 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
 
     title_text: ClassVar[str] = "Book absence"
     confirm_label: ClassVar[str] = "Book"
+    tall: ClassVar[bool] = True
 
     def __init__(
         self,
         when: date,
         kind: AbsenceType = AbsenceType.ANNUAL,
         *,
+        until: date | None = None,
         remaining: float | None = None,
         toil_days: float | None = None,
     ) -> None:
         super().__init__()
         self._when = when
+        self._until = until if until and until != when else None
         self._kind = kind
         self._remaining = remaining
         self._toil_days = toil_days
 
     def compose_body(self) -> ComposeResult:
-        yield Label("Date", classes="overline")
+        yield Label("From" if self._until else "Date", classes="overline")
         yield Input(self._when.isoformat(), id="absence-date", placeholder="YYYY-MM-DD")
+        if self._until:
+            # A fortnight was selected and the modal showed one date, so `e`
+            # wrote fourteen days off the back of a field reading "24 Aug".
+            yield Label("Until", classes="overline")
+            yield Input(
+                self._until.isoformat(), id="absence-until", placeholder="YYYY-MM-DD"
+            )
 
         yield Label("Type", classes="overline")
         with RadioSet(id="absence-type"):
@@ -159,15 +200,19 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
 
         yield Label("Note", classes="overline")
         yield Input("", id="absence-note", placeholder="Required for Other")
+
+    def compose_aside(self) -> ComposeResult:
         yield Static(self._allowance_hint(), classes="caption")
 
     def _allowance_hint(self) -> str:
         """What is left, so the decision does not need another screen."""
         parts: list[str] = []
         if self._remaining is not None:
-            parts.append(f"{fmt_days(self._remaining)} days annual leave left")
+            left = self._remaining
+            parts.append(f"{fmt_days(left)} {plural(left, 'day')} annual leave left")
         if self._toil_days is not None:
-            parts.append(f"{fmt_days(round(self._toil_days, 1))} days of TOIL banked")
+            banked = round(self._toil_days, 1)
+            parts.append(f"{fmt_days(banked)} {plural(banked, 'day')} of TOIL banked")
         return " · ".join(parts)
 
     def result(self) -> AbsenceBooking:
@@ -186,7 +231,18 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         if kind.requires_note and not note:
             msg = "Other absence needs a note saying what it is"
             raise ValueError(msg)
-        return AbsenceBooking(when, kind, portion, note)
+
+        until = when
+        if self._until:
+            raw_until = self.query_one("#absence-until", Input).value.strip()
+            try:
+                until = parse_date(raw_until, today=self._until)
+            except ValueError as error:
+                raise ValueError(str(error)) from error
+            if until < when:
+                msg = "The last day is before the first"
+                raise ValueError(msg)
+        return AbsenceBooking(when, kind, portion, note, until)
 
 
 class GoToDateModal(FlexiModal[date]):

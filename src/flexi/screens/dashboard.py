@@ -334,7 +334,7 @@ class DashboardScreen(Screen[None]):
 
         self.app.push_screen(
             ConfirmModal(
-                f"Remove {found.absence_type.label.lower()} from {short_date(when)}?",
+                f"Remove {found.absence_type.phrase} from {short_date(when)}?",
                 title="Remove booking",
             ),
             callback=confirm,

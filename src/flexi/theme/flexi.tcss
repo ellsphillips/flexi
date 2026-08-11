@@ -784,6 +784,19 @@ ModalScreen {
     padding: 1 2;
 }
 
+.modal.-tall {
+    height: 80%;
+}
+
+.modal-body {
+    height: auto;
+    scrollbar-size-vertical: 1;
+}
+
+.modal.-tall .modal-body {
+    height: 1fr;
+}
+
 .modal-title {
     color: $c-cream;
     text-style: bold;
