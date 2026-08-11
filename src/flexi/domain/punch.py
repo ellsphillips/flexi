@@ -90,7 +90,7 @@ class Window:
 def bucket_minutes(window: Window, width: int) -> int:
     """The finest bucket size whose cells fit in ``width`` columns."""
     for size in BUCKET_SIZES:
-        if math.ceil(window.minutes / size) < width:
+        if math.ceil(window.minutes / size) <= width:
             return size
     return BUCKET_SIZES[-1]
 

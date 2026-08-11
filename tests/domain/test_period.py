@@ -224,3 +224,21 @@ def test_a_year_period_is_the_leave_year_the_services_use(period: Period) -> Non
     assert (period.start, period.end) == leaveyear.bounds(
         period.anchor, *period.year_start
     )
+
+
+@given(granularity=strategies.granularities)
+def test_the_two_directions_of_the_cycle_are_opposites(
+    granularity: Granularity,
+) -> None:
+    """`p` forward then back is where you started, and forward is not back.
+
+    Nothing distinguished `previous` from `next`: changing the minus to a plus
+    left the whole suite green, because every test that walked the cycle walked
+    it in one direction.
+    """
+    assert granularity.next().previous() == granularity
+    assert granularity.previous().next() == granularity
+    assert granularity.next() != granularity.previous()
+    assert granularity.next().next() == granularity.previous().previous(), (
+        "four granularities, so two steps either way meet in the middle"
+    )
