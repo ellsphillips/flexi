@@ -139,6 +139,7 @@ class FlexiApp(TextualApp[None]):
                 callback=self._on_setup_done,
             )
         self._check_for_updates()
+        self._refresh_holidays()
 
     def _on_setup_done(self, completed: bool | None) -> None:
         if not completed:
@@ -152,6 +153,23 @@ class FlexiApp(TextualApp[None]):
     def on_unmount(self) -> None:
         self._session.close()
         self._engine.dispose()
+
+    @textual_work(thread=True)
+    def _refresh_holidays(self) -> None:
+        """Keep the bank holiday calendar current, off the message loop.
+
+        A worker rather than a blocking call at mount: this is a network round
+        trip, and the dashboard should not wait on GOV.UK to draw. Nothing in
+        the application refreshed it at all before -- the only route was a
+        command-palette entry somebody had to know about.
+        """
+        if self.services.bank_holidays.ensure_cache():
+            return
+        self.notify(
+            "No bank holiday calendar. Days off will count as working days.",
+            severity="warning",
+            timeout=UPDATE_NOTICE_SECONDS,
+        )
 
     @textual_work(thread=True)
     def _check_for_updates(self) -> None:

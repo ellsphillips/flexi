@@ -45,7 +45,7 @@ class Services:
         division = _division(settings)
         bank_holidays = BankHolidayService(session, division)
         absence = AbsenceService(session, settings, bank_holidays)
-        ledger = LedgerService(session, settings, division)
+        ledger = LedgerService(session, settings, bank_holidays)
         return cls(
             session=session,
             settings=settings,

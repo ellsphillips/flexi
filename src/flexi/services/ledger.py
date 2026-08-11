@@ -28,10 +28,10 @@ from flexi.domain.punch import Window
 from flexi.models.database.db import (
     AbsenceDay,
     BalanceAdjustment,
-    BankHolidayCache,
     WorkSession,
 )
 from flexi.models.database.moment import moment_of
+from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 
 
@@ -42,11 +42,11 @@ class LedgerService:
         self,
         session: Session,
         settings: SettingsService,
-        division: str,
+        holidays: BankHolidayService,
     ) -> None:
         self._session = session
         self._settings = settings
-        self._division = division
+        self._holidays_service = holidays
         self._cache: dict[date, DayLedger] = {}
 
     # -- cache -------------------------------------------------------------
@@ -212,12 +212,14 @@ class LedgerService:
         return totals
 
     def _holidays(self, start: date, end: date) -> dict[date, str]:
-        stmt = select(BankHolidayCache.date, BankHolidayCache.title).where(
-            BankHolidayCache.division == self._division,
-            BankHolidayCache.date >= start,
-            BankHolidayCache.date <= end,
-        )
-        return {row.date: row.title for row in self._session.execute(stmt)}
+        """Bank holidays in the span, empty when there is no calendar.
+
+        The distinction between "none in this span" and "no calendar at all" is
+        the service's to make and to report; the ledger cannot invent holidays
+        it has not been told about either way. What it must not do is query the
+        cache table directly, which is how the two came to look identical.
+        """
+        return self._holidays_service.titles_between(start, end) or {}
 
 
 def _end_of(day: date) -> datetime:

@@ -3,6 +3,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
@@ -68,6 +69,25 @@ def _never_the_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr("flexi.app.available_update", lambda: None)
     monkeypatch.setattr("flexi.versioning.available_update", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def _never_the_internet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may reach GOV.UK.
+
+    Startup now fills an empty bank holiday cache, which every test that opens
+    a database goes through. A suite that quietly makes real requests is slow,
+    fails on a train, and passes for the wrong reason when the fetch happens to
+    succeed. `fetch_and_cache` already treats a connection error as "no
+    calendar", so refusing the connection exercises the path a first run
+    offline actually takes.
+    """
+
+    def refused(*_args: object, **_kwargs: object) -> None:
+        msg = "the test suite does not make network requests"
+        raise httpx.ConnectError(msg)
+
+    monkeypatch.setattr(httpx.Client, "get", refused)
 
 
 @pytest.fixture

@@ -107,10 +107,28 @@ def _open_database(ctx: click.Context) -> None:
     run_startup_cleanup(
         session, services.clock, services.settings.get_auto_close_time()
     )
+    services.bank_holidays.fill_if_empty()
     ctx.ensure_object(dict)
     ctx.obj["engine"] = engine
     ctx.obj["session"] = session
     ctx.obj["services"] = services
+
+
+@cli.group()
+def holidays() -> None:
+    """Look after the bank holiday calendar."""
+
+
+@holidays.command(name="refresh")
+@requires_setup
+@click.pass_context
+def holidays_refresh(ctx: click.Context) -> None:
+    """Fetch the calendar for the configured region from GOV.UK."""
+    from flexi.cli import holidays as holidays_cli
+
+    code = holidays_cli.run(ctx.obj["services"])
+    _close(ctx)
+    ctx.exit(code)
 
 
 def _run_demo() -> None:
@@ -356,6 +374,17 @@ def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
     if summary.adjustment:
         click.echo(f"adjusted     {delta(summary.adjustment)}")
     click.secho(f"balance      {delta(summary.delta)}", bold=True)
+    if not services.bank_holidays.is_available():
+        # Where the wrong number appears, rather than on every command. Without
+        # a calendar every bank holiday is counted as a working day nobody
+        # worked, which is about eight days of deficit a year -- and the figure
+        # above is the only place that shows.
+        click.secho(
+            "\nNo bank holiday calendar: days off are counted as working days.\n"
+            "Run `flexi holidays refresh` to fetch it.",
+            fg="yellow",
+            err=True,
+        )
     _close(ctx)
 
 

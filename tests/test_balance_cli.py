@@ -61,10 +61,19 @@ def test_show_reports_the_balance(home: Path) -> None:
 
 
 def balance_of(runner: CliRunner, when: date | None = None) -> str:
+    """The figure on the `balance` line.
+
+    Read off the line rather than by splitting the whole output on the word,
+    which broke the moment anything was printed after it -- and something is:
+    `balance show` now says when there is no bank holiday calendar, because
+    that is the line the missing days are missing from.
+    """
     args = ["balance", "show"]
     if when is not None:
         args += ["--as-of", when.isoformat()]
-    return runner.invoke(cli, args).output.split("balance")[-1].strip()
+    output = runner.invoke(cli, args).output
+    line = next(row for row in output.splitlines() if row.startswith("balance"))
+    return line.removeprefix("balance").strip()
 
 
 def test_zero_settles_it(home: Path) -> None:
