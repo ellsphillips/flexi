@@ -111,9 +111,14 @@ class MonthView(Module):
             week, column = divmod(index, DAYS_IN_WEEK)
             cell = self.query_one(f"#calendar-cell-{week}-{column}", Label)
             cell.update(self._cell_text(when, today))
-            cell.set_classes(
-                " ".join(self._cell_classes(when, ledgers.get(when), period, today))
-            )
+            # Written only when they differ. `set_classes` reapplies the whole
+            # stylesheet to the tree whether or not anything changed, and the
+            # calendar has forty-two cells of which a redraw typically moves
+            # one: stepping a day was forty-two full restyles, and mounting the
+            # dashboard was forty-two more.
+            classes = set(self._cell_classes(when, ledgers.get(when), period, today))
+            if classes != set(cell.classes):
+                cell.set_classes(classes)
 
         for week in range(WEEKS):
             row = self.query_one(f"#calendar-row-{week}")
