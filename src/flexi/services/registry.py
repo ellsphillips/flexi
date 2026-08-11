@@ -7,7 +7,7 @@ widget never constructs its own and never reaches for the session behind it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -84,10 +84,6 @@ class Services:
         if result.success:
             self.invalidate()
         return result
-
-    def now(self) -> datetime:
-        """The current local moment, in one place so tests can patch one thing."""
-        return wallclock.now()
 
 
 def _minimum_session() -> timedelta:

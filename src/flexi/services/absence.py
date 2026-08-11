@@ -235,10 +235,6 @@ class AbsenceService:
         )
         return list(self._session.execute(stmt).scalars())
 
-    def get_absences_in_range(self, start: date, end: date) -> list[AbsenceDay]:
-        """Alias of :meth:`in_range`."""
-        return self.in_range(start, end)
-
     # -- counting ----------------------------------------------------------
 
     def count_days(
@@ -423,27 +419,6 @@ class AbsenceService:
 
         return (Verdict.BOOK, "", None)
 
-    def _note_refusal(
-        self, absence_type: AbsenceType, note: str | None
-    ) -> AbsenceResult | None:
-        if absence_type.requires_note and not (note or "").strip():
-            return AbsenceResult(False, "Other absence needs a note saying what it is")
-        return None
-
-    def _calendar_refusal(self, day: date) -> AbsenceResult | None:
-        """Whether the day is one you could be absent from at all."""
-        if not self._settings.is_working_day(day.weekday()):
-            return AbsenceResult(False, "That is not a working day")
-
-        holiday = self._bank_holidays.is_bank_holiday(day)
-        if holiday is None:
-            return AbsenceResult(
-                False, "Bank holiday data unavailable; cannot book absence"
-            )
-        if holiday:
-            return AbsenceResult(False, "That day is already a bank holiday")
-        return None
-
     def _clash_refusal(self, day: date, portion: Portion) -> AbsenceResult | None:
         """Whether something already occupies the part of the day being booked."""
         existing = self.for_date(day)
@@ -462,20 +437,6 @@ class AbsenceService:
                 False, "There is recorded work in that part of the day"
             )
         return None
-
-    def _entitlement_refusal(
-        self, day: date, absence_type: AbsenceType, portion: Portion
-    ) -> AbsenceResult | None:
-        """Whether there is enough allowance left to draw on."""
-        if not absence_type.draws_down_entitlement:
-            return None
-        remaining = self.get_remaining_annual_leave(day)
-        if remaining is None or remaining >= portion.days:
-            return None
-        short = portion.days - remaining
-        return AbsenceResult(
-            False, f"Not enough annual leave — {short:g} day short of the request"
-        )
 
     def _toil_warning(
         self,
@@ -687,15 +648,3 @@ class AbsenceService:
         if not self._settings.is_working_day(absence.date.weekday()):
             return False
         return self._bank_holidays.is_bank_holiday(absence.date) is not True
-
-    # -- compatibility -----------------------------------------------------
-
-    def mark_absence(
-        self, day: date, absence_type: AbsenceType, portion: Portion = Portion.FULL
-    ) -> AbsenceResult:
-        """Alias of :meth:`book`, kept for callers written against the v1 name."""
-        return self.book(day, absence_type, portion)
-
-    def remove_absence(self, day: date) -> AbsenceResult:
-        """Alias of :meth:`remove`, kept for callers written against the v1 name."""
-        return self.remove(day)

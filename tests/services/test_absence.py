@@ -67,20 +67,20 @@ def absence(
 # ---------- creation ----------
 
 
-class TestMarkAbsence:
+class TestBooking:
     def test_annual_on_working_day(self, absence: AbsenceService) -> None:
         d = _next_weekday(date(2026, 6, 8), 0)  # Monday
-        result = absence.mark_absence(d, AbsenceType.ANNUAL)
+        result = absence.book(d, AbsenceType.ANNUAL)
         assert result.success is True
 
     def test_sick_on_working_day(self, absence: AbsenceService) -> None:
         d = _next_weekday(date(2026, 6, 8), 1)  # Tuesday
-        result = absence.mark_absence(d, AbsenceType.SICK)
+        result = absence.book(d, AbsenceType.SICK)
         assert result.success is True
 
     def test_flexi_on_working_day(self, absence: AbsenceService) -> None:
         d = _next_weekday(date(2026, 6, 8), 2)  # Wednesday
-        result = absence.mark_absence(d, AbsenceType.FLEXI)
+        result = absence.book(d, AbsenceType.FLEXI)
         assert result.success is True
 
 
@@ -90,17 +90,17 @@ class TestMarkAbsence:
 class TestRejections:
     def test_reject_non_working_day(self, absence: AbsenceService) -> None:
         saturday = _next_weekday(date(2026, 6, 8), 5)
-        result = absence.mark_absence(saturday, AbsenceType.ANNUAL)
+        result = absence.book(saturday, AbsenceType.ANNUAL)
         assert result.success is False
 
     def test_reject_bank_holiday(self, absence: AbsenceService) -> None:
-        result = absence.mark_absence(date(2026, 12, 25), AbsenceType.ANNUAL)
+        result = absence.book(date(2026, 12, 25), AbsenceType.ANNUAL)
         assert result.success is False
 
     def test_reject_duplicate(self, absence: AbsenceService) -> None:
         d = _next_weekday(date(2026, 6, 8), 0)
-        absence.mark_absence(d, AbsenceType.ANNUAL)
-        result = absence.mark_absence(d, AbsenceType.SICK)
+        absence.book(d, AbsenceType.ANNUAL)
+        result = absence.book(d, AbsenceType.SICK)
         assert result.success is False
 
     def test_reject_when_bh_unavailable(self, tmp_path: Path) -> None:
@@ -125,9 +125,7 @@ class TestRejections:
             svc = AbsenceService(
                 session, settings, BankHolidayService(session, "england-and-wales")
             )
-            result = svc.mark_absence(
-                _next_weekday(date(2026, 6, 8), 0), AbsenceType.ANNUAL
-            )
+            result = svc.book(_next_weekday(date(2026, 6, 8), 0), AbsenceType.ANNUAL)
         finally:
             session.close()
             engine.dispose()
@@ -144,7 +142,7 @@ class TestRejections:
         clock.clock_in(now=now)
         clock.clock_out(now=now + timedelta(hours=8))
 
-        result = absence.mark_absence(d, AbsenceType.ANNUAL)
+        result = absence.book(d, AbsenceType.ANNUAL)
         assert result.success is False
         assert "recorded work" in result.message
 
@@ -178,11 +176,11 @@ class TestRejections:
         clock.clock_in(now=midnight.replace(hour=worked_from))
         clock.clock_out(now=midnight.replace(hour=worked_to))
 
-        over_the_work = absence.mark_absence(d, AbsenceType.SICK, portion=refused)
+        over_the_work = absence.book(d, AbsenceType.SICK, portion=refused)
         assert over_the_work.success is False
         assert "recorded work" in over_the_work.message
 
-        the_other_half = absence.mark_absence(d, AbsenceType.SICK, portion=allowed)
+        the_other_half = absence.book(d, AbsenceType.SICK, portion=allowed)
         assert the_other_half.success is True, the_other_half.message
 
 
@@ -192,13 +190,13 @@ class TestRejections:
 class TestRemoval:
     def test_remove_existing(self, absence: AbsenceService) -> None:
         d = _next_weekday(date(2026, 6, 8), 0)
-        absence.mark_absence(d, AbsenceType.SICK)
-        result = absence.remove_absence(d)
+        absence.book(d, AbsenceType.SICK)
+        result = absence.remove(d)
         assert result.success is True
         assert absence.has_absence(d) is False
 
     def test_remove_nonexistent(self, absence: AbsenceService) -> None:
-        result = absence.remove_absence(date(2026, 1, 2))
+        result = absence.remove(date(2026, 1, 2))
         assert result.success is False
 
 
@@ -208,7 +206,7 @@ class TestRemoval:
 class TestTypeChange:
     def test_change_sick_to_annual(self, absence: AbsenceService) -> None:
         d = _next_weekday(date(2026, 6, 8), 0)
-        absence.mark_absence(d, AbsenceType.SICK)
+        absence.book(d, AbsenceType.SICK)
         result = absence.change_type(d, AbsenceType.ANNUAL)
         assert result.success is True
         assert result.absence is not None
@@ -225,7 +223,7 @@ class TestTypeChange:
 class TestBalance:
     def test_remaining_after_booking(self, absence: AbsenceService) -> None:
         d = _next_weekday(date(2026, 6, 8), 0)
-        absence.mark_absence(d, AbsenceType.ANNUAL)
+        absence.book(d, AbsenceType.ANNUAL)
         remaining = absence.get_remaining_annual_leave()
         assert remaining == 24.0
 
@@ -238,9 +236,9 @@ class TestBalance:
         settings.save_entitlement(2026, 1.0)
         svc = AbsenceService(session, settings, bank_holidays)
         d1 = _next_weekday(date(2026, 6, 8), 0)
-        svc.mark_absence(d1, AbsenceType.ANNUAL)
+        svc.book(d1, AbsenceType.ANNUAL)
         d2 = _next_weekday(date(2026, 6, 15), 1)
-        result = svc.mark_absence(d2, AbsenceType.ANNUAL)
+        result = svc.book(d2, AbsenceType.ANNUAL)
         assert result.success is False
         assert "Not enough annual leave" in result.message
 
@@ -252,7 +250,7 @@ class TestCounts:
     def test_count_by_type(self, absence: AbsenceService) -> None:
         d1 = _next_weekday(date(2026, 6, 8), 0)
         d2 = _next_weekday(date(2026, 6, 8), 1)
-        absence.mark_absence(d1, AbsenceType.SICK)
-        absence.mark_absence(d2, AbsenceType.SICK)
+        absence.book(d1, AbsenceType.SICK)
+        absence.book(d2, AbsenceType.SICK)
         assert absence.count_absences(AbsenceType.SICK) == 2
         assert absence.count_absences(AbsenceType.ANNUAL) == 0
