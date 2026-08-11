@@ -373,7 +373,7 @@ class LeaveScreen(Screen[None]):
                 return
             result = self._services.absence.book_range(
                 booking.when,
-                booking.when if selection.single else selection.end,
+                booking.until,
                 booking.kind,
                 booking.portion,
                 note=booking.note,
@@ -389,6 +389,7 @@ class LeaveScreen(Screen[None]):
             AbsenceModal(
                 selection.start,
                 AbsenceType.ANNUAL,
+                until=None if selection.single else selection.end,
                 remaining=self._services.absence.get_remaining_annual_leave(),
                 toil_days=self._services.toil_days(),
             ),
