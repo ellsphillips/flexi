@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+import time_machine
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
@@ -15,6 +17,20 @@ from flexi.services.startup import run_startup_cleanup
 
 DAY = date(2026, 8, 10)
 NINE = datetime.combine(DAY, datetime.min.time(), tzinfo=UTC).replace(hour=9)
+NOON = NINE.replace(hour=12)
+
+
+@pytest.fixture(autouse=True)
+def _on_the_day() -> Iterator[None]:
+    """Hold the clock at DAY, so every test here means the same thing every day.
+
+    DAY is a fixed date and the stale sweep reads the real one, so an open
+    session on it stopped being "today" at midnight and started being swept as
+    yesterday's. These tests passed on the tenth of August and failed on the
+    eleventh, which is a poor way to find out.
+    """
+    with time_machine.travel(NOON, tick=False):
+        yield
 
 
 @pytest.fixture
