@@ -17,7 +17,7 @@ from flexi.components.wordmark import Wordmark
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
 from flexi.screens.dashboard import DashboardScreen
-from flexi.screens.setup import CHROME_ROWS, QUESTION_ROWS, Question, SetupScreen
+from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
 from flexi.services.settings import SettingsService
 from tests.tui.conftest import WIDE, showing
 
@@ -250,7 +250,7 @@ async def test_the_counted_height_is_the_real_one(
         for _ in range(24):
             await pilot.pause()
 
-        counted = len(screen.query(Question)) * QUESTION_ROWS + CHROME_ROWS
+        counted = form_rows(len(screen.query(Question)))
         assert screen.query_one("#setup-questions").region.height == counted
 
 
@@ -285,3 +285,93 @@ async def test_the_questions_open_out_rather_than_appear(
 
     assert "height" in asked, "the questions should open out, not switch on"
     assert "opacity" in asked, "and fade up as they do"
+
+
+async def test_the_rail_is_one_unbroken_line(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rail drawn a piece per question has a gap wherever the rows are spaced.
+
+    That is a dotted line pretending to be a continuous one, and a marker made
+    of pieces can only blink from one to the next.
+    """
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(112, 40)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one(Wordmark).skip()
+        for _ in range(24):
+            await pilot.pause()
+
+        rail = screen.query_one(Rail)
+        rows = [
+            "".join(segment.text for segment in strip)
+            for strip in app.screen._compositor.render_strips()
+        ]
+        column = rail.region.x + len(GUTTER)
+        drawn = "".join(
+            rows[rail.region.y + step][column] for step in range(rail.region.height)
+        )
+
+        assert rail.region.height == form_rows(len(screen.query(Question)))
+        assert " " not in drawn, f"the rail has a gap in it: {drawn!r}"
+
+
+async def test_the_marker_sits_on_the_question_holding_the_cursor(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(112, 40)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one(Wordmark).skip()
+        for _ in range(24):
+            await pilot.pause()
+
+        rail = screen.query_one(Rail)
+        first = rail.marker
+        await pilot.press("tab")
+        for _ in range(12):
+            await pilot.pause()
+
+        assert rail.marker > first, "the marker should follow the cursor down"
+
+
+async def test_the_marker_travels_rather_than_jumps(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Headless, animations resolve at once, so the travel cannot be watched.
+
+    What can be checked is that it is asked for. `marker` is a float for exactly
+    this reason -- Textual can only interpolate numbers, and a marker that could
+    only hold whole rows could only blink between them.
+    """
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    asked: list[str] = []
+
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(112, 40)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one(Wordmark).skip()
+        for _ in range(24):
+            await pilot.pause()
+
+        rail = screen.query_one(Rail)
+        animate = rail.animate
+
+        def spy(attribute: str, *args: Any, **kwargs: Any) -> Any:
+            asked.append(attribute)
+            return animate(attribute, *args, **kwargs)
+
+        monkeypatch.setattr(rail, "animate", spy)
+        await pilot.press("tab")
+        for _ in range(12):
+            await pilot.pause()
+
+    assert "marker" in asked, "the marker should be animated along the rail"
