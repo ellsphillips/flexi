@@ -24,19 +24,26 @@ from typing import Final
 
 from rich.text import Text
 
-from flexi.theme import colour
+from flexi.theme import (
+    CURSOR,
+    MARK_DONE,
+    MARK_GRAVE,
+    MARK_LIVE,
+    RAIL_LIVE,
+    RAIL_SETTLED,
+    TAIL,
+    colour,
+)
 
-HEAVY: Final = "┃"
-"""The rail through the live step."""
+# Named for what they do here; defined once, in the design system, so the setup
+# screen draws the same rail as the prompt that precedes it.
+HEAVY: Final = RAIL_LIVE
+HAIRLINE: Final = RAIL_SETTLED
+ACTIVE: Final = MARK_LIVE
+SETTLED: Final = MARK_DONE
+ALERT: Final = MARK_GRAVE
 
-HAIRLINE: Final = "│"
-"""The rail through everything settled."""
-
-TAIL: Final = "╰"
-ACTIVE: Final = "◆"
-SETTLED: Final = "●"
-ALERT: Final = "▲"
-CURSOR: Final = "▸"
+__all__ = ["ALERT", "CURSOR", "HAIRLINE", "HEAVY", "SETTLED", "TAIL", "Tone"]
 
 GUTTER: Final = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""

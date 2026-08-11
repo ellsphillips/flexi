@@ -107,38 +107,26 @@ def test_it_lands_square_on_and_stays_there() -> None:
         assert splash.pitch(at) == 0.0
 
 
-def test_it_does_not_flex_until_it_has_landed() -> None:
-    assert splash.twist(0.0) == 0.0
-    assert splash.twist(splash.SPIN - 0.01) == 0.0
+def test_nothing_moves_once_it_has_landed() -> None:
+    """It turned, and then it wobbled, and the wobble undercut the whole thing.
+
+    A mark that settles and then jiggles reads as a toy rather than as a title,
+    so the deceleration runs into stillness and stays there. Every frame from
+    the landing to the end is the same picture.
+    """
+    landed = splash.luminance(splash.SPIN)
+    for at in (splash.SPIN + 0.05, splash.SPIN + 0.9, splash.DURATION):
+        assert splash.luminance(at) == landed, f"it moved again at {at:.2f}s"
 
 
-def test_the_flex_rings_rather_than_easing() -> None:
-    """A twist that only unwinds one way reads as unwinding, not as springing."""
-    steps = 60
-    wringing = [
-        splash.twist(splash.SPIN + step * splash.FLEX / steps) for step in range(steps)
-    ]
-    assert max(wringing) > 0.0
-    assert min(wringing) < 0.0
-
-
-def test_the_flex_arrives_at_exactly_flat() -> None:
-    """The word is on screen for over a second after this."""
-    assert splash.twist(splash.SPIN + splash.FLEX) == 0.0
-    assert splash.twist(splash.DURATION) == 0.0
-
-
-# -- the picture -------------------------------------------------------------
-
-
-@pytest.mark.parametrize("at", [0.0, 0.3, 0.7, 1.1, 1.6, 2.4, 3.2, 4.0, 4.75])
+@pytest.mark.parametrize("at", [0.0, 0.3, 0.7, 1.1, 1.6, 2.2, 2.8, 3.35])
 def test_the_canvas_never_moves_or_changes_size(at: float) -> None:
     canvas = splash.luminance(at)
     assert len(canvas) == splash.CANVAS_HEIGHT
     assert {len(row) for row in canvas} == {splash.CANVAS_WIDTH}
 
 
-@pytest.mark.parametrize("at", [0.0, 0.3, 0.7, 1.1, 1.6, 2.4, 3.2, 4.0, 4.75])
+@pytest.mark.parametrize("at", [0.0, 0.3, 0.7, 1.1, 1.6, 2.2, 2.8, 3.35])
 def test_there_is_always_something_on_screen(at: float) -> None:
     """Including edge on, where a slab with no depth would vanish entirely."""
     assert lit(splash.luminance(at)) > 40
@@ -200,11 +188,11 @@ def test_a_frame_is_text_the_width_of_the_canvas() -> None:
 
 def test_the_strapline_waits_for_the_word_to_stop() -> None:
     assert splash.strapline_fade(0.0) == 0.0
-    assert splash.strapline_fade(splash.SPIN + splash.FLEX - 0.01) == 0.0
+    assert splash.strapline_fade(splash.SPIN - 0.01) == 0.0
 
 
 def test_the_strapline_arrives_and_finishes() -> None:
-    begun = splash.SPIN + splash.FLEX + splash.STRAPLINE_IN / 2
+    begun = splash.SPIN + splash.STRAPLINE_IN / 2
     assert 0.0 < splash.strapline_fade(begun) < 1.0
     assert splash.strapline_fade(splash.DURATION) == 1.0
     assert splash.STRAPLINE == "Manage your time, flexibly."
@@ -215,7 +203,7 @@ def test_the_strapline_arrives_and_finishes() -> None:
 
 def test_it_holds_still_once_it_has_arrived() -> None:
     """Snatching it away as it settles reads as a glitch rather than a title."""
-    settled = splash.SPIN + splash.FLEX + splash.STRAPLINE_IN
+    settled = splash.SPIN + splash.STRAPLINE_IN
     assert splash.DURATION - settled >= 1.0
     assert not splash.is_finished(settled + 0.5)
 
@@ -226,7 +214,7 @@ def test_it_ends() -> None:
 
 
 def test_it_is_long_enough_to_watch_and_short_enough_to_forgive() -> None:
-    assert 3.5 <= splash.DURATION <= 6.0
+    assert 3.0 <= splash.DURATION <= 6.0
 
 
 @pytest.mark.parametrize(

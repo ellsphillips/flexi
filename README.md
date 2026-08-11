@@ -9,7 +9,7 @@ A terminal app for people on flexitime. It records when you were on the clock, w
 [![uv](https://shieldcn.dev/badge/packaging-uv-00AAAD.svg?logo=uv&variant=outline)](https://docs.astral.sh/uv/)
 
 [![ci](https://shieldcn.dev/github/ci/ellsphillips/flexi.svg?variant=outline)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
-[![tests](https://shieldcn.dev/badge/tests-647_passing-2E9E52.svg?logo=pytest)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
+[![tests](https://shieldcn.dev/badge/tests-722_passing-2E9E52.svg?logo=pytest)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
 [![mypy](https://shieldcn.dev/badge/mypy-strict-2E9E52.svg)](https://mypy-lang.org)
 [![ruff](https://shieldcn.dev/badge/ruff-select_ALL-2E9E52.svg?logo=ruff)](https://github.com/astral-sh/ruff)
 [![licence](https://shieldcn.dev/badge/licence-MIT-2E9E52.svg)](LICENSE)
@@ -223,7 +223,7 @@ cd flexi
 uv sync
 uv run pre-commit install
 
-uv run pytest -q                    # 647 tests, about a minute
+uv run pytest -q                    # 722 tests, about twelve seconds
 uv run mypy                         # strict, over src and tests
 uv run ruff check
 uv run python scripts/shoot.py      # regenerate the screenshots above

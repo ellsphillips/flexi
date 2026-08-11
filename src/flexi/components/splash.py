@@ -8,12 +8,12 @@ a z-buffer and shaded by how squarely each normal faces the light. Luminance
 picks a character out of a ramp. That is the machinery a certain spinning
 doughnut runs on, pointed at a logo instead of a torus.
 
-What is not borrowed is the flex. The product is called flexi, so the wordmark
-behaves like something flexible: as it lands it twists about its own long axis,
-each letter carrying a little more rotation than the one before it, and the
-twist rings down as a damped oscillation until the word lies flat and face-on.
-The last frame is exactly the flat bitmap at full brightness, so the spectacle
-resolves into something legible rather than merely stopping.
+It turns once and stops. There was a wobble after the turn -- the word wrung
+about its own axis and ringing down -- and it undercut the thing: a mark that
+settles and then jiggles reads as a toy rather than as a title. The turn
+decelerates into stillness and stays there. The last frame is exactly the flat
+bitmap at full brightness, so the spectacle resolves into something legible
+rather than merely stopping.
 
 Everything is a pure function of elapsed seconds and none of it knows a terminal
 exists, so the animation is tested frame by frame with no clock, no screen and
@@ -90,40 +90,25 @@ normals are perpendicular rather than turned away, so they were still being
 painted, one column to the side of the cell they belong to. That filled in the
 counters: the hole in the `e` closed up and the wordmark became a slab."""
 
-SPIN: Final = 1.55
+SPIN: Final = 1.70
 """Seconds the word takes to turn in and stop."""
 
 TURNS: Final = 1.75
 """Rotations it makes on the way in."""
 
-FLEX: Final = 1.45
-"""Seconds the twist takes to ring down once the word has landed."""
-
-TWIST: Final = 1.15
-"""Radians of twist between the middle of the word and either end, at the
-deepest point of the flex."""
-
 TILT: Final = 0.42
 """Radians the word is pitched over at the start, easing to nothing."""
 
-STRAPLINE_IN: Final = 0.5
+STRAPLINE_IN: Final = 0.55
 """Seconds the strapline takes to fade up, once the word is still."""
 
-HOLD: Final = 1.25
+HOLD: Final = 1.10
 """Seconds the finished wordmark simply sits there.
 
 Somebody sees this once. Snatching it away the instant it settles wastes the
 only moment the application has to introduce itself."""
 
-DURATION: Final = SPIN + FLEX + STRAPLINE_IN + HOLD
-
-DECAY: Final = 3.2
-"""How fast the flex dies away. Lower rings for longer."""
-
-WOBBLES: Final = 2.5
-"""Half-turns of twist across the flex. A whole number and a half puts a zero of
-the cosine exactly at the end, so the word arrives flat rather than being cut
-off part way through a wobble."""
+DURATION: Final = SPIN + STRAPLINE_IN + HOLD
 
 _FACE_SAMPLES: Final = 6
 """Samples across a face, per axis.
@@ -246,25 +231,6 @@ def pitch(elapsed: float) -> float:
     return TILT * (1.0 - _ease_out(max(0.0, elapsed) / SPIN))
 
 
-def twist(elapsed: float) -> float:
-    """Radians of twist per half-width, ringing down after the word lands.
-
-    This is the flex, and it is the part no doughnut does. The product is called
-    flexi, so on arrival the wordmark behaves like something flexible rather
-    than something rigid that has merely stopped: each letter carries a little
-    more rotation than the one before, the whole word wrung about its own long
-    axis, and the wringing damps out to nothing.
-    """
-    if elapsed < SPIN:
-        return 0.0
-    progress = (elapsed - SPIN) / FLEX
-    if progress >= 1.0:
-        # Exactly flat, rather than however much wobble was left over. The word
-        # is on screen for well over a second after this.
-        return 0.0
-    return TWIST * math.exp(-DECAY * progress) * math.cos(WOBBLES * math.pi * progress)
-
-
 def strapline_fade(elapsed: float) -> float:
     """How far the strapline has arrived, nought to one.
 
@@ -272,10 +238,9 @@ def strapline_fade(elapsed: float) -> float:
     oldest gesture a terminal has, and it changes the width of the line on every
     frame, which is a poor thing to do underneath something being centred.
     """
-    begins = SPIN + FLEX
-    if elapsed < begins:
+    if elapsed < SPIN:
         return 0.0
-    return min(1.0, (elapsed - begins) / STRAPLINE_IN)
+    return min(1.0, (elapsed - SPIN) / STRAPLINE_IN)
 
 
 def is_finished(elapsed: float) -> bool:
@@ -292,9 +257,7 @@ def luminance(elapsed: float) -> list[list[int]]:
     itself correctly while it turns. Faces pointing away from the eye are
     dropped before they are projected, which is half the cloud on any frame.
     """
-    turn, lean, wring = yaw(elapsed), pitch(elapsed), twist(elapsed)
-    width, _ = extent()
-    half_width = max((width - 1) / 2, 1.0)
+    turn, lean = yaw(elapsed), pitch(elapsed)
 
     cos_turn, sin_turn = math.cos(turn), math.sin(turn)
     light_x, light_y, light_z = LIGHT
@@ -305,10 +268,8 @@ def luminance(elapsed: float) -> list[list[int]]:
     centre_x, centre_y = CANVAS_WIDTH // 2, CANVAS_HEIGHT // 2
 
     for x, y, z, nx, ny, nz in surface():
-        # Twist first: a rotation about the long axis whose angle grows with
-        # distance from the middle, which bends the word rather than turning it.
-        angle = lean + wring * (x / half_width)
-        cos_bend, sin_bend = math.cos(angle), math.sin(angle)
+        # The pitch first, about the horizontal axis.
+        cos_bend, sin_bend = math.cos(lean), math.sin(lean)
         y1, z1 = y * cos_bend - z * sin_bend, y * sin_bend + z * cos_bend
         ny1, nz1 = ny * cos_bend - nz * sin_bend, ny * sin_bend + nz * cos_bend
 

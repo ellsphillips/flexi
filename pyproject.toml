@@ -61,6 +61,7 @@ dev = [
     "time-machine>=2.16.0",
     "types-pyyaml>=6.0",
     "typing-extensions>=4.12.2",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -80,7 +81,7 @@ package = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests", "src/flexi/domain", "src/flexi/cli/ui"]
-addopts = "--doctest-modules --strict-markers --strict-config"
+addopts = "--doctest-modules --strict-markers --strict-config -n auto"
 
 [tool.coverage.run]
 branch = true
