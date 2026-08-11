@@ -16,7 +16,14 @@ REQUEST_TIMEOUT = 5.0
 class BankHolidayService:
     """Fetch, cache (in DB), and validate GOV.UK bank holidays."""
 
-    def __init__(self, session: Session, division: str = "england-and-wales") -> None:
+    def __init__(self, session: Session, division: str) -> None:
+        """The division is required.
+
+        It defaulted to England & Wales, and every caller that forgot to pass
+        one got the English calendar silently. `ClockService` was one of them,
+        so the bank-holiday guard was inverted for Scotland and Northern
+        Ireland: blocked on an English holiday, allowed on their own.
+        """
         self._session = session
         self._division = division
 

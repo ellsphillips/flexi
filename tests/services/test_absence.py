@@ -17,7 +17,7 @@ from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import BankHolidayCache, Base
 from flexi.services.absence import AbsenceService
 from flexi.services.bank_holidays import BankHolidayService
-from flexi.services.clock import ClockService
+from flexi.services.registry import Services
 from flexi.services.settings import SettingsService
 
 
@@ -139,7 +139,7 @@ class TestRejections:
         self, absence: AbsenceService, session: Session
     ) -> None:
         d = _next_weekday(date(2026, 7, 6), 0)  # A Monday in future
-        clock = ClockService(session)
+        clock = Services.build(session).clock
         now = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
         clock.clock_in(now=now)
         clock.clock_out(now=now + timedelta(hours=8))
@@ -173,7 +173,7 @@ class TestRejections:
         for every half day booked against a day with work on it.
         """
         d = _next_weekday(date(2026, 7, 6), 0)
-        clock = ClockService(session)
+        clock = Services.build(session).clock
         midnight = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
         clock.clock_in(now=midnight.replace(hour=worked_from))
         clock.clock_out(now=midnight.replace(hour=worked_to))

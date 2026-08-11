@@ -109,17 +109,22 @@ class WalletService:
     def __init__(
         self,
         session: Session,
-        settings: SettingsService | None = None,
-        absence: AbsenceService | None = None,
-        ledger: LedgerService | None = None,
+        settings: SettingsService,
+        absence: AbsenceService,
+        ledger: LedgerService,
     ) -> None:
-        from flexi.services.bank_holidays import BankHolidayService
+        """A second, divergent copy of the wiring diagram used to live here.
 
+        The `or` fallbacks had exactly one caller, which passed all three, so
+        they were never taken -- but they built a `BankHolidayService` with the
+        default division unconditionally and threw it away, and the ledger
+        fallback would have created a second memo cache that
+        `Services.invalidate` does not clear.
+        """
         self._session = session
-        self._settings = settings or SettingsService(session)
-        holidays = BankHolidayService(session)
-        self._absence = absence or AbsenceService(session, self._settings, holidays)
-        self._ledger = ledger or LedgerService(session, self._settings)
+        self._settings = settings
+        self._absence = absence
+        self._ledger = ledger
 
     def compute(
         self,

@@ -42,7 +42,7 @@ class LedgerService:
         self,
         session: Session,
         settings: SettingsService,
-        division: str = "england-and-wales",
+        division: str,
     ) -> None:
         self._session = session
         self._settings = settings

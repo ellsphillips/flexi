@@ -98,7 +98,10 @@ def test_the_boundary_counts(services: Services) -> None:
 
 def test_the_threshold_is_configurable(session: Session) -> None:
     """Sixty seconds is a default, not a law."""
-    clock = ClockService(session, timedelta(seconds=5))
+    built = Services.build(session)
+    clock = ClockService(
+        session, built.settings, built.bank_holidays, timedelta(seconds=5)
+    )
     clock.clock_in(now=NINE)
     assert "Discarded" in clock.clock_out(now=NINE + timedelta(seconds=3)).message
 
@@ -152,7 +155,8 @@ def test_old_short_sessions_are_swept_on_startup(
 
     assert len(services.clock.get_sessions_for_date(DAY)) == 6
 
-    run_startup_cleanup(session)
+    built = Services.build(session)
+    run_startup_cleanup(session, built.clock, built.settings.get_auto_close_time())
     assert len(services.clock.get_sessions_for_date(DAY)) == 1
     assert len(rows(session)) == 6, "voided, not deleted"
 
@@ -160,5 +164,6 @@ def test_old_short_sessions_are_swept_on_startup(
 def test_an_open_session_is_never_swept(services: Services, session: Session) -> None:
     """It has no length yet, so it cannot be too short."""
     services.clock.clock_in(now=NINE)
-    run_startup_cleanup(session)
+    built = Services.build(session)
+    run_startup_cleanup(session, built.clock, built.settings.get_auto_close_time())
     assert services.clock.is_clocked_in()

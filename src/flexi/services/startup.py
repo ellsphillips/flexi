@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    from flexi.services.clock import ClockService
 
 from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.models.database.moment import columns, moment_of
-from flexi.services.settings import SettingsService
 
 
 def close_stale_sessions(
@@ -64,19 +67,20 @@ def close_stale_sessions(
     return closed
 
 
-def run_startup_cleanup(session: Session) -> list[WorkSession]:
+def run_startup_cleanup(
+    session: Session, clock: ClockService, auto_close: time
+) -> list[WorkSession]:
     """Run all startup-time cleanup. Called before app launch and clock actions.
 
     Two sweeps. Sessions left running overnight are closed at the configured
     time, and sessions so short they can only have been a slip of the finger are
     voided — which also cleans up databases that predate the threshold.
-    """
-    from flexi.config import CONFIG
-    from flexi.services.clock import ClockService
 
-    settings = SettingsService(session)
-    closed = close_stale_sessions(session, settings.get_auto_close_time())
-    ClockService(
-        session, timedelta(seconds=CONFIG.defaults.minimum_session_seconds)
-    ).discard_short_sessions()
+    The clock service is passed in rather than built here. Building one meant a
+    deferred import purely to make a cycle importable, and it meant this swept
+    with the configured threshold while the caller that asked for the sweep held
+    a different one. Now there is one edge, clock to startup, and one threshold.
+    """
+    closed = close_stale_sessions(session, auto_close)
+    clock.discard_short_sessions()
     return closed

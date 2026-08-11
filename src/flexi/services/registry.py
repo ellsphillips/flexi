@@ -50,7 +50,7 @@ class Services:
             session=session,
             settings=settings,
             bank_holidays=bank_holidays,
-            clock=ClockService(session, _minimum_session()),
+            clock=ClockService(session, settings, bank_holidays, _minimum_session()),
             absence=absence,
             adjustments=AdjustmentService(session),
             ledger=ledger,

@@ -115,7 +115,11 @@ class FlexiApp(TextualApp[None]):
             # The CLI sweeps when it opens the database and the application did
             # not, so a session left open overnight was still drawn as running
             # since yesterday morning until something wrote to it.
-            run_startup_cleanup(self._session)
+            run_startup_cleanup(
+                self._session,
+                self.services.clock,
+                self.services.settings.get_auto_close_time(),
+            )
             self.push_screen(DashboardScreen(self.services, id="dashboard"))
             if self.open_settings:
                 self.push_screen(

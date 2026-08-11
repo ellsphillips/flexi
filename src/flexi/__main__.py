@@ -12,7 +12,7 @@ from flexi.domain.format import long_date, stamp
 from flexi.locations import database_file
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
-from flexi.services.clock import ClockService
+from flexi.services.registry import Services
 from flexi.services.setup import is_initialised
 from flexi.services.startup import run_startup_cleanup
 
@@ -103,10 +103,14 @@ def _open_database(ctx: click.Context) -> None:
     run_migrations()
     engine = create_db_engine()
     session = get_session(engine)
-    run_startup_cleanup(session)
+    services = Services.build(session)
+    run_startup_cleanup(
+        session, services.clock, services.settings.get_auto_close_time()
+    )
     ctx.ensure_object(dict)
     ctx.obj["engine"] = engine
     ctx.obj["session"] = session
+    ctx.obj["services"] = services
 
 
 def _run_demo() -> None:
@@ -240,7 +244,7 @@ def clock() -> None:
 def clock_in(ctx: click.Context) -> None:
     """Clock in to start a work session."""
     session = ctx.obj["session"]
-    svc = ClockService(session)
+    svc = ctx.obj["services"].clock
     result = svc.clock_in()
 
     if result.success:
@@ -259,7 +263,7 @@ def clock_in(ctx: click.Context) -> None:
 def clock_out(ctx: click.Context) -> None:
     """Clock out to end the current work session."""
     session = ctx.obj["session"]
-    svc = ClockService(session)
+    svc = ctx.obj["services"].clock
     result = svc.clock_out()
 
     if result.success:

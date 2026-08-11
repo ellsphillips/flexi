@@ -10,13 +10,14 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.services.clock import ClockService
+from flexi.services.registry import Services
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
 
 
 @pytest.fixture
 def svc(session: Session) -> ClockService:
-    return ClockService(session)
+    return Services.build(session).clock
 
 
 @pytest.fixture
