@@ -29,6 +29,16 @@ FRIDAY = 4
 ANCHOR = date(2026, 6, 11)
 """The Thursday every demo is drawn as at. Mid-week, mid-month, mid-leave-year."""
 
+TIMEZONE = "UTC"
+"""The timezone every demo is drawn in.
+
+Flexi records local wall time, so "local" has to be a fixed thing or the demo
+moves with the machine: `time_machine` reads a naive target as UTC, which puts
+the frozen clock an hour later on a BST laptop than on a UTC runner. Declared
+here because both the snapshot suite and `scripts/shoot.py` have to agree on
+it, and for a while only one of them pinned it.
+"""
+
 NOW = datetime(2026, 6, 11, 14, 32)
 """Early afternoon, with a session open — the state the dashboard is most often
 looked at in, and the one that exercises the live edge of the punch strip."""
