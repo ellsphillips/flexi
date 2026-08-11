@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.domain import leaveyear
 from flexi.domain.stitch import MONTHS_IN_YEAR
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
@@ -162,12 +163,9 @@ class SettingsService:
         return parse_month_day(raw)
 
     def active_leave_year(self, ref: date | None = None) -> int:
-        """Return the calendar year of the active leave year containing ref."""
-        if ref is None:
-            ref = wallclock.today()
-        m, d = self.get_leave_year_start()
-        start_this_year = date(ref.year, m, d)
-        return ref.year if ref >= start_this_year else ref.year - 1
+        """The calendar year the active leave year is filed under."""
+        month, day = self.get_leave_year_start()
+        return leaveyear.active_year(ref or wallclock.today(), month, day)
 
     # ---- entitlements ----
 

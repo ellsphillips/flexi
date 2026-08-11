@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
 from flexi.constants import DayKind
+from flexi.domain import leaveyear
 from flexi.domain.balance import (
     BalanceSummary,
     accumulate,
@@ -106,9 +107,8 @@ class LedgerService:
         fall out of step.
         """
         as_of = as_of or wallclock.today()
-        year = self._settings.active_leave_year(as_of)
         month, day = self._settings.get_leave_year_start()
-        return self.summary(date(year, month, day), as_of, now=now)
+        return self.summary(leaveyear.start_of(as_of, month, day), as_of, now=now)
 
     # -- building ----------------------------------------------------------
 
