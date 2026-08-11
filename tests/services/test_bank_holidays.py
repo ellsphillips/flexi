@@ -6,11 +6,13 @@ difference between "no holidays" and "could not tell" has to survive the cache.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
-from typing import TypedDict
+from typing import Any, TypedDict
 from unittest.mock import patch
 
 import httpx
+import pytest
 from sqlalchemy.orm import Session
 
 from flexi.models.database.db import BankHolidayCache
@@ -44,6 +46,21 @@ SAMPLE_RESPONSE: dict[str, Division] = {
         ],
     },
 }
+
+
+def _answering(payload: object, status: int = 200) -> Callable[..., httpx.Response]:
+    """A stand-in for GOV.UK, shaped like the real index.
+
+    The suite refuses outbound requests, so a success path has to be handed one
+    — and it is handed a real `httpx.Response`, because the code under test
+    calls `raise_for_status()` and `json()` and a mock that only answers `json`
+    would let a 503 through as a calendar.
+    """
+
+    def get(_self: httpx.Client, url: str, **_kwargs: Any) -> httpx.Response:
+        return httpx.Response(status, json=payload, request=httpx.Request("GET", url))
+
+    return get
 
 
 def _seed_cache(session: Session, division: str = "england-and-wales") -> None:
@@ -120,6 +137,219 @@ class TestFetchFailure:
             side_effect=httpx.ConnectError("network"),
         ):
             assert svc.fetch_and_cache() is False
+
+    def test_an_index_that_is_down_leaves_the_old_calendar_standing(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A 503 is not news that the bank holidays were cancelled.
+
+        The cache is cleared inside `fetch_and_cache`, so a refresh that got as
+        far as a response and then failed on it must fail *before* the delete.
+        Otherwise the weekly refresh, run on the morning GOV.UK is having a bad
+        day, turns a working calendar into no calendar — and every leave
+        booking is refused until it comes back.
+        """
+        _seed_cache(session)
+        svc = BankHolidayService(session, "england-and-wales")
+        monkeypatch.setattr(httpx.Client, "get", _answering("", status=503))
+
+        assert svc.fetch_and_cache() is False
+        assert svc.is_bank_holiday(date(2026, 12, 25)) is True
+
+    def test_a_response_that_is_not_json_is_a_failed_fetch(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A captive portal answers 200 with a login page, not a calendar."""
+        svc = BankHolidayService(session, "england-and-wales")
+
+        def html(_self: httpx.Client, url: str, **_kwargs: Any) -> httpx.Response:
+            return httpx.Response(
+                200, text="<html>sign in</html>", request=httpx.Request("GET", url)
+            )
+
+        monkeypatch.setattr(httpx.Client, "get", html)
+
+        assert svc.fetch_and_cache() is False
+        assert svc.is_available() is False
+
+
+class TestFetchingTheIndex:
+    """The success path, which the offline suite otherwise never walks."""
+
+    def test_a_fetch_replaces_the_division_it_is_for(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Replaces, rather than adds to.
+
+        GOV.UK moves a substitute day when Christmas falls at a weekend, so a
+        refresh that merged would leave the withdrawn date behind for ever and
+        the calendar would slowly fill with holidays that are not holidays.
+        """
+        session.add(
+            BankHolidayCache(
+                division="england-and-wales",
+                date=date(2026, 7, 4),
+                title="Withdrawn",
+                fetched_at=datetime(2020, 1, 1),
+            )
+        )
+        session.commit()
+        svc = BankHolidayService(session, "england-and-wales")
+        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+
+        assert svc.fetch_and_cache() is True
+        assert svc.get_dates() == {
+            date(2026, 1, 1),
+            date(2026, 4, 3),
+            date(2026, 12, 25),
+        }
+        assert svc.get_title(date(2026, 7, 4)) is None
+
+    def test_only_the_division_asked_for_is_stored(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The index carries all three; St Andrew's Day is not an English holiday."""
+        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+
+        BankHolidayService(session, "scotland").fetch_and_cache()
+
+        assert BankHolidayService(session, "scotland").get_dates() == {
+            date(2026, 1, 1),
+            date(2026, 11, 30),
+        }
+        assert BankHolidayService(session, "england-and-wales").get_dates() is None
+
+    def test_a_division_the_index_does_not_carry_caches_nothing(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Northern Ireland is missing from this payload, so there is no calendar.
+
+        `is_available` must still say no, because "fetched successfully and
+        found nothing" is exactly the state that makes the ledger charge a full
+        day against every bank holiday.
+        """
+        svc = BankHolidayService(session, "northern-ireland")
+        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+
+        assert svc.fetch_and_cache() is True
+        assert svc.is_available() is False
+
+    def test_an_event_that_cannot_be_read_costs_only_itself(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One malformed entry must not cost the year.
+
+        The whole payload is parsed in one pass, so a date GOV.UK writes in a
+        shape `date.fromisoformat` cannot read — or an entry with no date at
+        all — would otherwise take every holiday after it down with it.
+        """
+        payload = {
+            "england-and-wales": {
+                "events": [
+                    {"title": "New Year's Day", "date": "2026-01-01"},
+                    {"title": "Nonsense", "date": "the third of June"},
+                    {"title": "Dateless"},
+                    {"title": "Christmas Day", "date": "2026-12-25"},
+                ]
+            }
+        }
+        svc = BankHolidayService(session, "england-and-wales")
+        monkeypatch.setattr(httpx.Client, "get", _answering(payload))
+
+        assert svc.fetch_and_cache() is True
+        assert svc.get_dates() == {date(2026, 1, 1), date(2026, 12, 25)}
+
+    def test_an_event_with_no_title_is_still_a_day_off(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The date is what the arithmetic needs; the name is decoration."""
+        payload = {"england-and-wales": {"events": [{"date": "2026-01-01"}]}}
+        svc = BankHolidayService(session, "england-and-wales")
+        monkeypatch.setattr(httpx.Client, "get", _answering(payload))
+
+        assert svc.fetch_and_cache() is True
+        assert svc.is_bank_holiday(date(2026, 1, 1)) is True
+        assert svc.get_title(date(2026, 1, 1)) == ""
+
+    def test_an_empty_cache_is_filled_from_the_index(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The first run online: nothing cached, so it fetches and now answers."""
+        svc = BankHolidayService(session, "england-and-wales")
+        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+
+        assert svc.fill_if_empty() is True
+        assert svc.is_bank_holiday(date(2026, 4, 3)) is True
+
+
+class TestRefreshingOnlyWhenItIsStale:
+    def test_an_empty_cache_counts_as_stale(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """There is no `fetched_at` to be young, and nothing to answer with."""
+        svc = BankHolidayService(session, "england-and-wales")
+        assert svc._cache_is_fresh() is False
+
+        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        assert svc.ensure_cache() is True
+        assert svc.is_bank_holiday(date(2026, 1, 1)) is True
+
+    def test_a_fresh_cache_is_not_asked_for_again(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A week is the whole point of caching a list that changes once a year."""
+        _seed_cache(session)
+        asked: list[str] = []
+
+        def counted(_self: httpx.Client, url: str, **_kwargs: Any) -> httpx.Response:
+            asked.append(url)
+            return httpx.Response(
+                200, json=SAMPLE_RESPONSE, request=httpx.Request("GET", url)
+            )
+
+        monkeypatch.setattr(httpx.Client, "get", counted)
+
+        assert BankHolidayService(session, "england-and-wales").ensure_cache() is True
+        assert asked == [], "a fresh cache costs no round trip"
+
+    def test_a_stale_cache_is_refreshed(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stale means a substitute day may have moved since it was written."""
+        session.add(
+            BankHolidayCache(
+                division="england-and-wales",
+                date=date(2026, 7, 4),
+                title="Withdrawn",
+                fetched_at=(datetime.now(tz=UTC) - timedelta(days=10)).replace(
+                    tzinfo=None
+                ),
+            )
+        )
+        session.commit()
+        svc = BankHolidayService(session, "england-and-wales")
+        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+
+        assert svc.ensure_cache() is True
+        assert svc.get_dates() == {
+            date(2026, 1, 1),
+            date(2026, 4, 3),
+            date(2026, 12, 25),
+        }
+
+    def test_a_stale_cache_offline_is_kept_rather_than_lost(
+        self, session: Session
+    ) -> None:
+        """Last year's list beats no list at all when the train goes into a tunnel."""
+        _seed_cache(session)
+        session.query(BankHolidayCache).update(
+            {"fetched_at": datetime(2020, 1, 1)},
+        )
+        session.commit()
+        svc = BankHolidayService(session, "england-and-wales")
+
+        assert svc.ensure_cache() is False, "the refusal is reported"
+        assert svc.is_bank_holiday(date(2026, 12, 25)) is True, "and nothing was lost"
 
 
 # ---------- division changes ----------

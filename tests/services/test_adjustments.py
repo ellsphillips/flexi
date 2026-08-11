@@ -80,6 +80,13 @@ def test_a_zero_adjustment_is_refused(services: Services) -> None:
     assert "zero minutes" in result.message
 
 
+def test_removing_something_that_is_not_there_says_so(services: Services) -> None:
+    """The command line takes an id typed by hand, so it takes wrong ones too."""
+    result = services.adjustments.remove(404)
+    assert not result.success
+    assert result.message == "No such adjustment"
+
+
 def test_removing_one_puts_the_balance_back(services: Services) -> None:
     """One row in, one row out."""
     recorded = services.adjustments.record(MONDAY, timedelta(hours=4), "carried over")
@@ -90,6 +97,52 @@ def test_removing_one_puts_the_balance_back(services: Services) -> None:
     services.adjustments.remove(recorded.adjustment.id)
     services.invalidate()
     assert services.ledger.balance(MONDAY).adjustment == timedelta()
+
+
+# -- reading them back -----------------------------------------------------
+
+
+def test_a_running_total_stops_at_the_date_it_is_asked_for(
+    services: Services,
+) -> None:
+    """Inclusive of the date itself.
+
+    A correction dated the day the balance is drawn to is part of that balance;
+    an off-by-one here settles somebody's opening balance a day late and leaves
+    the figure they were trying to zero still showing.
+    """
+    services.adjustments.record(MONDAY, timedelta(hours=2), "carried over")
+    services.adjustments.record(FRIDAY, timedelta(hours=-1), "and back again")
+
+    assert services.adjustments.up_to(MONDAY - timedelta(days=1)) == timedelta()
+    assert services.adjustments.up_to(MONDAY) == timedelta(hours=2)
+    assert services.adjustments.up_to(FRIDAY) == timedelta(hours=1)
+
+
+def test_a_span_lists_the_corrections_inside_it_in_date_order(
+    services: Services,
+) -> None:
+    """The log is read top to bottom, so the order is part of the answer."""
+    services.adjustments.record(FRIDAY, timedelta(hours=-1), "and back again")
+    services.adjustments.record(MONDAY, timedelta(hours=2), "carried over")
+
+    inside = services.adjustments.in_range(MONDAY, FRIDAY)
+
+    assert [row.date for row in inside] == [MONDAY, FRIDAY]
+    assert services.adjustments.in_range(MONDAY, MONDAY) == inside[:1]
+
+
+def test_every_correction_ever_made_is_listed_newest_first(
+    services: Services,
+) -> None:
+    """The recent one is the one somebody is looking for.
+
+    `flexi balance log` prints this list in the order it comes back.
+    """
+    services.adjustments.record(MONDAY, timedelta(hours=2), "carried over")
+    services.adjustments.record(FRIDAY, timedelta(hours=-1), "and back again")
+
+    assert [row.date for row in services.adjustments.all()] == [FRIDAY, MONDAY]
 
 
 # -- zeroing ---------------------------------------------------------------
@@ -158,6 +211,24 @@ def test_zeroing_records_why(services: Services) -> None:
     result = services.zero_balance(MONDAY)
     assert result.adjustment is not None
     assert result.adjustment.reason == OPENING_BALANCE
+
+
+def test_zeroing_without_a_reason_writes_nothing(services: Services) -> None:
+    """The refusal has to survive the extra layer.
+
+    `zero_balance` computes the correction and hands it to `record`, which turns
+    a blank reason down. If the registry took the refusal for a success it would
+    drop the memoised ledger — reporting a settled balance that was never
+    written, until the next launch recomputed it and put the deficit back.
+    """
+    work(services, MONDAY, hours=2)
+
+    result = services.zero_balance(MONDAY, reason="   ")
+
+    assert not result.success
+    assert "reason" in result.message
+    assert services.adjustments.all() == []
+    assert services.ledger.balance(MONDAY).delta != timedelta()
 
 
 def test_the_records_survive_it(services: Services) -> None:

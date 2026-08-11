@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.wallet import Pace
 from flexi.services.registry import Services
+from flexi.services.wallet import _fraction_elapsed
 from tests.services.conftest import Configured
 
 MONDAY = date(2026, 6, 8)
@@ -157,3 +158,64 @@ def test_the_leave_year_bounds_a_year(services: Services) -> None:
     """It reports the span the allowances reset over."""
     start, end = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY).leave_year
     assert (start, end) == (date(2026, 6, 8), date(2027, 6, 7))
+
+
+# -- a contracted day of nothing -------------------------------------------
+
+
+def test_a_contracted_day_of_zero_is_not_a_division_by_zero(
+    services: Services, session: Session
+) -> None:
+    """The settings screen takes the number of minutes, and 0 is typeable.
+
+    Every figure in the wallet is a balance divided by a contracted day, so a
+    zero there is a `ZeroDivisionError` on the way to drawing the sidebar —
+    which is the whole application refusing to open over a settings mistake
+    there is then no screen left to correct it from.
+    """
+    services.settings.save_settings(
+        leave_year_start="06-08",
+        working_days="0,1,2,3,4",
+        bank_holiday_division="england-and-wales",
+        auto_close_time="18:00",
+        contracted_minutes=0,
+    )
+    rebuilt = Services.build(session)
+    work(rebuilt, MONDAY, hours=8)
+
+    assert rebuilt.wallet.available_toil_days(MONDAY) == 0.0
+    assert rebuilt.wallet.compute(MONDAY, SUNDAY, today=MONDAY).balance_days == 0.0
+
+
+# -- how far through the year we are ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("today", "expected"),
+    [
+        (date(2026, 6, 8), 0.0),
+        (date(2026, 6, 7), 0.0),
+        (date(2027, 6, 7), 1.0),
+        (date(2027, 6, 30), 1.0),
+    ],
+)
+def test_the_elapsed_fraction_never_leaves_the_track(
+    today: date, expected: float
+) -> None:
+    """A pace marker past the end of a gauge reads as a rendering fault.
+
+    A leave year can be looked at from before it starts and from after it ends —
+    the year calendar scrolls — and the honest statement at each end is "none of
+    it" and "all of it", not a negative marker or one off the right-hand side.
+    """
+    assert _fraction_elapsed(date(2026, 6, 8), date(2027, 6, 7), today) == expected
+
+
+def test_a_leave_year_of_one_day_is_wholly_elapsed() -> None:
+    """Rather than dividing by the nothing between its ends.
+
+    `leaveyear.bounds` cannot produce one today, but the clamp is what stops a
+    future change to it taking the sidebar down with a `ZeroDivisionError`.
+    """
+    day = date(2026, 6, 8)
+    assert _fraction_elapsed(day, day, day) == 1.0

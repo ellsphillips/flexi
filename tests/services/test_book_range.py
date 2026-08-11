@@ -92,6 +92,45 @@ def test_clearing_an_empty_range_says_so(services: Services) -> None:
     assert result.message("removed") == "Nothing to do"
 
 
+def test_a_span_that_books_nothing_gives_the_reason_unedited(
+    services: Services,
+) -> None:
+    """One refusal is a sentence, not a report on a span.
+
+    "Nothing booked: That day is already booked in full" is the status bar
+    apologising for itself. When every day was turned down for the same reason,
+    the reason *is* the answer.
+    """
+    services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+
+    again = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+
+    assert not again.success
+    assert len(again.skipped) == 5
+    assert again.message("booked") == "That day is already booked in full"
+
+
+def test_a_span_refused_for_two_different_reasons_names_both(
+    services: Services,
+) -> None:
+    """Each reason once, however many days it accounts for.
+
+    Five days short of leave and one already booked is two things to fix, and
+    listing the same sentence four times over would hide the second.
+    """
+    services.absence.book(MONDAY, AbsenceType.SICK)
+    services.settings.save_entitlement(2025, 0.0)
+
+    result = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+
+    assert not result.success
+    assert len(result.skipped) == 5
+    assert result.message("booked") == (
+        "Nothing booked: That day is already booked in full; "
+        "Not enough annual leave — 1 day short of the request"
+    )
+
+
 def test_a_single_day_reads_as_a_day(services: Services) -> None:
     """'1 day booked', not '1 days booked'."""
     result = services.absence.book_range(MONDAY, MONDAY, AbsenceType.SICK)

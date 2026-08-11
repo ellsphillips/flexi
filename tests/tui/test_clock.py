@@ -132,3 +132,27 @@ async def test_the_elapsed_time_is_in_the_border_subtitle(
         await pilot.press("slash")  # clock out
         await pilot.pause()
         assert str(app.screen.query_one(ClockModule).border_subtitle) == "/"
+
+
+async def test_a_module_that_writes_tells_the_screen_and_the_live_tick_follows(
+    app_factory: AppFactory,
+) -> None:
+    """A module never redraws its neighbours; it announces, and the screen does.
+
+    The announcement is the whole contract between the panels and the screen:
+    the ledger is invalidated once, the interested modules rebuild, and the
+    one-second tick is started or stopped. Without that last part a session
+    closed from a panel leaves a timer redrawing a clock that has stopped.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        screen = dashboard(app)
+        assert screen._tick is not None, "the seed's open session should be ticking"
+
+        app.services.clock.clock_out()  # written behind the screen's back
+        app.screen.query_one(ClockModule).announce(Scope.CLOCK)
+        await pilot.pause()
+
+        assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
+        assert screen._tick is None, "a closed session left the timer running"

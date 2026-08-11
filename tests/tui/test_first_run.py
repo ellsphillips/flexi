@@ -33,6 +33,11 @@ def fresh_db(tmp_path: Path) -> Path:
     return path
 
 
+def notices(app: FlexiApp) -> list[str]:
+    """Everything the application has put in front of the user, oldest first."""
+    return [notification.message for notification in app._notifications]
+
+
 async def _answer(app: FlexiApp, working_days: str) -> None:
     screen = showing(app, SetupScreen)
     screen.query_one("#input-leave-start", Input).value = "04-06"
@@ -86,6 +91,100 @@ async def test_a_second_launch_goes_straight_to_the_dashboard(fresh_db: Path) ->
     async with again.run_test(size=WIDE) as pilot:
         await pilot.pause()
         showing(again, DashboardScreen)
+
+
+async def test_enter_in_the_last_field_is_the_way_to_finish(fresh_db: Path) -> None:
+    """The screen says "enter to save", so enter has to save.
+
+    Every other question is left with tab, and reaching for ctrl+s at the end
+    of a form that has just told you which key finishes it is the kind of
+    small betrayal nobody reports.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        showing(app, SetupScreen).query_one("#input-auto-close", Input).focus()
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+
+
+async def test_a_half_answered_form_is_not_saved(fresh_db: Path) -> None:
+    """Five questions, and a blank one is unanswered rather than defaulted.
+
+    Guessing at an entitlement nobody typed would be filed under a leave year
+    and then quietly spent against.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-entitlement", Input).value = ""
+        await pilot.pause()
+
+        screen.action_save()
+        await pilot.pause()
+
+        assert "All fields are required" in notices(app)
+        showing(app, SetupScreen)
+
+    with get_session(create_db_engine(fresh_db)) as session:
+        assert SettingsService(session).get_settings() is None
+
+
+async def test_an_entitlement_that_is_not_a_number_is_refused(fresh_db: Path) -> None:
+    """An entitlement spelled out in words is unusable, however reasonable.
+
+    The settings themselves would save perfectly happily, leaving somebody set
+    up with no entitlement and a screen that had said nothing about it — so the
+    answer is read before anything at all is written.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-entitlement", Input).value = "twenty-five"
+        await pilot.pause()
+
+        screen.action_save()
+        await pilot.pause()
+
+        assert "Invalid entitlement value" in notices(app)
+        showing(app, SetupScreen)
+
+    with get_session(create_db_engine(fresh_db)) as session:
+        assert SettingsService(session).get_settings() is None
+
+
+async def test_a_cleared_region_is_asked_for_again(fresh_db: Path) -> None:
+    """The bank holiday calendar is the one answer with no sensible default.
+
+    Absence cannot be booked at all until the division is known, so an empty
+    select has to come back as a question rather than be filed as "nowhere".
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#select-division", Select).clear()
+        await pilot.pause()
+
+        screen.action_save()
+        await pilot.pause()
+
+        assert "Please select a bank holiday region" in notices(app)
+        showing(app, SetupScreen)
+
+    with get_session(create_db_engine(fresh_db)) as session:
+        assert SettingsService(session).get_settings() is None
 
 
 async def test_setup_refuses_an_answer_it_cannot_read(fresh_db: Path) -> None:
@@ -160,6 +259,68 @@ async def test_the_wordmark_lands_and_the_questions_arrive_under_it(
         stored = SettingsService(session).get_settings()
         assert stored is not None, "the answers survived the animation"
         assert stored.leave_year_start == "04-06"
+
+
+async def test_a_key_the_questions_do_not_claim_cuts_the_animation_short(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A splash that cannot be skipped is a splash that is in the way.
+
+    Somebody setting Flexi up a second time — a new machine, a reset database —
+    should not have to sit through the word turning in.
+
+    Not *any* key, despite what the screen's own docstring says: the leave-year
+    field is focused from the moment the screen mounts, so every printable key
+    is claimed by an Input that is still clipped to nothing and the screen never
+    sees it. F5 is a key nothing underneath wants, so it is the one that gets
+    through. The second assertion is the half of that which is a real hazard —
+    the skip key must not end up typed into the invisible first answer.
+    """
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        questions = showing(app, SetupScreen).query_one("#setup-questions")
+        assert not questions.has_class("-arrived")
+
+        await pilot.press("f5")
+        for _ in range(24):
+            await pilot.pause()
+
+        assert questions.has_class("-arrived"), "the word stopped and let them in"
+        assert app.screen.query_one("#input-leave-start", Input).value == "04-06", (
+            "and the key that skipped it was not typed into anything"
+        )
+
+
+async def test_once_the_questions_are_up_tab_moves_between_them_again(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The skip is not allowed to go on eating keystrokes.
+
+    Tab is the key that proves it, and the only key that can: printable
+    characters are claimed by the focused field and never reach the screen at
+    all, so tab is the one the skip could still be swallowing. A form that
+    cannot be moved through is a worse first run than an animation nobody can
+    skip.
+    """
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one(Wordmark).skip()
+        for _ in range(24):
+            await pilot.pause()
+        assert app.screen.focused is screen.query_one("#input-leave-start", Input)
+
+        await pilot.press("tab")
+        for _ in range(12):
+            await pilot.pause()
+
+        assert app.screen.focused is screen.query_one("#input-entitlement", Input)
 
 
 def _logo_span(app: FlexiApp) -> tuple[int, int]:

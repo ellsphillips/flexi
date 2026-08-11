@@ -10,6 +10,7 @@ longest ago.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -67,4 +68,35 @@ def test_protected_snapshots_do_not_use_up_the_allowance(backups: Path) -> None:
     assert sum(name.startswith(PROTECTED_PREFIX) for name in survivors) == 2
     assert sum(not name.startswith(PROTECTED_PREFIX) for name in survivors) == (
         migrate.MAX_BACKUPS
+    )
+
+
+def test_a_pruner_that_cannot_delete_complains_rather_than_failing_the_upgrade(
+    backups: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Housekeeping runs after the backup it is tidying up after has been taken.
+
+    A full disk or a directory somebody has made read-only must not turn a
+    successful migration into a failed one: the copy that mattered is already
+    written, and the only thing left undone is deleting files that are allowed
+    to keep existing. It is still worth saying so, because a pruner that has
+    quietly stopped working is how a data directory reaches a hundred backups.
+    """
+
+    def refuse(_self: Path, **_kwargs: object) -> None:
+        msg = "No space left on device"
+        raise OSError(msg)
+
+    routine(backups, migrate.MAX_BACKUPS + 5)
+    monkeypatch.setattr(Path, "unlink", refuse)
+
+    with caplog.at_level(logging.WARNING):
+        migrate._cleanup_old_backups()
+
+    assert len(list(backups.glob("*.bak"))) == migrate.MAX_BACKUPS + 5
+    assert "could not prune old backups" in caplog.text
+    assert caplog.records[0].exc_info is not None, (
+        "the traceback is the only clue to why pruning stopped"
     )

@@ -12,13 +12,15 @@ from flexi.app import FlexiApp
 from flexi.components.common import Gauge
 from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion, Verdict
+from flexi.messages import Scope
 from flexi.screens.leave import LeaveScreen, preview
-from flexi.screens.modals import AbsenceModal, ConfirmModal
+from flexi.screens.modals import AbsenceModal, ConfirmModal, GoToDateModal
 from flexi.services.absence import AbsencePlan, PlannedDay
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
 
 TODAY = date(2026, 6, 11)  # a Thursday
 FREE_MONDAY = date(2026, 6, 22)  # nothing booked on it in the seed
+SATURDAY = date(2026, 6, 20)  # not a working day in the seed's pattern
 
 
 def calendar(app: FlexiApp) -> YearCalendar:
@@ -109,6 +111,92 @@ async def test_a_month_step_clamps_to_a_shorter_month(app_factory: AppFactory) -
         await pilot.press("right_square_bracket")
         await pilot.pause()
         assert calendar(app).selection.head == date(2026, 9, 30)
+
+
+async def test_t_brings_the_cursor_back_to_today(app_factory: AppFactory) -> None:
+    """Somewhere in October, one key is the way back to the day you are on."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(date(2026, 10, 14))
+        await pilot.pause()
+
+        await pilot.press("t")
+        await pilot.pause()
+        assert calendar(app).selection.head == TODAY
+
+
+async def test_go_to_a_date_in_another_leave_year_reloads_the_year(
+    app_factory: AppFactory,
+) -> None:
+    """The grid only holds one leave year, so leaving it has to redraw it.
+
+    Without the reload the cursor is asked to land on a day the calendar has
+    never drawn, which is a jump that goes nowhere.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+
+        await pilot.press("g")
+        await pilot.pause()
+        showing(app, GoToDateModal).query_one("#goto-input", Input).value = "2028-06-14"
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        leave = showing(app, LeaveScreen)
+        assert leave.period.start == date(2028, 4, 6)
+        assert calendar(app).selection.head == date(2028, 6, 14)
+        assert calendar(app).border_subtitle == "nothing booked", (
+            "a year nobody has booked into says so rather than '0 days booked'"
+        )
+
+
+async def test_go_to_a_date_in_this_year_moves_without_reloading(
+    app_factory: AppFactory,
+) -> None:
+    """Within the year on screen there is nothing to rebuild, only to move to."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        before = showing(app, LeaveScreen).period
+
+        await pilot.press("g")
+        await pilot.pause()
+        showing(app, GoToDateModal).query_one("#goto-input", Input).value = "2026-12-01"
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert showing(app, LeaveScreen).period == before
+        assert calendar(app).selection.head == date(2026, 12, 1)
+
+
+async def test_cancelling_go_to_date_leaves_the_cursor_alone(
+    app_factory: AppFactory,
+) -> None:
+    """Escape is not a quiet "go there anyway".
+
+    A cancelled prompt hands the callback `None`, so a date typed and then
+    thought better of has to be dropped — and a callback that took `None` for an
+    answer would ask the calendar to jump to nothing at all.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(date(2026, 10, 14))
+        await pilot.pause()
+
+        await pilot.press("g")
+        await pilot.pause()
+        showing(app, GoToDateModal).query_one("#goto-input", Input).value = "2026-12-25"
+        await pilot.press("escape")
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, LeaveScreen)
+        assert calendar(app).selection.head == date(2026, 10, 14)
 
 
 # -- booking ---------------------------------------------------------------
@@ -227,6 +315,70 @@ async def test_other_absence_goes_through_the_modal(app_factory: AppFactory) -> 
         assert isinstance(app.screen, AbsenceModal)
 
 
+async def test_cancelling_the_modal_books_nothing(app_factory: AppFactory) -> None:
+    """`e` then escape has to leave the day exactly as it was found.
+
+    The callback is handed `None` on a cancelled modal, and a callback that
+    treated that as an answer would book annual leave on the way out.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+        showing(app, AbsenceModal)
+        await pilot.press("escape")
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, LeaveScreen)
+        assert app.services.absence.for_date(FREE_MONDAY) == []
+
+
+async def test_booking_a_weekend_books_nothing_and_says_so(
+    app_factory: AppFactory,
+) -> None:
+    """A Saturday is not refused, it is simply not a day leave is spent on.
+
+    Nothing is refused, so there is no refusal to quote back — and a key that
+    appears to do nothing is worse than one that says why it did nothing.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(SATURDAY)
+        await pilot.pause()
+
+        await pilot.press("A")
+        await pilot.pause()
+
+        assert app.services.absence.for_date(SATURDAY) == []
+        assert status_text(app) == "Nothing to book in that selection"
+
+
+async def test_booking_over_recorded_work_repeats_the_refusal_word_for_word(
+    app_factory: AppFactory,
+) -> None:
+    """The plan already knows why; the screen must not invent its own wording.
+
+    A refusal names the thing in the way — here, hours already recorded on the
+    day — and "nothing to book in that selection" would send somebody looking
+    at the calendar for a day that is right there on it.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)  # the cursor opens on today, which has hours on it
+
+        await pilot.press("A")
+        await pilot.pause()
+
+        assert app.services.absence.for_date(TODAY) == []
+        assert status_text(app) == "There is recorded work in that part of the day"
+
+
 async def test_the_wallet_moves_with_the_booking(app_factory: AppFactory) -> None:
     """The question behind every booking is whether you can afford it."""
     app = app_factory()
@@ -294,6 +446,81 @@ async def test_removing_a_lot_asks_first(app_factory: AppFactory) -> None:
         )
 
 
+async def test_agreeing_to_the_question_clears_the_lot(app_factory: AppFactory) -> None:
+    """Saying yes to the removal dialog has to actually remove them.
+
+    The dialog is only worth asking if the answer is acted on: a confirmation
+    whose `True` branch was never exercised is a dialog that quietly declines.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        for _ in range(6):
+            await pilot.press("shift+right")
+        await pilot.pause()
+        await pilot.press("A")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        await pilot.press("x")
+        await pilot.pause()
+        showing(app, ConfirmModal)
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert (
+            app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY + timedelta(days=6))
+            == []
+        )
+        assert "removed" in status_text(app)
+
+
+async def test_declining_the_question_keeps_every_day_of_it(
+    app_factory: AppFactory,
+) -> None:
+    """Escaping the dialog is not a quiet yes.
+
+    The whole point of asking is that the fortnight survives the wrong
+    keystroke, so the answer that arrives when nobody said yes has to leave the
+    bookings exactly where they were.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        for _ in range(6):
+            await pilot.press("shift+right")
+        await pilot.pause()
+        await pilot.press("A")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        await pilot.press("x")
+        await pilot.pause()
+        showing(app, ConfirmModal)
+        await pilot.press("escape")
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, LeaveScreen)
+        assert (
+            len(
+                app.services.absence.in_range(
+                    FREE_MONDAY, FREE_MONDAY + timedelta(days=6)
+                )
+            )
+            == 5
+        )
+
+
 async def test_removing_nothing_says_so(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -346,6 +573,54 @@ async def test_the_grid_never_outgrows_its_panel(app_factory: AppFactory) -> Non
             await open_leave(pilot)
             grid = calendar(app)
             assert grid.grid_width <= max(grid.content_size.width, grid.size.width)
+
+
+async def test_a_booking_made_elsewhere_shows_up_when_the_screen_is_told(
+    app_factory: AppFactory,
+) -> None:
+    """Every screen takes the same instruction, so the app need not special-case.
+
+    The dashboard is not the only thing that can go stale: a booking written by
+    the command palette while the leave year is on screen has to reach the grid
+    without the user leaving and coming back. The application invalidates once
+    and then tells the screen — which is why the screen reloads the year rather
+    than trusting the ledgers it drew with.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        assert not calendar(app).ledgers[FREE_MONDAY].absences
+        before = str(calendar(app).border_subtitle)
+
+        app.services.absence.book(FREE_MONDAY, AbsenceType.ANNUAL)
+        app.services.invalidate()
+        showing(app, LeaveScreen).refresh_modules(Scope.ALL)
+        await pilot.pause()
+
+        assert calendar(app).ledgers[FREE_MONDAY].absences
+        assert str(calendar(app).border_subtitle) != before, (
+            "the year's running total should have moved with it"
+        )
+
+
+async def test_a_resize_before_the_screen_is_mounted_redraws_nothing(
+    app_factory: AppFactory,
+) -> None:
+    """The width class is applied on every resize; the selection line is not.
+
+    A `Resize` can reach the screen before `compose` has put the rail on it, and
+    `_draw_selection` reads three widgets that do not exist yet — so the guard
+    is the difference between a class being set and the screen failing to open.
+    """
+    app = app_factory()
+    async with app.run_test(size=(64, 22)):
+        screen = LeaveScreen(app.services)
+        assert not screen.is_mounted
+        assert not screen.query("#leave-selection-booked"), "nothing to draw on yet"
+
+        screen.on_resize()
+
+        assert screen.has_class("-narrow"), "the width still gets recorded"
 
 
 # -- the preview, without a screen to put it on ----------------------------
@@ -405,6 +680,43 @@ def test_the_preview_counts_one_of_each_in_the_singular() -> None:
     assert "1 non-working day" in shown
     assert "1 bank holiday" in shown
     assert "1 day of 3" in shown, "and the headline agrees"
+
+
+def test_the_preview_names_a_bank_holiday_with_no_weekend_to_hide_behind() -> None:
+    """A midweek span skips nothing but the holiday, and has to say so.
+
+    The two counts are written separately precisely so one can appear without
+    the other; a preview that only mentioned the bank holiday when a Saturday
+    had been skipped as well would go quiet on the case that matters most.
+    """
+    monday = date(2026, 8, 24)
+    shown = preview(
+        _plan(
+            (
+                _day(monday, Verdict.BOOK),
+                _day(monday + timedelta(days=1), Verdict.BANK_HOLIDAY),
+                _day(monday + timedelta(days=2), Verdict.BOOK),
+            )
+        )
+    )
+
+    assert "1 bank holiday" in shown
+    assert "non-working" not in shown, "there was no weekend in the span"
+
+
+def test_the_preview_carries_the_warning_it_was_given() -> None:
+    """Agreeing to a week of TOIL means agreeing to the deficit it opens.
+
+    The warning is shown after the fact by `_after_write` either way; a
+    confirmation that withheld it until the days were written would be asking
+    the question with the answer's worst part left out.
+    """
+    monday = date(2026, 8, 24)
+    days = tuple(_day(monday + timedelta(days=n), Verdict.BOOK) for n in range(3))
+    plan = _plan(days, absence_type=AbsenceType.FLEXI, toil_available=0.0)
+
+    assert plan.warning is not None
+    assert plan.warning in preview(plan)
 
 
 def test_overdrawing_the_balance_by_one_day_reads_as_one_day() -> None:

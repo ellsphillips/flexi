@@ -2,19 +2,45 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import event
+from textual.widgets import Input, RadioSet
 
 from flexi.app import FlexiApp
-from flexi.components.expandable import DAY, SESSION, ExpandableTable
-from flexi.components.modules.records import RecordsModule
+from flexi.components.expandable import ABSENCE, DAY, SESSION, ExpandableTable
+from flexi.components.modules.records import DeleteHere, RecordsModule
+from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import ProgressRail, TimeProgress
-from tests.tui.conftest import WIDE, AppFactory, dashboard
+from flexi.constants import AbsenceType
+from flexi.screens.dashboard import DashboardScreen
+from flexi.screens.modals import AbsenceModal, ConfirmModal
+from tests.tui.conftest import (
+    WIDE,
+    AppFactory,
+    dashboard,
+    screen_text,
+    showing,
+    status_text,
+)
 
 
 def table(app: FlexiApp) -> ExpandableTable:
     return app.screen.query_one("#records-table", ExpandableTable)
+
+
+def prefilled(app: FlexiApp) -> tuple[date, AbsenceType]:
+    """The day and the type the booking dialog arrived already holding.
+
+    Read off the fields somebody is about to press enter on rather than the
+    arguments the modal was constructed with: the whole promise of a pre-filled
+    dialog is that what it shows is what it will book.
+    """
+    modal = showing(app, AbsenceModal)
+    when = date.fromisoformat(modal.query_one("#absence-date", Input).value)
+    pressed = modal.query_one("#absence-type", RadioSet).pressed_button
+    assert pressed is not None, "the dialog opened with no type chosen"
+    return when, AbsenceType(pressed.name)
 
 
 async def test_a_week_is_seven_rows_and_a_total(app_factory: AppFactory) -> None:
@@ -172,3 +198,212 @@ async def test_the_period_total_is_in_the_border_subtitle(
         await pilot.pause()
         subtitle = str(app.screen.query_one(RecordsModule).border_subtitle)
         assert " of " in subtitle
+
+
+# -- booking from a row ----------------------------------------------------
+
+
+async def test_a_books_an_absence_on_the_day_under_the_cursor(
+    app_factory: AppFactory,
+) -> None:
+    """The row you are looking at is the day you mean.
+
+    The table is the only place on the dashboard with a cursor of its own, so a
+    booking key pressed in it has to follow that cursor rather than the period's
+    anchor — otherwise browsing down to Wednesday and pressing `a` books
+    Thursday, and the receipt is the first anyone hears of it.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        widget.focus()
+        widget.focus_key(f"{DAY}2026-06-10")
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+
+        assert prefilled(app) == (date(2026, 6, 10), AbsenceType.ANNUAL)
+
+
+async def test_a_on_a_row_that_names_no_day_falls_back_to_the_period(
+    app_factory: AppFactory,
+) -> None:
+    """The last row of the table is the period's total, and belongs to no day.
+
+    A cursor parked there still has to answer "book what, when": the period's
+    anchor is the same day every other key on the screen would have used, which
+    makes the fallback the one answer that cannot surprise anybody.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        widget.focus()
+        widget.focus_key("t-period")
+        await pilot.pause()
+
+        await pilot.press("a")
+        await pilot.pause()
+
+        when, _ = prefilled(app)
+        assert when == dashboard(app).period.anchor
+
+
+async def test_the_wallet_asks_the_screen_to_open_the_booking(
+    app_factory: AppFactory,
+) -> None:
+    """A panel cannot push a modal, and should not know the leave figures.
+
+    The wallet asks for a type and the screen supplies the day, the remaining
+    allowance and the TOIL balance the dialog needs. A panel that pushed its own
+    modal would have to fetch all three again, and could disagree with the
+    gauges it is drawn beside.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        app.screen.query_one(WalletModule).post_message(BookRequested(AbsenceType.SICK))
+        await pilot.pause()
+
+        assert prefilled(app) == (dashboard(app).period.anchor, AbsenceType.SICK)
+
+
+# -- deleting from a row ---------------------------------------------------
+
+
+async def test_x_on_a_booking_asks_before_it_removes_it(
+    app_factory: AppFactory,
+) -> None:
+    """Leave is the one thing on this screen that a keystroke can destroy.
+
+    A clock event can be corrected by clocking again; a day of annual leave that
+    vanishes on a mistyped key is an entitlement somebody has to notice is
+    missing. The question names the type and the day, so agreeing to it is not
+    agreeing to whatever the cursor happened to be on.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        widget.focus()
+        widget.toggle(f"{DAY}2026-06-12")  # the seed's TOIL day
+        await pilot.pause()
+        widget.focus_key(f"{ABSENCE}7")
+        await pilot.pause()
+
+        await pilot.press("x")
+        await pilot.pause()
+        showing(app, ConfirmModal)
+        asked = screen_text(app)
+        assert "Fri 12 Jun" in asked, asked
+        assert "TOIL" in asked, "the question names the type as well as the day"
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        booked = app.services.absence.in_range(date(2026, 6, 8), date(2026, 6, 14))
+        assert [row.date for row in booked] == [date(2026, 6, 9)], "the TOIL day stayed"
+        assert "removed" in status_text(app)
+
+
+async def test_declining_the_question_leaves_the_booking_alone(
+    app_factory: AppFactory,
+) -> None:
+    """Escape on a confirmation is an answer, and the answer is no.
+
+    A dialog that removed the day whatever you pressed would be worse than no
+    dialog at all, because it teaches people to press escape and believe it.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        widget.focus()
+        widget.toggle(f"{DAY}2026-06-12")
+        await pilot.pause()
+        widget.focus_key(f"{ABSENCE}7")
+        await pilot.pause()
+        before = app.services.absence.in_range(date(2026, 6, 8), date(2026, 6, 14))
+
+        await pilot.press("x")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        after = app.services.absence.in_range(date(2026, 6, 8), date(2026, 6, 14))
+        assert [row.date for row in after] == [row.date for row in before]
+
+
+async def test_x_on_a_worked_day_says_sessions_cannot_be_deleted_yet(
+    app_factory: AppFactory,
+) -> None:
+    """The key is offered on every row, so it owes an answer on every row.
+
+    Deleting a session is not built. Saying so on the status bar is the
+    difference between a feature that is missing and a key that is broken.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        widget.focus()
+        widget.focus_key(f"{DAY}2026-06-10")
+        await pilot.pause()
+
+        await pilot.press("x")
+        await pilot.pause()
+
+        assert status_text(app) == "Deleting sessions is not implemented yet"
+        assert app.services.clock.get_sessions_for_date(date(2026, 6, 10))
+
+
+async def test_x_where_there_is_nothing_to_delete_says_nothing(
+    app_factory: AppFactory,
+) -> None:
+    """Some rows carry no record, and the key owes them silence.
+
+    The period total belongs to no day, and a table with no rows has no cursor
+    at all. Neither is a failure worth a message — a status line that reports every key
+    that did not apply is one nobody reads when it reports something that did.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        widget.focus()
+        widget.focus_key("t-period")
+        await pilot.pause()
+        quiet = status_text(app)
+
+        await pilot.press("x")
+        await pilot.pause()
+        assert status_text(app) == quiet
+        showing(app, DashboardScreen)
+
+        # An empty table has no cursor, so the message carries no key at all.
+        app.screen.query_one(RecordsModule).post_message(DeleteHere(None))
+        await pilot.pause()
+        assert status_text(app) == quiet
+        showing(app, DashboardScreen)
+
+
+async def test_x_on_a_booking_that_has_already_gone_says_so(
+    app_factory: AppFactory,
+) -> None:
+    """The row is a snapshot and the database is not.
+
+    The key carries the id the row was drawn with, which the same booking
+    removed in another window — or by the CLI in another terminal — no longer
+    answers to. Confirming a removal and then failing to find it is how a
+    "removed" receipt gets printed for a booking that is still there.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        app.screen.query_one(RecordsModule).post_message(DeleteHere(f"{ABSENCE}9999"))
+        await pilot.pause()
+
+        assert status_text(app) == "That booking has already gone"
+        showing(app, DashboardScreen)

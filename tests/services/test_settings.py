@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, time, timedelta
 
 import pytest
 from sqlalchemy import Engine, text
@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 from flexi.config import CONFIG
 from flexi.constants import DEFAULT_DIVISION, AbsenceType, Division
 from flexi.models.database.app import get_session
-from flexi.services.settings import SettingsService, parse_month_day
+from flexi.models.database.db import DEFAULT_WINDOW_END, DEFAULT_WINDOW_START
+from flexi.services.settings import (
+    SettingsService,
+    parse_clock_time,
+    parse_month_day,
+)
 
 
 @pytest.fixture
@@ -265,19 +270,124 @@ def test_a_time_that_cannot_be_read_is_refused_rather_than_stored(
         )
 
 
+@pytest.mark.parametrize("stored", ["6pm", "half six", "25:00", ""])
 def test_a_stored_time_that_cannot_be_read_falls_back(
-    svc: SettingsService, session: Session
+    svc: SettingsService, session: Session, stored: str
 ) -> None:
     """Databases written before the validation still exist, and must open.
 
     Raising on read is not a settings error, it is an application that will not
     start -- with no way in to correct the setting.
+
+    `6pm` is here because it is what the original bug wrote; the other three are
+    here because `6pm` is *readable*, so on its own this test asserted the
+    parser and never once reached the fallback it is named after.
     """
     _do_setup(svc)
-    session.execute(text("UPDATE settings SET auto_close_time = '6pm'"))
+    session.execute(
+        text("UPDATE settings SET auto_close_time = :stored"), {"stored": stored}
+    )
     session.commit()
 
     assert svc.get_auto_close_time() == time(18, 0)
+
+
+def test_a_time_with_no_settings_row_at_all_falls_back(svc: SettingsService) -> None:
+    """`App.on_mount` reads this before setup has been offered."""
+    assert svc.get_auto_close_time() == time(18, 0)
+
+
+@pytest.mark.parametrize("typed", ["13pm", "0am", "24pm"])
+def test_an_hour_that_cannot_take_a_meridiem_is_refused(typed: str) -> None:
+    """`13pm` is a typo, and reading it as 1am or 1pm is a guess.
+
+    Guessing puts the auto-close an hour or twelve from where somebody meant it,
+    and they find out when a day closes at the wrong time weeks later.
+    """
+    with pytest.raises(ValueError, match="does not take am or pm"):
+        parse_clock_time(typed)
+
+
+# ---- reading settings that are not there ----
+
+
+def test_the_day_window_falls_back_before_setup(svc: SettingsService) -> None:
+    """The punch strip is drawn on the splash screen, before there is a row."""
+    assert svc.get_day_window() == (DEFAULT_WINDOW_START, DEFAULT_WINDOW_END)
+
+
+def test_the_working_week_falls_back_before_setup(svc: SettingsService) -> None:
+    """Monday to Friday, rather than a week with no working days in it.
+
+    An empty list makes every day a non-working day, which would draw a calendar
+    of weekends and refuse every booking on it.
+    """
+    assert svc.get_working_day_indices() == [0, 1, 2, 3, 4]
+
+
+def test_a_stored_working_week_that_cannot_be_read_falls_back(
+    svc: SettingsService, session: Session
+) -> None:
+    """A settings problem is not a reason to refuse to open somebody's records."""
+    _do_setup(svc)
+    session.execute(text("UPDATE settings SET working_days = 'weekdays'"))
+    session.commit()
+
+    assert svc.get_working_day_indices() == [0, 1, 2, 3, 4]
+    assert svc.is_working_day(5) is False
+
+
+# ---- the optional fields ----
+
+
+def test_the_optional_fields_keep_their_values_when_they_are_not_passed(
+    svc: SettingsService,
+) -> None:
+    """The setup screen writes four fields; the settings screen writes seven.
+
+    Every save from the setup screen would otherwise reset a contracted day and
+    a punch-strip window that somebody had already changed, because those three
+    arrive as `None` from that call site.
+    """
+    svc.save_settings(
+        leave_year_start="01-01",
+        working_days="Mon-Fri",
+        bank_holiday_division="scotland",
+        auto_close_time="18:00",
+        contracted_minutes=420,
+        day_window_start="08:00",
+        day_window_end="19:00",
+    )
+
+    svc.save_settings(
+        leave_year_start="04-06",
+        working_days="Mon-Thu",
+        bank_holiday_division="scotland",
+        auto_close_time="17:00",
+    )
+
+    assert svc.get_contracted() == timedelta(minutes=420)
+    assert svc.get_day_window() == ("08:00", "19:00")
+
+
+def test_the_optional_fields_are_updated_when_they_are_passed(
+    svc: SettingsService,
+) -> None:
+    """A shorter contracted day is what a part-time week is made of."""
+    _do_setup(svc)
+
+    svc.save_settings(
+        leave_year_start="01-01",
+        working_days="Mon-Fri",
+        bank_holiday_division="england-and-wales",
+        auto_close_time="18:00",
+        contracted_minutes=222,
+        day_window_start="07:30",
+        day_window_end="20:30",
+    )
+
+    assert svc.get_contracted() == timedelta(minutes=222)
+    assert svc.get_day_window() == ("07:30", "20:30")
 
 
 # ---- the closed vocabularies ----

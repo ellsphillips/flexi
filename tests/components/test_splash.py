@@ -9,12 +9,19 @@ the clock Textual animates against.
 from __future__ import annotations
 
 import math
+import sys
+from dataclasses import dataclass
 
 import pytest
+from textual.app import App, ComposeResult
 
-from flexi.components import splash
+from flexi.components import splash, wordmark
+from flexi.components.wordmark import FRAME_SECONDS, Wordmark
 
 BRIGHTEST = len(splash.RAMP) - 1
+
+NARROW_CANVAS = 10
+"""Far narrower than the word, so most of it projects off the edge."""
 
 
 def where(column: int, row: int) -> tuple[int, int]:
@@ -34,6 +41,30 @@ def where(column: int, row: int) -> tuple[int, int]:
 
 def lit(canvas: list[list[int]]) -> int:
     return sum(1 for row in canvas for level in row if level >= 0)
+
+
+@dataclass
+class Pretend:
+    """Something to stand in for stdout, which under pytest is never a terminal."""
+
+    tty: bool
+
+    def isatty(self) -> bool:
+        return self.tty
+
+
+class Turning(App[None]):
+    """The wordmark on its own, counting how often it says it has landed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.landings = 0
+
+    def compose(self) -> ComposeResult:
+        yield Wordmark()
+
+    def on_wordmark_landed(self, _message: Wordmark.Landed) -> None:
+        self.landings += 1
 
 
 # -- the model ---------------------------------------------------------------
@@ -176,6 +207,27 @@ def test_nothing_is_drawn_facing_away_from_the_eye() -> None:
     assert lit(canvas) < len(splash.surface())
 
 
+def test_a_word_wider_than_the_canvas_is_cropped_rather_than_wrapped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A negative column is a perfectly good index, and it addresses the far edge.
+
+    So a cell projecting off the left would be painted on the right, and would
+    take the depth buffer with it — the left of the word occluding the right of
+    it. The canvas is generously sized for the word as it stands, which is
+    exactly why this has to be checked deliberately: the day the word grows a
+    letter, the failure is a smear rather than an exception.
+    """
+    full = splash.luminance(splash.DURATION)
+    margin = splash.CANVAS_WIDTH // 2 - NARROW_CANVAS // 2
+
+    monkeypatch.setattr(splash, "CANVAS_WIDTH", NARROW_CANVAS)
+    cropped = splash.luminance(splash.DURATION)
+
+    assert {len(row) for row in cropped} == {NARROW_CANVAS}
+    assert cropped == [row[margin : margin + NARROW_CANVAS] for row in full]
+
+
 def test_a_frame_is_text_the_width_of_the_canvas() -> None:
     rows = splash.frame(splash.DURATION)
     assert len(rows) == splash.CANVAS_HEIGHT
@@ -232,3 +284,47 @@ def test_it_only_plays_where_somebody_can_see_it(
     assert (
         splash.should_play(interactive=interactive, animations=animations) is expected
     )
+
+
+# -- the widget --------------------------------------------------------------
+
+
+def test_the_word_only_turns_where_there_is_somebody_to_watch_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`flexi init` piped into a file must not spend three seconds animating.
+
+    The widget is what joins the two halves of that decision: whether stdout is
+    a terminal at all, and whether the person has turned animation off. Textual
+    reports neither — its animation level gates the Animator rather than a
+    timer, and a per-frame splash on a timer keeps running in a pipe.
+    """
+    monkeypatch.setattr(sys, "stdout", Pretend(tty=False))
+    assert wordmark.wanted(animation_level="full") is False
+
+    monkeypatch.setattr(sys, "stdout", Pretend(tty=True))
+    assert wordmark.wanted(animation_level="full") is True
+    assert wordmark.wanted(animation_level="none") is False
+
+
+async def test_the_landing_is_announced_exactly_once() -> None:
+    """The message is what reveals the setup questions underneath the word.
+
+    Nothing else stops the timer, so a landing announced on every frame from
+    then on would open the form thirty times a second — and `skip` exists
+    precisely so somebody setting up twice can land it early, which is a second
+    way into the same announcement.
+    """
+    app = Turning()
+    async with app.run_test(size=(60, 20)) as pilot:
+        mark = app.query_one(Wordmark)
+
+        mark._elapsed = splash.DURATION - FRAME_SECONDS / 2
+        mark._tick()
+        await pilot.pause()
+        assert app.landings == 1
+
+        mark.skip()
+        await pilot.pause()
+
+        assert app.landings == 1, "it landed twice"

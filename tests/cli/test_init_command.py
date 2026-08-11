@@ -183,3 +183,144 @@ def test_the_overview_lists_what_is_there(populated: Path) -> None:
     )
     assert "clock events" in drawn
     assert str(populated) in drawn
+
+
+def test_a_table_this_list_has_not_heard_of_does_not_blank_the_count(
+    tmp_path: Path,
+) -> None:
+    """`COUNTED` is maintained by hand, and schemas move.
+
+    A table renamed or not yet added by a migration arrives as the same
+    `DatabaseError` as a corrupt file. Forgiving it is what keeps a reset
+    prompt honest about the tables that are still there, rather than reporting
+    the whole database as holding nothing.
+    """
+    db = tmp_path / "older.db"
+    with sqlite3.connect(db) as connection:
+        connection.execute("CREATE TABLE clock_events (id integer primary key)")
+        connection.execute("INSERT INTO clock_events VALUES (1)")
+
+    contents = init_cli.describe(db)
+
+    assert contents.counts == (("clock events", 1),)
+    assert not contents.unreadable, "a missing table is not an unreadable file"
+
+
+# -- what the rail says ------------------------------------------------------
+
+
+def test_the_overview_of_an_unreadable_database_does_not_promise_it_is_empty(
+    tmp_path: Path,
+) -> None:
+    """An unreadable file is not an empty one, and the rail has to say so.
+
+    "Nothing recorded yet" drawn over a database that is merely locked by the
+    application in another window is how somebody agrees to lose a year.
+    """
+    drawn = [
+        line.plain
+        for line in init_cli.overview(
+            tmp_path / "locked.db", init_cli.Contents(unreadable=True)
+        )
+    ]
+
+    assert any("could not be read" in line for line in drawn)
+    assert any("may still hold records" in line for line in drawn)
+
+
+def test_the_overview_of_an_empty_database_says_so(tmp_path: Path) -> None:
+    """There is genuinely nothing to lose here.
+
+    Saying so plainly is what stops the reset row further down reading as a
+    threat on a machine that has never recorded anything.
+    """
+    drawn = [
+        line.plain
+        for line in init_cli.overview(tmp_path / "empty.db", init_cli.Contents())
+    ]
+
+    assert any("Nothing recorded yet" in line for line in drawn)
+
+
+def test_choosing_from_the_menu_returns_what_was_chosen(
+    populated: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The overview is on screen before the question is asked.
+
+    Offering "Start again" above a blank terminal asks somebody to decide
+    about records they have not been shown.
+    """
+    asked: list[str] = []
+
+    def picking(question: str, options: list[ui.Option]) -> ui.Option:
+        asked.append(question)
+        return next(o for o in options if o.value == init_cli.Choice.SETTINGS)
+
+    monkeypatch.setattr("flexi.cli.ui.choose", picking)
+
+    chosen = init_cli.ask(populated, init_cli.describe(populated))
+
+    assert chosen is init_cli.Choice.SETTINGS
+    assert asked == ["What would you like to do?"]
+    assert "clock events" in capsys.readouterr().err
+
+
+def test_escaping_the_menu_chooses_nothing(
+    populated: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Escape has to mean escape on the one menu that can erase records."""
+    monkeypatch.setattr("flexi.cli.ui.choose", lambda *_a, **_k: None)
+
+    assert init_cli.ask(populated, init_cli.describe(populated)) is None
+
+
+def test_the_last_gate_asks_for_the_word_rather_than_a_keystroke(
+    populated: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A keystroke can be muscle memory. Spelling it out is agreement."""
+    required: list[str] = []
+
+    def typing(word: str, question: str) -> bool:
+        required.append(word)
+        assert word in question, "the prompt must say which word it wants"
+        return True
+
+    monkeypatch.setattr("flexi.cli.ui.type_the_word", typing)
+
+    assert init_cli.confirm_reset(init_cli.describe(populated))
+
+    assert required == ["reset"]
+    shown = capsys.readouterr().err
+    assert "cannot be undone" in shown
+    assert "clock events" in shown, "it must name what it is about to take"
+    assert "snapshot" in shown, "and where the one way back is written"
+
+
+def test_the_last_gate_can_be_declined(
+    populated: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("flexi.cli.ui.type_the_word", lambda *_a, **_k: False)
+
+    assert not init_cli.confirm_reset(init_cli.describe(populated))
+
+
+def test_the_gate_over_an_unreadable_database_admits_it_cannot_list_the_loss(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Listing nothing would read as a promise that nothing is there."""
+    monkeypatch.setattr("flexi.cli.ui.type_the_word", lambda *_a, **_k: True)
+
+    init_cli.confirm_reset(init_cli.Contents(unreadable=True))
+
+    shown = capsys.readouterr().err
+    assert "could not be read" in shown
+    assert "may hold more than is listed here" in shown
+
+
+def test_the_rail_is_closed_off_with_what_happened(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A transcript of a reset should end with where the snapshot went."""
+    init_cli.settled("Erased. Snapshot kept at /tmp/snap.bak")
+
+    assert "Erased. Snapshot kept at /tmp/snap.bak" in capsys.readouterr().err

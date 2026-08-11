@@ -201,3 +201,38 @@ def test_no_warning_when_the_balance_covers_it(services: Services) -> None:
     )
     assert plan.warning is None
     assert plan.toil_after == 5.0
+
+
+def test_a_week_of_annual_leave_leaves_the_flexi_balance_where_it_was(
+    services: Services,
+) -> None:
+    """The confirmation shows both figures, and only one of them moves.
+
+    Drawing the flexi balance down by a week of annual leave would tell somebody
+    they had spent time they still have, and the prompt is the last chance to
+    notice that before the rows are written.
+    """
+    plan = services.absence.plan(
+        MONDAY, FRIDAY, AbsenceType.ANNUAL, available_toil_days=2.0
+    )
+
+    assert plan.toil_after == 2.0
+    assert plan.warning is None, "an overdrawn balance is not this booking's news"
+
+
+def test_a_plan_names_each_refusal_once(services: Services) -> None:
+    """Two things to fix, not six sentences.
+
+    The dialog shows these in a list, so a reason repeated for every day it
+    accounts for pushes the other reason off the bottom of it.
+    """
+    services.absence.book(MONDAY, AbsenceType.SICK)
+    services.settings.save_entitlement(2025, 0.0)
+
+    plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+
+    assert len(plan.refused) == 5
+    assert plan.reasons == (
+        "That day is already booked in full",
+        "Not enough annual leave — 1 day short of the request",
+    )
