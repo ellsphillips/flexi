@@ -21,7 +21,6 @@ import click
 
 import flexi
 from flexi import wallclock
-from flexi.domain.format import delta, hm, long_date, stamp
 from flexi.locations import database_file
 from flexi.services.setup import is_initialised
 
@@ -328,14 +327,9 @@ def clock() -> None:
 @click.pass_context
 def clock_in(ctx: click.Context) -> None:
     """Clock in to start a work session."""
-    svc = handles_of(ctx).services.clock
-    result = svc.clock_in()
+    from flexi.cli import clock as clock_cli
 
-    if result.success:
-        click.secho(result.message, fg="green")
-    else:
-        click.secho(result.message, fg="red")
-        ctx.exit(1)
+    ctx.exit(clock_cli.clock_in(handles_of(ctx).services))
 
 
 @clock.command(name="out")
@@ -343,14 +337,9 @@ def clock_in(ctx: click.Context) -> None:
 @click.pass_context
 def clock_out(ctx: click.Context) -> None:
     """Clock out to end the current work session."""
-    svc = handles_of(ctx).services.clock
-    result = svc.clock_out()
+    from flexi.cli import clock as clock_cli
 
-    if result.success:
-        click.secho(result.message, fg="green")
-    else:
-        click.secho(result.message, fg="red")
-        ctx.exit(1)
+    ctx.exit(clock_cli.clock_out(handles_of(ctx).services))
 
 
 @cli.command(
@@ -413,32 +402,10 @@ def balance() -> None:
 @click.pass_context
 def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
     """Print the running balance and what it is made of."""
-    services = handles_of(ctx).services
-    today = as_of.date() if as_of is not None else wallclock.today()
-    start, _ = services.absence.leave_year_bounds(today)
-    summary = services.ledger.balance(today)
+    from flexi.cli import balance as balance_cli
 
-    click.echo(
-        f"leave year   {stamp(start, '%-d %b %Y')} → {stamp(today, '%-d %b %Y')}"
-    )
-    click.echo(f"worked       {hm(summary.worked)}")
-    click.echo(f"expected     {hm(summary.expected)}")
-    if summary.toil_taken:
-        click.echo(f"toil taken   {hm(summary.toil_taken)}")
-    if summary.adjustment:
-        click.echo(f"adjusted     {delta(summary.adjustment)}")
-    click.secho(f"balance      {delta(summary.delta)}", bold=True)
-    if not services.bank_holidays.is_available():
-        # Where the wrong number appears, rather than on every command. Without
-        # a calendar every bank holiday is counted as a working day nobody
-        # worked, which is about eight days of deficit a year -- and the figure
-        # above is the only place that shows.
-        click.secho(
-            "\nNo bank holiday calendar: days off are counted as working days.\n"
-            "Run `flexi holidays refresh` to fetch it.",
-            fg="yellow",
-            err=True,
-        )
+    when = as_of.date() if as_of is not None else None
+    ctx.exit(balance_cli.show(handles_of(ctx).services, when))
 
 
 @balance.command(name="zero")
@@ -460,33 +427,11 @@ def balance_zero(
     *,
     yes: bool,
 ) -> None:
-    """Draw a line under everything up to a date.
+    """Draw a line under everything up to a date."""
+    from flexi.cli import balance as balance_cli
 
-    Records one signed adjustment rather than deleting anything: the clock
-    events that produced the balance stay exactly where they are, and the line
-    can be removed again with `flexi balance undo`.
-    """
-    from datetime import timedelta
-
-    from flexi.services.adjustments import OPENING_BALANCE
-
-    services = handles_of(ctx).services
-    when = as_of.date() if as_of is not None else wallclock.today() - timedelta(days=1)
-    standing = services.ledger.balance(when).delta
-
-    click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
-    if not yes and not click.confirm("Settle it to zero?", default=True):
-        click.echo("Left alone.")
-        return
-
-    result = services.zero_balance(when, reason=reason or OPENING_BALANCE)
-    click.secho(result.message, fg="green" if result.success else "red")
-    if result.success:
-        click.echo(
-            f"balance now   {delta(services.ledger.balance(wallclock.today()).delta)}"
-        )
-    if not result.success:
-        ctx.exit(1)
+    when = as_of.date() if as_of is not None else None
+    ctx.exit(balance_cli.zero(handles_of(ctx).services, when, reason, assume_yes=yes))
 
 
 @balance.command(name="log")
@@ -494,17 +439,9 @@ def balance_zero(
 @click.pass_context
 def balance_log(ctx: click.Context) -> None:
     """List every correction ever recorded."""
-    from datetime import timedelta
+    from flexi.cli import balance as balance_cli
 
-    services = handles_of(ctx).services
-    rows = services.adjustments.all()
-    if not rows:
-        click.echo("No adjustments.")
-    for row in rows:
-        click.echo(
-            f"{row.id:>4}  {row.date:%Y-%m-%d}  "
-            f"{delta(timedelta(minutes=row.minutes)):>9}  {row.reason}"
-        )
+    ctx.exit(balance_cli.log(handles_of(ctx).services))
 
 
 @balance.command(name="undo")
@@ -513,11 +450,9 @@ def balance_log(ctx: click.Context) -> None:
 @click.pass_context
 def balance_undo(ctx: click.Context, adjustment_id: int) -> None:
     """Remove a correction by its id, as listed by `flexi balance log`."""
-    services = handles_of(ctx).services
-    result = services.adjustments.remove(adjustment_id)
-    click.secho(result.message, fg="green" if result.success else "red")
-    if not result.success:
-        ctx.exit(1)
+    from flexi.cli import balance as balance_cli
+
+    ctx.exit(balance_cli.undo(handles_of(ctx).services, adjustment_id))
 
 
 if __name__ == "__main__":
