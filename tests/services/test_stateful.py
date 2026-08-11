@@ -24,6 +24,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import time_machine
+from hypothesis import HealthCheck, settings
 from hypothesis import strategies as st
 from hypothesis.stateful import (
     RuleBasedStateMachine,
@@ -95,7 +96,11 @@ class TimesheetModel(RuleBasedStateMachine):
         self.minimum = self.services.clock._minimum
 
     def teardown(self) -> None:
-        self.db.close()
+        # A run of zero steps never reaches `@initialize`, and an AttributeError
+        # escaping teardown is reported as a flaky strategy rather than as what
+        # it is.
+        if hasattr(self, "db"):
+            self.db.close()
 
     # -- the passage of time -----------------------------------------------
 
@@ -253,3 +258,18 @@ class TimesheetModel(RuleBasedStateMachine):
 
 
 TestTimesheetModel = TimesheetModel.TestCase
+TestTimesheetModel.settings = settings(
+    max_examples=40,
+    stateful_step_count=40,
+    deadline=None,
+    suppress_health_check=[HealthCheck.data_too_large, HealthCheck.too_slow],
+)
+"""This test sets its own budget rather than following the profile.
+
+Every other property costs a few microseconds an example; one example here is a
+migrated SQLite database and up to forty service calls against it. Forty
+examples of forty steps is about six seconds and covers the interleavings that
+matter; five thousand is a quarter of an hour and covers the same ones again.
+Depth per example is worth more here than breadth across them, which is what
+`stateful_step_count` buys.
+"""
