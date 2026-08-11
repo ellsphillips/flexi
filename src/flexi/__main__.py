@@ -1,23 +1,40 @@
+"""The command line entry point.
+
+Nothing heavy is imported at module scope. `flexi --version` used to load the
+six Textual screens, alembic, SQLAlchemy and httpx -- 898 modules, most of a
+second -- before printing a string it already had. The application, the
+migration runner, the engine and the service registry are imported by the
+functions that use them, so a command pays for what it does and no more.
+
+`flexi.services.setup` is the model for this: its docstring says asking "am I
+set up" should not cost the migration module, and it was the one place that
+already knew.
+"""
+
+from __future__ import annotations
+
 import functools
-from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
-from sqlalchemy import Engine
-from sqlalchemy.orm import Session
 
 import flexi
 from flexi import wallclock
-from flexi.app import App
-from flexi.domain.format import long_date, stamp
+from flexi.domain.format import delta, hm, long_date, stamp
 from flexi.locations import database_file
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.migrate import run_migrations
-from flexi.services.registry import Services
 from flexi.services.setup import is_initialised
-from flexi.services.startup import run_startup_cleanup
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import datetime
+    from pathlib import Path
+
+    from sqlalchemy import Engine
+    from sqlalchemy.orm import Session
+
+    from flexi.app import App
+    from flexi.services.registry import Services
 
 
 @click.group(invoke_without_command=True)
@@ -49,6 +66,8 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
     # Bare `flexi` on a new machine sets itself up rather than refusing. The
     # guard exists to stop clock, leave and balance inventing answers from
     # defaults nobody chose -- not to make the application decline to open.
+    from flexi.models.database.migrate import run_migrations
+
     run_migrations()
     if not is_initialised():
         _ask_the_questions(ctx, database_file())
@@ -121,6 +140,9 @@ def _launch(*, settings: bool = False, splash: bool = False) -> App:
     so calling it on every path costs one revision check and takes no extra
     backup. That is a cheap price for the guarantee.
     """
+    from flexi.app import App
+    from flexi.models.database.migrate import run_migrations
+
     run_migrations()
     app = App()
     app.open_settings = settings
@@ -136,6 +158,11 @@ def _open_database(ctx: click.Context) -> Handles:
     failure was unreachable -- which is to say the session and the engine leaked
     on exactly the paths where something had already gone wrong.
     """
+    from flexi.models.database.app import create_db_engine, get_session
+    from flexi.models.database.migrate import run_migrations
+    from flexi.services.registry import Services
+    from flexi.services.startup import run_startup_cleanup
+
     run_migrations()
     engine = create_db_engine()
     session = get_session(engine)
@@ -177,6 +204,8 @@ def _run_demo() -> None:
     import tempfile
     from pathlib import Path
 
+    from flexi.app import App
+    from flexi.models.database.app import create_db_engine, get_session
     from flexi.models.database.db import Base
     from flexi.services.samples import seed_demo
 
@@ -204,6 +233,8 @@ def init(ctx: click.Context) -> None:
     if is_initialised():
         _already_set_up(ctx, db_path)
         return
+
+    from flexi.models.database.migrate import run_migrations
 
     run_migrations()
     if is_initialised():
@@ -382,8 +413,6 @@ def balance() -> None:
 @click.pass_context
 def balance_show(ctx: click.Context, as_of: datetime | None) -> None:
     """Print the running balance and what it is made of."""
-    from flexi.domain.format import delta, hm
-
     services = handles_of(ctx).services
     today = as_of.date() if as_of is not None else wallclock.today()
     start, _ = services.absence.leave_year_bounds(today)
@@ -439,7 +468,6 @@ def balance_zero(
     """
     from datetime import timedelta
 
-    from flexi.domain.format import delta
     from flexi.services.adjustments import OPENING_BALANCE
 
     services = handles_of(ctx).services
@@ -467,8 +495,6 @@ def balance_zero(
 def balance_log(ctx: click.Context) -> None:
     """List every correction ever recorded."""
     from datetime import timedelta
-
-    from flexi.domain.format import delta
 
     services = handles_of(ctx).services
     rows = services.adjustments.all()

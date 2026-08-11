@@ -100,6 +100,10 @@ def test_every_way_into_the_application_migrates_first(
 
     `_launch` is the only place in `__main__` that constructs the application,
     so this is the one place the invariant has to hold.
+
+    Patched at the source modules rather than on `__main__`: neither name is
+    bound there any more, because importing the application and the migration
+    runner at module scope cost every command most of a second.
     """
     order: list[str] = []
 
@@ -110,8 +114,8 @@ def test_every_way_into_the_application_migrates_first(
         order.append("opened")
         return _Stub()
 
-    monkeypatch.setattr(main, "run_migrations", migrated)
-    monkeypatch.setattr(main, "App", opened)
+    monkeypatch.setattr("flexi.models.database.migrate.run_migrations", migrated)
+    monkeypatch.setattr("flexi.app.App", opened)
 
     main._launch()
 
