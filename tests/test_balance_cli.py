@@ -2,20 +2,37 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import time_machine
 from click.testing import CliRunner
 
-from flexi import wallclock
 from flexi.__main__ import cli
 from flexi.locations import database_file
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import Services
 
-YESTERDAY = wallclock.today() - timedelta(days=1)
+NOON = datetime(2026, 6, 10, 12, 0)
+"""The clock these tests run against.
+
+`YESTERDAY` used to be `wallclock.today() - timedelta(days=1)`, evaluated when
+the module was imported. That reads the real clock once, before any test runs:
+the module cannot be exercised under a frozen clock at all, and a suite that
+starts before midnight and reaches this file after it compares two different
+days. Holding the clock still makes both go away.
+"""
+
+YESTERDAY = (NOON - timedelta(days=1)).date()
+
+
+@pytest.fixture(autouse=True)
+def _at_noon() -> Iterator[None]:
+    with time_machine.travel(NOON, tick=False):
+        yield
 
 
 @pytest.fixture

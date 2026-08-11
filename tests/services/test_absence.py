@@ -6,10 +6,12 @@ bar shows unedited, so a change in wording is a change in the interface.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import time_machine
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
@@ -38,8 +40,28 @@ def settings(session: Session) -> SettingsService:
         bank_holiday_division="england-and-wales",
         auto_close_time="18:00",
     )
-    svc.save_entitlement(2026, 25.0)
+    # The active leave year, not a fixed one. A hardcoded 2026 here is compared
+    # against the real clock by get_active_entitlement_days, so the test would
+    # have started failing on 1 January 2027 with nothing having changed.
+    svc.save_entitlement(svc.active_leave_year(), 25.0)
     return svc
+
+
+MIDSUMMER = datetime(2026, 6, 10, 12, 0)
+"""The clock these tests run against.
+
+Every date here is fixed, and several of them ask a question about "the active
+leave year", which reads the real one. Left alone the two agree until the
+calendar turns and then quietly stop: a booking on a 2026 date stops counting
+against an allowance filed under 2027, and the suite fails on a morning when
+nothing has changed.
+"""
+
+
+@pytest.fixture(autouse=True)
+def _midsummer() -> Iterator[None]:
+    with time_machine.travel(MIDSUMMER, tick=False):
+        yield
 
 
 @pytest.fixture
@@ -222,10 +244,15 @@ class TestTypeChange:
 
 class TestBalance:
     def test_remaining_after_booking(self, absence: AbsenceService) -> None:
+        """Asked about the leave year the day is in, not the one today is in.
+
+        With no argument this reads the real clock, so a booking on a fixed
+        2026 date stopped counting against it the moment the calendar turned.
+        """
         d = _next_weekday(date(2026, 6, 8), 0)
         absence.book(d, AbsenceType.ANNUAL)
-        remaining = absence.get_remaining_annual_leave()
-        assert remaining == 24.0
+
+        assert absence.get_remaining_annual_leave(d) == 24.0
 
     def test_reject_when_insufficient(
         self,

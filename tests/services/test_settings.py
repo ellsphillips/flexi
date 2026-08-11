@@ -27,7 +27,10 @@ def _do_setup(svc: SettingsService) -> None:
         bank_holiday_division="england-and-wales",
         auto_close_time="18:00",
     )
-    svc.save_entitlement(2026, 25.0)
+    # The active leave year, not a fixed one. A hardcoded 2026 here is compared
+    # against the real clock by get_active_entitlement_days, so the test would
+    # have started failing on 1 January 2027 with nothing having changed.
+    svc.save_entitlement(svc.active_leave_year(), 25.0)
 
 
 # ---------- setup-complete validation ----------
