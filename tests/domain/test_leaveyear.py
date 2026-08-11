@@ -9,11 +9,15 @@ service happened to be nearest.
 
 from __future__ import annotations
 
-from datetime import date
+import calendar
+from datetime import date, timedelta
 
 import pytest
+from hypothesis import given
 
+from flexi.domain import leaveyear
 from flexi.domain.leaveyear import active_year, bounds, clamp, start_of
+from tests import strategies
 
 APRIL = (4, 6)
 """The sixth of April, which is the common UK leave year."""
@@ -96,3 +100,62 @@ def test_every_year_has_a_start_whatever_the_setting(year: int) -> None:
             found = start_of(date(year, 6, 15), month, day)
             assert found.month == month
             assert found.day <= day
+
+
+# -- properties ------------------------------------------------------------
+#
+# The example-based tests above name the dates that broke: 29 February, a leave
+# year starting on the 31st. These say the same thing about every date, which is
+# what stops the next such date being found by a user instead of by the suite.
+
+
+@given(dates=strategies.dates, start=strategies.year_starts())
+def test_a_clamped_start_is_always_a_real_date(
+    dates: date, start: tuple[int, int]
+) -> None:
+    """`clamp` exists so no choice of leave year can raise."""
+    month, day = start
+    clamped = leaveyear.clamp(dates.year, month, day)
+    assert clamped.month == month
+    assert clamped.day == min(day, calendar.monthrange(dates.year, month)[1])
+
+
+@given(ref=strategies.dates, start=strategies.year_starts())
+def test_a_leave_year_starts_on_or_before_the_date_it_contains(
+    ref: date, start: tuple[int, int]
+) -> None:
+    month, day = start
+    assert leaveyear.start_of(ref, month, day) <= ref
+
+
+@given(ref=strategies.dates, start=strategies.year_starts())
+def test_the_bounds_contain_the_date_and_agree_with_the_start(
+    ref: date, start: tuple[int, int]
+) -> None:
+    month, day = start
+    first, last = leaveyear.bounds(ref, month, day)
+    assert first <= ref <= last
+    assert first == leaveyear.start_of(ref, month, day)
+    assert leaveyear.active_year(ref, month, day) == first.year
+
+
+@given(ref=strategies.dates, start=strategies.year_starts())
+def test_every_date_in_a_leave_year_reports_the_same_leave_year(
+    ref: date, start: tuple[int, int]
+) -> None:
+    """Otherwise an allowance would be filed under one year and read from another."""
+    month, day = start
+    first, last = leaveyear.bounds(ref, month, day)
+    for inside in (first, first + (last - first) // 2, last):
+        assert leaveyear.bounds(inside, month, day) == (first, last)
+
+
+@given(ref=strategies.dates, start=strategies.year_starts())
+def test_leave_years_tile_the_calendar_with_no_gap_and_no_overlap(
+    ref: date, start: tuple[int, int]
+) -> None:
+    """The day after one leave year ends is the day the next one begins."""
+    month, day = start
+    _first, last = leaveyear.bounds(ref, month, day)
+    following = last + timedelta(days=1)
+    assert leaveyear.start_of(following, month, day) == following

@@ -1,8 +1,12 @@
-from datetime import date
+import itertools
+from datetime import date, timedelta
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from flexi.domain.period import Granularity, Period
+from tests import strategies
 
 THURSDAY = date(2026, 6, 11)  # week 24, a Thursday
 
@@ -120,3 +124,85 @@ def test_first_weekday_moves_the_week_boundary() -> None:
     sunday_first = Period(Granularity.WEEK, THURSDAY, first_weekday=6)
     assert sunday_first.start == date(2026, 6, 7)
     assert sunday_first.end == date(2026, 6, 13)
+
+
+# -- properties ------------------------------------------------------------
+#
+# A period is arithmetic on dates, and the failures that matter are the ones no
+# hand-written example thinks to try: shifting a month from the 31st, a year
+# starting on 29 February, a week whose first day is Sunday.
+
+
+@st.composite
+def periods(draw: st.DrawFn) -> Period:
+    """Any period a user could put on screen."""
+    return Period(
+        draw(strategies.granularities),
+        draw(strategies.dates),
+        draw(strategies.year_starts()),
+        draw(strategies.first_weekdays),
+    )
+
+
+@given(period=periods())
+def test_a_period_contains_its_own_anchor(period: Period) -> None:
+    """The date you are standing on is always inside the span you are looking at."""
+    assert period.start <= period.anchor <= period.end
+    assert period.contains(period.anchor)
+
+
+@given(period=periods())
+def test_the_length_is_the_number_of_days_it_yields(period: Period) -> None:
+    days = list(period.days())
+    assert len(period) == len(days)
+    assert days[0] == period.start
+    assert days[-1] == period.end
+    assert all(
+        later - earlier == timedelta(days=1)
+        for earlier, later in itertools.pairwise(days)
+    ), "the span is contiguous"
+
+
+@given(period=periods())
+def test_consecutive_periods_tile_without_gap_or_overlap(period: Period) -> None:
+    """The day after this span ends is the first day of the next one.
+
+    The property that makes paging trustworthy: a day cannot fall between two
+    periods, and cannot appear in both. `_add_months` clamping the 31st is what
+    makes this non-obvious for months and for a leave year starting late in one.
+    """
+    following = period.shift(1)
+    assert following.start == period.end + timedelta(days=1)
+    assert period.shift(-1).end == period.start - timedelta(days=1)
+
+
+@given(period=periods(), moment=strategies.dates)
+def test_going_to_a_date_puts_that_date_in_the_span(
+    period: Period, moment: date
+) -> None:
+    assert period.go_to(moment).contains(moment)
+
+
+@given(period=periods(), granularity=strategies.granularities)
+def test_zooming_is_lossless(period: Period, granularity: Granularity) -> None:
+    """`m` then `w` returns to the week you were standing on.
+
+    Zoom moves the width and never the anchor, which is the whole reason a
+    period is an anchor plus a granularity rather than a pair of dates.
+    """
+    assert period.zoom(granularity).zoom(period.granularity) == period
+
+
+@given(period=periods(), count=st.integers(min_value=-24, max_value=24))
+def test_shifting_back_and_forward_settles_after_one_clamp(
+    period: Period, count: int
+) -> None:
+    """Stepping off the 31st is lossy exactly once, and never again.
+
+    January the 31st shifted forward lands on the 28th of February and cannot
+    find its way back to the 31st — that is the clamp doing its job. What must
+    not happen is drift: shifting on from there has to be stable, or paging
+    through a year would walk the anchor backwards a day at a time.
+    """
+    moved = period.shift(count)
+    assert moved.shift(-count).shift(count) == moved
