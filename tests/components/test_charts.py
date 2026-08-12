@@ -461,3 +461,61 @@ def test_an_absence_still_lands_in_its_week() -> None:
         effect=-CONTRACTED,
     )
     assert week_columns([booked])[0].value == pytest.approx(-7.4)
+
+
+# -- an arm is a distance from the baseline, never a value -----------------
+
+
+@pytest.mark.parametrize(
+    ("name", "values"),
+    [
+        ("one week, behind", [-7.4]),
+        ("one week, ahead", [5.0]),
+        ("one week, level", [0.0]),
+        ("every week behind", [-3.0, -7.4]),
+        ("every week ahead", [3.0, 5.0]),
+        ("both sides", [-3.0, 5.0]),
+    ],
+)
+async def test_no_shape_of_week_can_take_the_chart_down(
+    name: str, values: list[float]
+) -> None:
+    """The first install has one week on record, and it is usually behind.
+
+    `_high` returned the largest *value* rather than a distance above the
+    baseline, so a week of nothing but deficit gave the surplus arm a negative
+    height — and `_arms` divides by `high + low`, which for a single column is
+    `value + -value`: exactly zero. Opening Insights on a fresh install was a
+    ZeroDivisionError before anything was drawn.
+    """
+    chart = DivergingBars()
+    async with mounted(chart):
+        chart.show(
+            [Column(str(week), value, "") for week, value in enumerate(values, 1)]
+        )
+
+        drawn = lines(chart)
+
+        assert any(BASELINE in row for row in drawn), name
+        assert len(drawn) == chart.rows + 1, "the arms and the baseline and a caption"
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ([-3.0], (1, 6)),  # nothing above the line: one row is all it needs
+        ([3.0], (6, 1)),  # and the mirror image
+        ([-3.0, 5.0], (4, 3)),  # split in proportion to the data
+    ],
+)
+async def test_each_arm_is_given_room_in_proportion_to_its_reach(
+    values: list[float], expected: tuple[int, int]
+) -> None:
+    """A series with no deficit weeks does not need four rows of empty axis."""
+    chart = DivergingBars(height=8)
+    async with mounted(chart):
+        shown = tuple(
+            Column(str(week), value, "") for week, value in enumerate(values, 1)
+        )
+
+        assert chart._arms(shown) == expected

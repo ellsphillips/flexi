@@ -116,11 +116,21 @@ class DivergingBars(Widget):
 
     @staticmethod
     def _high(shown: tuple[Column, ...]) -> float:
-        return max((column.value for column in shown), default=0.0) or 0.0
+        """How far the surplus reaches above the baseline. Never below it.
+
+        Clamped at zero, because it is a distance from the baseline rather than
+        the largest value. Without the clamp a week of nothing but deficit gave
+        a *negative* height for the surplus arm, and `_arms` divided by
+        `high + low` — which for a single column is `value + -value`, exactly
+        zero. Opening Insights on a first install, where there is one week and
+        it is behind, was a ZeroDivisionError.
+        """
+        return max(0.0, max((column.value for column in shown), default=0.0))
 
     @staticmethod
     def _low(shown: tuple[Column, ...]) -> float:
-        return -min((column.value for column in shown), default=0.0) or 0.0
+        """How far the deficit reaches below the baseline. Never above it."""
+        return max(0.0, -min((column.value for column in shown), default=0.0))
 
     def _fit(self) -> tuple[tuple[Column, ...], int]:
         """The bars that fit, most recent first, and whether they get a gap.
