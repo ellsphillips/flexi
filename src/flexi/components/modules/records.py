@@ -362,7 +362,10 @@ class RecordsModule(Module):
         if key is None:
             return None
         group = self.table.group_for(key)
-        if group is None:
+        # Unreachable: `cursor_key` can only name a row the table holds, and
+        # `set_groups` is the only thing that puts rows in it, so every key it
+        # returns belongs to a group.
+        if group is None:  # pragma: no cover
             return None
         parent = group.parent.key
         return parent[len(DAY) :] if parent.startswith(DAY) else None

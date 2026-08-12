@@ -76,6 +76,13 @@ class Period:
     Operations move or reinterpret ``anchor`` rather than a separate cursor, which
     is what keeps zooming lossless. ``year_start`` affects only
     :attr:`Granularity.YEAR`, ``first_weekday`` only :attr:`Granularity.WEEK`.
+
+    Every ``match self.granularity`` below ends on ``case Granularity.YEAR``
+    carrying ``# pragma: no branch``. Coverage cannot see that a match over
+    every member of an enum is exhaustive, so it reports the arm that never
+    matches as a missed branch, and blames the last ``case`` for it. Adding a
+    fifth granularity without a case would be a mypy error rather than a silent
+    fall-through, which is what makes the pragma safe to write.
     """
 
     granularity: Granularity
@@ -110,7 +117,7 @@ class Period:
                 return self.anchor - timedelta(days=back)
             case Granularity.MONTH:
                 return self.anchor.replace(day=1)
-            case Granularity.YEAR:
+            case Granularity.YEAR:  # pragma: no branch
                 return self._year_start()
 
     @property
@@ -124,7 +131,7 @@ class Period:
             case Granularity.MONTH:
                 last = calendar.monthrange(self.anchor.year, self.anchor.month)[1]
                 return self.anchor.replace(day=last)
-            case Granularity.YEAR:
+            case Granularity.YEAR:  # pragma: no branch
                 # Asked of `leaveyear`, not recomputed. Deriving the next start
                 # from *this* start clamps twice: a leave year beginning on 29
                 # February starts on the 28th in a common year, and taking the
@@ -173,7 +180,7 @@ class Period:
                 return replace(self, anchor=self.anchor + timedelta(weeks=count))
             case Granularity.MONTH:
                 return replace(self, anchor=_add_months(self.anchor, count))
-            case Granularity.YEAR:
+            case Granularity.YEAR:  # pragma: no branch
                 # Asked of `leaveyear`, for the reason `end` is: twelve months
                 # from a clamped 29 February is a date inside the year it came
                 # from, so this key used to do nothing at all.
@@ -204,7 +211,7 @@ class Period:
                 return f"Week of {day_month(self.start)}"
             case Granularity.MONTH:
                 return f"{MONTH_NAMES[self.anchor.month - 1]} {self.anchor.year}"
-            case Granularity.YEAR:
+            case Granularity.YEAR:  # pragma: no branch
                 start = self._year_start()
                 if self.year_start == (1, 1):
                     return str(start.year)
@@ -220,5 +227,5 @@ class Period:
                 return day_month(self.start)
             case Granularity.MONTH:
                 return self.anchor.strftime("%b %Y")
-            case Granularity.YEAR:
+            case Granularity.YEAR:  # pragma: no branch
                 return self.label

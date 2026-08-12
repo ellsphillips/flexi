@@ -7,6 +7,8 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import time_machine
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
@@ -161,3 +163,25 @@ def test_an_open_session_is_never_swept(services: Services, session: Session) ->
     built = Services.build(session)
     run_startup_cleanup(session, built.clock, built.settings.get_auto_close_time())
     assert services.clock.is_clocked_in()
+
+
+def test_the_schema_will_not_let_a_clock_out_dangle(
+    services: Services, session: Session
+) -> None:
+    """Which is why `discard_short_sessions` can never meet one.
+
+    That sweep runs before every clock action and guards against a session
+    whose clock-out event has gone — a guard `mypy` requires, since the
+    relationship is typed optional, and one the database makes unreachable.
+    `create_db_engine` turns `PRAGMA foreign_keys` on, so the row cannot be
+    written in the first place. If that pragma is ever dropped, this test is
+    where it is noticed, and the `no cover` on the guard becomes a lie.
+    """
+    services.clock.clock_in(now=NINE)
+    services.clock.clock_out(now=NINE + timedelta(hours=8))
+    work = session.execute(select(WorkSession)).scalar_one()
+
+    work.clock_out_id = 9999  # an event that is not there
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()

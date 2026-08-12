@@ -212,7 +212,12 @@ class ClockService:
         )
         discarded: list[WorkSession] = []
         for work in self._session.execute(stmt).scalars():
-            if work.clock_out_event is None:
+            # Unreachable: `PRAGMA foreign_keys` is on, so a non-null
+            # `clock_out_id` always resolves. The check is here because the
+            # relationship is typed optional and `moment_of` below is not.
+            # `tests/services/test_short_sessions.py` pins the constraint that
+            # makes this dead, so dropping the pragma fails there.
+            if work.clock_out_event is None:  # pragma: no cover
                 continue
             length = moment_of(work.clock_out_event) - moment_of(work.clock_in_event)
             if timedelta() <= length < self._minimum:

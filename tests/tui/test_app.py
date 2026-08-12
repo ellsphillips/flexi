@@ -18,6 +18,7 @@ from sqlalchemy import update
 from textual.widgets import Input, Select
 
 from flexi.app import FlexiApp
+from flexi.components.chrome import NavBar
 from flexi.components.modules.records import RecordsModule
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import BankHolidayCache, Base
@@ -416,3 +417,32 @@ async def test_a_saved_working_pattern_reaches_the_dashboard_without_a_relaunch(
         showing(app, DashboardScreen)
         after = str(app.screen.query_one(RecordsModule).border_subtitle)
         assert after != before, f"the week is still measured against {before}"
+
+
+async def test_the_nav_highlight_follows_the_screen(app_factory: AppFactory) -> None:
+    """Which tab is lit is a fact about the screen you are on.
+
+    `App` carried a `_sync_nav` that walked `self.query(AppHeader)` and
+    `self.query(NavBar)` after every navigation. `App.query` does not search the
+    screen stack, so both loops ran zero times and the method had never once
+    changed anything — which nothing noticed, because each screen's own header
+    sets itself on mount and each `NavBar` reads `app.nav` when it mounts.
+
+    That is the behaviour, so this is where it is pinned.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        assert [bar.active for bar in app.screen.query(NavBar)] == ["dashboard"]
+
+        await pilot.press("f3")
+        await pilot.pause()
+        await pilot.pause()
+        assert app.nav == "insights"
+        assert [bar.active for bar in app.screen.query(NavBar)] == ["insights"]
+
+        await pilot.press("f1")
+        await pilot.pause()
+        await pilot.pause()
+        assert app.nav == "dashboard"
+        assert [bar.active for bar in app.screen.query(NavBar)] == ["dashboard"]

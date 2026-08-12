@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 from textual.command import DiscoveryHit, Hit
+from textual.notifications import Notification
 from textual.widgets import Input, RadioSet
 
 from flexi.app import FlexiApp
@@ -41,6 +42,23 @@ async def discovered(app: FlexiApp) -> list[DiscoveryHit]:
 
 async def titles(app: FlexiApp) -> list[str]:
     return [str(hit.display) for hit in await discovered(app)]
+
+
+def notification(app: FlexiApp, message: str) -> Notification:
+    """The notification carrying this message, asserted to be there.
+
+    Not `list(app._notifications)[-1]`. The application starts a worker at mount
+    that fills the bank holiday cache and says so when it cannot, so which
+    notification is *last* depends on when that worker lands — which under
+    coverage, or on a loaded machine, is sometimes after the command being
+    tested. Asking for the one that matters is both stronger and stable.
+    """
+    for note in app._notifications:
+        if note.message == message:
+            return note
+    said = [n.message for n in app._notifications]
+    msg = f"no notification said {message!r}; got {said}"
+    raise AssertionError(msg)
 
 
 async def run_command(app: FlexiApp, title: str) -> None:
@@ -256,9 +274,7 @@ async def test_refreshing_the_calendar_reports_that_it_could_not_reach_govuk(
         await run_command(app, "Refresh bank holidays")
         await pilot.pause()
 
-        latest = list(app._notifications)[-1]
-        assert latest.message == "Could not reach gov.uk"
-        assert latest.severity == "warning"
+        assert notification(app, "Could not reach gov.uk").severity == "warning"
 
 
 async def test_a_successful_refresh_says_so_and_redraws_from_the_new_calendar(
@@ -281,9 +297,7 @@ async def test_a_successful_refresh_says_so_and_redraws_from_the_new_calendar(
         await run_command(app, "Refresh bank holidays")
         await pilot.pause()
 
-        latest = list(app._notifications)[-1]
-        assert latest.message == "Bank holidays refreshed"
-        assert latest.severity == "information"
+        assert notification(app, "Bank holidays refreshed").severity == "information"
         assert ledger._cache == {}, "the days derived from the old calendar remain"
 
 

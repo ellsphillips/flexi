@@ -287,7 +287,10 @@ class YearCalendar(ScrollView, can_focus=True):
 
         if row == HEADING_ROW:
             return self._heading_strip()
-        if block is None:
+        # Unreachable: `_relayout` is the only writer of `self._rows`, and the
+        # one `None` block it produces is paired with `HEADING_ROW`, which
+        # returns two lines above. Kept because `_rows` is typed to allow it.
+        if block is None:  # pragma: no cover
             return Strip.blank(self.size.width)
         if row == TITLE_ROW:
             return self._title_strip(block)

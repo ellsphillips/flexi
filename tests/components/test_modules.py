@@ -563,3 +563,26 @@ def test_a_strip_told_only_a_new_day_keeps_the_window_it_draws_in() -> None:
     strip.set_ledger(holiday("Summer bank holiday"))
 
     assert strip.window is window
+
+
+async def test_a_day_the_ledger_says_nothing_about_is_drawn_plain(
+    flexi: Services,
+) -> None:
+    """The grid squares off a month, so its corners belong to other ones.
+
+    `ledgers.get(when)` returns `None` for those, and a cell with no ledger
+    behind it must still say where it is — which month it belongs to, whether
+    it is today, whether it is selected — without claiming a kind of day it
+    knows nothing about.
+    """
+    module = MonthView()
+    async with showing(module, flexi, granularity=Granularity.MONTH) as (_p, _panel):
+        period = Period.containing(THURSDAY, Granularity.MONTH)
+        last_month = date(2026, 5, 31)
+
+        classes = module._cell_classes(last_month, None, period, THURSDAY)
+
+        assert "not-current-month" in classes
+        assert not any(c.startswith(("day-", "absence-")) for c in classes), (
+            "a cell with no ledger claims no kind of day"
+        )

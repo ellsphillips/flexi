@@ -94,7 +94,17 @@ omit = ["*/migrations/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
+fail_under = 100
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+    # A module entry point cannot run in the process running the tests.
+    "if __name__ == .__main__.:",
+    # A Protocol member body. The whole point is that nothing calls it: the
+    # implementers are what run, and `tests/` exercises those.
+    "^\\s*\\.\\.\\.$",
+]
 
 [tool.mypy]
 strict = true

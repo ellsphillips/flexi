@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 from sqlalchemy.orm import Session
@@ -103,3 +103,28 @@ class TestCountsTowardWorkedTime:
         duration = (end - start).total_seconds()
         assert duration > 0  # Has positive duration
         assert duration == 9 * 3600  # 9am to 18:00 = 9 hours
+
+
+def test_the_sweep_can_be_told_what_day_it_is(
+    svc: ClockService, session: Session
+) -> None:
+    """`today` is a parameter so a caller can sweep as at a date it chooses.
+
+    `run_startup_cleanup` lets it default to the wall clock, but the auto-close
+    backfill in `flexi init` sweeps a database it has just migrated as at the
+    day it is doing the migrating — and a test that only ever lets it read the
+    clock cannot tell the two apart.
+    """
+    monday = date(2026, 8, 10)
+    svc.clock_in(now=datetime.combine(monday, time(9, 0), tzinfo=UTC))
+
+    assert close_stale_sessions(session, time(18, 0), today=monday) == [], (
+        "as at the day itself, the session is not stale"
+    )
+
+    closed = close_stale_sessions(
+        session, time(18, 0), today=monday + timedelta(days=1)
+    )
+
+    assert len(closed) == 1
+    assert closed[0].auto_closed is True
