@@ -64,6 +64,23 @@ SPLIT: Final = "◆"
 HOLIDAY: Final = "·"
 BLANK: Final = " "
 
+
+def _units_column(width: int) -> int:
+    """Where the day's units digit sits inside a cell of this width.
+
+    One answer, asked by the tile that draws the number and by the heading that
+    has to stand over it. The two used to decide independently, which is how the
+    initials came to sit three cells right of the dates.
+
+    Examples:
+        >>> _units_column(12)  # " 13 annual"
+        2
+        >>> _units_column(6)  # "  13 "
+        3
+    """
+    return 2 if width >= LABELLED_CELL else width - 3
+
+
 PORTION_GLYPH: Final[dict[Portion, str]] = {
     Portion.FULL: FULL,
     Portion.AM: MORNING,
@@ -297,19 +314,33 @@ class YearCalendar(ScrollView, can_focus=True):
         return self._week_strip(block, row)
 
     def _heading_strip(self) -> Strip:
+        """The weekday initials, each standing over its own column of dates.
+
+        Centred in the cell, they did not: a date is right-aligned near the left
+        of its tile so that a label can follow it, and centring put every
+        initial three or four cells to the right of the numbers it names. At a
+        year's height that reads as two grids laid over each other.
+        """
         style = self.get_component_rich_style("cal--weekday")
         initials = weekday_initials(self.first_weekday)
         text = "".join(
-            initial.center(width)
+            initial.rjust(_units_column(width) + 1).ljust(width)
             for initial, width in zip(initials, self.columns, strict=False)
         )
         return Strip([Segment(text, style)], self.grid_width)
 
     def _title_strip(self, block: MonthBlock) -> Strip:
-        """A seam. Ruled rather than boxed, like every other divider here."""
+        """A seam. Ruled rather than boxed, like every other divider here.
+
+        It reaches the same right edge the weeks do. The rule was drawn one cell
+        short while the strip still declared the full width, so every month
+        heading stopped a column before the grid it was heading — visible down
+        a scrolling year as a ragged right margin, and a strip whose text is
+        shorter than the length it claims.
+        """
         style = self.get_component_rich_style("cal--month")
         label = f" {block.title} "
-        rule = "─" * max(0, self.grid_width - len(label) - 1)
+        rule = "─" * max(0, self.grid_width - len(label))
         return Strip([Segment(f"{label}{rule}", style)], self.grid_width)
 
     def _week_strip(self, block: MonthBlock, row: int) -> Strip:

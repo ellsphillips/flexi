@@ -11,6 +11,7 @@ allowed to contain one.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import PurePath
 from typing import Any, ClassVar, cast
 
@@ -21,6 +22,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.css.query import NoMatches
 from textual.reactive import Reactive, reactive
+from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
@@ -98,7 +100,8 @@ class FlexiApp(TextualApp[None]):
         """Set by `flexi init`. Only the first run earns the animation."""
         self.open_settings = False
         """Set by `flexi init` when the answer chosen there was to change them."""
-        self._pushed: InsightsScreen | LeaveScreen | None = None
+        self._pushed: Screen[None] | None = None
+        """The one destination open on top of the dashboard, if any."""
         """The screen `action_go_to` pushed, so `f1` can dismiss it.
 
         Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
@@ -197,22 +200,16 @@ class FlexiApp(TextualApp[None]):
             return
         board = self._dashboard()
         if name == "insights" and board is not None:
-            self.nav = name
-            self._pushed = InsightsScreen(self.services, board.period)
-            self.push_screen(self._pushed, callback=self._back)
+            self._open(name, InsightsScreen(self.services, board.period))
             return
         if name == "leave" and board is not None:
-            self.nav = name
-            self._pushed = LeaveScreen(self.services, board.period.anchor)
-            self.push_screen(self._pushed, callback=self._back)
+            self._open(name, LeaveScreen(self.services, board.period.anchor))
             return
         if name == "dashboard":
-            # Insights is a pushed screen, so returning to the dashboard means
-            # leaving it. Without this, f1 set the nav label and nothing else,
-            # and escape was the only way back.
-            if self._pushed is not None:
-                self._pushed.dismiss(None)
-                self._pushed = None
+            # Insights and Leave are pushed screens, so returning to the
+            # dashboard means leaving whichever is open. Without this, f1 set
+            # the nav label and nothing else, and escape was the only way back.
+            self._close_pushed()
             self.nav = name
             return
         item = NAV_BY_SCREEN.get(name)
@@ -232,8 +229,40 @@ class FlexiApp(TextualApp[None]):
         event.stop()
         self.action_go_to(event.item.screen)
 
-    def _back(self, _result: object = None) -> None:
-        """Leaving a pushed screen returns the nav bar to where the user is."""
+    def _open(self, name: str, screen: Screen[None]) -> None:
+        """Show a pushed destination, closing any other that is already open.
+
+        `f3` then `f2` used to push Leave on top of Insights and overwrite the
+        only reference to it, so the stack grew and `f1` — which dismisses what
+        it is holding — took Leave off and revealed Insights, while the nav bar
+        said Dashboard. One destination is open at a time, so opening one closes
+        the last.
+        """
+        self._close_pushed()
+        self._pushed = screen
+        self.nav = name
+        self.push_screen(screen, callback=partial(self._back, screen))
+
+    def _close_pushed(self) -> None:
+        """Dismiss whatever destination is open, if any.
+
+        Cleared before the dismissal rather than after, so the callback can tell
+        "this screen was replaced" from "the user left it".
+        """
+        if self._pushed is None:
+            return
+        leaving, self._pushed = self._pushed, None
+        leaving.dismiss(None)
+
+    def _back(self, screen: Screen[None], _result: object = None) -> None:
+        """Leaving a pushed screen returns the nav bar to where the user is.
+
+        Ignored when the screen has already been replaced by another
+        destination: the dismissal that swap performed must not drag the nav
+        label back to the dashboard behind the screen that replaced it.
+        """
+        if self._pushed is not screen:
+            return
         self._pushed = None
         self.nav = "dashboard"
 

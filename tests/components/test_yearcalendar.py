@@ -14,6 +14,7 @@ are asserted, and neither is allowed to stand in for the other.
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
@@ -882,3 +883,55 @@ def test_a_span_of_days_includes_both_of_its_ends() -> None:
     assert days_between(JUNE, date(2026, 6, 5)) == [
         date(2026, 6, day) for day in range(1, 6)
     ]
+
+
+# -- the heading stands over the dates -------------------------------------
+
+
+@pytest.mark.parametrize("width", [28, 35, 42, 49, 56, 63, 70, 84, 98, 119])
+async def test_a_weekday_initial_stands_over_its_own_column_of_dates(
+    width: int,
+) -> None:
+    """Two grids laid over each other is what the mismatch looked like.
+
+    A date is right-aligned near the left of its tile, so a label can follow it
+    on the wide form. The heading centred its initial in the whole cell, which
+    put every letter three or four columns to the right of the dates it named —
+    at a year's height, unmistakably wrong and hard to say why.
+
+    Swept across widths because the remainder is spread a column at a time, so
+    the seven columns are not all the same and an alignment that holds for one
+    can fail for its neighbour.
+    """
+    async with shown(width=width) as calendar:
+        heading = text_of(calendar, 0)
+        dates = next(
+            text_of(calendar, index)
+            for index in range(1, 8)
+            if len(re.findall(r"\b\d\d\b", text_of(calendar, index))) >= DAYS_IN_WEEK
+        )
+
+        initials = [match.start() for match in re.finditer(r"\S", heading)]
+        units = [match.end() - 1 for match in re.finditer(r"\b\d\d\b", dates)]
+
+        assert len(initials) == DAYS_IN_WEEK, heading
+        assert initials == units, f"\n{heading!r}\n{dates!r}"
+
+
+@pytest.mark.parametrize("width", [28, 35, 42, 56, 70, 84, 119])
+async def test_every_line_reaches_the_same_right_edge(width: int) -> None:
+    """A ragged margin down a scrolling year, and a strip that lies about itself.
+
+    The month seam was ruled to `grid_width - 1` while the strip still declared
+    `grid_width`, so each heading stopped a column short of the weeks beneath it
+    and reported a length it did not have.
+    """
+    async with shown(width=width) as calendar:
+        for line in range(min(12, calendar.virtual_size.height)):
+            strip = calendar.render_line(line)
+
+            assert strip.cell_length == calendar.grid_width, f"line {line}"
+            assert len(strip.text) == calendar.grid_width, (
+                f"line {line} declares {strip.cell_length} and draws "
+                f"{len(strip.text)}: {strip.text!r}"
+            )
