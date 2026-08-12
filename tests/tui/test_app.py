@@ -23,6 +23,7 @@ from flexi.components.modules.records import RecordsModule
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import BankHolidayCache, Base
 from flexi.screens.dashboard import DashboardScreen
+from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
@@ -446,3 +447,77 @@ async def test_the_nav_highlight_follows_the_screen(app_factory: AppFactory) -> 
         await pilot.pause()
         assert app.nav == "dashboard"
         assert [bar.active for bar in app.screen.query(NavBar)] == ["dashboard"]
+
+
+async def test_moving_between_destinations_leaves_none_of_them_behind(
+    app_factory: AppFactory,
+) -> None:
+    """One destination is open at a time, so opening one closes the last.
+
+    `f3` then `f2` pushed Leave on top of Insights and overwrote the only
+    reference to it. The stack grew, and `f1` — which dismisses whatever it is
+    holding — took Leave off and revealed *Insights*, while the nav bar said
+    Dashboard. Pressing it again did nothing, because by then the app believed
+    it was already home.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        showing(app, InsightsScreen)
+
+        await pilot.press("f2")
+        await pilot.pause()
+        showing(app, LeaveScreen)
+        assert sum(isinstance(s, InsightsScreen) for s in app.screen_stack) == 0, (
+            "the screen it left is not still underneath"
+        )
+
+        await pilot.press("f1")
+        await pilot.pause()
+        await pilot.pause()
+        showing(app, DashboardScreen)
+        assert app.nav == "dashboard"
+
+
+async def test_the_stack_does_not_grow_however_long_somebody_browses(
+    app_factory: AppFactory,
+) -> None:
+    """Twelve keystrokes should leave the stack the depth one does."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        depth = len(app.screen_stack)
+
+        for key in ("f2", "f3", "f2", "f3", "f2"):
+            await pilot.press(key)
+            await pilot.pause()
+            assert len(app.screen_stack) == depth, f"after {key}"
+
+        await pilot.press("f1")
+        await pilot.pause()
+        await pilot.pause()
+        showing(app, DashboardScreen)
+
+
+async def test_escape_from_a_destination_still_comes_home(
+    app_factory: AppFactory,
+) -> None:
+    """The swap must not break the ordinary way out.
+
+    `_back` now ignores a dismissal of a screen that has already been replaced,
+    and this is the case where it must not ignore it.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f2")
+        await pilot.pause()
+        showing(app, LeaveScreen)
+
+        await pilot.press("escape")
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert app.nav == "dashboard"
