@@ -62,6 +62,9 @@ dev = [
     "types-pyyaml>=6.0",
     "typing-extensions>=4.12.2",
     "pytest-xdist>=3.8.0",
+    "hypothesis>=6.122",
+    "pytest-randomly>=3.16",
+    "pytest-timeout>=2.3",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -80,8 +83,8 @@ package = true
 # somebody forgets is skipped silently rather than failed.
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests", "src/flexi/domain", "src/flexi/cli/ui"]
-addopts = "--doctest-modules --strict-markers --strict-config -n auto"
+testpaths = ["tests", "src/flexi/domain", "src/flexi/cli/ui", "src/flexi/services"]
+addopts = "--doctest-modules --strict-markers --strict-config -n auto --timeout=120"
 
 [tool.coverage.run]
 branch = true
@@ -91,7 +94,17 @@ omit = ["*/migrations/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
+fail_under = 100
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+    # A module entry point cannot run in the process running the tests.
+    "if __name__ == .__main__.:",
+    # A Protocol member body. The whole point is that nothing calls it: the
+    # implementers are what run, and `tests/` exercises those.
+    "^\\s*\\.\\.\\.$",
+]
 
 [tool.mypy]
 strict = true

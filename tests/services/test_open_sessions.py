@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-import pytest
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
@@ -22,18 +21,6 @@ TUESDAY_NINE = datetime.combine(TUESDAY, datetime.min.time(), tzinfo=UTC).replac
     hour=9
 )
 THURSDAY_NOON = datetime.combine(THURSDAY, datetime.min.time()).replace(hour=12)
-
-
-@pytest.fixture
-def services(session: Session) -> Services:
-    built = Services.build(session)
-    built.settings.save_settings(
-        leave_year_start="10-20",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
-    )
-    return Services.build(session)
 
 
 def _leave_open(session: Session, at: datetime) -> None:

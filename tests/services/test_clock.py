@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import ClockAction
+from flexi.constants import AbsenceType, ClockAction, Portion
 from flexi.models.database.db import BankHolidayCache, ClockEvent, WorkSession
 from flexi.services.absence import AbsenceResult
 from flexi.services.adjustments import AdjustmentResult
@@ -234,3 +234,76 @@ def test_every_result_the_status_bar_sees_satisfies_the_protocol() -> None:
         assert isinstance(result.success, bool)
         assert isinstance(result.message, str)
         assert result.warning is None or isinstance(result.warning, str)
+
+
+# ---------- a day that is only half off ----------
+
+
+@pytest.fixture
+def ready(session: Session) -> Services:
+    """A configured install with a calendar, so absences can be booked at all."""
+    built = Services.build(session)
+    built.settings.save_settings(
+        leave_year_start="04-06",
+        working_days="0,1,2,3,4",
+        bank_holiday_division="england-and-wales",
+        auto_close_time="18:00",
+    )
+    session.add(
+        BankHolidayCache(
+            division="england-and-wales",
+            date=date(2026, 8, 31),
+            title="Summer bank holiday",
+            fetched_at=datetime(2026, 1, 1, 9, 0),
+        )
+    )
+    session.commit()
+    rebuilt = Services.build(session)
+    rebuilt.settings.save_entitlement(rebuilt.settings.active_leave_year(), 25.0)
+    return rebuilt
+
+
+TUESDAY = date(2026, 8, 25)
+
+
+def test_two_halves_off_do_not_break_clocking_in(ready: Services) -> None:
+    """A sick morning and an annual afternoon is a case the service documents.
+
+    The clock asked `scalar_one_or_none()` for "is there an absence today",
+    which raises outright when there are two rows — so the one arrangement
+    `AbsenceService` goes out of its way to permit was the one that made
+    `flexi clock in` traceback the next morning.
+    """
+    ready.absence.book(TUESDAY, AbsenceType.SICK, Portion.AM)
+    ready.absence.book(TUESDAY, AbsenceType.ANNUAL, Portion.PM)
+    assert len(ready.absence.for_date(TUESDAY)) == 2
+
+    result = ready.clock.clock_in(now=datetime(2026, 8, 25, 9, 0))
+
+    assert result.success is False
+    assert result.message == "Cannot clock in on an absence day"
+
+
+def test_a_full_day_off_refuses_the_clock(ready: Services) -> None:
+    ready.absence.book(TUESDAY, AbsenceType.ANNUAL, Portion.FULL)
+
+    result = ready.clock.clock_in(now=datetime(2026, 8, 25, 9, 0))
+
+    assert result.success is False
+    assert result.message == "Cannot clock in on an absence day"
+    assert ready.clock.get_open_session() is None
+
+
+def test_half_a_day_off_still_leaves_the_other_half_to_work(ready: Services) -> None:
+    """The booking rule already says so: a half day may be booked over work.
+
+    Refusing the reverse made the two halves of one rule disagree — you could
+    book a sick morning after working it, but not work the afternoon after
+    booking the morning.
+    """
+    ready.absence.book(TUESDAY, AbsenceType.SICK, Portion.AM)
+
+    result = ready.clock.clock_in(now=datetime(2026, 8, 25, 13, 0))
+
+    assert result.success is True, result.message
+    assert ready.clock.get_open_session() is not None

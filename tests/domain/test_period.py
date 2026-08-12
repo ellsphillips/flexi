@@ -1,8 +1,13 @@
-from datetime import date
+import itertools
+from datetime import date, timedelta
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
+from flexi.domain import leaveyear
 from flexi.domain.period import Granularity, Period
+from tests import strategies
 
 THURSDAY = date(2026, 6, 11)  # week 24, a Thursday
 
@@ -24,6 +29,41 @@ def test_span(granularity: Granularity, start: date, end: date) -> None:
     """It bounds each granularity around the anchor."""
     period = Period(granularity, THURSDAY)
     assert (period.start, period.end) == (start, end)
+
+
+def test_a_period_asked_for_a_date_defaults_to_the_week_around_it() -> None:
+    """Every screen opens on a week, and none of them says so.
+
+    The dashboard, the leave screen and the fallback in a module that has not
+    been told a period yet all call `containing` for today. A default of the day
+    or the month would change what the application opens on without a single
+    caller changing.
+    """
+    period = Period.containing(THURSDAY)
+
+    assert period.granularity is Granularity.WEEK
+    assert (period.start, period.end) == (date(2026, 6, 8), date(2026, 6, 14))
+
+
+def test_the_settings_a_period_is_opened_with_are_carried_into_it() -> None:
+    """A leave year and a first weekday are settings, not defaults.
+
+    `containing` forwards them positionally into a four-field dataclass, so a
+    field inserted between them would silently hand `year_start` to
+    `first_weekday`. Neither mistake raises: the screen would simply draw
+    January to January for somebody whose leave year runs from April, and put
+    Monday at the top of a week they asked to start on Sunday.
+    """
+    period = Period.containing(
+        date(2026, 3, 1),
+        Granularity.YEAR,
+        year_start=(4, 6),
+        first_weekday=6,
+    )
+
+    assert period.contains(date(2026, 3, 1))
+    assert period.label == "2025/26"
+    assert period.zoom(Granularity.WEEK).start.weekday() == 6
 
 
 def test_len_matches_the_span() -> None:
@@ -79,6 +119,42 @@ def test_shift_forward_reaches_the_future() -> None:
     assert not ahead.is_current(THURSDAY)
 
 
+LEAP_START = (2, 29)
+"""A leave year beginning on the 29th of February.
+
+`leaveyear.clamp` exists because the settings screen lets somebody choose it,
+and `Period.end` already carries a comment about the day it once lost. `shift`
+was never given the same treatment.
+"""
+
+
+def test_paging_forward_from_a_leave_year_that_starts_on_29_february_moves_it() -> None:
+    """`→` on the Leave screen has to show a different year afterwards.
+
+    2031 has no 29 February, so the 2031/32 leave year starts on the 28th.
+    Stepping the anchor twelve months lands on 28 February 2032 — which *is* a
+    leap year, so the 28th now falls before that year's start and resolves back
+    to the year it came from. The screen redraws with the same title, the same
+    entitlement and the same bookings, and the key reads as broken.
+    """
+    stuck = Period(Granularity.YEAR, date(2031, 2, 28), year_start=LEAP_START)
+
+    assert stuck.shift(1).start == stuck.end + timedelta(days=1)
+
+
+def test_paging_forward_across_29_february_does_not_skip_a_leave_year() -> None:
+    """The year between them is somebody's entitlement, and it is unreachable.
+
+    From the leave year ending on 28 February 2020, one step forward should
+    open the year beginning on the 29th. The clamped anchor lands a year beyond
+    it instead, so 2020/21 cannot be paged to at all — and the days booked in it
+    are on screen nowhere, while every service still counts them.
+    """
+    before = Period(Granularity.YEAR, date(2020, 2, 28), year_start=LEAP_START)
+
+    assert before.shift(1).start == date(2020, 2, 29)
+
+
 def test_a_week_spanning_a_year_end() -> None:
     """It bounds a week that crosses into January."""
     period = Period(Granularity.WEEK, date(2026, 12, 31))
@@ -99,6 +175,35 @@ def test_label(granularity: Granularity, label: str) -> None:
     assert Period(granularity, THURSDAY).label == label
 
 
+@pytest.mark.parametrize(
+    ("granularity", "short"),
+    [
+        (Granularity.DAY, "11 Jun"),
+        (Granularity.WEEK, "8 Jun"),
+        (Granularity.MONTH, "Jun 2026"),
+        (Granularity.YEAR, "2026"),
+    ],
+)
+def test_short_label(granularity: Granularity, short: str) -> None:
+    """It says the same thing again for a subtitle with no room for the title.
+
+    The weekday, the word "Week of" and the spelt-out month are all context the
+    border title already carries; a subtitle repeats none of them.
+    """
+    assert Period(granularity, THURSDAY).short_label == short
+
+
+def test_a_short_leave_year_still_names_both_years() -> None:
+    """The one thing a leave year cannot afford to drop.
+
+    Every other granularity shortens by removing something. "2026" for a year
+    running April to April is not shorter, it is wrong, so the year keeps its
+    full title however narrow the space is.
+    """
+    period = Period(Granularity.YEAR, THURSDAY, year_start=(4, 6))
+    assert period.short_label == "2026/27"
+
+
 def test_contains_and_is_current() -> None:
     """It knows which dates it covers."""
     period = week()
@@ -106,6 +211,29 @@ def test_contains_and_is_current() -> None:
     assert period.contains(date(2026, 6, 14))
     assert not period.contains(date(2026, 6, 15))
     assert period.is_current(THURSDAY)
+
+
+@pytest.mark.parametrize(
+    ("granularity", "heading"),
+    [
+        (Granularity.DAY, "Day"),
+        (Granularity.WEEK, "Week"),
+        (Granularity.MONTH, "Month"),
+        (Granularity.YEAR, "Year"),
+    ],
+)
+def test_a_granularity_names_itself_apart_from_the_value_it_is_stored_as(
+    granularity: Granularity, heading: str
+) -> None:
+    """The records table wants a title and the command palette wants a phrase.
+
+    Both read this enum, and a `label` that handed back the raw value would put
+    a lower-case "week" at the head of the table — while the palette, which
+    lowers the label to read "Period: week", would be unaffected and so would
+    not notice.
+    """
+    assert granularity.label == heading
+    assert granularity.value == heading.lower()
 
 
 def test_granularity_cycles() -> None:
@@ -120,3 +248,168 @@ def test_first_weekday_moves_the_week_boundary() -> None:
     sunday_first = Period(Granularity.WEEK, THURSDAY, first_weekday=6)
     assert sunday_first.start == date(2026, 6, 7)
     assert sunday_first.end == date(2026, 6, 13)
+
+
+# -- properties ------------------------------------------------------------
+#
+# A period is arithmetic on dates, and the failures that matter are the ones no
+# hand-written example thinks to try: shifting a month from the 31st, a year
+# starting on 29 February, a week whose first day is Sunday.
+
+
+@st.composite
+def periods(draw: st.DrawFn) -> Period:
+    """Any period a user could put on screen."""
+    return Period(
+        draw(strategies.granularities),
+        draw(strategies.dates),
+        draw(strategies.year_starts()),
+        draw(strategies.first_weekdays),
+    )
+
+
+@given(period=periods())
+def test_a_period_contains_its_own_anchor(period: Period) -> None:
+    """The date you are standing on is always inside the span you are looking at."""
+    assert period.start <= period.anchor <= period.end
+    assert period.contains(period.anchor)
+
+
+@given(period=periods())
+def test_the_length_is_the_number_of_days_it_yields(period: Period) -> None:
+    days = list(period.days())
+    assert len(period) == len(days)
+    assert days[0] == period.start
+    assert days[-1] == period.end
+    assert all(
+        later - earlier == timedelta(days=1)
+        for earlier, later in itertools.pairwise(days)
+    ), "the span is contiguous"
+
+
+@given(period=periods())
+def test_consecutive_periods_tile_without_gap_or_overlap(period: Period) -> None:
+    """The day after this span ends is the first day of the next one.
+
+    The property that makes paging trustworthy: a day cannot fall between two
+    periods, and cannot appear in both. `_add_months` clamping the 31st is what
+    makes this non-obvious for months and for a leave year starting late in one.
+    """
+    following = period.shift(1)
+    assert following.start == period.end + timedelta(days=1)
+    assert period.shift(-1).end == period.start - timedelta(days=1)
+
+
+@given(period=periods(), moment=strategies.dates)
+def test_going_to_a_date_puts_that_date_in_the_span(
+    period: Period, moment: date
+) -> None:
+    assert period.go_to(moment).contains(moment)
+
+
+@given(period=periods(), granularity=strategies.granularities)
+def test_zooming_is_lossless(period: Period, granularity: Granularity) -> None:
+    """`m` then `w` returns to the week you were standing on.
+
+    Zoom moves the width and never the anchor, which is the whole reason a
+    period is an anchor plus a granularity rather than a pair of dates.
+    """
+    assert period.zoom(granularity).zoom(period.granularity) == period
+
+
+@given(period=periods(), count=st.integers(min_value=-24, max_value=24))
+def test_shifting_back_and_forward_settles_after_one_clamp(
+    period: Period, count: int
+) -> None:
+    """Stepping off the 31st is lossy exactly once, and never again.
+
+    January the 31st shifted forward lands on the 28th of February and cannot
+    find its way back to the 31st — that is the clamp doing its job. What must
+    not happen is drift: shifting on from there has to be stable, or paging
+    through a year would walk the anchor backwards a day at a time.
+    """
+    moved = period.shift(count)
+    assert moved.shift(-count).shift(count) == moved
+
+
+@given(period=periods())
+def test_a_year_period_is_the_leave_year_the_services_use(period: Period) -> None:
+    """One question, one answer, whichever surface is asking.
+
+    `Period.end` derived the next start from *this* start, which clamps twice: a
+    leave year beginning on 29 February starts on the 28th in a common year, and
+    carrying that 28th forward ended the year on 28 February instead of 29. The
+    Leave screen therefore drew a year one day shorter than every service
+    counted, and 28 February 2020 belonged to neither year on screen.
+    """
+    if period.granularity is not Granularity.YEAR:
+        return
+    assert (period.start, period.end) == leaveyear.bounds(
+        period.anchor, *period.year_start
+    )
+
+
+@given(period=periods())
+def test_the_short_label_never_asks_for_more_room_than_the_full_one(
+    period: Period,
+) -> None:
+    """A subtitle is chosen when the title will not fit, so it has to be shorter.
+
+    "September" shortening to "Sep" is obvious; the one that is not is the leave
+    year, whose short form is the full label. That is allowed to be equal and is
+    not allowed to be longer, or the narrow layout would overflow in exactly the
+    case the short form was introduced to rescue.
+    """
+    assert period.short_label
+    assert len(period.short_label) <= len(period.label)
+
+
+@given(period=periods())
+def test_the_short_label_tells_this_period_from_the_next(period: Period) -> None:
+    """Paging has to be visible in the subtitle, or nothing confirms it happened.
+
+    Dropping the year from a day and the month name from a week is safe only
+    because neighbours still differ. A subtitle that read the same before and
+    after `→` would leave a user unable to tell a period that moved from one
+    that refused to.
+    """
+    assert period.short_label != period.shift(1).short_label
+    assert period.short_label != period.shift(-1).short_label
+
+
+@given(granularity=strategies.granularities)
+def test_the_two_directions_of_the_cycle_are_opposites(
+    granularity: Granularity,
+) -> None:
+    """`p` forward then back is where you started, and forward is not back.
+
+    Nothing distinguished `previous` from `next`: changing the minus to a plus
+    left the whole suite green, because every test that walked the cycle walked
+    it in one direction.
+    """
+    assert granularity.next().previous() == granularity
+    assert granularity.previous().next() == granularity
+    assert granularity.next() != granularity.previous()
+    assert granularity.next().next() == granularity.previous().previous(), (
+        "four granularities, so two steps either way meet in the middle"
+    )
+
+
+@given(period=periods(), count=st.integers(min_value=-8, max_value=8))
+def test_paging_lands_on_a_different_span_every_time(
+    period: Period, count: int
+) -> None:
+    """A key that redraws the same thing reads as a key that is broken.
+
+    The `shift` counterpart to the tiling property: stepping by anything other
+    than zero must move the span, at every granularity and every leave-year
+    start. `Period.shift` for a year stepped the anchor twelve months, so from
+    a leave year starting on a clamped 29 February it landed back inside the
+    year it came from.
+    """
+    moved = period.shift(count)
+    if count == 0:
+        assert (moved.start, moved.end) == (period.start, period.end)
+        return
+    assert (moved.start, moved.end) != (period.start, period.end)
+    assert (moved.start > period.end) if count > 0 else (moved.end < period.start)

@@ -8,6 +8,8 @@ only discovered by the person whose leave records it ate, so it is checked here.
 
 from __future__ import annotations
 
+import os
+import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -16,11 +18,17 @@ import sqlalchemy as sa
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 
 from flexi.constants import AbsenceType, Portion
+from flexi.locations import backups_directory, ensure
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import AbsenceDay, Base, Settings
-from flexi.models.database.migrate import _get_alembic_config
+from flexi.models.database.migrate import (
+    MAX_BACKUPS,
+    _get_alembic_config,
+    run_migrations,
+)
 
 BEFORE_HALF_DAYS = "0006"
 HEAD = "head"
@@ -37,6 +45,18 @@ def upgrade(db: Path, revision: str) -> None:
 
 def downgrade(db: Path, revision: str) -> None:
     command.downgrade(_get_alembic_config(db), revision)
+
+
+def revision_of(db: Path) -> str:
+    """The schema version stamped on a database file, read without Alembic."""
+    connection = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        stamped = connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone()
+    finally:
+        connection.close()
+    return str(stamped[0])
 
 
 def rows(db: Path, table: str) -> list[tuple[object, ...]]:
@@ -241,6 +261,46 @@ def test_head_downgrades_and_upgrades_again(db: Path) -> None:
         assert session.query(AbsenceDay).count() == 1
     finally:
         session.close()
+
+
+def test_upgrading_an_existing_database_snapshots_it_as_it_was(db: Path) -> None:
+    """The copy has to be of the old schema, or it is no way back.
+
+    A backup taken after the upgrade would be indistinguishable from the file it
+    was meant to rescue. What is checked here is the stamp: the snapshot beside
+    the database says 0006, so restoring it undoes the migration rather than
+    reinstating it.
+    """
+    upgrade(db, BEFORE_HALF_DAYS)
+
+    run_migrations(db)
+
+    snapshots = list(backups_directory().glob("*.bak"))
+    assert len(snapshots) == 1
+    assert revision_of(snapshots[0]) == BEFORE_HALF_DAYS
+    head = ScriptDirectory.from_config(_get_alembic_config(db)).get_current_head()
+    assert revision_of(db) == head
+
+
+def test_the_backup_an_upgrade_takes_ages_out_the_oldest_one(db: Path) -> None:
+    """Ten is the whole allowance, and an upgrade is what fills it.
+
+    One backup per migration, and Flexi migrates whenever it starts on a new
+    version. Without housekeeping in the same breath as the copy, an ordinary
+    fortnight of upgrades leaves a data directory that only ever grows.
+    """
+    upgrade(db, BEFORE_HALF_DAYS)
+    directory = ensure(backups_directory())
+    for n in range(MAX_BACKUPS):
+        earlier = directory / f"flexi_2026{n:04d}T000000Z.bak"
+        earlier.write_bytes(b"an earlier upgrade")
+        os.utime(earlier, (1_000_000 + n, 1_000_000 + n))
+    oldest = directory / "flexi_20260000T000000Z.bak"
+
+    run_migrations(db)
+
+    assert len(list(directory.glob("*.bak"))) == MAX_BACKUPS
+    assert not oldest.exists(), "the newest snapshot did not age out the oldest"
 
 
 def test_the_migrations_build_the_schema_the_models_describe(db: Path) -> None:

@@ -98,16 +98,19 @@ class WalletModule(Module):
         )
 
     def _draw_capped(self, gauge: Gauge, allowance: Allowance) -> None:
-        """An entitlement, drawn as spent against total with a pace marker."""
+        """An entitlement, drawn as spent against total with a pace marker.
+
+        `remaining` cannot be `None` here: `_draw` sends anything that draws
+        down the balance to `_draw_toil`, and anything uncapped to
+        `_draw_counted`, so what reaches this method has a total and does not
+        read its remainder off the flexi balance. A "no entitlement set" arm
+        lived here for a state those two guards make unreachable.
+        """
         total = allowance.total or 0.0
-        remaining = allowance.remaining
         gauge.display = True
-        if remaining is None:
-            gauge.show(None, readout="no entitlement set", total=1.0, tone=Tone.WARN)
-            return
         gauge.show(
             allowance.used,
-            readout=f"{days(remaining)} left of {days(total)}",
+            readout=f"{days(total - allowance.used)} left of {days(total)}",
             total=total,
             target=allowance.pace,
             tone=_pace_tone(allowance),

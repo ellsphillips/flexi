@@ -25,7 +25,7 @@ from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
 import flexi
-from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, AppHeader, NavBar
+from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, NavBar
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import Jumper
 from flexi.config import CONFIG
@@ -214,7 +214,6 @@ class FlexiApp(TextualApp[None]):
                 self._pushed.dismiss(None)
                 self._pushed = None
             self.nav = name
-            self._sync_nav()
             return
         item = NAV_BY_SCREEN.get(name)
         self.notify(
@@ -237,7 +236,6 @@ class FlexiApp(TextualApp[None]):
         """Leaving a pushed screen returns the nav bar to where the user is."""
         self._pushed = None
         self.nav = "dashboard"
-        self._sync_nav()
 
     def _on_settings_saved(self, saved: bool | None) -> None:
         if not saved:
@@ -249,12 +247,6 @@ class FlexiApp(TextualApp[None]):
             from flexi.messages import Scope
 
             screen.refresh_modules(Scope.ALL)
-
-    def _sync_nav(self) -> None:
-        for header in self.query(AppHeader):
-            header.set_active(self.nav)
-        for bar in self.query(NavBar):
-            bar.active = self.nav
 
     def _dashboard(self) -> DashboardScreen | None:
         for screen in self.screen_stack:

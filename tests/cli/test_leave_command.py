@@ -271,3 +271,109 @@ def test_cancelling_is_a_dry_run_too(services: Services, session: Session) -> No
         today=MONDAY,
     )
     assert len(_booked(session)) == 1
+
+
+def test_saying_nothing_at_all_is_told_what_the_kinds_are() -> None:
+    """`flexi leave` with the arguments quoted away, or a shell that ate them.
+
+    The answer has to be the vocabulary, not "missing argument": the whole
+    point of the grammar is that the first word comes from a closed list.
+    """
+    import click
+
+    with pytest.raises(click.UsageError, match="annual, sick, toil, unpaid, other"):
+        parse_request(())
+
+
+# -- what the confirmation says ----------------------------------------------
+
+
+def test_a_day_that_is_already_booked_is_shown_as_refused(
+    services: Services, session: Session
+) -> None:
+    """A refusal is not a skip.
+
+    A weekend is passed over because nobody meant it. A clash is a day
+    somebody did mean and cannot have, and it carries the reason so the
+    person can see which day to leave out of the second attempt.
+    """
+    run(
+        services,
+        ("annual", "monday"),
+        note=None,
+        assume_yes=True,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    shown = render(services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL))
+
+    assert "✗" in shown, "the clash is marked as turned down, not passed over"
+    assert "4 days" in shown, "and the rest of the week is still bookable"
+
+
+# -- being asked before anything is written ----------------------------------
+
+
+def refusing(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bool]]:
+    """Answer no to every confirmation, recording what was asked."""
+    asked: list[tuple[str, bool]] = []
+
+    def answer(prompt: str, *, default: bool = False, **_: object) -> bool:
+        asked.append((prompt.strip(), default))
+        return False
+
+    monkeypatch.setattr("click.confirm", answer)
+    return asked
+
+
+def test_declining_the_booking_writes_nothing(
+    services: Services, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The plan is shown, the question is asked, and no is honoured.
+
+    The default is no: this runs after a block of text somebody may have
+    scrolled past, and a bare return must not book a week of leave.
+    """
+    asked = refusing(monkeypatch)
+
+    code = run(
+        services,
+        ("annual", "monday", "to", "friday"),
+        note=None,
+        assume_yes=False,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    assert code == 1
+    assert _booked(session) == []
+    assert asked == [("Book it?", False)]
+
+
+def test_declining_the_cancellation_leaves_the_leave_alone(
+    services: Services, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cancelling loses a booking, so backing out has to keep it."""
+    run(
+        services,
+        ("annual", "monday", "to", "friday"),
+        note=None,
+        assume_yes=True,
+        dry_run=False,
+        today=MONDAY,
+    )
+    asked = refusing(monkeypatch)
+
+    code = run(
+        services,
+        ("cancel", "monday", "to", "friday"),
+        note=None,
+        assume_yes=False,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    assert code == 1
+    assert len(_booked(session)) == 5
+    assert asked == [("Cancel these?", False)]

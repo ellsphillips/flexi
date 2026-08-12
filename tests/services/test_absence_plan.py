@@ -11,14 +11,14 @@ status bar, which matched "That day is already a bank holiday" and missed
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
-import pytest
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion, Verdict
-from flexi.models.database.db import AbsenceDay, BankHolidayCache
+from flexi.models.database.db import AbsenceDay
 from flexi.services.registry import Services
+from tests.services.conftest import Configured
 
 MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
@@ -29,32 +29,13 @@ SEPT_FRIDAY = date(2026, 9, 4)
 
 
 def _configure(
-    session: Session, *, holidays: bool = True, days: float = 25.0
+    configure: Configured, *, holidays: bool = True, days: float = 25.0
 ) -> Services:
-    built = Services.build(session)
-    built.settings.save_settings(
-        leave_year_start="10-20",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+    """The shared fixture, with the two knobs this file turns."""
+    return configure(
+        entitlement=(2025, days),
+        holidays=((BANK_HOLIDAY, "Summer bank holiday"),) if holidays else (),
     )
-    built.settings.save_entitlement(2025, days)
-    if holidays:
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=BANK_HOLIDAY,
-                title="Summer bank holiday",
-                fetched_at=datetime(2026, 1, 1, 9, 0),
-            )
-        )
-    session.commit()
-    return Services.build(session)
-
-
-@pytest.fixture
-def services(session: Session) -> Services:
-    return _configure(session)
 
 
 def _rows(session: Session) -> int:
@@ -105,13 +86,13 @@ def test_a_bank_holiday_is_typed_not_pattern_matched(services: Services) -> None
     assert plan.refused == ()
 
 
-def test_missing_calendar_data_is_a_refusal_not_a_skip(session: Session) -> None:
+def test_missing_calendar_data_is_a_refusal_not_a_skip(configure: Configured) -> None:
     """The case the substring match missed, on a capital B.
 
     "Bank holiday data unavailable" means we do not know whether the day is
     bookable. Passing over it silently would lose the day without saying so.
     """
-    services = _configure(session, holidays=False)
+    services = _configure(configure, holidays=False)
     plan = services.absence.plan(MONDAY, MONDAY, AbsenceType.ANNUAL)
 
     assert plan.days[0].verdict is Verdict.NO_CALENDAR
@@ -122,13 +103,13 @@ def test_missing_calendar_data_is_a_refusal_not_a_skip(session: Session) -> None
 # -- the entitlement is simulated across the plan ---------------------------
 
 
-def test_the_allowance_is_drawn_down_across_the_plan(session: Session) -> None:
+def test_the_allowance_is_drawn_down_across_the_plan(configure: Configured) -> None:
     """Three days left, five asked for: the last two must be refused.
 
     Reading the database fresh for each day would approve all five, because
     nothing has been written yet.
     """
-    services = _configure(session, days=3.0)
+    services = _configure(configure, days=3.0)
     plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
 
     assert len(plan.bookable) == 3
@@ -220,3 +201,38 @@ def test_no_warning_when_the_balance_covers_it(services: Services) -> None:
     )
     assert plan.warning is None
     assert plan.toil_after == 5.0
+
+
+def test_a_week_of_annual_leave_leaves_the_flexi_balance_where_it_was(
+    services: Services,
+) -> None:
+    """The confirmation shows both figures, and only one of them moves.
+
+    Drawing the flexi balance down by a week of annual leave would tell somebody
+    they had spent time they still have, and the prompt is the last chance to
+    notice that before the rows are written.
+    """
+    plan = services.absence.plan(
+        MONDAY, FRIDAY, AbsenceType.ANNUAL, available_toil_days=2.0
+    )
+
+    assert plan.toil_after == 2.0
+    assert plan.warning is None, "an overdrawn balance is not this booking's news"
+
+
+def test_a_plan_names_each_refusal_once(services: Services) -> None:
+    """Two things to fix, not six sentences.
+
+    The dialog shows these in a list, so a reason repeated for every day it
+    accounts for pushes the other reason off the bottom of it.
+    """
+    services.absence.book(MONDAY, AbsenceType.SICK)
+    services.settings.save_entitlement(2025, 0.0)
+
+    plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+
+    assert len(plan.refused) == 5
+    assert plan.reasons == (
+        "That day is already booked in full",
+        "Not enough annual leave — 1 day short of the request",
+    )

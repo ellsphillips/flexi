@@ -5,12 +5,43 @@ from pathlib import Path
 
 import httpx
 import pytest
+from hypothesis import HealthCheck, settings
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
 from flexi.services import samples, setup
+
+settings.register_profile(
+    "dev",
+    max_examples=100,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+"""How hard Hypothesis tries by default.
+
+No deadline: the suite runs under `-n auto`, so a worker can be descheduled
+mid-example and a per-example time limit turns a loaded laptop into a failing
+test. Hypothesis's own shrinking still bounds the work, and `--timeout` catches
+a genuine hang.
+
+`function_scoped_fixture` is suppressed because the database fixtures here build
+one empty SQLite file and are cheap to reuse across examples; the health check
+exists to warn that the fixture is not reset per example, and every property
+test that takes one either resets it or does not care.
+"""
+
+settings.register_profile("ci", parent=settings.get_profile("dev"), max_examples=500)
+"""Five times the examples, for the run nobody is waiting on."""
+
+settings.register_profile(
+    "thorough", parent=settings.get_profile("dev"), max_examples=5000
+)
+"""For deliberately hunting a suspected property failure: `-p no:randomly
+--hypothesis-profile=thorough`."""
+
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
 
 
 def pytest_configure(config: pytest.Config) -> None:

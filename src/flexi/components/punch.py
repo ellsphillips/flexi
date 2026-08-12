@@ -20,7 +20,7 @@ from textual.app import RenderResult
 from textual.widget import Widget
 
 from flexi.domain.ledger import DayLedger
-from flexi.domain.punch import Cell, Window, cell_count, edges, strip
+from flexi.domain.punch import Cell, Window, edges, strip
 
 GLYPHS: Final[dict[Cell, str]] = {
     Cell.OFF: "─",
@@ -147,7 +147,3 @@ class PunchStrip(Widget):
             self.get_component_rich_style,
             self.now,
         )
-
-    def cell_count(self, width: int) -> int:
-        """How many cells this strip will draw at the given width."""
-        return cell_count(self.window, max(1, width))

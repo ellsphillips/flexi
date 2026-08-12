@@ -2,41 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-
-import pytest
-from sqlalchemy.orm import Session
+from datetime import date, timedelta
 
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import Services
+from tests.services.conftest import DEFAULT_HOLIDAY
 
 MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
 NEXT_FRIDAY = date(2026, 8, 21)
-BANK_HOLIDAY = date(2026, 8, 31)
-
-
-@pytest.fixture
-def services(session: Session) -> Services:
-    built = Services.build(session)
-    built.settings.save_settings(
-        leave_year_start="10-20",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
-    )
-    built.settings.save_entitlement(2025, 25.0)
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=BANK_HOLIDAY,
-            title="Summer bank holiday",
-            fetched_at=datetime(2026, 1, 1, 9, 0),
-        )
-    )
-    session.commit()
-    return Services.build(session)
+BANK_HOLIDAY = DEFAULT_HOLIDAY
 
 
 def test_a_working_week_books_five_days(services: Services) -> None:
@@ -115,6 +90,45 @@ def test_clearing_an_empty_range_says_so(services: Services) -> None:
     result = services.absence.clear_range(MONDAY, FRIDAY)
     assert not result.success
     assert result.message("removed") == "Nothing to do"
+
+
+def test_a_span_that_books_nothing_gives_the_reason_unedited(
+    services: Services,
+) -> None:
+    """One refusal is a sentence, not a report on a span.
+
+    "Nothing booked: That day is already booked in full" is the status bar
+    apologising for itself. When every day was turned down for the same reason,
+    the reason *is* the answer.
+    """
+    services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+
+    again = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+
+    assert not again.success
+    assert len(again.skipped) == 5
+    assert again.message("booked") == "That day is already booked in full"
+
+
+def test_a_span_refused_for_two_different_reasons_names_both(
+    services: Services,
+) -> None:
+    """Each reason once, however many days it accounts for.
+
+    Five days short of leave and one already booked is two things to fix, and
+    listing the same sentence four times over would hide the second.
+    """
+    services.absence.book(MONDAY, AbsenceType.SICK)
+    services.settings.save_entitlement(2025, 0.0)
+
+    result = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+
+    assert not result.success
+    assert len(result.skipped) == 5
+    assert result.message("booked") == (
+        "Nothing booked: That day is already booked in full; "
+        "Not enough annual leave — 1 day short of the request"
+    )
 
 
 def test_a_single_day_reads_as_a_day(services: Services) -> None:

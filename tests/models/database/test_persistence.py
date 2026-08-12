@@ -7,19 +7,18 @@ behind when it fails as well as when it succeeds.
 
 from __future__ import annotations
 
+import sqlite3
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import Engine, text
 
-from flexi.models.database.app import create_db_engine
-from flexi.models.database.migrate import (
-    MAX_BACKUPS,
-    _cleanup_old_backups,
-    backup_database,
-    run_migrations,
-)
+from flexi.locations import backups_directory, database_file
+from flexi.models.database.app import create_db_engine, get_session
+from flexi.models.database.backup import verify
+from flexi.models.database.migrate import backup_database, run_migrations
 
 
 @pytest.fixture
@@ -35,6 +34,49 @@ class TestForeignKeyEnforcement:
         with engine.connect() as conn:
             result = conn.execute(text("PRAGMA foreign_keys")).scalar()
             assert result == 1
+
+
+# ---------- the default database ----------
+
+
+class TestTheDefaultDatabase:
+    """What the argumentless calls resolve to.
+
+    Almost every caller passes an explicit path, so the defaults are exercised
+    only by the short-lived CLI commands -- and a default pointing somewhere
+    else would not raise. It would give `flexi status` a private empty database
+    and a cheerful "not clocked in" for somebody who is.
+    """
+
+    def test_a_session_opened_with_no_engine_reaches_the_real_database(self) -> None:
+        bound = None
+        with get_session() as session:
+            bound = session.get_bind()
+        assert isinstance(bound, Engine)
+        assert bound.url.database == str(database_file())
+
+    def test_migrations_asked_for_no_path_stamp_the_real_database(self) -> None:
+        """Startup passes no path at all, and every command afterwards does.
+
+        A default resolving anywhere else would migrate a file nobody reads and
+        raise nothing, leaving the database the application then opens
+        unstamped -- which does not look like a fault either. It looks like an
+        empty timesheet.
+        """
+        run_migrations()
+
+        assert verify(database_file()), "the real database was not migrated"
+
+    def test_a_backup_asked_for_no_path_copies_the_real_database(self) -> None:
+        """Byte for byte, so nothing but the live database can have produced it."""
+        live = database_file()
+        run_migrations(live)
+
+        backup = backup_database()
+
+        assert backup is not None
+        assert backup.parent == backups_directory()
+        assert backup.read_bytes() == live.read_bytes()
 
 
 # ---------- migration success ----------
@@ -99,34 +141,6 @@ class TestBackupCreation:
         assert backups == []
 
 
-# ---------- backup retention ----------
-
-
-class TestBackupRetention:
-    def test_keeps_latest_ten(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        backup_dir = tmp_path / "backups"
-        backup_dir.mkdir()
-        monkeypatch.setattr(
-            "flexi.models.database.migrate.backups_directory", lambda: backup_dir
-        )
-        for i in range(15):
-            (backup_dir / f"db_{i:04d}.bak").write_text("x")
-        _cleanup_old_backups()
-        remaining = list(backup_dir.glob("*.bak"))
-        assert len(remaining) == MAX_BACKUPS
-
-    def test_cleanup_failure_does_not_raise(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(
-            "flexi.models.database.migrate.backups_directory",
-            lambda: Path("/nonexistent/path"),
-        )
-        _cleanup_old_backups()  # should not raise
-
-
 # ---------- backup failure ----------
 
 
@@ -145,6 +159,103 @@ class TestBackupFailure:
             )
             with pytest.raises(RuntimeError, match="backup failed"):
                 run_migrations(db_path)
+
+
+# ---------- verifying a copy ----------
+
+STAMP = b"2026-03-01"
+"""A booked date unique to one row, so it appears once in the table pages and
+once in the index built over them."""
+
+
+def populated(path: Path) -> Path:
+    """A migrated database with enough booked days to fill several pages."""
+    run_migrations(path)
+    first = date(2026, 1, 1)
+    connection = sqlite3.connect(path)
+    try:
+        connection.executemany(
+            "INSERT INTO absence_days (date, absence_type, portion)"
+            " VALUES (?, 'ANNUAL', 'FULL')",
+            [((first + timedelta(days=n)).isoformat(),) for n in range(400)],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return path
+
+
+class TestVerifyingACopy:
+    """What stands between somebody and a backup that cannot be restored.
+
+    A copy taken while the application was mid-write can open perfectly and
+    still be wrong, and it is the one artefact a person is told they can fall
+    back on. Every refusal below has to be a refusal, because the alternative is
+    finding out at the moment the original is gone.
+    """
+
+    def test_an_intact_copy_is_accepted(self, db_path: Path) -> None:
+        """The control: without it, the refusals below prove nothing."""
+        assert verify(populated(db_path))
+
+    def test_a_copy_that_no_longer_agrees_with_its_own_index_is_refused(
+        self, db_path: Path
+    ) -> None:
+        """The torn copy that opens cleanly.
+
+        One date rewritten in the table and not in the index over it: SQLite
+        connects, answers queries and quietly cannot find that booking by date.
+        Nothing short of an integrity check notices, which is why `verify` runs
+        one rather than settling for the file opening.
+        """
+        raw = populated(db_path).read_bytes()
+        offset = raw.index(STAMP)
+        db_path.write_bytes(raw[:offset] + b"1999-01-01" + raw[offset + len(STAMP) :])
+
+        assert not verify(db_path)
+
+    def test_a_copy_that_is_not_a_database_at_all_is_refused(
+        self, db_path: Path
+    ) -> None:
+        """A backup interrupted before it wrote a header is a file, not a copy."""
+        db_path.write_bytes(b"this is not a database")
+        assert not verify(db_path)
+
+    def test_a_copy_carrying_no_schema_version_is_refused(self, db_path: Path) -> None:
+        """An unstamped database cannot be migrated onto the current schema.
+
+        Restoring one would give Alembic a file it has to guess the shape of,
+        and guessing wrong is what a backup exists to avoid.
+        """
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute("CREATE TABLE clock_events (id integer primary key)")
+            connection.commit()
+        finally:
+            connection.close()
+
+        assert not verify(db_path)
+
+    def test_a_copy_whose_version_table_is_empty_is_refused(
+        self, db_path: Path
+    ) -> None:
+        """The unstamped database that does not announce itself.
+
+        Alembic creates ``alembic_version`` and then writes the revision into
+        it, so a copy taken between the two carries the table and no row. That
+        one asks for `SELECT 1 FROM alembic_version` and gets nothing back
+        rather than an error, so it is the only unstamped file that reaches the
+        last line of `verify` at all — every other one has already been turned
+        away by the exception.
+        """
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute("CREATE TABLE alembic_version (version_num varchar)")
+            connection.commit()
+        finally:
+            connection.close()
+
+        assert not verify(db_path)
 
 
 # ---------- migration failure ----------

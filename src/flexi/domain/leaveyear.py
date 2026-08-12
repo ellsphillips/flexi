@@ -51,3 +51,35 @@ def bounds(ref: date, month: int, day: int) -> tuple[date, date]:
     start = start_of(ref, month, day)
     following = clamp(start.year + 1, month, day)
     return start, following - timedelta(days=1)
+
+
+def step(ref: date, month: int, day: int, count: int) -> date:
+    """The same distance into the leave year ``count`` years away.
+
+    Not ``ref`` plus twelve months. A leave year starting on 29 February starts
+    on the 28th in a common year, and stepping the *anchor* twelve months from
+    there lands on 28 February of a leap year -- which falls before that year's
+    start and so resolves back to the year it came from. Paging forward did
+    nothing at all, and the year beginning on the 29th could not be reached:
+
+        Period(YEAR, 2031-02-28, year_start=(2, 29)).shift(1)  ->  the same year
+        Period(YEAR, 2020-02-28, year_start=(2, 29)).shift(1)  ->  2021, not 2020
+
+    So the step is taken between leave-year *starts*, which `clamp` already
+    knows how to find, and the offset within the year is carried across and
+    held inside it -- consecutive leave years differ in length by a day.
+    """
+    start = start_of(ref, month, day)
+    first = clamp(start.year + count, month, day)
+    last = bounds(first, month, day)[1]
+
+    # The same date a year on, where that date is still inside the year being
+    # moved to: `y` then a page then `m` should land on the month it left.
+    same_date = clamp(ref.year + count, ref.month, ref.day)
+    if first <= same_date <= last:
+        return same_date
+
+    # It is not, which happens only around a leave year that begins on 29
+    # February. Keep the distance into the year instead, held inside it --
+    # consecutive leave years differ in length by a day.
+    return min(first + (ref - start), last)

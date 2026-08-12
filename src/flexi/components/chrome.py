@@ -176,7 +176,11 @@ def keys_that_fit(costs: Sequence[int], budget: int, marker: int) -> int:
         if used + cost + marker - 1 > budget:
             return count
         used += cost
-    return len(costs)
+    # Unreachable for any non-negative marker: getting here needs
+    # `sum(costs) + marker - 1 <= budget` while the guard above already
+    # established `sum(costs) - 1 > budget`, which together require
+    # `marker < 0`. Kept because the loop has to end in a return.
+    return len(costs)  # pragma: no cover
 
 
 @dataclass(frozen=True, slots=True)

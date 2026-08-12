@@ -127,17 +127,27 @@ class ExpandableTable(DataTable[RenderableType]):
 
     def _redraw(self) -> None:
         remembered = self.cursor_key
+        # Read before `clear()`, not after: `DataTable.clear` resets
+        # `cursor_coordinate` to (0, 0), so a fallback that asked afterwards was
+        # always asking about row zero.
+        was_at = self.cursor_row
         self.clear()
         for row in self.visible_rows():
             self.add_row(*row.cells, key=row.key)
-        self._restore_cursor(remembered)
+        self._restore_cursor(remembered, was_at)
 
-    def _restore_cursor(self, key: str | None) -> None:
+    def _restore_cursor(self, key: str | None, was_at: int = 0) -> None:
         """Put the cursor back on the row it was on, by key.
 
-        Falls back to the last row rather than the first when the remembered row
-        has gone: a row usually disappears because it was deleted, and the eye is
+        Falls back to where it was, or the last row, when the remembered row has
+        gone: a row usually disappears because it was deleted, and the eye is
         already at the bottom of what is left.
+
+        ``was_at`` is passed in rather than read from ``self`` because by the
+        time this runs the table has been cleared, and clearing moves the cursor
+        home. Reading it here made the fallback `min(0, row_count - 1)` — always
+        zero — so deleting a session late in a month threw the cursor to the top
+        of it.
         """
         if key is None:
             return
@@ -145,7 +155,7 @@ class ExpandableTable(DataTable[RenderableType]):
             self.move_cursor(row=self.get_row_index(key))
         except RowDoesNotExist:
             if self.row_count:
-                self.move_cursor(row=min(self.cursor_row, self.row_count - 1))
+                self.move_cursor(row=min(was_at, self.row_count - 1))
 
     # -- cursor ------------------------------------------------------------
 
