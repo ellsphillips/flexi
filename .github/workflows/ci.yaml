@@ -110,11 +110,14 @@ jobs:
       - name: Install it somewhere that has no source tree
         run: |
           uv venv /tmp/probe
-          # dist/*.whl brings the runtime dependencies; pytest and pytest-asyncio
-          # run the suite. hypothesis is dev-only and deliberately absent from the
-          # wheel, but tests/conftest.py imports it at collection time, so the
-          # probe needs it to load conftest at all.
-          uv pip install --python /tmp/probe/bin/python dist/*.whl pytest pytest-asyncio hypothesis
+          # The wheel brings the runtime dependencies and is the only copy of
+          # flexi on the path -- no editable install, no src/ on sys.path. The
+          # dev group brings the test toolchain, taken from pyproject rather
+          # than named here: a hand-picked list of plugins has to be kept in
+          # step with `addopts` by hand, and the day `-n auto --timeout=120`
+          # was added for the matrix this job started failing on an
+          # unrecognised argument, saying nothing at all about the wheel.
+          uv pip install --python /tmp/probe/bin/python dist/*.whl --group dev
 
       - name: Its data files travelled with it
         # Run against the installed package, not the checkout: a wheel missing
