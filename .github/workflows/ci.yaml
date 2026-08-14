@@ -68,10 +68,23 @@ jobs:
 
       - run: uv sync --locked --dev
 
-      - name: pytest
+      # Coverage instrumentation roughly doubles the CPU cost of a run, and on
+      # the three-core macOS runner that lands as an extra ~3 minutes of wall
+      # time. The 100% gate is environment-sensitive too -- a line reachable
+      # only on a newer SQLite would fail the whole matrix -- so it is enforced
+      # once, on a canonical interpreter, rather than on all eight jobs. The
+      # rest run the same tests without it, purely to catch failures.
+      - name: pytest with coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC'
         env:
           TZ: ${{ matrix.tz }}
         run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: pytest
+        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC') }}
+        env:
+          TZ: ${{ matrix.tz }}
+        run: uv run pytest
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC'
@@ -97,7 +110,11 @@ jobs:
       - name: Install it somewhere that has no source tree
         run: |
           uv venv /tmp/probe
-          uv pip install --python /tmp/probe/bin/python dist/*.whl pytest pytest-asyncio
+          # dist/*.whl brings the runtime dependencies; pytest and pytest-asyncio
+          # run the suite. hypothesis is dev-only and deliberately absent from the
+          # wheel, but tests/conftest.py imports it at collection time, so the
+          # probe needs it to load conftest at all.
+          uv pip install --python /tmp/probe/bin/python dist/*.whl pytest pytest-asyncio hypothesis
 
       - name: Its data files travelled with it
         # Run against the installed package, not the checkout: a wheel missing

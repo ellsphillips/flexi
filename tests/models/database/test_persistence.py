@@ -198,6 +198,17 @@ class TestVerifyingACopy:
         """The control: without it, the refusals below prove nothing."""
         assert verify(populated(db_path))
 
+    @pytest.mark.skipif(
+        sqlite3.sqlite_version_info < (3, 51, 0),
+        reason=(
+            "PRAGMA integrity_check only began reporting an index entry whose key"
+            " no longer matches its table row in SQLite 3.51. On older libraries"
+            " the torn copy built here passes the check, so `verify` cannot catch"
+            " it -- a real limit of the guarantee below that version, not a test"
+            " bug. The wheel carries no SQLite of its own, so a person on an older"
+            " Python is genuinely unprotected from this one case."
+        ),
+    )
     def test_a_copy_that_no_longer_agrees_with_its_own_index_is_refused(
         self, db_path: Path
     ) -> None:
