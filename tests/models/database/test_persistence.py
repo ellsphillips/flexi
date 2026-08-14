@@ -167,6 +167,10 @@ STAMP = b"2026-03-01"
 """A booked date unique to one row, so it appears once in the table pages and
 once in the index built over them."""
 
+REWRITTEN = b"1999-01-01"
+"""What that date becomes in the table alone. The same length, so the rewrite
+stays inside the cell it lands in and moves nothing else on the page."""
+
 
 def populated(path: Path) -> Path:
     """A migrated database with enough booked days to fill several pages."""
@@ -185,6 +189,56 @@ def populated(path: Path) -> Path:
     return path
 
 
+def scan_finds(path: Path, booked: bytes) -> int:
+    """How many rows a full table scan reads under that date.
+
+    ``NOT INDEXED`` because the index is the thing not to be trusted here: left
+    to itself SQLite answers a lookup on ``date`` out of the index and never
+    goes near the row.
+    """
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        found = connection.execute(
+            "SELECT count(*) FROM absence_days NOT INDEXED WHERE date = ?",
+            (booked.decode(),),
+        ).fetchone()
+    finally:
+        connection.close()
+    return int(found[0])
+
+
+def tear(path: Path) -> Path:
+    """Rewrite one date in the table pages, leaving the index over it alone.
+
+    Which of the file's copies of that date to rewrite cannot be assumed. A
+    b-tree that has rebalanced leaves the cells it moved behind in the
+    unallocated part of a page, so most matches in the file are dead space that
+    nothing ever reads, and only a SQLite compiled with ``SQLITE_SECURE_DELETE``
+    clears it. Whether an interpreter's SQLite was is not a question of version
+    and not something this project picks -- CPython 3.13.11 ships one that
+    clears and 3.13.15 one that does not -- so rewriting the first match tore
+    the file on one machine and left it pristine on the next.
+
+    Each match is therefore rewritten in turn and the file kept at the one a
+    table scan can see, which is what it means for a byte to have been holding
+    a row. The index still carries the old key, so what is left is a copy taken
+    mid-write: some pages from before it, some from after.
+    """
+    original = path.read_bytes()
+    offset = original.find(STAMP)
+    while offset != -1:
+        path.write_bytes(
+            original[:offset] + REWRITTEN + original[offset + len(STAMP) :]
+        )
+        if scan_finds(path, REWRITTEN) == 1:
+            return path
+        offset = original.find(STAMP, offset + 1)
+
+    path.write_bytes(original)
+    msg = f"no copy of {STAMP!r} in the file was one SQLite reads"
+    raise AssertionError(msg)
+
+
 class TestVerifyingACopy:
     """What stands between somebody and a backup that cannot be restored.
 
@@ -198,17 +252,6 @@ class TestVerifyingACopy:
         """The control: without it, the refusals below prove nothing."""
         assert verify(populated(db_path))
 
-    @pytest.mark.skipif(
-        sqlite3.sqlite_version_info < (3, 51, 0),
-        reason=(
-            "PRAGMA integrity_check only began reporting an index entry whose key"
-            " no longer matches its table row in SQLite 3.51. On older libraries"
-            " the torn copy built here passes the check, so `verify` cannot catch"
-            " it -- a real limit of the guarantee below that version, not a test"
-            " bug. The wheel carries no SQLite of its own, so a person on an older"
-            " Python is genuinely unprotected from this one case."
-        ),
-    )
     def test_a_copy_that_no_longer_agrees_with_its_own_index_is_refused(
         self, db_path: Path
     ) -> None:
@@ -219,9 +262,7 @@ class TestVerifyingACopy:
         Nothing short of an integrity check notices, which is why `verify` runs
         one rather than settling for the file opening.
         """
-        raw = populated(db_path).read_bytes()
-        offset = raw.index(STAMP)
-        db_path.write_bytes(raw[:offset] + b"1999-01-01" + raw[offset + len(STAMP) :])
+        tear(populated(db_path))
 
         assert not verify(db_path)
 
