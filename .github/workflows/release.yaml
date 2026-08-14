@@ -107,7 +107,11 @@ jobs:
       - name: It installs somewhere with no source tree, and boots
         run: |
           uv venv /tmp/probe
-          uv pip install --python /tmp/probe/bin/python dist/*.whl pytest pytest-asyncio
+          # The dev group, not a hand-picked list of plugins: this probe is
+          # written out twice, here and in ci.yaml, and both copies fell behind
+          # `addopts` the moment it grew a flag. Taking the toolchain from
+          # pyproject is the only version of it that cannot drift.
+          uv pip install --python /tmp/probe/bin/python dist/*.whl --group dev
           /tmp/probe/bin/python -m pytest tests/test_packaging.py -q
           /tmp/probe/bin/python scripts/smoke.py
 
