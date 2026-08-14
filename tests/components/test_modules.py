@@ -46,6 +46,7 @@ from flexi.domain.punch import Window
 from flexi.domain.wallet import Allowance
 from flexi.messages import DataChanged, DateSelected, Scope
 from flexi.services.registry import Services
+from tests.conftest import settled
 from tests.services.conftest import (  # noqa: F401 - `configure` is used as a fixture
     CONTRACTED,
     Configured,
@@ -119,6 +120,10 @@ async def showing(
     panel = Panel(module, period=Period.containing(anchor, granularity), now=now)
     async with Harness(panel, services).run_test(size=size) as pilot:
         await pilot.pause()
+        # Settled, not merely pumped: a module that measures itself after its
+        # first layout rebuilds its table when that measurement lands, and a
+        # body that starts beforehand has its set-up overwritten mid-test.
+        await settled(pilot)
         yield pilot, panel
 
 

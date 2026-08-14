@@ -190,3 +190,28 @@ either.
 commands CI runs.
 
 A failed snapshot prints its diff, so nothing needs uploading as an artifact.
+
+## 7. Reproducing a loaded runner
+
+```
+FLEXI_LATE_CALLBACKS=0.05 uv run pytest -q
+```
+
+`pilot.pause()` drains the messages queued at the moment it is called. Work that
+a *layout* schedules — `RecordsModule` measuring its strip column, the key strip
+recomposing — may or may not have landed by the time it returns, and which of
+those happens is a property of how loaded the machine is rather than of the
+code. On a laptop it lands early and every test passes. On a three-core runner
+it lands a moment later, on top of whatever the test had just set up: a table the
+test emptied fills again, a ledger cache the test just invalidated refills.
+
+That variable puts every deferred callback behind a timer, which is the one thing
+`pause` cannot drain, so a loaded runner's ordering is reproducible on an idle
+machine in twenty seconds. **It is expected to be green**, and a test that passes
+without it and fails with it has not found a bug — it is asserting on a screen
+that had not finished drawing. The cure is `await settled(pilot)` from
+`tests/conftest.py`, which waits for the callbacks themselves rather than
+guessing at a number of pauses.
+
+Both failures that motivated it were real CI failures, in different files, that
+reproduced locally in under a second once the ordering was made deterministic.

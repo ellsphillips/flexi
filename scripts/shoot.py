@@ -18,6 +18,7 @@ from pathlib import Path
 import httpx
 import time_machine
 from sqlalchemy.orm import Session
+from textual.pilot import Pilot
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -106,11 +107,11 @@ async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> 
     # imported it by the time any conftest runs.
     app.animation_level = "none"
     async with app.run_test(size=size) as pilot:
-        await pilot.pause()
+        await settled(pilot, app)
         for key in keys:
             await pilot.press(key)
             await pilot.pause()
-        await pilot.pause()
+        await settled(pilot, app)
         app.save_screenshot(str(SHOTS / f"{name}.svg"))
         # A plain-text twin. An SVG has to be rendered before it can be read,
         # and a font without box-drawing coverage turns every strip into a row
@@ -119,6 +120,28 @@ async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> 
         (SHOTS / f"{name}.txt").write_text(screen_text(app), encoding="utf-8")
 
     print(f"  {name}.svg  {size[0]}x{size[1]}")
+
+
+SETTLE_PASSES = 20
+"""How many pumps to give a screen before accepting that it has stopped."""
+
+
+async def settled(pilot: Pilot[None], app: FlexiApp) -> None:
+    """Pump until two passes running render the same thing.
+
+    A module that measures itself after its first layout redraws when that
+    measurement lands, so a capture taken after a single `pause` is a capture of
+    whichever frame the machine happened to have reached. `tests/snapshot/`
+    asserts on these files, so a shot taken mid-draw is committed as the truth
+    and the suite starts failing on a screen that is drawn correctly.
+    """
+    previous = ""
+    for _ in range(SETTLE_PASSES):
+        await pilot.pause()
+        current = screen_text(app)
+        if current == previous:
+            return
+        previous = current
 
 
 def screen_text(app: FlexiApp) -> str:

@@ -29,6 +29,7 @@ from flexi.app import FlexiApp
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
 from flexi.services.samples import NOW, seed_demo
+from tests.conftest import settled
 from tests.tui.conftest import screen_text
 
 SHOTS = Path(__file__).resolve().parent.parent.parent / "docs" / "shots"
@@ -87,10 +88,12 @@ async def test_screen_matches_its_committed_render(
         app.animation_level = "none"
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
+            await settled(pilot)
             for key in keys:
                 await pilot.press(key)
                 await pilot.pause()
             await pilot.pause()
+            await settled(pilot)
             actual = "\n".join(line.rstrip() for line in screen_text(app).splitlines())
 
     expected = expected_path.read_text(encoding="utf-8").rstrip("\n")

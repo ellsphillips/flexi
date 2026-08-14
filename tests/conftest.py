@@ -1,13 +1,18 @@
+import asyncio
+import inspect
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 from hypothesis import HealthCheck, settings
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
+from textual.message_pump import MessagePump
+from textual.pilot import Pilot
 
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
@@ -56,6 +61,99 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ["TZ"] = samples.TIMEZONE
     if hasattr(time, "tzset"):  # POSIX only; the suite does not run on Windows
         time.tzset()
+
+
+LATE_CALLBACKS = "FLEXI_LATE_CALLBACKS"
+"""Seconds to hold every deferred callback behind a timer. Off unless exported.
+
+    FLEXI_LATE_CALLBACKS=0.02 uv run pytest
+
+`Pilot.pause` drains the messages queued *at the moment it is called*, so a
+callback that a layout schedules may or may not have landed when it returns.
+That is a function of how far the app got before `pause` started, which is a
+function of how loaded the machine is -- the whole difference between a laptop
+and a three-core runner, and not a difference any assertion should turn on.
+
+A timer is the one thing `pause` cannot drain, so this reproduces a loaded
+runner's ordering on an idle machine, deterministically. It is how the two
+failures this fixture exists to prevent were reproduced locally in under a
+second, and it should stay green: a test that passes without it and fails with
+it is asserting on a screen that had not finished drawing.
+"""
+
+SETTLE_PASSES = 20
+"""How many pumps `settled` gives the deferred work before giving up on it."""
+
+
+class Deferred:
+    """Work `call_after_refresh` has scheduled and not yet run."""
+
+    outstanding: int = 0
+    delay: float = 0.0
+
+
+DEFERRED = Deferred()
+"""Shared with :func:`settled`, and reset for every test."""
+
+
+@pytest.fixture(autouse=True)
+def _count_deferred_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep a tally of the callbacks a layout has scheduled and not yet run.
+
+    Counting only -- the callbacks still run exactly when they would have. It is
+    :func:`settled` that does the waiting, and only where a test asks for it.
+    """
+    DEFERRED.outstanding = 0
+    DEFERRED.delay = float(os.environ.get(LATE_CALLBACKS) or 0)
+    schedule = MessagePump.call_after_refresh
+
+    def counted(
+        this: MessagePump, callback: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> bool:
+        async def run() -> None:
+            # Awaited, not just called: `Widget.recompose` is a coroutine
+            # function, and a wrapper that drops the coroutine silently stops
+            # the key strip from ever being composed.
+            try:
+                result = callback(*args, **kwargs)
+                if inspect.isawaitable(result):
+                    await result
+            finally:
+                DEFERRED.outstanding -= 1
+
+        held = DEFERRED.delay
+        scheduled = schedule(this, (lambda: this.set_timer(held, run)) if held else run)
+        if scheduled:
+            DEFERRED.outstanding += 1
+        return scheduled
+
+    monkeypatch.setattr(MessagePump, "call_after_refresh", counted)
+
+
+async def settled(pilot: Pilot[Any]) -> None:
+    """Pump until the work a first layout deferred has actually run.
+
+    `RecordsModule` cannot measure its strip column until the table under it has
+    been laid out, so it defers that measurement -- and the re-measure rebuilds
+    the table from the ledger. Land it a moment late and it overwrites what the
+    test had just set up: a table the test emptied fills again, a ledger cache
+    the test had just invalidated refills. Both are real CI failures, and both
+    read as a bug in the thing under test rather than in the waiting.
+
+    `pilot.pause()` cannot express this. It drains the messages queued at the
+    moment it is called, so whether a callback scheduled by a layout has landed
+    when it returns depends on how far the application got first -- which is a
+    property of the machine, not of the code. This waits for the callbacks
+    themselves, so a test that begins after it begins with nothing in flight.
+    """
+    for _ in range(SETTLE_PASSES):
+        if not DEFERRED.outstanding:
+            return
+        await pilot.pause()
+        if DEFERRED.outstanding:
+            # Only a real wait moves a timer on, and under FLEXI_LATE_CALLBACKS
+            # the callbacks are sitting behind one.
+            await asyncio.sleep(DEFERRED.delay)
 
 
 @pytest.fixture(autouse=True)

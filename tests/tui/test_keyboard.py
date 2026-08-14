@@ -20,6 +20,7 @@ from flexi.components.chrome import NavItemLabel, footer_key_cost, keys_that_fit
 from flexi.screens.help import HelpScreen, collect_bindings
 from flexi.screens.insights import InsightsScreen
 from flexi.screens.modals import FlexiModal
+from tests.conftest import settled
 from tests.tui.conftest import WIDE, AppFactory, showing
 
 
@@ -86,6 +87,9 @@ async def test_the_key_strip_says_how_many_it_dropped(app_factory: AppFactory) -
     app = app_factory()
     async with app.run_test(size=(64, 24)) as pilot:
         await pilot.pause()
+        # The strip is recomposed after the first refresh, so what it says is
+        # not settled until that has landed.
+        await settled(pilot)
         text = " ".join(
             str(widget.render()) for widget in app.screen.query("OverflowLabel")
         )

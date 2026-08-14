@@ -26,6 +26,7 @@ from flexi.models.database.db import Base
 from flexi.provider import FlexiCommands, _refresh_holidays
 from flexi.screens.modals import AbsenceModal
 from flexi.screens.setup import SetupScreen
+from tests.conftest import settled
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
 
 
@@ -289,6 +290,10 @@ async def test_a_successful_refresh_says_so_and_redraws_from_the_new_calendar(
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
+        # The dashboard measures itself after its first layout and rebuilds when
+        # that lands. Deriving days again is exactly what this test is watching
+        # for, so it has to be finished happening before the cache is read.
+        await settled(pilot)
         monkeypatch.setattr(app.services.bank_holidays, "fetch_and_cache", lambda: True)
         ledger = app.services.ledger
         ledger.day(TODAY)
