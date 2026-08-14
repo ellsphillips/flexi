@@ -20,6 +20,7 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Office/Business :: Scheduling",
     "Topic :: Utilities",
     "Typing :: Typed",
@@ -33,7 +34,10 @@ dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "rich>=13.9.4",
-    "sqlalchemy>=2.0.37",
+    # 2.0.41 is the first release whose `make_union_type` survives Python
+    # 3.14's `typing.Union`; 2.0.40 raises TypeError building any mapping, so
+    # every version below this one is broken on a Python the matrix now covers.
+    "sqlalchemy>=2.0.41",
     "textual>=8.2,<9",
 ]
 

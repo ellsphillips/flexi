@@ -215,3 +215,47 @@ guessing at a number of pauses.
 
 Both failures that motivated it were real CI failures, in different files, that
 reproduced locally in under a second once the ordering was made deterministic.
+
+## 8. Running what CI runs, without pushing
+
+`.github/workflows/verify.yaml` is the single definition of green, and every job
+in it is a command you can run here. Nothing in CI is discoverable only by
+pushing.
+
+| Job in `verify.yaml` | The same thing, locally |
+|---|---|
+| `static` | `uv sync --locked --dev && uv lock --check && uv run ruff check && uv run ruff format --check && uv run mypy` |
+| `test` | `TZ=UTC uv run pytest` and `TZ=Europe/London uv run pytest` |
+| `test` (the coverage row) | `TZ=UTC uv run pytest --cov` |
+| `late` | `TZ=UTC FLEXI_LATE_CALLBACKS=0.05 uv run pytest` |
+| `wheel` | see below |
+
+```
+# wheel: build it, install it where no source tree can be imported, run it
+uv build
+uv venv /tmp/probe
+uv pip install --python /tmp/probe/bin/python dist/*.whl --group dev
+/tmp/probe/bin/python -m pytest tests/test_packaging.py -q
+/tmp/probe/bin/python scripts/smoke.py
+```
+
+The matrix rows differ only by interpreter and timezone, and `uv` supplies both:
+
+```
+UV_PROJECT_ENVIRONMENT=/tmp/py314 uv sync --locked --dev --python 3.14
+TZ=Europe/London /tmp/py314/bin/python -m pytest -q
+```
+
+The workflow files themselves are checked the same way, by the linter that knows
+about them rather than by reading:
+
+```
+uvx --from actionlint-py actionlint .github/workflows/*.yaml
+```
+
+For byte-for-byte fidelity — the runner image, not just the commands — `act`
+runs the workflows in Docker:
+
+```
+act push -W .github/workflows/ci.yaml
+```

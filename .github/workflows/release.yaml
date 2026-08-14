@@ -59,75 +59,52 @@ jobs:
           fi
 
   verify:
-    name: Verify · Python ${{ matrix.python }}
+    # The same file `ci.yaml` calls, so a release is verified by exactly what a
+    # pull request is verified by. It used to be a narrower copy -- ubuntu only,
+    # two interpreters, no timezone matrix -- which meant the run that published
+    # was the least tested run in the repository.
     needs: guard
     if: needs.guard.outputs.publish == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix:
-        python: ["3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@v4
+    uses: ./.github/workflows/verify.yaml
 
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-          python-version: ${{ matrix.python }}
-
-      - run: uv sync --locked --dev
-      - run: uv lock --check
-      - run: uv run ruff check
-      - run: uv run ruff format --check
-      - run: uv run mypy
-      - run: uv run pytest -q
-
-  build:
-    name: Build, then prove the artefact runs
+  artefact:
+    name: The artefact is the version being released
     needs: [guard, verify]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - run: uv build
-
-      - name: The filename matches the version being released
-        run: |
-          version="${{ needs.guard.outputs.version }}"
-          ls -1 dist/
-          test -f "dist/${PACKAGE}-${version}-py3-none-any.whl"
-          test -f "dist/${PACKAGE}-${version}.tar.gz"
-
-      - name: It installs somewhere with no source tree, and boots
-        run: |
-          uv venv /tmp/probe
-          # The dev group, not a hand-picked list of plugins: this probe is
-          # written out twice, here and in ci.yaml, and both copies fell behind
-          # `addopts` the moment it grew a flag. Taking the toolchain from
-          # pyproject is the only version of it that cannot drift.
-          uv pip install --python /tmp/probe/bin/python dist/*.whl --group dev
-          /tmp/probe/bin/python -m pytest tests/test_packaging.py -q
-          /tmp/probe/bin/python scripts/smoke.py
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: dist
-          path: dist/
-          if-no-files-found: error
+          path: dist
+
+      # Verify already built it, installed it somewhere with no source tree and
+      # booted it. All that is left is to check that what it built carries the
+      # version the guard read out of pyproject.
+      - name: The filenames carry that version
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          ls -1 dist/
+          test -f "dist/${PACKAGE}-${VERSION}-py3-none-any.whl"
+          test -f "dist/${PACKAGE}-${VERSION}.tar.gz"
 
   publish:
     name: Publish to PyPI
-    needs: [guard, build]
+    needs: [guard, artefact]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # PyPI hands out a short-lived credential in exchange for this token, so
+      # there is no long-lived secret in the environment to leak or rotate. The
+      # trusted publisher on PyPI is matched on this repository, this workflow
+      # file and the `pypi` environment below, so a workflow added on a branch
+      # cannot mint one.
+      id-token: write
     # The approval gate. This environment has a required reviewer, so the run
     # pauses here until somebody presses the button in the Actions UI, and it
-    # is restricted to main so no other branch can reach the token.
+    # is restricted to main so no other branch can reach it.
     environment:
       name: pypi
       url: https://pypi.org/project/flexi/${{ needs.guard.outputs.version }}
@@ -140,11 +117,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       - name: Upload
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         # --check-url makes a re-run of an interrupted upload a no-op rather
         # than a 400 from PyPI.
-        run: uv publish --check-url https://pypi.org/simple/${PACKAGE}/ dist/*
+        run: |
+          uv publish --trusted-publishing always \
+            --check-url "https://pypi.org/simple/${PACKAGE}/" dist/*
 
   tag:
     name: Tag the release

@@ -16,119 +16,26 @@ permissions:
   contents: read
 
 jobs:
-  static:
-    name: Lint and types
+  verify:
+    uses: ./.github/workflows/verify.yaml
+
+  green:
+    name: All green
+    needs: verify
+    # `always()`, so a skipped or cancelled Verify is reported rather than
+    # quietly satisfying the gate by never running.
+    if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - run: uv sync --locked --dev
-
-      - name: uv.lock matches pyproject
-        run: uv lock --check
-
-      - name: ruff
-        run: uv run ruff check --output-format=github
-
-      - name: ruff format
-        run: uv run ruff format --check
-
-      - name: mypy
-        run: uv run mypy
-
-  test:
-    name: ${{ matrix.os }} · Python ${{ matrix.python }} · TZ ${{ matrix.tz }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Windows is deliberately absent: Flexi stores its data under the XDG
-        # base directories and has no Windows path story yet. Claiming it in a
-        # matrix that never imports the package is how the last one passed for
-        # a year while the app could not have started.
-        os: [ubuntu-latest, macos-latest]
-        python: ["3.12", "3.13"]
-        # A timesheet's arithmetic must not move with the machine. Europe/London
-        # is the one that matters -- it is the audience, and it is the only one
-        # here with transitions.
-        tz: ["UTC", "Europe/London"]
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-          python-version: ${{ matrix.python }}
-
-      - run: uv sync --locked --dev
-
-      # Coverage instrumentation roughly doubles the CPU cost of a run, and on
-      # the three-core macOS runner that lands as an extra ~3 minutes of wall
-      # time. The 100% gate is environment-sensitive too -- a line reachable
-      # only on a newer SQLite would fail the whole matrix -- so it is enforced
-      # once, on a canonical interpreter, rather than on all eight jobs. The
-      # rest run the same tests without it, purely to catch failures.
-      - name: pytest with coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC'
+      # The one check name to require in the branch ruleset. The matrix job
+      # names carry their own parameters -- "macos-latest · Python 3.14 · TZ
+      # UTC" -- so requiring them by name means editing the ruleset every time
+      # a row is added, and the ruleset silently protecting nothing until
+      # somebody does. This name never changes, and it fails if any row did.
+      - name: Every job in Verify succeeded
         env:
-          TZ: ${{ matrix.tz }}
-        run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
-
-      - name: pytest
-        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC') }}
-        env:
-          TZ: ${{ matrix.tz }}
-        run: uv run pytest
-
-      - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage.xml
-          if-no-files-found: error
-
-  wheel:
-    name: The built wheel installs and runs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - run: uv build
-
-      - name: Install it somewhere that has no source tree
+          RESULT: ${{ needs.verify.result }}
         run: |
-          uv venv /tmp/probe
-          # The wheel brings the runtime dependencies and is the only copy of
-          # flexi on the path -- no editable install, no src/ on sys.path. The
-          # dev group brings the test toolchain, taken from pyproject rather
-          # than named here: a hand-picked list of plugins has to be kept in
-          # step with `addopts` by hand, and the day `-n auto --timeout=120`
-          # was added for the matrix this job started failing on an
-          # unrecognised argument, saying nothing at all about the wheel.
-          uv pip install --python /tmp/probe/bin/python dist/*.whl --group dev
-
-      - name: Its data files travelled with it
-        # Run against the installed package, not the checkout: a wheel missing
-        # its stylesheets imports cleanly and then dies on the first frame.
-        run: /tmp/probe/bin/python -m pytest tests/test_packaging.py -q
-
-      - name: It migrates a database and paints a screen
-        run: /tmp/probe/bin/python scripts/smoke.py
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: distributions
-          path: dist/
-          if-no-files-found: error
+          echo "Verify finished: $RESULT"
+          test "$RESULT" = success

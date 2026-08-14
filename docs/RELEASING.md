@@ -24,7 +24,7 @@ Publishing is meant to be hard to do by accident. All four must pass:
 |---|---|
 | `on: push: branches: [main]` | A release from any other branch |
 | Version not already on PyPI | Republishing, and any push to `main` that isn't a version bump |
-| Full suite, plus the wheel installed clean and booted | Shipping something that does not run |
+| `verify.yaml` — the same checks a pull request runs | Shipping something that does not run |
 | A required reviewer on the `pypi` environment | Everything else |
 
 The second gate is the one that makes `main` safe to push to. A README fix
@@ -33,7 +33,7 @@ has it, and stops — no failure, no email, nothing published.
 
 ## One-time setup on GitHub
 
-### 1. The environment and the token
+### 1. The environment and the trusted publisher
 
 **Settings → Environments → New environment**, name it exactly `pypi`.
 
@@ -42,18 +42,27 @@ Inside it:
 - **Deployment protection rules → Required reviewers** → add yourself.
   This is the approval gate. Without it the pipeline publishes unattended.
 - **Deployment branches and tags → Selected branches** → add `main`.
-  Now the environment — and the token in it — cannot be reached from any other
-  branch, even by a workflow edited on that branch.
-- **Environment secrets → Add secret**
-  - Name: `PYPI_API_TOKEN`
-  - Value: your PyPI token, including the `pypi-` prefix
+  Now the environment cannot be reached from any other branch, even by a
+  workflow edited on that branch.
 
-Put the token in the **environment**, not in repository secrets. A repository
-secret is readable by any workflow on any branch; an environment secret is only
-handed out after the protection rules pass.
+Then on PyPI — **Manage project → Publishing → Add a new publisher** — add a
+GitHub publisher for `flexi`:
 
-Get the token from PyPI → **Account settings → API tokens**. Scope it to the
-`flexi` project once the first release exists.
+| Field | Value |
+|---|---|
+| Owner | `ellsphillips` |
+| Repository | `flexi` |
+| Workflow name | `release.yaml` |
+| Environment | `pypi` |
+
+That is [trusted publishing](https://docs.pypi.org/trusted-publishers/): the
+`publish` job asks GitHub for a short-lived OIDC token and PyPI exchanges it for
+a credential good for one upload. There is no `PYPI_API_TOKEN` to leak, rotate
+or accidentally scope too widely, and the three fields above are what stop a
+workflow added on some other branch from minting one.
+
+If a `PYPI_API_TOKEN` secret still exists from the token era, delete it — the
+workflow no longer reads it.
 
 ### 2. Branches
 
@@ -62,31 +71,15 @@ Get the token from PyPI → **Account settings → API tokens**. Scope it to the
 **Settings → Rules → New branch ruleset** for `main`:
 
 - Require a pull request before merging
-- Require status checks to pass: `Lint and types`, `The built wheel installs and runs`
+- Require status checks to pass: **`All green`**, and nothing else
 - Block force pushes
 
-### 3. Optional: drop the token entirely
-
-PyPI supports [trusted publishing](https://docs.pypi.org/trusted-publishers/),
-which swaps the token for a short-lived OIDC credential. There is then no secret
-to leak or rotate.
-
-On PyPI, add a trusted publisher for the `flexi` project: owner `ellsphillips`,
-repository `flexi`, workflow `release.yaml`, environment `pypi`. Then in
-`release.yaml`, give the `publish` job:
-
-```yaml
-    permissions:
-      id-token: write
-```
-
-and replace the upload step with:
-
-```yaml
-      - run: uv publish --trusted-publishing always dist/*
-```
-
-Delete the `PYPI_API_TOKEN` secret afterwards.
+`All green` is the one check worth naming. The matrix jobs carry their
+parameters in their names — `macos-latest · Python 3.14 · TZ UTC` — so
+requiring them individually means editing this ruleset every time a row is
+added, and the ruleset protecting less than you think until somebody does.
+`All green` fails if any job in `verify.yaml` failed, and its name never
+changes.
 
 ## Testing the pipeline without publishing
 
