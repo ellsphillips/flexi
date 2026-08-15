@@ -61,10 +61,15 @@ def _stamped_and_configured(path: Path) -> bool:
     """The database carries a migration stamp and a complete settings row.
 
     ``mode=ro`` refuses to create the file, which is the invariant
-    :mod:`flexi.locations` exists to protect.
+    :mod:`flexi.locations` exists to protect. It is a URI, so the path has to be
+    escaped into one rather than pasted into one: ``?`` opens the query string
+    and ``#`` opens a fragment, so a home directory containing either was
+    truncated to the part before it, and a fully configured Flexi answered "not
+    set up on this machine yet" on every run. ``as_uri`` percent-encodes both,
+    and SQLite decodes them back.
     """
     try:
-        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        connection = sqlite3.connect(f"{path.absolute().as_uri()}?mode=ro", uri=True)
     except sqlite3.Error:
         return False
 

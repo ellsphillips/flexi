@@ -26,7 +26,7 @@ from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import AbsenceDay, Base, Settings
 from flexi.models.database.migrate import (
     MAX_BACKUPS,
-    _get_alembic_config,
+    alembic_config,
     run_migrations,
 )
 
@@ -40,16 +40,18 @@ def db(tmp_path: Path) -> Path:
 
 
 def upgrade(db: Path, revision: str) -> None:
-    command.upgrade(_get_alembic_config(db), revision)
+    with alembic_config(db) as cfg:
+        command.upgrade(cfg, revision)
 
 
 def downgrade(db: Path, revision: str) -> None:
-    command.downgrade(_get_alembic_config(db), revision)
+    with alembic_config(db) as cfg:
+        command.downgrade(cfg, revision)
 
 
 def revision_of(db: Path) -> str:
     """The schema version stamped on a database file, read without Alembic."""
-    connection = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{db.absolute().as_uri()}?mode=ro", uri=True)
     try:
         stamped = connection.execute(
             "SELECT version_num FROM alembic_version"
@@ -278,7 +280,8 @@ def test_upgrading_an_existing_database_snapshots_it_as_it_was(db: Path) -> None
     snapshots = list(backups_directory().glob("*.bak"))
     assert len(snapshots) == 1
     assert revision_of(snapshots[0]) == BEFORE_HALF_DAYS
-    head = ScriptDirectory.from_config(_get_alembic_config(db)).get_current_head()
+    with alembic_config(db) as cfg:
+        head = ScriptDirectory.from_config(cfg).get_current_head()
     assert revision_of(db) == head
 
 
@@ -314,7 +317,7 @@ def test_the_migrations_build_the_schema_the_models_describe(db: Path) -> None:
     There is no drift today. That is exactly why this is cheap to add now: it
     fails the moment somebody edits `db.py` and forgets the revision.
     """
-    command.upgrade(_get_alembic_config(db), HEAD)
+    upgrade(db, HEAD)
 
     engine = create_db_engine(db)
     try:
