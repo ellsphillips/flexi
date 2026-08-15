@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Final
 
@@ -64,16 +64,17 @@ def _unbuffered() -> Iterator[int]:
     ``cbreak`` rather than ``raw``: it leaves signal handling on, so ctrl-c
     still interrupts even if the loop inside this block has gone wrong. Restored
     on the way out however the block is left.
+
+    Windows arrives here already in that state. ``msvcrt.getwch`` reads a
+    character straight off the console, unbuffered and unechoed, so there is no
+    mode to set and nothing to hand back.
     """
-    try:
-        import termios
-        import tty
-    except ImportError as missing:  # pragma: no cover - not POSIX
-        # Said rather than worked around. There was a Windows key reader here,
-        # untestable by a suite that does not run on Windows and therefore an
-        # untested claim of support. Refusing is honest; guessing is not.
-        msg = "flexi's prompts need a POSIX terminal"
-        raise RuntimeError(msg) from missing
+    if sys.platform == "win32":  # pragma: no cover - POSIX takes the branch below
+        yield sys.stdin.fileno()
+        return
+
+    import termios
+    import tty
 
     descriptor = sys.stdin.fileno()
     saved = termios.tcgetattr(descriptor)
@@ -98,8 +99,39 @@ def _read_posix(descriptor: int) -> Key:
     return decode(sequence)
 
 
+WINDOWS_PREFIXES: Final = ("\x00", "\xe0")
+"""What the Windows console sends ahead of a scan code, rather than an escape."""
+
+WINDOWS_SCANCODES: Final[dict[str, Key]] = {"H": Key.UP, "P": Key.DOWN}
+"""The scan codes for the two keys a menu moves on."""
+
+
+def _read_windows(getwch: Callable[[], str]) -> Key:
+    """One key press, as the Windows console delivers it.
+
+    An arrow comes as two reads -- a prefix saying a scan code follows, then the
+    code -- rather than as an escape sequence, so there is nothing to wait for
+    and no ambiguity between escape and the start of an arrow. Everything else
+    arrives whole and is named by the same table POSIX uses.
+
+    The character source is a parameter, and that is what makes this testable
+    from a suite running anywhere. On POSIX the risk lives in the terminal mode,
+    which is why the reader there is given a real pty; here there is no mode,
+    only this two-step protocol, and a function returning characters exercises
+    it exactly as ``msvcrt`` would.
+    """
+    first = getwch()
+    if first in WINDOWS_PREFIXES:
+        return WINDOWS_SCANCODES.get(getwch(), Key.UNKNOWN)
+    return decode(first)
+
+
 def read_key(descriptor: int) -> Key:
     """One key press, as this platform delivers it."""
+    if sys.platform == "win32":  # pragma: no cover - POSIX takes the branch below
+        import msvcrt
+
+        return _read_windows(msvcrt.getwch)
     return _read_posix(descriptor)
 
 
