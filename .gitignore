@@ -108,6 +108,9 @@ celerybeat.pid
 # Environments
 .env
 .venv
+# The wheel job's throwaway interpreter, and what `docs/TESTING.md` says to
+# call it when running that job by hand.
+.probe
 env/
 venv/
 ENV/

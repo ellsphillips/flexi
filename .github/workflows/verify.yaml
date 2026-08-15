@@ -49,11 +49,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows is deliberately absent: Flexi stores its data under the XDG
-        # base directories and has no Windows path story yet. Claiming it in a
-        # matrix that never imports the package is how the last one passed for
-        # a year while the app could not have started.
-        os: [ubuntu-latest, macos-latest]
+        # Windows is here now. It was absent because the data directory had no
+        # Windows story and the prompts refused to run without termios; both
+        # are answered, and `%LOCALAPPDATA%` is no more a claim than
+        # `~/.local/share` is until a job proves it.
+        os: [ubuntu-latest, macos-latest, windows-latest]
         # 3.14 is here because `requires-python = ">=3.12"` already serves it to
         # anybody who has it. Adding it found a real break: every SQLAlchemy
         # below 2.0.41 raises TypeError building a mapping on 3.14, so the
@@ -62,9 +62,28 @@ jobs:
         # A timesheet's arithmetic must not move with the machine. Europe/London
         # is the one that matters -- it is the audience, and it is the only one
         # here with transitions.
+        #
+        # The suite pins its own clock through `flexi.wallclock`, so what this
+        # row varies is the machine underneath it. Green in both is the evidence
+        # that no reading escapes that pin; it used to export TZ and then have
+        # `tests/conftest.py` overwrite it, so both rows ran the same suite.
         tz: ["UTC", "Europe/London"]
     steps:
       - uses: actions/checkout@v4
+
+      # `TZ` is a POSIX idea. Windows keeps the zone in the registry and
+      # `time.tzset` does not exist there, so setting the variable would leave
+      # the runner on UTC while the job name said otherwise -- the matrix
+      # claiming a dimension it had not varied.
+      - name: Put the Windows runner in the row's timezone
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TZ: ${{ matrix.tz }}
+        run: |
+          $zone = if ($env:TZ -eq 'Europe/London') { 'GMT Standard Time' } else { 'UTC' }
+          tzutil /s "$zone"
+          Write-Host "runner clock: $(Get-Date -Format o)  ($(tzutil /g))"
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -126,9 +145,30 @@ jobs:
         run: uv run pytest
 
   wheel:
-    name: The built wheel installs and runs
-    runs-on: ubuntu-latest
+    name: The built wheel installs and runs · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # The artefact is what a person downloads, and on Windows that is the
+        # first moment anything checks that the data directory resolves, the
+        # stylesheets are found by a path with backslashes in it, and the
+        # application paints. The suite runs from a source tree and cannot say
+        # any of that.
+        os: [ubuntu-latest, windows-latest]
+    env:
+      # uv puts the interpreter under `bin` on POSIX and `Scripts` on Windows.
+      # Relative, and inside the workspace: bash on Windows rewrites absolute
+      # POSIX paths on the way to a native binary, and a venv the job cannot
+      # name afterwards is a job that skips itself. A src layout is what keeps
+      # this honest -- the checkout is the working directory and `flexi` is
+      # still only importable from the wheel.
+      PROBE: ${{ matrix.os == 'windows-latest' && '.probe/Scripts/python' || '.probe/bin/python' }}
+    defaults:
+      run:
+        # bash on both, so the glob below is one command rather than two.
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -141,7 +181,7 @@ jobs:
 
       - name: Install it somewhere that has no source tree
         run: |
-          uv venv /tmp/probe
+          uv venv .probe
           # The wheel brings the runtime dependencies and is the only copy of
           # flexi on the path -- no editable install, no src/ on sys.path. The
           # dev group brings the test toolchain, taken from pyproject rather
@@ -149,17 +189,37 @@ jobs:
           # step with `addopts` by hand, and the day `-n auto --timeout=120`
           # was added for the matrix this job started failing on an
           # unrecognised argument, saying nothing at all about the wheel.
-          uv pip install --python /tmp/probe/bin/python dist/*.whl --group dev
+          uv pip install --python "$PROBE" dist/*.whl --group dev
 
       - name: Its data files travelled with it
         # Run against the installed package, not the checkout: a wheel missing
         # its stylesheets imports cleanly and then dies on the first frame.
-        run: /tmp/probe/bin/python -m pytest tests/test_packaging.py -q
+        run: |
+          "$PROBE" -m pytest tests/test_packaging.py -q
 
       - name: It migrates a database and paints a screen
-        run: /tmp/probe/bin/python scripts/smoke.py
+        run: |
+          "$PROBE" scripts/smoke.py
+
+      - name: It knows where to keep the records on this machine
+        # The one thing `smoke.py` cannot check, because it runs against a
+        # temporary file: that the real data directory resolves somewhere
+        # absolute and platform-appropriate. `%LOCALAPPDATA%` unset in a
+        # service account, or an XDG variable inherited from a shell, both land
+        # here rather than in somebody's first run.
+        run: |
+          "$PROBE" -c "
+          from flexi.locations import config_file, database_file
+          for path in (database_file(), config_file()):
+              assert path.is_absolute(), path
+              print(path)
+          "
 
       - uses: actions/upload-artifact@v4
+        # One copy. The wheel is pure Python and identical from either runner,
+        # and `release.yaml` downloads this by name -- two uploads called `dist`
+        # is an error, and the release would stop at the artefact check.
+        if: matrix.os == 'ubuntu-latest'
         with:
           name: dist
           path: dist/

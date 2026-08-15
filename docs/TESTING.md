@@ -233,18 +233,37 @@ pushing.
 ```
 # wheel: build it, install it where no source tree can be imported, run it
 uv build
-uv venv /tmp/probe
-uv pip install --python /tmp/probe/bin/python dist/*.whl --group dev
-/tmp/probe/bin/python -m pytest tests/test_packaging.py -q
-/tmp/probe/bin/python scripts/smoke.py
+uv venv .probe
+uv pip install --python .probe/bin/python dist/*.whl --group dev
+.probe/bin/python -m pytest tests/test_packaging.py -q
+.probe/bin/python scripts/smoke.py
+.probe/bin/python -c "from flexi.locations import database_file; print(database_file())"
 ```
 
-The matrix rows differ only by interpreter and timezone, and `uv` supplies both:
+On Windows the interpreter is `.probe/Scripts/python`; the job picks between
+the two rather than assuming. The venv is relative and inside the checkout
+because bash on Windows rewrites an absolute POSIX path on its way to a native
+binary, and the src layout is what keeps the check honest — the working
+directory is the source tree and `flexi` is still importable only from the
+wheel.
+
+The matrix rows differ by interpreter, timezone and operating system. `uv`
+supplies the first two:
 
 ```
 UV_PROJECT_ENVIRONMENT=/tmp/py314 uv sync --locked --dev --python 3.14
 TZ=Europe/London /tmp/py314/bin/python -m pytest -q
 ```
+
+The third cannot be supplied here, and does not need to be. The suite pins its
+own clock through `flexi.wallclock`, so `TZ` is not what makes the timezone
+rows differ — the machine underneath them is, and green under both is the
+evidence that no reading escapes the pin. Windows sets its zone with `tzutil`
+rather than `TZ`, which is a POSIX idea `time.tzset` implements and Windows
+does not have. Two tests are skipped there and say so: the pty reader in
+`tests/cli/test_terminal.py`, which needs a terminal Windows has no equivalent
+of, and the pair in `tests/services/test_setup.py` that need a file `chmod`
+can genuinely deny.
 
 The workflow files themselves are checked the same way, by the linter that knows
 about them rather than by reading:
