@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy.orm import Session
 
 from flexi.models.database.db import ClockEvent
@@ -36,17 +37,24 @@ def test_it_reads_back_as_it_went_in(session: Session) -> None:
     assert open_session.clock_in_event.timestamp == NINE_FORTY_FOUR
 
 
+@pytest.mark.usefixtures("in_london")
 def test_an_aware_moment_is_converted_rather_than_stripped(session: Session) -> None:
     """08:44+00:00 is 09:44 to somebody on BST, and stripping loses them an hour.
 
     A caller may still hand in an aware value, and older rows hold them.
+
+    Run in London on purpose. The comparison used to be against
+    `aware.astimezone()` -- the machine's own answer -- which under the suite's
+    UTC pin was the value that had gone in, so the assertion held whether the
+    conversion happened or not. An hour is only lost where there is an hour to
+    lose.
     """
     aware = datetime(2026, 6, 11, 8, 44, tzinfo=UTC)
     Services.build(session).clock.clock_in(now=aware)
 
     stored = _stored(session)[0]
     assert stored.tzinfo is None
-    assert stored == aware.astimezone().replace(tzinfo=None)
+    assert stored == datetime(2026, 6, 11, 9, 44)
 
 
 def test_a_session_lasts_what_the_clock_says(session: Session) -> None:

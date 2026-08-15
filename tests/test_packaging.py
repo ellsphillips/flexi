@@ -24,6 +24,15 @@ PROJECT_ROOT = Path(__file__).parent.parent
 # Import name on the left, distribution name on the right, where they differ.
 DISTRIBUTION = {"yaml": "pyyaml"}
 
+NEVER_IMPORTED = {"tzdata"}
+"""Dependencies that are data rather than code, so no import can find them.
+
+`tzdata` is the zoneinfo database, which Windows does not ship and
+:mod:`zoneinfo` finds by looking for the package rather than by importing it.
+Declared here so the "declared and unused" check keeps its teeth: the exception
+is one name with a reason, not a hole in the rule.
+"""
+
 DATA_FILES = [
     "py.typed",
     "static/welcome.md",
@@ -97,4 +106,4 @@ def test_every_import_is_a_declared_dependency() -> None:
     not PROJECT_ROOT.joinpath("pyproject.toml").is_file(), reason="sdist"
 )
 def test_no_dependency_is_declared_and_unused() -> None:
-    assert _declared() - _imported() == set()
+    assert _declared() - _imported() - NEVER_IMPORTED == set()

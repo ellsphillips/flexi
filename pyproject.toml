@@ -39,6 +39,13 @@ dependencies = [
     # every version below this one is broken on a Python the matrix now covers.
     "sqlalchemy>=2.0.41",
     "textual>=8.2,<9",
+    # Windows ships no zoneinfo database, so `ZoneInfo` there reads from this
+    # package or raises. Two things want it: the suite pins its clock to a real
+    # zone with transitions, and migration 0010 offers FLEXI_LEGACY_TZ to
+    # anybody whose old rows were written somewhere else. Neither can be told
+    # "your machine does not know Europe/London" when every Windows machine
+    # does not.
+    "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
 [project.urls]
