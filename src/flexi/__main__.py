@@ -197,8 +197,14 @@ def _run_demo() -> None:
     """Launch against a temporary database holding the sample data.
 
     The same seed the screenshots and the regression tests use, so what a new
-    user is shown, what a reviewer looks at, and what CI compares against are all
-    the same six weeks.
+    user is shown, what a reviewer looks at, and what CI compares against are
+    all the same working life -- anchored to today here, and to a fixed date
+    there, because a committed screenshot cannot move and a demo must.
+
+    Seeded up to today rather than up to `samples.ANCHOR`. That date is in the
+    screenshots for good reasons and none of them apply here: the demo opens on
+    the real current week, so a fixed anchor meant an empty dashboard and a
+    week's deficit for anybody who ran `flexi --demo` after it.
     """
     import tempfile
     from pathlib import Path
@@ -213,7 +219,7 @@ def _run_demo() -> None:
         engine = create_db_engine(path)
         Base.metadata.create_all(engine)
         session = get_session(engine)
-        seed_demo(session)
+        seed_demo(session, anchor=wallclock.today())
         session.close()
         engine.dispose()
         App(db_path=path).run()

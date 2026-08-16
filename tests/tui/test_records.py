@@ -29,6 +29,19 @@ def table(app: FlexiApp) -> ExpandableTable:
     return app.screen.query_one("#records-table", ExpandableTable)
 
 
+def absence_key(app: FlexiApp, when: date) -> str:
+    """The row key of the booking on a day, looked up rather than counted.
+
+    The key carries a database id. Writing one out fixes the test to the order
+    the demo seed happens to insert its absences in, and the two that did broke
+    the day the seed stopped booking annual leave over a bank holiday -- a
+    change with nothing to do with what they assert.
+    """
+    booked = app.services.absence.in_range(when, when)
+    assert booked, f"the seed has nothing booked on {when}"
+    return f"{ABSENCE}{booked[0].id}"
+
+
 def prefilled(app: FlexiApp) -> tuple[date, AbsenceType]:
     """The day and the type the booking dialog arrived already holding.
 
@@ -288,9 +301,10 @@ async def test_x_on_a_booking_asks_before_it_removes_it(
         await pilot.pause()
         widget = table(app)
         widget.focus()
-        widget.toggle(f"{DAY}2026-06-12")  # the seed's TOIL day
+        toil = date(2026, 6, 12)  # the seed's TOIL day
+        widget.toggle(f"{DAY}{toil}")
         await pilot.pause()
-        widget.focus_key(f"{ABSENCE}7")
+        widget.focus_key(absence_key(app, toil))
         await pilot.pause()
 
         await pilot.press("x")
@@ -321,9 +335,10 @@ async def test_declining_the_question_leaves_the_booking_alone(
         await pilot.pause()
         widget = table(app)
         widget.focus()
-        widget.toggle(f"{DAY}2026-06-12")
+        toil = date(2026, 6, 12)
+        widget.toggle(f"{DAY}{toil}")
         await pilot.pause()
-        widget.focus_key(f"{ABSENCE}7")
+        widget.focus_key(absence_key(app, toil))
         await pilot.pause()
         before = app.services.absence.in_range(date(2026, 6, 8), date(2026, 6, 14))
 
