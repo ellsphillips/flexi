@@ -218,17 +218,22 @@ reproduced locally in under a second once the ordering was made deterministic.
 
 ## 8. Running what CI runs, without pushing
 
-`.github/workflows/verify.yaml` is the single definition of green, and every job
-in it is a command you can run here. Nothing in CI is discoverable only by
-pushing.
+CI is three reusable workflows, called by both `ci.yaml` and `release.yaml` so
+that a release is verified by exactly what a pull request is verified by. Every
+job in them is a command you can run here. Nothing in CI is discoverable only
+by pushing.
 
-| Job in `verify.yaml` | The same thing, locally |
-|---|---|
-| `static` | `uv sync --locked --dev && uv lock --check && uv run ruff check && uv run ruff format --check && uv run mypy` |
-| `test` | `TZ=UTC uv run pytest` and `TZ=Europe/London uv run pytest` |
-| `test` (the coverage row) | `TZ=UTC uv run pytest --cov` |
-| `late` | `TZ=UTC FLEXI_LATE_CALLBACKS=0.05 uv run pytest` |
-| `wheel` | see below |
+| Workflow | Job | The same thing, locally |
+|---|---|---|
+| `static.yaml` | `Lint and types` | `uv sync --locked --dev && uv lock --check && uv run ruff check && uv run ruff format --check && uv run mypy` |
+| `tests.yaml` | the matrix | `TZ=UTC uv run pytest` and `TZ=Europe/London uv run pytest` |
+| `tests.yaml` | the coverage row | `TZ=UTC uv run pytest --cov` |
+| `tests.yaml` | `Deferred callbacks land late` | `TZ=UTC FLEXI_LATE_CALLBACKS=0.05 uv run pytest` |
+| `package.yaml` | `Wheel installs and runs` | see below |
+
+`tests/test_pipelines.py` asserts that both pipelines call the same three and
+that `All green` waits for all of them, which is what used to be guaranteed by
+there being a single `verify.yaml` holding every job.
 
 ```
 # wheel: build it, install it where no source tree can be imported, run it

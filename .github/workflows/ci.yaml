@@ -15,14 +15,31 @@ concurrency:
 permissions:
   contents: read
 
+# Three concerns, three reusable workflows, and the same three called by
+# `release.yaml` -- which is what makes a release verified by exactly what a
+# pull request is verified by. `tests/test_pipelines.py` asserts that the two
+# lists stay the same, so the guarantee is enforced rather than remembered.
+#
+# They are separate files because they answer separate questions, and because
+# the job names read as `Static / …`, `Tests / …` and `Package / …` in the
+# checks list rather than twenty-two lines of `verify / …`.
 jobs:
-  verify:
-    uses: ./.github/workflows/verify.yaml
+  static:
+    name: Static
+    uses: ./.github/workflows/static.yaml
+
+  tests:
+    name: Tests
+    uses: ./.github/workflows/tests.yaml
+
+  package:
+    name: Package
+    uses: ./.github/workflows/package.yaml
 
   green:
     name: All green
-    needs: verify
-    # `always()`, so a skipped or cancelled Verify is reported rather than
+    needs: [static, tests, package]
+    # `always()`, so a skipped or cancelled check is reported rather than
     # quietly satisfying the gate by never running.
     if: always()
     runs-on: ubuntu-latest
@@ -33,9 +50,11 @@ jobs:
       # UTC" -- so requiring them by name means editing the ruleset every time
       # a row is added, and the ruleset silently protecting nothing until
       # somebody does. This name never changes, and it fails if any row did.
-      - name: Every job in Verify succeeded
+      - name: Every check succeeded
         env:
-          RESULT: ${{ needs.verify.result }}
+          RESULTS: ${{ needs.static.result }} ${{ needs.tests.result }} ${{ needs.package.result }}
         run: |
-          echo "Verify finished: $RESULT"
-          test "$RESULT" = success
+          echo "Static, Tests, Package: $RESULTS"
+          for result in $RESULTS; do
+            test "$result" = success
+          done

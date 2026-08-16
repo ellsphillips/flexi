@@ -1,0 +1,97 @@
+name: Package
+
+# What a person actually downloads. The suite runs from a source tree and
+# cannot say whether the wheel carries its stylesheets, resolves a data
+# directory, or paints a screen on the machine it was installed on.
+#
+# It also produces the `dist` artefact that `release.yaml` publishes, so the
+# thing that is verified here is the thing that is uploaded.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  wheel:
+    name: Wheel installs and runs · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows as well as Linux, because that is the first moment anything
+        # checks the data directory resolves and the application paints there.
+        # macOS is left out on purpose: it shares every path assumption with
+        # Linux, and the test matrix already covers it three interpreters deep.
+        os: [ubuntu-latest, windows-latest]
+    env:
+      # uv puts the interpreter under `bin` on POSIX and `Scripts` on Windows,
+      # and on Windows it is only found by its `.exe`: `uv pip install --python
+      # .probe/Scripts/python` answers "no virtual environment found".
+      #
+      # Relative, and inside the workspace: bash on Windows rewrites absolute
+      # POSIX paths on the way to a native binary, and a venv the job cannot
+      # name afterwards is a job that skips itself. A src layout is what keeps
+      # this honest -- the checkout is the working directory and `flexi` is
+      # still only importable from the wheel.
+      PROBE: ${{ matrix.os == 'windows-latest' && '.probe/Scripts/python.exe' || '.probe/bin/python' }}
+    defaults:
+      run:
+        # bash on both, so the glob below is one command rather than two.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv build
+
+      - name: Install it somewhere that has no source tree
+        run: |
+          uv venv .probe
+          # The wheel brings the runtime dependencies and is the only copy of
+          # flexi on the path -- no editable install, no src/ on sys.path. The
+          # dev group brings the test toolchain, taken from pyproject rather
+          # than named here: a hand-picked list of plugins has to be kept in
+          # step with `addopts` by hand, and the day `-n auto --timeout=120`
+          # was added for the matrix this job started failing on an
+          # unrecognised argument, saying nothing at all about the wheel.
+          uv pip install --python "$PROBE" dist/*.whl --group dev
+
+      - name: Its data files travelled with it
+        # Run against the installed package, not the checkout: a wheel missing
+        # its stylesheets imports cleanly and then dies on the first frame.
+        run: |
+          "$PROBE" -m pytest tests/test_packaging.py -q
+
+      - name: It migrates a database and paints a screen
+        run: |
+          "$PROBE" scripts/smoke.py
+
+      - name: It knows where to keep the records on this machine
+        # The one thing `smoke.py` cannot check, because it runs against a
+        # temporary file: that the real data directory resolves somewhere
+        # absolute and platform-appropriate. `%LOCALAPPDATA%` unset in a
+        # service account, or an XDG variable inherited from a shell, both land
+        # here rather than in somebody's first run.
+        run: |
+          "$PROBE" -c "
+          from flexi.locations import config_file, database_file
+          for path in (database_file(), config_file()):
+              assert path.is_absolute(), path
+              print(path)
+          "
+
+      - uses: actions/upload-artifact@v4
+        # One copy. The wheel is pure Python and identical from either runner,
+        # and `release.yaml` downloads this by name -- two uploads called `dist`
+        # is an error, and the release would stop at the artefact check.
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

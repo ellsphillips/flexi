@@ -24,7 +24,7 @@ Publishing is meant to be hard to do by accident. All four must pass:
 |---|---|
 | `on: push: branches: [main]` | A release from any other branch |
 | Version not already on PyPI | Republishing, and any push to `main` that isn't a version bump |
-| `verify.yaml` — the same checks a pull request runs | Shipping something that does not run |
+| `static.yaml`, `tests.yaml`, `package.yaml` — the same three a pull request runs | Shipping something that does not run |
 | A required reviewer on the `pypi` environment | Everything else |
 
 The second gate is the one that makes `main` safe to push to. A README fix
@@ -78,7 +78,7 @@ workflow no longer reads it.
 parameters in their names — `macos-latest · Python 3.14 · TZ UTC` — so
 requiring them individually means editing this ruleset every time a row is
 added, and the ruleset protecting less than you think until somebody does.
-`All green` fails if any job in `verify.yaml` failed, and its name never
+`All green` fails if any job in any of the three failed, and its name never
 changes.
 
 ## Testing the pipeline without publishing
