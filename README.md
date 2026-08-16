@@ -1,6 +1,6 @@
 # ⏱️ flexi
 
-A terminal app for people on flexitime. It records when you were on the clock, works out how far ahead or behind your contracted hours you are, and keeps track of what is left in your leave.
+A terminal timesheet for people on flexitime. It knows what TOIL is, and that your leave year probably starts in April.
 
 [![version](https://shieldcn.dev/badge/version-0.2.0-00AAAD.svg?variant=outline)](https://pypi.org/project/flexi/)
 [![python](https://shieldcn.dev/badge/python-3.12_|_3.13_|_3.14-00AAAD.svg?logo=python&variant=outline)](https://www.python.org)
@@ -17,27 +17,29 @@ A terminal app for people on flexitime. It records when you were on the clock, w
 
 ![The dashboard](./docs/shots/showcase-dashboard.svg)
 
-## Who this is for
+If your employer runs a flexitime scheme you already know the arithmetic. Contracted hours a day, a balance you are allowed to carry, TOIL you can take back as leave. Most people keep it in a spreadsheet and find out in March that they have three days to burn.
 
-If your employer runs a flexitime scheme, you already know the arithmetic. Contracted hours per day, a running balance you are allowed to carry, TOIL you can take back as leave, and a leave year that probably starts in April rather than January. Most people track this in a spreadsheet, badly, and find out in March that they have three days to burn.
+Flexi is built for that scheme rather than for time tracking in general. TOIL comes out of the same balance overtime goes into. The leave year starts on the 6th of April, or wherever you put it. It fetches bank holidays from GOV.UK and refuses to book annual leave on one.
 
-Flexi is built around that specific scheme. It understands TOIL as a withdrawal from the same balance your overtime accrues into. It knows the leave year does not start on the 1st of January. It fetches bank holidays from GOV.UK for England & Wales, Scotland or Northern Ireland, and refuses to let you book annual leave on one.
+Your records live in one SQLite file on your own disk. There is no account and no server.
 
-It is a single-user, local application. There is no account, no server, and nothing leaves your machine.
+If you have [uv](https://docs.astral.sh/uv/), you can have a look around right now without installing anything or touching your own data:
 
-## What it does
+```bash
+uvx flexi --demo
+```
 
-Press `/` and you are on the clock. Press it again and you are off. The status bar tells you what it recorded and at what time, which is the only confirmation you get, because clock events are immutable and pressing `/` by mistake costs you one visible break rather than a dialog.
+## On the clock
 
-Each day is drawn as a punch strip: a row of cells across the working day, filled where you were on the clock, with a tick marking where your contracted hours will have been met. Stack a week of them on a shared time axis and you can see the shape of how you have been working, which no column of totals will show you.
+Press `/`. You are on the clock. Press it again and you are off. The status bar says what it recorded and at what time, and that is the whole confirmation: clock events are immutable, so a mistaken `/` costs you one visible break rather than a dialog you would have clicked through anyway.
 
-Leave is booked on a calendar, not in a form. `f2` opens the whole leave year as one scrolling grid with the months stitched together, so a fortnight spanning the end of July looks like a fortnight. Put the cursor on a day, press `A`, and it is annual leave. Hold `shift` and press the arrows to extend the selection first. Book a fortnight that crosses a bank holiday and it books the twelve working days and tells you it skipped two.
+Each day is drawn as a punch strip. Cells across the working day, filled where you were on the clock, with a tick where your contracted hours are met. Stack a week on one time axis and the shape of how you have been working is obvious. A column of totals never shows you that.
 
-Absence comes in five kinds: annual, sick, TOIL, unpaid and other. Any of them can be a whole day, a morning or an afternoon, and two different halves can share a date, because going home ill at lunchtime is a thing that happens.
+Absence comes in five kinds: annual, sick, TOIL, unpaid, other. Any of them can be a whole day or half of one, and two halves can share a date. People do go home ill at lunchtime.
 
 ### Records that open
 
-Press `space` on a day to see the sessions behind the figures, the breaks between them, and how the total compares to what the day expected.
+`space` on a day shows the sessions behind the figure, the breaks between them, and how the total compares to what the day expected.
 
 ![Records, expanded](./docs/shots/showcase-records.svg)
 
@@ -45,7 +47,9 @@ Press `space` on a day to see the sessions behind the figures, the breaks betwee
 
 ![The leave year](./docs/shots/showcase-leave.svg)
 
-Colour carries the type of a booking, and the glyph carries whether it is a whole day or half of one, so the two never compete for the same cell. Every colour is also written out in words next to it.
+`f2` opens the year as one scrolling grid with the months stitched together, so a fortnight across the end of July looks like a fortnight. Put the cursor on a day, press `A`, and it is annual leave. Hold `shift` and arrow first to extend the selection. Book a fortnight over a bank holiday and you get twelve days booked and a note naming the two it skipped.
+
+Colour tells you the type of booking and the glyph tells you whole day or half, so the two never compete for the same cell. Both are spelled out in words beside the grid as well, for anyone the colours do not reach.
 
 ![annual](https://shieldcn.dev/badge/●-annual-8451C9.svg)
 ![sick](https://shieldcn.dev/badge/●-sick-DB703B.svg)
@@ -57,24 +61,24 @@ Colour carries the type of a booking, and the glyph carries whether it is a whol
 
 ### Where the balance went
 
-Your balance week by week, annual leave against the pace you would need to use it all, the last three weeks side by side, and every day of the year on one heatmap.
+Your balance week by week, annual leave against the pace you need to use it all, the last three weeks side by side, and every day of the year on one heatmap.
 
 ![Insights](./docs/shots/showcase-insights.svg)
 
 ### Jump mode
 
-`v` puts a single-character badge on every panel and on the first nine rows of the table. Press the badge to go there. `escape` puts you back.
+`v` puts a letter on every panel and on the first nine rows of the table. Press it to go there. `escape` comes back.
 
 ![Jump mode](./docs/shots/showcase-jump.svg)
 
-## Installation
+## Install
 
-Python 3.12, 3.13 or 3.14. Tested on macOS, Linux and Windows — every release runs the suite on all three, in two timezones, on all three interpreters.
+Python 3.12, 3.13 or 3.14, on macOS, Linux or Windows. Every release runs the suite on all three platforms, in two timezones, on each interpreter.
 
 <details open>
     <summary><b>Recommended: with uv</b></summary>
 
-[uv](https://docs.astral.sh/uv/) installs Flexi into its own isolated environment and puts the `flexi` command on your `PATH`, so nothing lands in your system Python and uninstalling leaves nothing behind.
+[uv](https://docs.astral.sh/uv/) puts Flexi in its own environment and the `flexi` command on your `PATH`. Nothing touches your system Python, and uninstalling takes it all back out.
 
 ```bash
 # install uv, if you do not have it
@@ -106,7 +110,7 @@ uv tool upgrade flexi
 uv tool uninstall flexi
 ```
 
-If your shell cannot find `flexi` after installing, uv's tool directory is not on your `PATH`. Run `uv tool update-shell` and open a new shell.
+If your shell cannot find `flexi` afterwards, run `uv tool update-shell` and open a new one.
 
 </details>
 
@@ -122,7 +126,7 @@ pipx install flexi
 <details>
     <summary>With pip</summary>
 
-Only if you know the environment you are installing into. `pip install flexi` puts Flexi and its dependencies alongside everything else in that environment.
+Only if you know which environment you are installing into: this puts Flexi and its dependencies alongside whatever else is in there.
 
 ```bash
 pip install flexi
@@ -142,11 +146,11 @@ uv run flexi
 
 </details>
 
-Flexi draws with box-drawing and block characters. [Ghostty](https://ghostty.org), [WezTerm](https://wezterm.org), [Kitty](https://sw.kovidgoyal.net/kitty/) and [Alacritty](https://alacritty.org) all render it as shown above. macOS Terminal.app works, but its colours are flatter than the screenshots. On Windows use [Windows Terminal](https://aka.ms/terminal), which ships with Windows 11 — the old `conhost` console has no truecolour and draws the strips in approximations.
+Flexi draws with box-drawing and block characters. [Ghostty](https://ghostty.org), [WezTerm](https://wezterm.org), [Kitty](https://sw.kovidgoyal.net/kitty/) and [Alacritty](https://alacritty.org) render it as shown above. Terminal.app works with flatter colours. On Windows use [Windows Terminal](https://aka.ms/terminal); the old `conhost` console has no truecolour and approximates the strips.
 
 ## First run
 
-Flexi asks five questions and then gets out of the way:
+Five questions, then it gets out of the way.
 
 | | |
 |---|---|
@@ -156,7 +160,7 @@ Flexi asks five questions and then gets out of the way:
 | Bank holiday region | England & Wales, Scotland, or Northern Ireland |
 | Auto-close time | When a session you forgot to close should be ended for you |
 
-To look around before committing your own data, `flexi --demo` runs against a throwaway database seeded with six weeks of a plausible working life. It is deleted when you quit.
+`flexi --demo` opens a throwaway database holding a plausible working life up to today, and deletes it when you quit. Nothing it does touches your own records.
 
 ## Keys
 
@@ -175,7 +179,9 @@ To look around before committing your own data, `flexi --demo` runs against a th
 
 Dates are typed however is quickest: `12`, `12 Jun`, `2026-06-12`, `+3d`, `-2w`.
 
-There is a small CLI for the things that do not need a full screen:
+## From the shell
+
+Not everything needs a full screen.
 
 ```bash
 flexi clock in                      # and `clock out`
@@ -188,25 +194,15 @@ flexi balance zero --reason "..."   # settle a stretch you never tracked
 flexi balance log                   # every adjustment, and `undo <id>`
 ```
 
-`flexi leave` prints the plan and asks before it writes anything. Weekends and
-bank holidays are listed rather than silently dropped, so a fortnight that books
-twelve of fourteen days tells you which two it left and why. `--dry-run` stops
-after the plan; `--yes` skips the question for a script.
+`flexi leave` prints the plan and asks before it writes. Weekends and bank holidays are listed rather than quietly dropped, so a fortnight that books twelve of fourteen days tells you which two it left. `--dry-run` stops at the plan, `--yes` skips the question.
 
-`flexi init` sets Flexi up. Run it again on a machine that already has records
-and it shows you what is there and offers what can be done about it: open, change
-your settings, or start again.
+`flexi init` sets up a machine. Run it again where records already exist and it tells you what is there, then offers to open Flexi, change settings, or start again.
 
-Starting again is the one thing in Flexi that loses data, so it is not a flag.
-It appears only when there is something to erase, it says how many records it
-would take, it writes a verified snapshot that the backup pruner will never age
-out, and it asks you to type a word rather than press a key. Without a terminal
-there is no menu and nothing is erased — there is deliberately no way to wipe
-your records with nobody present.
+Starting again is the one thing here that loses data, so it is not a flag. It appears only when there is something to erase, says how many records that is, and writes a snapshot the pruner will never age out before deleting anything. Then it asks you to type a word rather than press a key. With no terminal attached there is no menu at all, which is deliberate: nothing should wipe somebody's records while nobody is watching.
 
 ## Your data
 
-One SQLite file, migrated forward on launch with a backup taken first:
+One SQLite file, migrated forward on launch with a backup taken first.
 
 ```
 ~/.local/share/flexi/db.db          # your records
@@ -222,17 +218,17 @@ On Windows:
 %APPDATA%\flexi\config.yaml         # keybindings and defaults
 ```
 
-`XDG_DATA_HOME` and `XDG_CONFIG_HOME` are honoured wherever they are set, including on Windows.
+`XDG_DATA_HOME` and `XDG_CONFIG_HOME` are honoured wherever they are set, Windows included.
 
-Two network calls are made, both optional and both silent on failure: bank holidays from GOV.UK, cached for a week, and a version check against PyPI. Your records never leave the machine.
+Two network calls, both optional and both silent when they fail: bank holidays from GOV.UK, cached for a week, and a version check against PyPI. Your records stay on the machine.
 
-## What it does not do
+## What it will not do
 
-- **Teams.** One person, one database. There is no sharing, no approval workflow and no manager view.
-- **Invoicing or client billing.** It measures time against a contract, not against a rate.
-- **Non-UK bank holidays.** The three GOV.UK divisions are the only ones it knows. You can still use everything else, but you will have to book public holidays as leave yourself.
-- **Automatic tracking.** It does not watch your keyboard, your calendar or your repositories. You tell it when you started.
-- **Payroll.** Nothing here is authoritative for your employer. It is your own record, to check theirs against.
+- Teams. One person, one database, no manager view.
+- Invoicing. It measures time against a contract, not against a rate.
+- Bank holidays outside the UK. It knows the three GOV.UK divisions and nothing else, so you book those days yourself.
+- Automatic tracking. It does not watch your keyboard, your calendar or your repositories.
+- Payroll. This is your record, to check theirs against.
 
 ## Development
 
@@ -248,11 +244,11 @@ uv run ruff check
 uv run python scripts/shoot.py      # regenerate the screenshots above
 ```
 
-The pre-commit hooks run the same commands CI does, through the same locked environment, so a clean commit is a green pipeline.
+The hooks run what CI runs, from the same locked environment, so a clean commit is a green pipeline.
 
-Three rules hold the codebase together: `flexi.domain` imports neither Textual nor SQLAlchemy and is tested without a terminal, the system clock is read in exactly one module, and durations are `timedelta` rather than float hours. The first is enforced by a test that walks the imports; the second by a lint rule; the third by arithmetic that would not otherwise add up.
+Three rules hold the codebase together. `flexi.domain` imports neither Textual nor SQLAlchemy, so the arithmetic can be tested without a terminal. The system clock is read in one module. Durations are `timedelta` and never float hours, because 7.4 is not representable in binary floating point and a leave year of rounding it gives you a balance that disagrees with the sum of its own rows. A test walks the imports for the first, a lint rule covers the second, and the third enforces itself.
 
-[`docs/`](docs/) covers the architecture, the domain model, the design system and the keymap. [`CONTRIBUTING.md`](CONTRIBUTING.md) says what a change is expected to come with, and [`docs/RELEASING.md`](docs/RELEASING.md) describes the release pipeline.
+[`docs/`](docs/) covers the architecture, the domain model, the design system and the keymap. [`CONTRIBUTING.md`](CONTRIBUTING.md) says what a change is expected to come with. [`docs/RELEASING.md`](docs/RELEASING.md) describes the release pipeline.
 
 ## Licence
 
