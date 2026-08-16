@@ -35,6 +35,6 @@
  │  24           25           26           27           28          29          30          │
  │  31 hol                                                                                  │
  │                                                                                       ▏  │
- ╰──────────────────────────────────────────────────────────────────────── 7.5 days booked ─╯
+ ╰──────────────────────────────────────────────────────────────────────── 6.5 days booked ─╯
 
 A Annual S Sick T TOIL x Remove space Half day / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings

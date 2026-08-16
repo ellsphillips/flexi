@@ -58,18 +58,32 @@ jobs:
             echo "::notice::${PACKAGE} ${version} is new. Continuing to verification."
           fi
 
-  verify:
-    # The same file `ci.yaml` calls, so a release is verified by exactly what a
-    # pull request is verified by. It used to be a narrower copy -- ubuntu only,
-    # two interpreters, no timezone matrix -- which meant the run that published
-    # was the least tested run in the repository.
+  # The same three workflows `ci.yaml` calls, so a release is verified by
+  # exactly what a pull request is verified by. It used to be a narrower copy
+  # -- ubuntu only, two interpreters, no timezone matrix -- which meant the run
+  # that published was the least tested run in the repository.
+  # `tests/test_pipelines.py` asserts that this list and CI's stay the same.
+  static:
+    name: Static
     needs: guard
     if: needs.guard.outputs.publish == 'true'
-    uses: ./.github/workflows/verify.yaml
+    uses: ./.github/workflows/static.yaml
+
+  tests:
+    name: Tests
+    needs: guard
+    if: needs.guard.outputs.publish == 'true'
+    uses: ./.github/workflows/tests.yaml
+
+  package:
+    name: Package
+    needs: guard
+    if: needs.guard.outputs.publish == 'true'
+    uses: ./.github/workflows/package.yaml
 
   artefact:
     name: The artefact is the version being released
-    needs: [guard, verify]
+    needs: [guard, static, tests, package]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -78,9 +92,9 @@ jobs:
           name: dist
           path: dist
 
-      # Verify already built it, installed it somewhere with no source tree and
-      # booted it. All that is left is to check that what it built carries the
-      # version the guard read out of pyproject.
+      # `Package` already built it, installed it somewhere with no source tree
+      # and booted it, on Linux and on Windows. All that is left is to check
+      # that what it built carries the version the guard read out of pyproject.
       - name: The filenames carry that version
         env:
           VERSION: ${{ needs.guard.outputs.version }}

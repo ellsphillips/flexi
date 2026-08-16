@@ -197,8 +197,14 @@ def _run_demo() -> None:
     """Launch against a temporary database holding the sample data.
 
     The same seed the screenshots and the regression tests use, so what a new
-    user is shown, what a reviewer looks at, and what CI compares against are all
-    the same six weeks.
+    user is shown, what a reviewer looks at, and what CI compares against are
+    all the same working life -- anchored to today here, and to a fixed date
+    there, because a committed screenshot cannot move and a demo must.
+
+    Seeded up to today rather than up to `samples.ANCHOR`. That date is in the
+    screenshots for good reasons and none of them apply here: the demo opens on
+    the real current week, so a fixed anchor meant an empty dashboard and a
+    week's deficit for anybody who ran `flexi --demo` after it.
     """
     import tempfile
     from pathlib import Path
@@ -208,12 +214,20 @@ def _run_demo() -> None:
     from flexi.models.database.db import Base
     from flexi.services.samples import seed_demo
 
-    with tempfile.TemporaryDirectory(prefix="flexi-demo-") as directory:
+    # `ignore_cleanup_errors`, because the last thing a demo may do is fail to
+    # tidy up after itself. Flexi asks GOV.UK and PyPI from worker threads, and
+    # one still finishing as the application closes will have reopened the
+    # database -- which Windows then refuses to delete, so quitting the demo
+    # ended in a PermissionError traceback rather than a prompt. The file is a
+    # throwaway in the system temporary directory either way.
+    with tempfile.TemporaryDirectory(
+        prefix="flexi-demo-", ignore_cleanup_errors=True
+    ) as directory:
         path = Path(directory) / "demo.db"
         engine = create_db_engine(path)
         Base.metadata.create_all(engine)
         session = get_session(engine)
-        seed_demo(session)
+        seed_demo(session, anchor=wallclock.today())
         session.close()
         engine.dispose()
         App(db_path=path).run()
@@ -360,7 +374,7 @@ def leave(
     yes: bool,
     dry_run: bool,
 ) -> None:
-    r"""Book or cancel leave without opening the application.
+    """Book or cancel leave without opening the application.
 
     \b
     flexi leave annual friday
@@ -370,7 +384,7 @@ def leave(
     flexi leave cancel next monday
 
     The plan is shown before anything is written.
-    """
+    """  # noqa: D301 - the \b is Click's, and a raw string breaks it
     from flexi.cli import leave as leave_cli
 
     services = handles_of(ctx).services

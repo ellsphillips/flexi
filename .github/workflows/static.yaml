@@ -1,0 +1,41 @@
+name: Static
+
+# Everything that can be decided without running the application: the linter,
+# the formatter, the type checker, and whether the lockfile still describes
+# what pyproject asks for.
+#
+# One job, because these are four readings of the same checkout and splitting
+# them into four would mean four `uv sync` runs to save nothing. They fail with
+# the tool's own message, which already names the file and the line.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --locked --dev
+
+      - name: uv.lock matches pyproject
+        run: uv lock --check
+
+      - name: ruff
+        run: uv run ruff check --output-format=github
+
+      - name: ruff format
+        run: uv run ruff format --check
+
+      - name: mypy
+        run: uv run mypy

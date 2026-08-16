@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flexi"
-version = "0.1.0"
+version = "0.2.0"
 description = "A terminal application for tracking flexitime."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,6 +17,7 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -39,6 +40,13 @@ dependencies = [
     # every version below this one is broken on a Python the matrix now covers.
     "sqlalchemy>=2.0.41",
     "textual>=8.2,<9",
+    # Windows ships no zoneinfo database, so `ZoneInfo` there reads from this
+    # package or raises. Two things want it: the suite pins its clock to a real
+    # zone with transitions, and migration 0010 offers FLEXI_LEGACY_TZ to
+    # anybody whose old rows were written somewhere else. Neither can be told
+    # "your machine does not know Europe/London" when every Windows machine
+    # does not.
+    "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
 [project.urls]

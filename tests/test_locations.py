@@ -50,9 +50,20 @@ def test_xdg_is_honoured_on_windows_too(monkeypatch: pytest.MonkeyPatch) -> None
 def test_a_relative_or_empty_setting_is_ignored(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """Otherwise XDG_DATA_HOME=. drops a database wherever you were standing."""
+    """Otherwise XDG_DATA_HOME=. drops a database wherever you were standing.
+
+    Compared against the answer with nothing set, rather than against
+    `~/.local/share`. What is being asserted is that the value was ignored, and
+    naming the POSIX default as well made this the one test in the file that
+    failed on Windows -- where the fallback is `%LOCALAPPDATA%`, as the tests
+    below say it should be.
+    """
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    unset = locations.data_home()
+
     monkeypatch.setenv("XDG_DATA_HOME", value)
-    assert locations.data_home() == Path.home() / ".local" / "share"
+
+    assert locations.data_home() == unset
 
 
 def test_windows_uses_localappdata_for_data(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -15,6 +15,7 @@ silently backwards.
 from __future__ import annotations
 
 import sqlite3
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -39,6 +40,23 @@ def build(db: Path, *statements: str) -> None:
         connection.close()
 
 
+needs_permissions = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chmod on Windows sets the read-only bit and cannot deny a read",
+)
+"""The two tests below need a file the current user genuinely cannot open.
+
+`Path.chmod` on Windows is not that. It maps the whole mode onto the read-only
+attribute, so `chmod(0o000)` leaves a file every process can still read, and a
+test asserting otherwise would pass by describing something that had not
+happened. Denying a read there means an ACL, which is a great deal of machinery
+to reach a branch the other two platforms reach in a line.
+
+What is skipped is the *arrangement*, not the behaviour: `_stamped_and_configured`
+has no platform in it, and a connection that raises is a connection that raises.
+"""
+
+
 @pytest.fixture
 def unreadable(tmp_path: Path) -> Iterator[Path]:
     """A database file the current user is not allowed to open.
@@ -55,6 +73,7 @@ def unreadable(tmp_path: Path) -> Iterator[Path]:
         db.chmod(0o600)
 
 
+@needs_permissions
 def test_a_database_that_cannot_be_opened_is_not_an_install(unreadable: Path) -> None:
     """Refusing to answer must not become a traceback before the first screen.
 
@@ -67,6 +86,7 @@ def test_a_database_that_cannot_be_opened_is_not_an_install(unreadable: Path) ->
     assert setup.is_initialised(unreadable) is False
 
 
+@needs_permissions
 def test_an_unopenable_database_is_never_remembered_as_ready(
     unreadable: Path,
 ) -> None:

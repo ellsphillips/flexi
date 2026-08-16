@@ -647,3 +647,25 @@ def test_erasing_a_database_that_is_not_there_promises_no_snapshot(
     main._erase(tmp_path / "absent.db")
 
     assert "Snapshot" not in capsys.readouterr().err
+
+
+def test_the_leave_examples_are_listed_one_per_line() -> None:
+    r"""Click's no-rewrap marker is a backspace character, not a backslash.
+
+    The docstring holding the five examples was a raw string, so `\b` was two
+    characters Click does not recognise and the examples were rewrapped into a
+    paragraph with a stray `\b` at the front of it -- five commands run
+    together into prose, in the help text of the command most likely to be read
+    before it is used.
+
+    It became raw to satisfy ruff's D301, which asks for a raw docstring
+    wherever one contains a backslash. That rule and this feature want opposite
+    things, and the rule is silenced there with its reason. Nothing about that
+    is visible from either side, so it is asserted from the outside.
+    """
+    output = CliRunner().invoke(cli, ["leave", "--help"]).output
+
+    assert "\\b" not in output
+    assert "\b" not in output
+    for example in ("flexi leave annual friday", "flexi leave sick today pm"):
+        assert f"\n  {example}\n" in output, output

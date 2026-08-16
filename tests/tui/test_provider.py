@@ -9,7 +9,7 @@ palette offers; they run the commands and assert that the application moved.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -286,6 +286,17 @@ async def test_a_successful_refresh_says_so_and_redraws_from_the_new_calendar(
     Every figure on the dashboard is derived from which days are working days,
     so a fetch that filled the cache and left the caches above it alone would
     report success and change nothing on screen until the next keystroke.
+
+    Asserted as "the ledger built from the old calendar is gone", not as "the
+    cache is empty". Empty is true only in the instant between the refresh
+    invalidating it and the redraw it triggers filling it again, so which of
+    those the assertion arrived between was a property of how loaded the runner
+    was -- green on a laptop, red on a busy one, with the same commit passing
+    and failing in two runs an hour apart.
+
+    Yesterday rather than today, because `days` rebuilds today on every call
+    whether the cache was invalidated or not: it is the one day whose figures
+    move while you are looking at them.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -296,14 +307,17 @@ async def test_a_successful_refresh_says_so_and_redraws_from_the_new_calendar(
         await settled(pilot)
         monkeypatch.setattr(app.services.bank_holidays, "fetch_and_cache", lambda: True)
         ledger = app.services.ledger
-        ledger.day(TODAY)
-        assert ledger._cache, "the dashboard has already derived today"
+        yesterday = TODAY - timedelta(days=1)
+        derived = ledger.day(yesterday)
+        assert ledger._cache[yesterday] is derived, "the day was not cached"
 
         await run_command(app, "Refresh bank holidays")
         await pilot.pause()
 
         assert notification(app, "Bank holidays refreshed").severity == "information"
-        assert ledger._cache == {}, "the days derived from the old calendar remain"
+        assert ledger._cache.get(yesterday) is not derived, (
+            "the day derived from the old calendar is still cached"
+        )
 
 
 def test_the_refresh_command_asks_nothing_of_an_application_without_services() -> None:

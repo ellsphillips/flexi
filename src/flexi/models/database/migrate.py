@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,13 +21,40 @@ MAX_BACKUPS = 10
 log = logging.getLogger(__name__)
 
 
-def _get_alembic_config(db_path: Path) -> Config:
-    """Create an Alembic config pointing at our migrations directory."""
+@contextmanager
+def alembic_config(db_path: Path) -> Iterator[Config]:
+    """An Alembic config wired to an engine on ``db_path``, disposed on exit.
+
+    The engine is handed over rather than a URL, because a config value is not
+    a place to keep a path. Alembic's options go through ConfigParser, which
+    reads ``%`` as the start of an interpolation: somebody under
+    ``C:/Users/100%pure`` got ``ValueError: invalid interpolation syntax``
+    instead of an application, and every migration on that machine failed. The
+    escaping still has to be done for ``script_location``, which has nowhere
+    else to live -- Flexi's own install path can contain one too.
+
+    Disposed rather than left to the collector, because an undisposed engine
+    leaves the SQLite file open, and Windows will not delete a file that is.
+    """
+    engine = create_db_engine(db_path)
     cfg = Config()
     migrations_dir = Path(flexi.__file__).resolve().parent / "migrations"
-    cfg.set_main_option("script_location", str(migrations_dir))
-    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
-    return cfg
+    cfg.set_main_option("script_location", str(migrations_dir).replace("%", "%%"))
+    cfg.attributes["engine"] = engine
+    try:
+        yield cfg
+    finally:
+        engine.dispose()
+
+
+def _current_revision(db_path: Path) -> str | None:
+    """The revision the database is stamped with, or ``None`` for an empty one."""
+    engine = create_db_engine(db_path)
+    try:
+        with engine.connect() as connection:
+            return MigrationContext.configure(connection).get_current_revision()
+    finally:
+        engine.dispose()
 
 
 def backup_database(db_path: Path | None = None) -> Path | None:
@@ -81,25 +110,19 @@ def run_migrations(db_path: Path | None = None) -> None:
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    cfg = _get_alembic_config(db_path)
-    script_dir = ScriptDirectory.from_config(cfg)
-    head = script_dir.get_current_head()
+    with alembic_config(db_path) as cfg:
+        script_dir = ScriptDirectory.from_config(cfg)
+        head = script_dir.get_current_head()
 
-    if db_path.exists():
-        engine = create_db_engine(db_path)
-        with engine.connect() as conn:
-            context = MigrationContext.configure(conn)
-            current = context.get_current_revision()
-        engine.dispose()
+        if db_path.exists():
+            if _current_revision(db_path) == head:
+                return  # Already up to date
 
-        if current == head:
-            return  # Already up to date
+            backup = backup_database(db_path)
+            if backup is None:
+                msg = "Database file exists but backup failed"
+                raise RuntimeError(msg)
 
-        backup = backup_database(db_path)
-        if backup is None:
-            msg = "Database file exists but backup failed"
-            raise RuntimeError(msg)
+            _cleanup_old_backups()
 
-        _cleanup_old_backups()
-
-    command.upgrade(cfg, "head")
+        command.upgrade(cfg, "head")

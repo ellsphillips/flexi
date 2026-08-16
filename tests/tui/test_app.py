@@ -10,11 +10,12 @@ ones worth pinning.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 from sqlalchemy import update
+from textual.pilot import Pilot
 from textual.widgets import Input, Select
 
 from flexi.app import FlexiApp
@@ -27,6 +28,7 @@ from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
+from flexi.services.bank_holidays import CACHE_MAX_AGE
 from flexi.services.registry import Services
 from flexi.services.samples import NOW
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
@@ -35,8 +37,19 @@ TODAY = date(2026, 6, 11)
 """The Thursday the frozen clock is standing on."""
 
 
-def said(app: FlexiApp) -> list[str]:
-    """Every notification the application has raised, oldest first."""
+async def said(app: FlexiApp, pilot: Pilot[None]) -> list[str]:
+    """Every notification the application has raised, oldest first.
+
+    Waits for the workers first. Both notices on this screen are raised from
+    `@work(thread=True)` -- the update check and the bank holiday refresh -- and
+    a thread is not a message, so `pilot.pause()` has nothing of theirs to
+    drain. On a laptop the thread had always finished by the time the assertion
+    ran; on a loaded Windows runner it had not, and the list was empty. A test
+    that reads an empty list is worse than a slow one, because the two tests
+    below assert that nothing was said.
+    """
+    await app.workers.wait_for_complete()
+    await pilot.pause()
     return [notification.message for notification in app._notifications]
 
 
@@ -93,20 +106,32 @@ async def test_declining_setup_closes_the_application(unconfigured: Path) -> Non
 
 
 async def test_an_empty_bank_holiday_calendar_is_reported_as_a_consequence(
-    app_factory: AppFactory,
+    seeded_db: Path,
 ) -> None:
     """It says what the missing calendar will do, not that a fetch failed.
 
-    The seed's cache is ten days old, and the suite refuses the connection, so
-    this is the state a first launch on a train arrives in. Without the warning
-    the only symptom is every bank holiday quietly counted as a day nobody
-    worked.
+    A stale cache and no connection is the state a first launch on a train
+    arrives in. Without the warning the only symptom is every bank holiday
+    quietly counted as a day nobody worked.
+
+    The staleness is arranged here rather than inherited from the seed, which
+    used to carry a fixed `fetched_at` that happened to be ten days before the
+    frozen clock. Two tests then read as a matched pair -- one ageing the cache,
+    one not -- while only one of them said what it depended on, and the demo
+    paid for it: `flexi --demo` reached for GOV.UK on every launch and warned
+    about a calendar it had seeded itself.
     """
-    app = app_factory()
+    stale = NOW - CACHE_MAX_AGE - timedelta(days=1)
+    with get_session(create_db_engine(seeded_db)) as session:
+        session.execute(update(BankHolidayCache).values(fetched_at=stale))
+        session.commit()
+
+    app = FlexiApp(db_path=seeded_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-        assert "No bank holiday calendar. Days off will count as working days." in said(
-            app
+        assert (
+            "No bank holiday calendar. Days off will count as working days."
+            in await said(app, pilot)
         )
 
 
@@ -124,7 +149,9 @@ async def test_a_calendar_fetched_this_week_is_left_alone(seeded_db: Path) -> No
     app = FlexiApp(db_path=seeded_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-        assert not [line for line in said(app) if "bank holiday" in line.lower()]
+        assert not [
+            line for line in await said(app, pilot) if "bank holiday" in line.lower()
+        ]
 
 
 async def test_a_newer_release_is_announced_with_the_command_that_installs_it(
@@ -139,7 +166,9 @@ async def test_a_newer_release_is_announced_with_the_command_that_installs_it(
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-        announced = [line for line in said(app) if "Update available" in line]
+        announced = [
+            line for line in await said(app, pilot) if "Update available" in line
+        ]
         assert announced, "a newer version should be announced"
         assert "99.0.0" in announced[0]
         assert "uv tool upgrade flexi" in announced[0]
@@ -154,7 +183,9 @@ async def test_being_up_to_date_is_said_with_silence(app_factory: AppFactory) ->
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-        assert not [line for line in said(app) if "Update available" in line]
+        assert not [
+            line for line in await said(app, pilot) if "Update available" in line
+        ]
 
 
 # -- navigation ------------------------------------------------------------
@@ -195,7 +226,7 @@ async def test_a_destination_that_needs_the_dashboard_says_so_when_there_is_none
         await pilot.press("f3")
         await pilot.pause()
 
-        assert "Insights is not built yet." in said(app)
+        assert "Insights is not built yet." in await said(app, pilot)
         showing(app, SetupScreen)
 
 

@@ -1,10 +1,11 @@
 import asyncio
 import inspect
 import os
-import time
 from collections.abc import Callable, Iterator
+from datetime import UTC
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -14,9 +15,10 @@ from sqlalchemy.orm import Session
 from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 
+from flexi import wallclock
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
-from flexi.services import samples, setup
+from flexi.services import setup
 
 settings.register_profile(
     "dev",
@@ -51,16 +53,6 @@ settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "e2e: mark test as end-to-end test.")
-
-    # Pin the timezone before anything imports, and before time_machine freezes
-    # anything. Flexi records local wall time, so "local" has to be a fixed
-    # thing or the expectations move with the machine -- and time_machine reads
-    # a naive target as UTC, which put the frozen clock an hour later on a BST
-    # laptop than on a UTC runner. That is precisely how the committed snapshots
-    # came to have an hour of British Summer Time baked into them.
-    os.environ["TZ"] = samples.TIMEZONE
-    if hasattr(time, "tzset"):  # POSIX only; the suite does not run on Windows
-        time.tzset()
 
 
 LATE_CALLBACKS = "FLEXI_LATE_CALLBACKS"
@@ -219,20 +211,49 @@ def _never_the_internet(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(httpx.Client, "get", refused)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _one_timezone_everywhere() -> Iterator[None]:
+    """Take every reading in one zone, whatever the machine is set to.
+
+    Flexi records local wall time, so "local" has to be a fixed thing or the
+    expectations move with the machine -- time_machine reads a naive target as
+    UTC, which puts the frozen clock an hour later on a BST laptop than on a UTC
+    runner, and that is precisely how the committed snapshots came to have an
+    hour of British Summer Time baked into them.
+
+    This used to export ``TZ`` and call :func:`time.tzset`, which is POSIX only:
+    on Windows it set a variable nothing reads, so the pin was not one and the
+    matrix row saying ``TZ UTC`` would have been describing nothing. Pinning
+    :mod:`flexi.wallclock` instead works everywhere, and it says what it means
+    -- the application reads the clock in exactly one place, so pinning that
+    place is pinning the clock.
+
+    It also gives the timezone matrix something to prove. Exporting ``TZ=UTC``
+    here overrode whatever the job had set, so the ``Europe/London`` row ran
+    the identical suite the ``UTC`` row did. The machine's zone is now left
+    alone, and the suite passing under both is evidence that no reading escapes
+    the seam.
+
+    Session scope because a database is seeded outside a test: the snapshot
+    demo is built once per module, and a function-scoped pin is not in force
+    when it is written. The offsets recorded on those rows then came from the
+    machine while the screen reading them came from the pin, which is an hour
+    of worked time appearing from nowhere on a British laptop.
+    """
+    with wallclock.pinned(UTC):
+        yield
+
+
 @pytest.fixture
 def in_london() -> Iterator[None]:
-    """Run a test on a British clock, then put the machine back.
+    """Run a test on a British clock.
 
     The suite is pinned to UTC, a zone with no transitions, which is why it
-    could not catch a single one of these.
+    could not catch a single one of these. Nested inside the pin above, which
+    is autouse and therefore already in force.
     """
-    os.environ["TZ"] = "Europe/London"
-    time.tzset()
-    try:
+    with wallclock.pinned(ZoneInfo("Europe/London")):
         yield
-    finally:
-        os.environ["TZ"] = "UTC"
-        time.tzset()
 
 
 @pytest.fixture

@@ -10,10 +10,9 @@ at the same six weeks.
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
-import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 import time_machine
@@ -23,19 +22,22 @@ from textual.pilot import Pilot
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from flexi import wallclock  # noqa: E402
 from flexi.app import FlexiApp  # noqa: E402
 from flexi.models.database.app import create_db_engine, get_session  # noqa: E402
 from flexi.models.database.db import Base  # noqa: E402
 from flexi.services.samples import NOW, TIMEZONE, seed_demo  # noqa: E402
 
-# The same pin the snapshot suite applies in `tests/conftest.py`. Without it the
-# documented way to regenerate the shots bakes the developer's timezone into
-# them -- an hour of British Summer Time that the suite, running under UTC, then
-# rejects. The command that fixes a failing snapshot cannot be the command that
-# causes one.
-os.environ["TZ"] = TIMEZONE
-if hasattr(time, "tzset"):  # POSIX only
-    time.tzset()
+# The same pin the snapshot suite applies in `tests/conftest.py`, through the
+# same seam. Without it the documented way to regenerate the shots bakes the
+# developer's timezone into them -- an hour of British Summer Time that the
+# suite, running under UTC, then rejects. The command that fixes a failing
+# snapshot cannot be the command that causes one.
+#
+# It was `TZ` and `time.tzset`, which is POSIX only: on Windows it pinned
+# nothing, so the one platform where a contributor could not verify their own
+# shots was the one where they came out wrong.
+PINNED = wallclock.pinned(ZoneInfo(TIMEZONE))
 
 
 def refuse_the_network() -> None:
@@ -159,7 +161,7 @@ async def main() -> None:
 
     # Seeded under the frozen clock as well as captured under it, which is what
     # `tests/snapshot/test_screens.py` does. The two have to match.
-    with time_machine.travel(NOW, tick=False):
+    with PINNED, time_machine.travel(NOW, tick=False):
         build_database(db).close()
         for name, size, keys in SHOOTS:
             await shoot(name, size, keys, db)

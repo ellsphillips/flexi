@@ -37,7 +37,23 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations with a live database connection."""
+    """Run migrations with a live database connection.
+
+    `flexi.models.database.migrate` hands its own engine over in
+    `config.attributes`, already carrying the pragma, because a path is not
+    safe to round-trip through a config value: ConfigParser reads `%` as an
+    interpolation and SQLAlchemy's URL parser reads `?` as a query string.
+    Running `alembic` from the command line passes no engine and still reads
+    `alembic.ini` as it always did.
+    """
+    connectable = config.attributes.get("engine")
+    if connectable is not None:
+        with connectable.connect() as connection:
+            context.configure(connection=connection, target_metadata=target_metadata)
+            with context.begin_transaction():
+                context.run_migrations()
+        return
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
