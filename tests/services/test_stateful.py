@@ -19,10 +19,12 @@ had a reason to.
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+import pytest
 import time_machine
 from hypothesis import HealthCheck, settings
 from hypothesis import strategies as st
@@ -69,10 +71,11 @@ class TimesheetModel(RuleBasedStateMachine):
     @initialize()
     def open_the_database(self) -> None:
         """One empty database per run, configured as a first run leaves it."""
-        path = Path(tempfile.mkdtemp()) / "model.db"
-        engine = create_db_engine(path)
-        Base.metadata.create_all(engine)
-        self.db = get_session(engine)
+        self.directory = tempfile.mkdtemp()
+        path = Path(self.directory) / "model.db"
+        self.engine = create_db_engine(path)
+        Base.metadata.create_all(self.engine)
+        self.db = get_session(self.engine)
 
         Services.build(self.db).settings.save_settings(
             leave_year_start="04-06",
@@ -96,11 +99,27 @@ class TimesheetModel(RuleBasedStateMachine):
         self.minimum = self.services.clock._minimum
 
     def teardown(self) -> None:
+        """Give the database back, and the file it lived in.
+
+        Closing the session returns its connection to the engine's pool and
+        leaves it open. One per example, plus one for every example shrinking
+        replays, is a pile of open SQLite handles and a temporary directory
+        each that nothing ever removes -- forty of them in an ordinary run.
+
+        POSIX does not mind, which is why this went unnoticed. Windows will not
+        delete a file that is open, and the worker running this test is the one
+        that died there.
+        """
         # A run of zero steps never reaches `@initialize`, and an AttributeError
         # escaping teardown is reported as a flaky strategy rather than as what
         # it is.
-        if hasattr(self, "db"):
-            self.db.close()
+        if not hasattr(self, "db"):
+            return
+        self.db.close()
+        self.engine.dispose()
+        # Errors ignored on purpose: a directory that will not go is worth
+        # neither failing the example nor reporting as flakiness.
+        shutil.rmtree(self.directory, ignore_errors=True)
 
     # -- the passage of time -----------------------------------------------
 
@@ -272,4 +291,19 @@ examples of forty steps is about six seconds and covers the interleavings that
 matter; five thousand is a quarter of an hour and covers the same ones again.
 Depth per example is worth more here than breadth across them, which is what
 `stateful_step_count` buys.
+"""
+
+TestTimesheetModel.pytestmark = [pytest.mark.timeout(300)]
+"""A budget of its own, because the global one is not meant for this test.
+
+`--timeout=120` in `addopts` is sized for tests that take milliseconds, and it
+is enforced by a thread that calls `os._exit` when it fires. Under xdist that
+kills the worker outright, which is reported as "node down: Not properly
+terminated" against whichever test it was running rather than as a timeout.
+
+This test is two seconds here and roughly twenty on a Windows runner, and a
+failure makes it far longer than that: shrinking replays the example many times
+over. Sitting that close to the limit meant the seed decided whether the run
+passed. Five minutes is still a bound, and a genuine hang is caught by the
+job's own twenty-five.
 """
