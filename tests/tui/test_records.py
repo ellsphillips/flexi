@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from sqlalchemy import event
+from textual.pilot import Pilot
 from textual.widgets import Input, RadioSet
 
 from flexi.app import FlexiApp
@@ -15,6 +16,7 @@ from flexi.components.progress import ProgressRail, TimeProgress
 from flexi.constants import AbsenceType
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
+from tests.conftest import settled
 from tests.tui.conftest import (
     WIDE,
     AppFactory,
@@ -42,13 +44,19 @@ def absence_key(app: FlexiApp, when: date) -> str:
     return f"{ABSENCE}{booked[0].id}"
 
 
-def prefilled(app: FlexiApp) -> tuple[date, AbsenceType]:
+async def prefilled(app: FlexiApp, pilot: Pilot[None]) -> tuple[date, AbsenceType]:
     """The day and the type the booking dialog arrived already holding.
 
     Read off the fields somebody is about to press enter on rather than the
     arguments the modal was constructed with: the whole promise of a pre-filled
     dialog is that what it shows is what it will book.
+
+    Settled first, and inside the helper rather than at each call site. The
+    modal chooses its type in work deferred to after its first layout, so a
+    `pause` returns with the dialog mounted and nothing pressed on it -- which
+    on a loaded Windows runner is what the assertion saw.
     """
+    await settled(pilot)
     modal = showing(app, AbsenceModal)
     when = date.fromisoformat(modal.query_one("#absence-date", Input).value)
     pressed = modal.query_one("#absence-type", RadioSet).pressed_button
@@ -237,7 +245,7 @@ async def test_a_books_an_absence_on_the_day_under_the_cursor(
         await pilot.press("a")
         await pilot.pause()
 
-        assert prefilled(app) == (date(2026, 6, 10), AbsenceType.ANNUAL)
+        assert await prefilled(app, pilot) == (date(2026, 6, 10), AbsenceType.ANNUAL)
 
 
 async def test_a_on_a_row_that_names_no_day_falls_back_to_the_period(
@@ -260,7 +268,7 @@ async def test_a_on_a_row_that_names_no_day_falls_back_to_the_period(
         await pilot.press("a")
         await pilot.pause()
 
-        when, _ = prefilled(app)
+        when, _ = await prefilled(app, pilot)
         assert when == dashboard(app).period.anchor
 
 
@@ -280,7 +288,10 @@ async def test_the_wallet_asks_the_screen_to_open_the_booking(
         app.screen.query_one(WalletModule).post_message(BookRequested(AbsenceType.SICK))
         await pilot.pause()
 
-        assert prefilled(app) == (dashboard(app).period.anchor, AbsenceType.SICK)
+        assert await prefilled(app, pilot) == (
+            dashboard(app).period.anchor,
+            AbsenceType.SICK,
+        )
 
 
 # -- deleting from a row ---------------------------------------------------

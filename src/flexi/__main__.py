@@ -214,7 +214,15 @@ def _run_demo() -> None:
     from flexi.models.database.db import Base
     from flexi.services.samples import seed_demo
 
-    with tempfile.TemporaryDirectory(prefix="flexi-demo-") as directory:
+    # `ignore_cleanup_errors`, because the last thing a demo may do is fail to
+    # tidy up after itself. Flexi asks GOV.UK and PyPI from worker threads, and
+    # one still finishing as the application closes will have reopened the
+    # database -- which Windows then refuses to delete, so quitting the demo
+    # ended in a PermissionError traceback rather than a prompt. The file is a
+    # throwaway in the system temporary directory either way.
+    with tempfile.TemporaryDirectory(
+        prefix="flexi-demo-", ignore_cleanup_errors=True
+    ) as directory:
         path = Path(directory) / "demo.db"
         engine = create_db_engine(path)
         Base.metadata.create_all(engine)
