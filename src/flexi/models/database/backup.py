@@ -5,11 +5,20 @@ terminal mid-write, the copy can be torn -- and a torn copy is worse than no
 copy, because it is the artefact somebody is told they can fall back on.
 ``sqlite3.Connection.backup`` takes a consistent snapshot through the database
 engine instead, and it works while the source is in use.
+
+Every connection here is wrapped in :func:`contextlib.closing`. ``with
+sqlite3.connect(...)`` alone is a transaction, not a handle: it commits on the
+way out and leaves the connection open. POSIX lets you delete a file somebody
+still has open, so nothing ever showed -- and then ``flexi init`` on Windows
+took the snapshot, verified it, and raised ``PermissionError: the process
+cannot access the file because it is being used by another process`` on the
+line that removes the database.
 """
 
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -35,7 +44,10 @@ def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
         target = directory / f"{prefix}{source.stem}_{stamp}_{attempt}.bak"
         attempt += 1
 
-    with sqlite3.connect(source) as origin, sqlite3.connect(target) as copy:
+    with (
+        closing(sqlite3.connect(source)) as origin,
+        closing(sqlite3.connect(target)) as copy,
+    ):
         origin.backup(copy)
     return target
 
@@ -43,7 +55,9 @@ def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
 def verify(backup: Path) -> bool:
     """The copy opens, passes an integrity check, and carries a stamp."""
     try:
-        with sqlite3.connect(f"file:{backup}?mode=ro", uri=True) as connection:
+        with closing(
+            sqlite3.connect(f"{backup.absolute().as_uri()}?mode=ro", uri=True)
+        ) as connection:
             ok = connection.execute("PRAGMA integrity_check").fetchone()
             if not ok or ok[0] != "ok":
                 return False

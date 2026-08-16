@@ -18,6 +18,8 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Final
 
+from flexi.domain.format import stamp
+
 DAYS_IN_WEEK: Final = 7
 MONTHS_IN_YEAR: Final = 12
 
@@ -128,9 +130,14 @@ def parse_span(
             start = parse_date(head, today=today, prefer=prefer)
             end = parse_date(tail, today=start, prefer=Preference.FORWARD)
             if end < start:
+                # Through `stamp`, not `{end:%-d %b %Y}`. `%-d` is a glibc and
+                # BSD extension: on Windows `strftime` raises `ValueError:
+                # Invalid format string`, so the message explaining a typo was
+                # itself a crash, and the one place it could happen was the
+                # line reporting somebody else's mistake.
                 msg = (
-                    f"That range runs backwards: {end:%-d %b %Y} "
-                    f"is before {start:%-d %b %Y}"
+                    f"That range runs backwards: {stamp(end, '%-d %b %Y')} "
+                    f"is before {stamp(start, '%-d %b %Y')}"
                 )
                 raise ValueError(msg)
             return start, end

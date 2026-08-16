@@ -20,6 +20,7 @@ person present to type the word.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -98,8 +99,16 @@ def describe(db_path: Path) -> Contents:
 
     counts: list[tuple[str, int]] = []
     try:
-        with sqlite3.connect(
-            f"file:{db_path}?mode=ro", uri=True, timeout=READ_TIMEOUT
+        # `closing`, not the bare connection: `with sqlite3.connect(...)` is a
+        # transaction and leaves the handle open, and this runs immediately
+        # before the reset that deletes the file. Windows refuses to delete a
+        # file anything still has open.
+        with closing(
+            sqlite3.connect(
+                f"{db_path.absolute().as_uri()}?mode=ro",
+                uri=True,
+                timeout=READ_TIMEOUT,
+            )
         ) as connection:
             # Ask whether the file is a database at all before asking what is
             # in it. "not a database" and "no such table" both arrive as

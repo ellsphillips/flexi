@@ -158,13 +158,15 @@ jobs:
         # any of that.
         os: [ubuntu-latest, windows-latest]
     env:
-      # uv puts the interpreter under `bin` on POSIX and `Scripts` on Windows.
+      # uv puts the interpreter under `bin` on POSIX and `Scripts` on Windows,
+      # and on Windows it is only found by its `.exe`: `uv pip install --python
+      # .probe/Scripts/python` answers "no virtual environment found".
       # Relative, and inside the workspace: bash on Windows rewrites absolute
       # POSIX paths on the way to a native binary, and a venv the job cannot
       # name afterwards is a job that skips itself. A src layout is what keeps
       # this honest -- the checkout is the working directory and `flexi` is
       # still only importable from the wheel.
-      PROBE: ${{ matrix.os == 'windows-latest' && '.probe/Scripts/python' || '.probe/bin/python' }}
+      PROBE: ${{ matrix.os == 'windows-latest' && '.probe/Scripts/python.exe' || '.probe/bin/python' }}
     defaults:
       run:
         # bash on both, so the glob below is one command rather than two.
