@@ -2,14 +2,14 @@
 
 A terminal app for people on flexitime. It records when you were on the clock, works out how far ahead or behind your contracted hours you are, and keeps track of what is left in your leave.
 
-[![version](https://shieldcn.dev/badge/version-0.1.0-00AAAD.svg?variant=outline)](https://pypi.org/project/flexi/)
-[![python](https://shieldcn.dev/badge/python-3.12_|_3.13-00AAAD.svg?logo=python&variant=outline)](https://www.python.org)
+[![version](https://shieldcn.dev/badge/version-0.2.0-00AAAD.svg?variant=outline)](https://pypi.org/project/flexi/)
+[![python](https://shieldcn.dev/badge/python-3.12_|_3.13_|_3.14-00AAAD.svg?logo=python&variant=outline)](https://www.python.org)
 [![textual](https://shieldcn.dev/badge/tui-textual-00AAAD.svg?logo=textual&variant=outline)](https://textual.textualize.io)
 [![sqlite](https://shieldcn.dev/badge/storage-sqlite-00AAAD.svg?logo=sqlite&variant=outline)](https://www.sqlite.org)
 [![uv](https://shieldcn.dev/badge/packaging-uv-00AAAD.svg?logo=uv&variant=outline)](https://docs.astral.sh/uv/)
 
 [![ci](https://shieldcn.dev/github/ci/ellsphillips/flexi.svg?variant=outline)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
-[![tests](https://shieldcn.dev/badge/tests-722_passing-2E9E52.svg?logo=pytest)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
+[![tests](https://shieldcn.dev/badge/tests-passing-2E9E52.svg?logo=pytest)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
 [![mypy](https://shieldcn.dev/badge/mypy-strict-2E9E52.svg)](https://mypy-lang.org)
 [![ruff](https://shieldcn.dev/badge/ruff-select_ALL-2E9E52.svg?logo=ruff)](https://github.com/astral-sh/ruff)
 [![licence](https://shieldcn.dev/badge/licence-MIT-2E9E52.svg)](LICENSE)
@@ -69,7 +69,7 @@ Your balance week by week, annual leave against the pace you would need to use i
 
 ## Installation
 
-Python 3.12 or later. Tested on macOS and Linux.
+Python 3.12, 3.13 or 3.14. Tested on macOS, Linux and Windows — every release runs the suite on all three, in two timezones, on all three interpreters.
 
 <details open>
     <summary><b>Recommended: with uv</b></summary>
@@ -84,6 +84,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 
 # install flexi, then run it
+uv tool install flexi
+flexi
+```
+
+On Windows, in PowerShell:
+
+```powershell
+# install uv, if you do not have it
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# open a new terminal, then
 uv tool install flexi
 flexi
 ```
@@ -131,7 +142,7 @@ uv run flexi
 
 </details>
 
-Flexi draws with box-drawing and block characters. [Ghostty](https://ghostty.org), [WezTerm](https://wezterm.org), [Kitty](https://sw.kovidgoyal.net/kitty/) and [Alacritty](https://alacritty.org) all render it as shown above. macOS Terminal.app works, but its colours are flatter than the screenshots.
+Flexi draws with box-drawing and block characters. [Ghostty](https://ghostty.org), [WezTerm](https://wezterm.org), [Kitty](https://sw.kovidgoyal.net/kitty/) and [Alacritty](https://alacritty.org) all render it as shown above. macOS Terminal.app works, but its colours are flatter than the screenshots. On Windows use [Windows Terminal](https://aka.ms/terminal), which ships with Windows 11 — the old `conhost` console has no truecolour and draws the strips in approximations.
 
 ## First run
 
@@ -203,7 +214,15 @@ One SQLite file, migrated forward on launch with a backup taken first:
 ~/.config/flexi/config.yaml         # keybindings and defaults
 ```
 
-`XDG_DATA_HOME` and `XDG_CONFIG_HOME` are honoured if you set them. On Windows, Flexi uses `%LOCALAPPDATA%` and `%APPDATA%` instead.
+On Windows:
+
+```
+%LOCALAPPDATA%\flexi\db.db          # your records
+%LOCALAPPDATA%\flexi\backups\       # the last ten, taken before each migration
+%APPDATA%\flexi\config.yaml         # keybindings and defaults
+```
+
+`XDG_DATA_HOME` and `XDG_CONFIG_HOME` are honoured wherever they are set, including on Windows.
 
 Two network calls are made, both optional and both silent on failure: bank holidays from GOV.UK, cached for a week, and a version check against PyPI. Your records never leave the machine.
 
@@ -223,7 +242,7 @@ cd flexi
 uv sync
 uv run pre-commit install
 
-uv run pytest -q                    # 722 tests, about twelve seconds
+uv run pytest -q                    # the suite, about half a minute
 uv run mypy                         # strict, over src and tests
 uv run ruff check
 uv run python scripts/shoot.py      # regenerate the screenshots above

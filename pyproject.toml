@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flexi"
-version = "0.1.0"
+version = "0.2.0"
 description = "A terminal application for tracking flexitime."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,6 +17,7 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

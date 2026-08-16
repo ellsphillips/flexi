@@ -366,7 +366,7 @@ def leave(
     yes: bool,
     dry_run: bool,
 ) -> None:
-    r"""Book or cancel leave without opening the application.
+    """Book or cancel leave without opening the application.
 
     \b
     flexi leave annual friday
@@ -376,7 +376,7 @@ def leave(
     flexi leave cancel next monday
 
     The plan is shown before anything is written.
-    """
+    """  # noqa: D301 - the \b is Click's, and a raw string breaks it
     from flexi.cli import leave as leave_cli
 
     services = handles_of(ctx).services
