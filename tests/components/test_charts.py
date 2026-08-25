@@ -446,7 +446,7 @@ def test_days_are_grouped_into_weeks_that_begin_on_a_monday() -> None:
         day(MONDAY + timedelta(days=3), effect=timedelta(hours=2)),
         day(MONDAY + timedelta(days=7), effect=-timedelta(hours=1)),
     ]
-    assert week_columns(ledgers) == [
+    assert week_columns(ledgers, first_weekday=0) == [
         Column(label="2", value=3.0, readout="+3:00"),
         Column(label="9", value=-1.0, readout="−1:00"),
     ]
@@ -455,7 +455,7 @@ def test_days_are_grouped_into_weeks_that_begin_on_a_monday() -> None:
 def test_a_week_is_dated_by_its_monday_even_when_it_starts_midweek() -> None:
     """The demo data starts on a Wednesday, and the bar it lands in is that week's."""
     wednesday = MONDAY + timedelta(days=2)
-    assert week_columns([day(wednesday)])[0].label == "2"
+    assert week_columns([day(wednesday)], first_weekday=0)[0].label == "2"
 
 
 def test_an_absence_still_lands_in_its_week() -> None:
@@ -465,7 +465,7 @@ def test_an_absence_still_lands_in_its_week() -> None:
         absences=(AbsenceSlice(1, AbsenceType.ANNUAL, Portion.FULL),),
         effect=-CONTRACTED,
     )
-    assert week_columns([booked])[0].value == pytest.approx(-7.4)
+    assert week_columns([booked], first_weekday=0)[0].value == pytest.approx(-7.4)
 
 
 # -- an arm is a distance from the baseline, never a value -----------------

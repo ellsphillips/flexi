@@ -62,7 +62,9 @@ class BalanceHistory(Module):
             self.set_subtitle("not started")
             return
         ledgers = self.services.ledger.days(period.start, end, now=self.now)
-        self.query_one("#balance-bars", DivergingBars).show(week_columns(ledgers))
+        self.query_one("#balance-bars", DivergingBars).show(
+            week_columns(ledgers, first_weekday=period.first_weekday)
+        )
         total = self.services.ledger.summary(period.start, end, now=self.now)
         self.set_subtitle(f"{delta(total.delta)} to {day_month(end)}")
 

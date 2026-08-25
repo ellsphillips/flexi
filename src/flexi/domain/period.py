@@ -64,7 +64,7 @@ class Period:
             case Granularity.DAY:
                 return self.anchor
             case Granularity.WEEK:
-                return week_start(self.anchor, self.first_weekday)
+                return week_start(self.anchor, first_weekday=self.first_weekday)
             case Granularity.MONTH:
                 return self.anchor.replace(day=1)
             case Granularity.YEAR:  # pragma: no branch

@@ -385,16 +385,24 @@ class YearHeatmap(Widget):
         return text
 
 
-def week_columns(ledgers: list[DayLedger]) -> list[Column]:
-    """Group a run of days into one bar per week, for :class:`DivergingBars`."""
+def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column]:
+    """Group a run of days into one bar per week, for :class:`DivergingBars`.
+
+    ``first_weekday`` because these bars sit on the same screen as a calendar
+    drawn from it. Taking the default, they bucketed on Mondays and labelled
+    each bar with a Monday's date while everything else on the configuration
+    started the week on Sunday.
+    """
     buckets: defaultdict[date, timedelta] = defaultdict(timedelta)
     for ledger in ledgers:
-        buckets[week_start(ledger.date)] += ledger.balance_effect
+        buckets[week_start(ledger.date, first_weekday=first_weekday)] += (
+            ledger.balance_effect
+        )
     return [
         Column(
-            label=str(monday.day),
+            label=str(week.day),
             value=total.total_seconds() / 3600,
             readout=delta(total),
         )
-        for monday, total in sorted(buckets.items())
+        for week, total in sorted(buckets.items())
     ]

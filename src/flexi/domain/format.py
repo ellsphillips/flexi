@@ -11,6 +11,27 @@ ZERO = "0:00"
 
 SECONDS_PER_MINUTE = 60
 
+LEVEL = timedelta(minutes=1)
+"""Below this, a balance is neither a surplus nor a deficit.
+
+Every figure here is drawn in whole minutes, so anything smaller has no digit
+to appear in -- and a sign on a figure that reads `0:00` claims a direction the
+number does not show."""
+
+
+def is_level(value: timedelta) -> bool:
+    """True when a duration is too small for the minute these figures show.
+
+    Examples:
+        >>> is_level(timedelta(seconds=-30))
+        True
+        >>> is_level(timedelta())
+        True
+        >>> is_level(timedelta(minutes=-1))
+        False
+    """
+    return abs(value) < LEVEL
+
 
 def hm(value: timedelta) -> str:
     """A duration as ``h:mm``, unsigned, rounding toward zero.
@@ -37,7 +58,12 @@ def hms(value: timedelta) -> str:
 
 
 def delta(value: timedelta) -> str:
-    """A signed duration. Zero carries no sign, because it is not a small surplus.
+    """A signed duration. Level carries no sign, because it is not a small surplus.
+
+    Anything under a minute counts as level. It used to be tested for exact
+    zero and rendered through `hm`, which truncates, so forty seconds of
+    deficit drew as `−0:00` -- a minus sign in front of a figure showing
+    nothing, and a red one, since the colour is chosen from the same value.
 
     Examples:
         >>> delta(timedelta(minutes=48))
@@ -46,11 +72,12 @@ def delta(value: timedelta) -> str:
         '−4:14'
         >>> delta(timedelta())
         '0:00'
+        >>> delta(timedelta(seconds=-30))
+        '0:00'
     """
-    total = int(value.total_seconds())
-    if total == 0:
+    if is_level(value):
         return ZERO
-    return f"{'+' if total > 0 else MINUS}{hm(value)}"
+    return f"{'+' if value > timedelta() else MINUS}{hm(value)}"
 
 
 def digits(value: timedelta) -> str:
@@ -61,11 +88,12 @@ def digits(value: timedelta) -> str:
         '-10:50'
         >>> digits(timedelta(hours=12, minutes=40))
         '+12:40'
+        >>> digits(timedelta(seconds=-30))
+        '0:00'
     """
-    total = int(value.total_seconds())
-    if total == 0:
+    if is_level(value):
         return ZERO
-    return f"{'+' if total > 0 else '-'}{hm(value)}"
+    return f"{'+' if value > timedelta() else '-'}{hm(value)}"
 
 
 def stamp(when: date, pattern: str) -> str:

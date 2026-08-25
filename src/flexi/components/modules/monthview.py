@@ -197,5 +197,5 @@ def _month_grid(first_of_month: date, first_weekday: int = 0) -> list[date]:
     and one week of the period straddled two rows of the grid, so fourteen days
     were highlighted as "this week" under headings that said Monday.
     """
-    start = week_start(first_of_month, first_weekday)
+    start = week_start(first_of_month, first_weekday=first_weekday)
     return [start + timedelta(days=offset) for offset in range(WEEKS * DAYS_IN_WEEK)]

@@ -373,20 +373,24 @@ def add_months(when: date, count: int) -> date:
     return leaveyear.clamp(year, month + 1, when.day)
 
 
-def week_start(when: date, first_weekday: int = 0) -> date:
+def week_start(when: date, *, first_weekday: int) -> date:
     """The first day of the week ``when`` falls in.
 
-    One question with one answer. It was worked out in five places, and two of
-    them -- the dashboard's month grid and its column headings -- assumed Monday
-    while the period beside them honoured the configured first day, so a
-    Sunday-first week tinted two rows of a Monday-first grid.
+    One question with one answer. It was worked out in five places, and the two
+    that assumed Monday -- the dashboard's month grid and the insights bars --
+    sat beside widgets honouring the configured first day, so a Sunday-first
+    week tinted two rows of one grid and bucketed the other a day out.
+
+    ``first_weekday`` is required, and keyword-only, for that reason: it is a
+    setting somebody chose, and a default here is a caller quietly deciding
+    they know better.
 
     Examples:
-        >>> week_start(date(2026, 6, 11))
+        >>> week_start(date(2026, 6, 11), first_weekday=0)
         datetime.date(2026, 6, 8)
         >>> week_start(date(2026, 6, 11), first_weekday=6)
         datetime.date(2026, 6, 7)
-        >>> week_start(date(2026, 6, 8))
+        >>> week_start(date(2026, 6, 8), first_weekday=0)
         datetime.date(2026, 6, 8)
     """
     return when - timedelta(days=(when.weekday() - first_weekday) % DAYS_IN_WEEK)
