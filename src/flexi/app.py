@@ -194,7 +194,7 @@ class FlexiApp(TextualApp[None]):
             return
         board = self.dashboard()
         if name == "insights" and board is not None:
-            self._open(name, InsightsScreen(self.services, board.period))
+            self._open(name, InsightsScreen(board.period))
             return
         if name == "leave" and board is not None:
             self._open(name, LeaveScreen(self.services, board.period.anchor))

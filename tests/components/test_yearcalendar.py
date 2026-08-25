@@ -698,31 +698,6 @@ async def test_the_ends_of_a_calendar_with_no_year_in_it_are_nowhere() -> None:
         assert calendar.selection == where
 
 
-async def test_a_move_is_announced_and_a_quiet_one_is_not() -> None:
-    """A move is announced, and a quiet one is not.
-
-    The rail beside the grid spells out what is booked on the selection and
-    redraws on nothing but this message, so a move that told nobody would leave
-    the panel describing the day before. A screen restoring a cursor it saved is
-    not a move somebody made, which is what `notify` is for.
-    """
-    calendar = YearCalendar()
-    async with mounted(calendar) as pilot:
-        calendar.show(JUNE, JULY_END, {})
-        calendar.set_selection(Selection.at(date(2026, 6, 11)), notify=False)
-        await pilot.pause()
-        assert posted(pilot) == []
-
-        calendar.set_selection(Selection.at(date(2026, 6, 12)))
-        await pilot.pause()
-        assert [type(message) for message in posted(pilot)] == [
-            YearCalendar.SelectionChanged
-        ]
-        moved = posted(pilot)[0]
-        assert isinstance(moved, YearCalendar.SelectionChanged)
-        assert moved.selection.head == date(2026, 6, 12)
-
-
 # -- the mouse ---------------------------------------------------------------
 
 

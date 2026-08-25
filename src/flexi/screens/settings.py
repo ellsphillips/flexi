@@ -56,7 +56,6 @@ class SettingsScreen(Screen[bool]):
 
     def __init__(self, services: Services, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._services = services
         self._svc = services.settings
 
     def compose(self) -> ComposeResult:

@@ -17,7 +17,7 @@ from flexi.components.chrome import AppHeader
 from flexi.constants import DayKind, Granularity
 from flexi.domain.ledger import DayLedger
 from flexi.screens.insights import InsightsScreen
-from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
+from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
 CONTRACTED = timedelta(minutes=444)
 
@@ -234,23 +234,3 @@ async def test_cycling_the_period_re_labels_the_header_as_well_as_the_charts(
         insights = showing(app, InsightsScreen)
         assert insights.period.granularity is Granularity.DAY
         assert insights.query_one(AppHeader).context.endswith(insights.period.label)
-
-
-async def test_the_insights_screen_reports_through_the_shared_footer(
-    app_factory: AppFactory,
-) -> None:
-    """Every screen says things in the same place, so nobody has to look twice.
-
-    Insights has its own footer instance, and a screen that kept its messages
-    to itself would leave the status bar showing whatever the dashboard last
-    said.
-    """
-    app = app_factory()
-    async with app.run_test(size=(120, 44)) as pilot:
-        await pilot.press("f3")
-        await pilot.pause()
-
-        showing(app, InsightsScreen).status("Charted to today")
-        await pilot.pause()
-
-        assert status_text(app) == "Charted to today"

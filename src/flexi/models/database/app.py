@@ -40,8 +40,11 @@ def create_db_engine(db_path: Path | None = None) -> Engine:
     return engine
 
 
-def get_session(engine: Engine | None = None) -> Session:
-    """Create a new database session."""
-    if engine is None:
-        engine = create_db_engine()
+def get_session(engine: Engine) -> Session:
+    """A session on an engine somebody else owns and will dispose of.
+
+    The engine is required. Defaulted, it built one nobody held a reference to
+    and nobody disposed of -- and on Windows an undisposed engine keeps the
+    SQLite file open, which is what stops `flexi init` deleting it.
+    """
     return Session(engine)

@@ -215,7 +215,6 @@ class SetupScreen(Screen[bool]):
         self, services: Services, *, animate: bool = False, **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
-        self._services = services
         self._settings_svc = services.settings
         self._plays = animate
 

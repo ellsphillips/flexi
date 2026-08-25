@@ -200,12 +200,12 @@ class YearCalendar(ScrollView, can_focus=True):
 
     # -- the selection -----------------------------------------------------
 
-    def set_selection(self, selection: Selection, *, notify: bool = True) -> None:
+    def set_selection(self, selection: Selection) -> None:
+        """Move the cursor, keep it on screen, and say so."""
         self.selection = selection
         self.scroll_to_day(selection.head)
         self.refresh()
-        if notify:
-            self.post_message(self.SelectionChanged(selection))
+        self.post_message(self.SelectionChanged(selection))
 
     def action_move(self, days: int) -> None:
         self.set_selection(self.selection.move(days))

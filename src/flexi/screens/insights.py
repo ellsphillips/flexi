@@ -24,14 +24,13 @@ from flexi.components.charts import (
     week_columns,
 )
 from flexi.components.chrome import AppFooter, AppHeader
-from flexi.components.common import Tone, mark_width
+from flexi.components.common import mark_width
 from flexi.components.modules.base import Module
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
 from flexi.domain.format import day_month, delta, hm, short_date
 from flexi.domain.period import Period
 from flexi.messages import Scope
-from flexi.services.registry import Services
 
 RIBBON_DAYS = 21
 """Three weeks of strips. Enough to see a pattern, few enough to fit above the
@@ -157,9 +156,8 @@ class InsightsScreen(Screen[None]):
         Binding("escape", "back", "Back", show=True),
     ]
 
-    def __init__(self, services: Services, period: Period, **kwargs: Any) -> None:
+    def __init__(self, period: Period, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._services = services
         # Opens on the leave year rather than inheriting a week: a chart of one
         # week's four bars is a worse answer than the table it came from.
         self.period = period.zoom(Granularity.YEAR)
@@ -223,7 +221,3 @@ class InsightsScreen(Screen[None]):
         after the user had left it.
         """
         self.dismiss(None)
-
-    def status(self, message: str, tone: Tone = Tone.NEUTRAL) -> None:
-        for footer in self.query(AppFooter):
-            footer.set_status(message, tone)

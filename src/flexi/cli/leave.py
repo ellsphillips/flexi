@@ -90,9 +90,9 @@ def parse_request(words: tuple[str, ...]) -> Request:
     return Request(kind, portion, " ".join(rest))
 
 
-def render(plan: AbsencePlan, *, cancelling: bool = False) -> str:
+def render(plan: AbsencePlan) -> str:
     """The plan as a block somebody can check before agreeing to it."""
-    verb = "Cancelling" if cancelling else f"Booking {plan.absence_type.phrase}"
+    verb = f"Booking {plan.absence_type.phrase}"
     portion = "" if plan.portion is Portion.FULL else f" ({plan.portion.label.lower()})"
     lines = [f"{verb}{portion}"]
 
