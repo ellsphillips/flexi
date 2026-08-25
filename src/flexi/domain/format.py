@@ -109,6 +109,21 @@ def day_month(when: date) -> str:
     return stamp(when, "%-d %b")
 
 
+def month_title(year: int, month: int) -> str:
+    """A month named in full, with its year.
+
+    Through ``strftime`` like every other date here, rather than off a tuple of
+    the twelve names -- which was declared in two domain modules and indexed in
+    three, so a heading, a block title and a period label were the same sentence
+    assembled three times.
+
+    Examples:
+        >>> month_title(2026, 6)
+        'June 2026'
+    """
+    return f"{date(year, month, 1):%B %Y}"
+
+
 def clock(moment: datetime) -> str:
     """A wall-clock time.
 

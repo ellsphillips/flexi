@@ -25,10 +25,9 @@ from textual.strip import Strip
 from flexi import wallclock
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Portion
-from flexi.domain.dates import add_months
+from flexi.domain.dates import DAYS_IN_WEEK, add_months
 from flexi.domain.ledger import DayLedger
 from flexi.domain.stitch import (
-    DAYS_IN_WEEK,
     MonthBlock,
     Selection,
     stitch,

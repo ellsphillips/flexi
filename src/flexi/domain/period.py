@@ -11,29 +11,13 @@ today resets the anchor and not the granularity.
 from __future__ import annotations
 
 import calendar
-from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from enum import StrEnum
 
 from flexi.domain import leaveyear
-from flexi.domain.dates import add_months
-from flexi.domain.format import day_month, long_date
-
-MONTH_NAMES = (
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-)
+from flexi.domain.dates import add_months, days_between, week_start
+from flexi.domain.format import day_month, long_date, month_title
 
 
 class Granularity(StrEnum):
@@ -104,8 +88,7 @@ class Period:
             case Granularity.DAY:
                 return self.anchor
             case Granularity.WEEK:
-                back = (self.anchor.weekday() - self.first_weekday) % 7
-                return self.anchor - timedelta(days=back)
+                return week_start(self.anchor, self.first_weekday)
             case Granularity.MONTH:
                 return self.anchor.replace(day=1)
             case Granularity.YEAR:  # pragma: no branch
@@ -136,12 +119,9 @@ class Period:
         month, day = self.year_start
         return leaveyear.start_of(self.anchor, month, day)
 
-    def days(self) -> Iterator[date]:
+    def days(self) -> list[date]:
         """Every date in the span, in order."""
-        current, last = self.start, self.end
-        while current <= last:
-            yield current
-            current += timedelta(days=1)
+        return days_between(self.start, self.end)
 
     def __len__(self) -> int:
         return (self.end - self.start).days + 1
@@ -201,7 +181,7 @@ class Period:
             case Granularity.WEEK:
                 return f"Week of {day_month(self.start)}"
             case Granularity.MONTH:
-                return f"{MONTH_NAMES[self.anchor.month - 1]} {self.anchor.year}"
+                return month_title(self.anchor.year, self.anchor.month)
             case Granularity.YEAR:  # pragma: no branch
                 start = self._year_start()
                 if self.year_start == (1, 1):

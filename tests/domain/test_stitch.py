@@ -2,8 +2,8 @@ from datetime import date, timedelta
 
 import pytest
 
+from flexi.domain.dates import DAYS_IN_WEEK
 from flexi.domain.stitch import (
-    DAYS_IN_WEEK,
     Selection,
     month_block,
     stitch,

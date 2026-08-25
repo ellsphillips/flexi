@@ -22,14 +22,11 @@ from flexi import wallclock
 from flexi.components.modules.base import Module
 from flexi.config import CONFIG
 from flexi.constants import DayKind
-from flexi.domain.dates import add_months
+from flexi.domain.dates import DAYS_IN_WEEK, add_months, week_start
+from flexi.domain.format import month_title
 from flexi.domain.ledger import DayLedger
 from flexi.domain.period import Granularity, Period
-from flexi.domain.stitch import (
-    DAYS_IN_WEEK,
-    MONTH_NAMES,
-    weekday_initials,
-)
+from flexi.domain.stitch import weekday_initials
 from flexi.messages import DateSelected, Scope
 
 WEEKS = 6
@@ -104,7 +101,7 @@ class MonthView(Module):
         today = self.now.date()
 
         self.query_one("#calendar-label", Label).update(
-            f"{MONTH_NAMES[self._visible.month - 1]} {self._visible.year}"
+            month_title(self._visible.year, self._visible.month)
         )
 
         for index, when in enumerate(grid):
@@ -192,5 +189,5 @@ class MonthView(Module):
 
 def _month_grid(first_of_month: date) -> list[date]:
     """Six weeks of dates covering the month, Monday first."""
-    start = first_of_month - timedelta(days=first_of_month.weekday())
+    start = week_start(first_of_month)
     return [start + timedelta(days=offset) for offset in range(WEEKS * DAYS_IN_WEEK)]

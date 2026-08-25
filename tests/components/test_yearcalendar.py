@@ -41,8 +41,9 @@ from flexi.components.yearcalendar import (
 )
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, DayKind, Portion
+from flexi.domain.dates import DAYS_IN_WEEK
 from flexi.domain.ledger import AbsenceSlice, DayLedger
-from flexi.domain.stitch import DAYS_IN_WEEK, Selection
+from flexi.domain.stitch import Selection
 from flexi.theme import THEME_NAME, THEME_PATH, flexi_theme
 
 PACKAGE = THEME_PATH.parent.parent

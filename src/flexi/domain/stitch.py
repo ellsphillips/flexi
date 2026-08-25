@@ -11,28 +11,11 @@ can read a column of Mondays off.
 from __future__ import annotations
 
 import calendar
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from flexi.domain.format import long_date, short_date, stamp
-
-DAYS_IN_WEEK = 7
-MONTHS_IN_YEAR = 12
-MONTH_NAMES = (
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-)
+from flexi.domain.dates import add_months, days_between
+from flexi.domain.format import long_date, month_title, short_date, stamp
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +43,7 @@ class MonthBlock:
 
     @property
     def title(self) -> str:
-        return f"{MONTH_NAMES[self.month - 1]} {self.year}"
+        return month_title(self.year, self.month)
 
     @property
     def first(self) -> date:
@@ -89,18 +72,13 @@ def month_block(year: int, month: int, *, first_weekday: int = 0) -> MonthBlock:
     June's block and once in July's — would make a cursor ambiguous and a
     selection uncountable.
     """
-    first = date(year, month, 1)
-    length = calendar.monthrange(year, month)[1]
-    lead = (first.weekday() - first_weekday) % DAYS_IN_WEEK
-
-    cells: list[Cell] = [Cell(None)] * lead
-    cells += [Cell(date(year, month, day)) for day in range(1, length + 1)]
-    while len(cells) % DAYS_IN_WEEK:
-        cells.append(Cell(None))
-
+    # `monthdayscalendar` already pads both ends with 0 and hands back whole
+    # weeks rotated to `first_weekday`, which is the lead, the tail and the
+    # chunking this used to compute for itself in nine lines.
+    weeks = calendar.Calendar(first_weekday).monthdayscalendar(year, month)
     rows = tuple(
-        tuple(cells[index : index + DAYS_IN_WEEK])
-        for index in range(0, len(cells), DAYS_IN_WEEK)
+        tuple(Cell(date(year, month, day) if day else None) for day in week)
+        for week in weeks
     )
     return MonthBlock(year, month, rows)
 
@@ -113,10 +91,10 @@ def stitch(start: date, end: date, *, first_weekday: int = 0) -> list[MonthBlock
     have nowhere to be and the seam would land in the middle of a week.
     """
     blocks: list[MonthBlock] = []
-    year, month = start.year, start.month
-    while (year, month) <= (end.year, end.month):
-        blocks.append(month_block(year, month, first_weekday=first_weekday))
-        year, month = (year + 1, 1) if month == MONTHS_IN_YEAR else (year, month + 1)
+    first = start.replace(day=1)
+    while first <= end.replace(day=1):
+        blocks.append(month_block(first.year, first.month, first_weekday=first_weekday))
+        first = add_months(first, 1)
     return blocks
 
 
@@ -160,11 +138,9 @@ class Selection:
     def __contains__(self, when: object) -> bool:
         return isinstance(when, date) and self.start <= when <= self.end
 
-    def days(self) -> Iterator[date]:
-        current = self.start
-        while current <= self.end:
-            yield current
-            current += timedelta(days=1)
+    def days(self) -> list[date]:
+        """Every date the selection covers, in order."""
+        return days_between(self.start, self.end)
 
     def move(self, days: int) -> Selection:
         """Move the whole thing, collapsing it back to one day."""

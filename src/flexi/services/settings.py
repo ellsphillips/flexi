@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
-from flexi.domain.stitch import MONTHS_IN_YEAR
+from flexi.domain.dates import MONTHS_IN_YEAR
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
     DEFAULT_WINDOW_END,
