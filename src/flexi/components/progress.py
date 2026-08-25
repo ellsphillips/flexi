@@ -8,20 +8,17 @@ ten, and the clock on the wall does not know that.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 
 from rich.text import Text
 from textual.app import ComposeResult, RenderResult
 from textual.containers import Horizontal
 from textual.widget import Widget
 
+from flexi.components.common import MARKER, TRACK
 from flexi.domain.format import hm
 
-TRACK: Any = "━"
-FILL: Any = "━"
-EDGE: Any = "╺"
-OVER: Any = "┿"
-MIN_RAIL = 8
+MIN_RAIL: Final = 8
 
 
 class ProgressRail(Widget):
@@ -87,7 +84,7 @@ class ProgressRail(Widget):
         if share > 1.0:
             # The last cell becomes the overshoot mark rather than a longer bar:
             # a rail that grew past its own track would push the figures about.
-            glyphs[-1] = OVER
+            glyphs[-1] = MARKER
 
         # Glyphs first, then spans. Rebuilding a Text to swap a character drops
         # the base style, which leaves the unfilled track in the default

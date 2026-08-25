@@ -120,14 +120,5 @@ def load_config(path: Path | None = None) -> Config:
         return Config()
 
 
-def write_config(config: Config, path: Path | None = None) -> None:
-    """Write the config back, creating the directory if it is missing."""
-    path = path or config_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump(config.model_dump(), sort_keys=False), encoding="utf-8"
-    )
-
-
 CONFIG: Config = load_config()
 """The loaded config. Read at class-definition time by every ``BINDINGS`` list."""

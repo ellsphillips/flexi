@@ -449,28 +449,6 @@ class AbsenceService:
         """
         return self._session.get(AbsenceDay, absence_id)
 
-    def get_absence(self, day: date) -> AbsenceDay | None:
-        """The first absence on a date, or ``None``.
-
-        Kept for callers that only need to know whether the day is spoken for.
-        Anything drawing the day should use :meth:`for_date`, which can see both
-        halves.
-        """
-        found = self.for_date(day)
-        return found[0] if found else None
-
-    def has_absence(self, day: date) -> bool:
-        """True when anything at all is booked on the date."""
-        return bool(self.for_date(day))
-
-    def booked_days(self, day: date) -> float:
-        """How much of the date is booked, as a fraction of a working day."""
-        return sum(absence.portion.days for absence in self.for_date(day))
-
-    def is_fully_absent(self, day: date) -> bool:
-        """True when no part of the date is available to work."""
-        return self.booked_days(day) >= 1.0
-
     def in_range(self, start: date, end: date) -> list[AbsenceDay]:
         """Every absence between two dates, inclusive, in date order."""
         stmt = (
@@ -485,30 +463,26 @@ class AbsenceService:
     def count_days(
         self,
         absence_type: AbsenceType,
-        start: date | None = None,
-        end: date | None = None,
+        start: date,
+        end: date,
         *,
         valid_only: bool = False,
     ) -> float:
-        """How many *days* of a type were booked, counting a half as a half."""
-        rows = self._rows_of_type(absence_type, start, end, valid_only=valid_only)
-        return sum(row.portion.days for row in rows)
+        """How many *days* of a type were booked in a span, a half counting half.
 
-    def count_absences(
-        self,
-        absence_type: AbsenceType,
-        start: date | None = None,
-        end: date | None = None,
-        *,
-        valid_only: bool = False,
-    ) -> int:
-        """How many absence *rows* of a type exist in the range.
-
-        Distinct from :meth:`count_days`: two half-days are two occurrences and
-        one day. Sickness is worth reporting both ways, because "five occasions"
-        and "two and a half days" say very different things about a year.
+        ``valid_only`` drops markers on days the working pattern no longer
+        covers: an allowance is drawn against days that could be booked, while
+        the balance is drawn against days that were.
         """
-        return len(self._rows_of_type(absence_type, start, end, valid_only=valid_only))
+        stmt = select(AbsenceDay).where(
+            AbsenceDay.absence_type == absence_type,
+            AbsenceDay.date >= start,
+            AbsenceDay.date <= end,
+        )
+        rows = list(self._session.execute(stmt).scalars())
+        if valid_only:
+            rows = self._only_still_bookable(rows)
+        return sum(row.portion.days for row in rows)
 
     def tally(self, start: date, end: date) -> dict[AbsenceType, Tally]:
         """Days and occurrences of every type in a span, in one pass.
@@ -533,22 +507,6 @@ class AbsenceService:
             days[row.absence_type] += row.portion.days
         occurrences = Counter(row.absence_type for row in rows)
         return {kind: Tally(days[kind], occurrences[kind]) for kind in AbsenceType}
-
-    def _rows_of_type(
-        self,
-        absence_type: AbsenceType,
-        start: date | None,
-        end: date | None,
-        *,
-        valid_only: bool,
-    ) -> list[AbsenceDay]:
-        stmt = select(AbsenceDay).where(AbsenceDay.absence_type == absence_type)
-        if start is not None:
-            stmt = stmt.where(AbsenceDay.date >= start)
-        if end is not None:
-            stmt = stmt.where(AbsenceDay.date <= end)
-        rows = list(self._session.execute(stmt).scalars())
-        return self._only_still_bookable(rows) if valid_only else rows
 
     def _only_still_bookable(self, rows: list[AbsenceDay]) -> list[AbsenceDay]:
         """Drop markers whose date is no longer one leave could be booked on.
@@ -579,9 +537,7 @@ class AbsenceService:
         if entitlement is None:
             return None
         start, end = self.leave_year_bounds(ref)
-        booked = self.count_days(
-            AbsenceType.ANNUAL, start=start, end=end, valid_only=True
-        )
+        booked = self.count_days(AbsenceType.ANNUAL, start, end, valid_only=True)
         return entitlement - booked
 
     # -- writing -----------------------------------------------------------
@@ -825,35 +781,6 @@ class AbsenceService:
         # Distinct dates, in order: `in_range` orders by date, and a date
         # holding both halves is one date cleared, not two.
         return RangeResult(tuple(dict.fromkeys(row.date for row in rows)))
-
-    def change_type(
-        self,
-        day: date,
-        new_type: AbsenceType,
-        portion: Portion = Portion.FULL,
-        *,
-        note: str | None = None,
-    ) -> AbsenceResult:
-        """Change what an existing booking is recorded as."""
-        absence = next(
-            (booked for booked in self.for_date(day) if booked.portion is portion), None
-        )
-        if absence is None:
-            return AbsenceResult(False, "Nothing is booked for that part of the day")
-
-        if new_type.requires_note and not (note or absence.note or "").strip():
-            return AbsenceResult(False, "Other absence needs a note saying what it is")
-
-        if new_type.draws_down_entitlement and absence.absence_type is not new_type:
-            remaining = self.get_remaining_annual_leave(day)
-            if remaining is not None and remaining < portion.days:
-                return AbsenceResult(False, "Not enough annual leave for that change")
-
-        absence.absence_type = new_type
-        if note is not None:
-            absence.note = note
-        self._session.commit()
-        return AbsenceResult(True, f"Changed to {new_type.label}", absence)
 
     def remove(self, day: date, portion: Portion | None = None) -> AbsenceResult:
         """Remove one portion's booking, or everything booked on the date."""

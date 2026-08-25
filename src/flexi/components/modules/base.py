@@ -7,7 +7,7 @@ kinds of change are worth redrawing for. It never calls another module's
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from textual.widget import Widget
@@ -60,11 +60,6 @@ class Module(Static):
         """The span the dashboard is currently showing."""
         fallback = Period.containing(wallclock.today(), Granularity.WEEK)
         return cast(Period, getattr(self.screen, "period", fallback))
-
-    @property
-    def selected(self) -> date:
-        """The date the dashboard is anchored on."""
-        return self.period.anchor
 
     @property
     def now(self) -> datetime:

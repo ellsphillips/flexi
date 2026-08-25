@@ -32,6 +32,7 @@ from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import CACHE_MAX_AGE
 from flexi.services.registry import Services
 from flexi.services.samples import NOW
+from tests.conftest import sessions_on
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
 
 TODAY = date(2026, 6, 11)
@@ -248,7 +249,7 @@ async def test_the_clock_key_does_nothing_until_there_is_somewhere_to_clock(
         await pilot.press("slash")
         await pilot.pause()
 
-        assert app.services.clock.get_sessions_for_date(TODAY) == []
+        assert sessions_on(app.services.session, TODAY) == []
         showing(app, SetupScreen)
 
 

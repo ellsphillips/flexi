@@ -14,14 +14,7 @@ from datetime import date
 
 import pytest
 
-from flexi.domain.period import Granularity, Period
-from flexi.messages import (
-    DataChanged,
-    DateSelected,
-    PeriodChanged,
-    Scope,
-    StatusUpdate,
-)
+from flexi.messages import DataChanged, DateSelected, Scope
 
 # The two real subscriptions in the application, quoted rather than imported so
 # that a change to either has to be made deliberately in both places.
@@ -88,13 +81,6 @@ def test_a_scoped_change_carries_the_scope_it_was_given() -> None:
     assert DataChanged(Scope.ABSENCE).scope is Scope.ABSENCE
 
 
-def test_a_period_change_carries_the_span_that_was_moved_to() -> None:
-    """The screen redraws from the message, not by asking the sender back."""
-    period = Period(Granularity.WEEK, date(2025, 6, 2))
-
-    assert PeriodChanged(period).period == period
-
-
 def test_a_picked_date_arrives_under_a_name_that_is_not_the_argument() -> None:
     """`when` reads at the call site, `date` reads at the handler.
 
@@ -102,24 +88,3 @@ def test_a_picked_date_arrives_under_a_name_that_is_not_the_argument() -> None:
     Textual logs and swallows, so the calendar simply stops responding.
     """
     assert DateSelected(date(2025, 6, 2)).date == date(2025, 6, 2)
-
-
-def test_a_status_line_is_neutral_and_unpilled_unless_it_says_otherwise() -> None:
-    """Most of what a service says is ordinary.
-
-    Defaulting the tone means a caller has to reach for the alarming one on
-    purpose.
-    """
-    plain = StatusUpdate("Clocked in")
-
-    assert (plain.text, plain.tone, plain.pill) == ("Clocked in", "neutral", "")
-
-
-def test_a_status_line_carries_its_tone_and_its_pill() -> None:
-    spoken = StatusUpdate("Nothing to clock out of", tone="warning", pill="−1h 30m")
-
-    assert (spoken.text, spoken.tone, spoken.pill) == (
-        "Nothing to clock out of",
-        "warning",
-        "−1h 30m",
-    )

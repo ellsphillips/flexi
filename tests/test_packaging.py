@@ -35,7 +35,6 @@ is one name with a reason, not a hole in the rule.
 
 DATA_FILES = [
     "py.typed",
-    "static/welcome.md",
     "migrations/script.py.mako",
     "migrations/env.py",
 ]

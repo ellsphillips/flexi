@@ -8,19 +8,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from enum import StrEnum, auto
-
-
-class StatusOption(StrEnum):
-    """Actions for clocking in or out."""
-
-    ARRIVE = auto()
-    DEPART = auto()
-
-    @classmethod
-    def from_str(cls, action: str) -> StatusOption:
-        """The option named by a word or by its initial."""
-        return cls.ARRIVE if action.lower().startswith("a") else cls.DEPART
+from enum import StrEnum
 
 
 class Division(StrEnum):
@@ -218,8 +206,6 @@ _SPOKEN: dict[str, AbsenceType] = {
     "al": AbsenceType.ANNUAL,
     "leave": AbsenceType.ANNUAL,
 }
-
-LEAVE_WORDS: frozenset[str] = frozenset({*_SPOKEN, CANCEL_WORD})
 
 
 class Portion(enum.Enum):

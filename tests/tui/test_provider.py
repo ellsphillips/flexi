@@ -207,11 +207,11 @@ async def test_choosing_go_to_today_comes_home(app_factory: AppFactory) -> None:
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("right_square_bracket", "right_square_bracket")
         await pilot.pause()
-        assert not dashboard(app).period.is_current(TODAY)
+        assert not dashboard(app).period.contains(TODAY)
 
         await run_command(app, "Go to today")
         await pilot.pause()
-        assert dashboard(app).period.is_current(TODAY)
+        assert dashboard(app).period.contains(TODAY)
 
 
 async def test_choosing_go_to_date_opens_the_same_prompt_the_key_does(

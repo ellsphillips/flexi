@@ -9,7 +9,7 @@ else clears the cache, so a redraw provoked by a resize costs nothing.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -265,8 +265,3 @@ def _kind(
     if slices:
         return DayKind.PARTIAL
     return DayKind.WORKING
-
-
-def utc_now() -> datetime:
-    """The current moment, aware, for anything being written to the database."""
-    return datetime.now(tz=UTC)

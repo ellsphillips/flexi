@@ -10,7 +10,7 @@ produces, and each of them costs a hundredth of a second here.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import PurePath
 from typing import ClassVar
@@ -28,9 +28,18 @@ from flexi.components.expandable import (
     Row,
     RowGroup,
     day_key,
-    keys_of,
 )
 from flexi.theme import THEME_NAME, THEME_PATH, flexi_theme
+
+
+def keys_of(rows: Sequence[Row]) -> list[str]:
+    """The keys of a run of rows, in order.
+
+    A helper for reading assertions. It lived on the module it reads until
+    nothing in the application turned out to be calling it.
+    """
+    return [row.key for row in rows]
+
 
 PACKAGE = THEME_PATH.parent.parent
 
@@ -383,25 +392,6 @@ async def test_rows_arriving_before_the_columns_do_leave_the_cursor_unread() -> 
         await pilot.pause()
         assert table.row_count == 1
         assert table.cursor_key is None
-
-
-async def test_a_line_number_names_the_row_drawn_on_it_and_nothing_off_the_ends() -> (
-    None
-):
-    """A line number names the row drawn on it, and nothing off either end.
-
-    Jump badges are laid over the drawn lines, so an index past the last row has
-    to answer nothing rather than clamping onto the last row.
-    """
-    table = ExpandableTable()
-    async with mounted(table) as pilot:
-        await table_of(pilot, day(MONDAY, "morning"), day(TUESDAY))
-        table.toggle(day_key(MONDAY))
-        await pilot.pause()
-        assert table.key_at(1) == f"s-{MONDAY}-0"
-        assert table.key_at(2) == day_key(TUESDAY)
-        assert table.key_at(3) is None
-        assert table.key_at(-1) is None
 
 
 async def test_jumping_to_a_row_that_is_not_drawn_leaves_the_cursor_alone() -> None:

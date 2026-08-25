@@ -130,10 +130,6 @@ class Period:
         """True when ``moment`` falls inside the span."""
         return self.start <= moment <= self.end
 
-    def is_current(self, today: date) -> bool:
-        """True when the span contains ``today``."""
-        return self.contains(today)
-
     # -- movement ----------------------------------------------------------
 
     def shift(self, count: int) -> Period:
@@ -187,16 +183,3 @@ class Period:
                 if self.year_start == (1, 1):
                     return str(start.year)
                 return f"{start.year}/{str(start.year + 1)[-2:]}"
-
-    @property
-    def short_label(self) -> str:
-        """A form that fits a narrow subtitle."""
-        match self.granularity:
-            case Granularity.DAY:
-                return day_month(self.anchor)
-            case Granularity.WEEK:
-                return day_month(self.start)
-            case Granularity.MONTH:
-                return self.anchor.strftime("%b %Y")
-            case Granularity.YEAR:  # pragma: no branch
-                return self.label

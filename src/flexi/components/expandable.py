@@ -8,7 +8,7 @@ by index, because expanding a row above it would otherwise move it.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
@@ -170,11 +170,6 @@ class ExpandableTable(DataTable[RenderableType]):
             return None
         return None if key.value is None else str(key.value)
 
-    def key_at(self, index: int) -> str | None:
-        """The key of the row at an index, for jump targets."""
-        rows = self.visible_rows()
-        return rows[index].key if 0 <= index < len(rows) else None
-
     def focus_key(self, key: str) -> None:
         """Put the cursor on a row by key, if it is visible."""
         try:
@@ -258,8 +253,3 @@ class ExpandableTable(DataTable[RenderableType]):
 def day_key(iso: str) -> str:
     """The row key for a day."""
     return f"{DAY}{iso}"
-
-
-def keys_of(rows: Sequence[Row]) -> list[str]:
-    """The keys of a run of rows, for tests and jump targets."""
-    return [row.key for row in rows]

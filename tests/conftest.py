@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import os
 from collections.abc import Callable, Iterator
-from datetime import UTC
+from datetime import UTC, date
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -10,14 +10,14 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 from hypothesis import HealthCheck, settings
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 
 from flexi import wallclock
 from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base
+from flexi.models.database.db import Base, WorkSession
 from flexi.services import setup
 
 settings.register_profile(
@@ -268,3 +268,17 @@ def engine(tmp_path: Path) -> Engine:
 def session(engine: Engine) -> Iterator[Session]:
     with get_session(engine) as open_session:
         yield open_session
+
+
+def sessions_on(session: Session, when: date) -> list[WorkSession]:
+    """Every session that counts on a date, straight from the table.
+
+    `ClockService` used to carry this, and nothing in the application asked it:
+    a test asserting about `voided` or `auto_closed` is asking about rows, and
+    the ledger is what the application reads. The query belongs with the tests
+    that want it rather than on the service's public face.
+    """
+    stmt = select(WorkSession).where(
+        WorkSession.work_date == when, WorkSession.voided.is_(False)
+    )
+    return list(session.execute(stmt).scalars())

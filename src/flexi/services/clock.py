@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,10 +35,6 @@ class ClockResult:
     event: ClockEvent | None = None
     warning: str | None = None
     session: WorkSession | None = None
-
-
-DEFAULT_MINIMUM_SESSION = timedelta(seconds=60)
-"""Below this, a session is a slip of the finger rather than a minute of work."""
 
 
 class ClockService:
@@ -193,13 +189,6 @@ class ClockService:
             event=event,
             session=open_session,
         )
-
-    def get_sessions_for_date(self, work_date: date) -> list[WorkSession]:
-        """Every session that counts on a date. Voided ones are not sessions."""
-        stmt = select(WorkSession).where(
-            WorkSession.work_date == work_date, WorkSession.voided.is_(False)
-        )
-        return list(self._session.execute(stmt).scalars())
 
     def discard_short_sessions(self) -> list[WorkSession]:
         """Void every closed session already on record that is too short.

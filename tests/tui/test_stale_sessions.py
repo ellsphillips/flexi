@@ -32,6 +32,7 @@ from flexi.models.database.db import Base, ClockEvent, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.screens.dashboard import DashboardScreen
 from flexi.services.registry import Services
+from tests.conftest import sessions_on
 from tests.tui.conftest import WIDE, showing
 
 MONDAY = date(2026, 6, 8)
@@ -76,7 +77,7 @@ async def test_opening_the_application_closes_monday_at_its_own_evening(
             await pilot.pause()
             showing(app, DashboardScreen)
 
-            monday = app.services.clock.get_sessions_for_date(MONDAY)
+            monday = sessions_on(app.services.session, MONDAY)
             assert len(monday) == 1
             assert monday[0].clock_out_event is not None, "still running on Tuesday"
             assert monday[0].auto_closed is True
@@ -93,7 +94,7 @@ async def test_pressing_the_clock_key_starts_tuesday_rather_than_ending_monday(
             await pilot.press("slash")
             await pilot.pause()
 
-            monday = app.services.clock.get_sessions_for_date(MONDAY)
+            monday = sessions_on(app.services.session, MONDAY)
             assert len(monday) == 1
             assert monday[0].clock_out_event is not None
             worked = moment_of(monday[0].clock_out_event) - moment_of(
@@ -102,5 +103,5 @@ async def test_pressing_the_clock_key_starts_tuesday_rather_than_ending_monday(
             assert worked < timedelta(hours=24), f"Monday was recorded as {worked}"
             assert monday[0].auto_closed is True, "closed by the sweep, not by the key"
 
-            tuesday = app.services.clock.get_sessions_for_date(TUESDAY_TEN.date())
+            tuesday = sessions_on(app.services.session, TUESDAY_TEN.date())
             assert len(tuesday) == 1, "the key should have started a new day"

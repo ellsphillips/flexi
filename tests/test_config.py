@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from flexi.config import CONFIG, Config, Hotkeys, load_config, write_config
+from flexi.config import CONFIG, Config, Hotkeys, load_config
 from flexi.constants import AbsenceType
 
 
@@ -115,54 +115,6 @@ def test_what_the_file_says_is_what_is_used(tmp_path: Path) -> None:
 
 
 # -- writing it back ---------------------------------------------------------
-
-
-def test_the_config_directory_is_created_at_the_moment_it_is_written_to(
-    tmp_path: Path,
-) -> None:
-    """Nothing in `flexi.locations` creates a directory, by design.
-
-    `flexi --version` used to leave a config directory behind on a machine that
-    had never run the application, so the writer is the one that makes it.
-    """
-    path = tmp_path / "config" / "flexi" / "config.yaml"
-
-    write_config(Config(), path)
-
-    assert path.is_file()
-
-
-def test_a_written_config_reads_back_as_the_one_that_was_written(
-    tmp_path: Path,
-) -> None:
-    """A round trip, because the writer's output is the reader's input.
-
-    Writing a document `load_config` then rejects would silently reset
-    somebody's preferences the next time they started Flexi.
-    """
-    config = Config()
-    config.hotkeys.clock_toggle = "c"
-    config.defaults.period = "month"
-    path = tmp_path / "config.yaml"
-
-    write_config(config, path)
-
-    assert load_config(path) == config
-
-
-def test_with_no_path_given_both_ends_use_the_configured_location() -> None:
-    """The default argument is the whole point of the pair.
-
-    Every caller in the application omits the path, so a writer and a reader
-    that disagreed about where the file lives would look correct in every test
-    that passed one.
-    """
-    config = Config()
-    config.defaults.period = "year"
-
-    write_config(config)
-
-    assert load_config().defaults.period == "year"
 
 
 def test_the_module_level_config_is_the_one_the_bindings_read() -> None:

@@ -20,6 +20,7 @@ from textual.geometry import Offset
 from textual.message import Message
 from textual.widgets import Static
 
+from flexi.components.common import EmptyIndicator
 from flexi.components.expandable import (
     ABSENCE,
     DAY,
@@ -28,6 +29,7 @@ from flexi.components.expandable import (
     ExpandableTable,
     Row,
     RowGroup,
+    day_key,
 )
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.base import Module
@@ -106,9 +108,7 @@ class RecordsModule(Module):
 
     def compose(self) -> ComposeResult:
         yield ExpandableTable(id="records-table", zebra_stripes=False)
-        yield Static(
-            "No days in this period", id="records-empty", classes="empty-indicator"
-        )
+        yield EmptyIndicator("No days in this period", id="records-empty")
 
     def on_mount(self) -> None:
         self.query_one("#records-table", ExpandableTable).set_columns(*COLUMNS)
@@ -162,7 +162,7 @@ class RecordsModule(Module):
 
     def _group(self, ledger: DayLedger, window: object) -> RowGroup:
         parent = Row(
-            key=f"{DAY}{ledger.date.isoformat()}",
+            key=day_key(ledger.date.isoformat()),
             cells=(
                 self._day_cell(ledger),
                 render_strip(

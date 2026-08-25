@@ -80,9 +80,6 @@ class FlexiApp(TextualApp[None]):
     nav: Reactive[str] = reactive("dashboard", init=False)
     """Which destination is current, read by the nav bar when it composes."""
 
-    context_label: Reactive[str] = reactive("", init=False)
-    """The right-hand slot of the header: today's date and the shown period."""
-
     _jumping: Reactive[bool] = reactive(False, init=False, bindings=True)
     """True while the jump overlay is open."""
 

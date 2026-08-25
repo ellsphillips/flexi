@@ -239,7 +239,7 @@ async def test_a_module_takes_its_period_and_its_moment_from_the_screen(
     module = ClockModule()
     async with showing(module, flexi) as (_pilot, panel):
         assert module.period is panel.period
-        assert module.selected == THURSDAY
+        assert module.period.anchor == THURSDAY
         assert module.now == NOW
 
 

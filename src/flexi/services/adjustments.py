@@ -42,21 +42,6 @@ class AdjustmentService:
 
     # -- reading -----------------------------------------------------------
 
-    def up_to(self, as_of: date) -> timedelta:
-        """Every correction effective on or before ``as_of``, totalled."""
-        stmt = select(BalanceAdjustment).where(BalanceAdjustment.date <= as_of)
-        rows = self._session.execute(stmt).scalars()
-        return timedelta(minutes=sum(row.minutes for row in rows))
-
-    def in_range(self, start: date, end: date) -> list[BalanceAdjustment]:
-        """Corrections effective within a span, in date order."""
-        stmt = (
-            select(BalanceAdjustment)
-            .where(BalanceAdjustment.date >= start, BalanceAdjustment.date <= end)
-            .order_by(BalanceAdjustment.date, BalanceAdjustment.id)
-        )
-        return list(self._session.execute(stmt).scalars())
-
     def all(self) -> list[BalanceAdjustment]:
         """Every correction ever recorded, newest first."""
         stmt = select(BalanceAdjustment).order_by(

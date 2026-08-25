@@ -48,13 +48,6 @@ from flexi.screens.modals import (
 from flexi.services.outcome import Outcome
 from flexi.services.registry import Services
 
-GRANULARITY_KEYS = {
-    CONFIG.hotkeys.period_day: Granularity.DAY,
-    CONFIG.hotkeys.period_week: Granularity.WEEK,
-    CONFIG.hotkeys.period_month: Granularity.MONTH,
-    CONFIG.hotkeys.period_year: Granularity.YEAR,
-}
-
 JUMP_TARGETS = {
     "clock-module": "c",
     "balance-module": "b",

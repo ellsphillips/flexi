@@ -114,7 +114,7 @@ class WalletService:
         banked = self._ledger.balance(today).delta / contracted
         _, year_end = self._absence.leave_year_bounds(today)
         committed = self._absence.count_days(
-            AbsenceType.FLEXI, start=today + timedelta(days=1), end=year_end
+            AbsenceType.FLEXI, today + timedelta(days=1), year_end
         )
         return banked - committed
 

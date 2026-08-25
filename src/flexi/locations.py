@@ -22,8 +22,6 @@ CONFIG_FILENAME = "config.yaml"
 DATABASE_FILENAME = "db.db"
 BACKUPS_DIRNAME = "backups"
 
-STATIC_DIRECTORY = Path(__file__).parent / "static"
-
 
 def _absolute_from_env(variable: str) -> Path | None:
     """An absolute path from the environment, or ``None``.

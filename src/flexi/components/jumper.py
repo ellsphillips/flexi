@@ -45,7 +45,6 @@ class Jumper:
         extra: Callable[[], dict[Offset, JumpInfo]] | None = None,
     ) -> None:
         self.ids_to_keys = dict(ids_to_keys)
-        self.keys_to_ids = {key: widget_id for widget_id, key in ids_to_keys.items()}
         self.screen = screen
         self.extra = extra
         """Targets that are not widgets.

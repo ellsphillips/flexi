@@ -7,7 +7,7 @@ nothing at all.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time
 from unittest.mock import patch
 
 import pytest
@@ -142,21 +142,6 @@ class TestOpenSession:
         svc.clock_in()
         svc.clock_out()
         assert svc.is_clocked_in() is False
-
-
-class TestSessionsForDate:
-    def test_returns_sessions(self, svc: ClockService) -> None:
-        # A real session, with time in it. Clocking in and straight back out is
-        # a slip of the finger and is discarded — see test_short_sessions.py.
-        now = datetime.now(tz=UTC)
-        svc.clock_in(now=now)
-        svc.clock_out(now=now + timedelta(minutes=30))
-        sessions = svc.get_sessions_for_date(wallclock.today())
-        assert len(sessions) == 1
-
-    def test_empty_for_other_date(self, svc: ClockService) -> None:
-        svc.clock_in()
-        assert svc.get_sessions_for_date(date(2020, 1, 1)) == []
 
 
 class TestBankHolidayDivision:

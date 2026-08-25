@@ -13,8 +13,6 @@ from enum import Flag, auto
 
 from textual.message import Message
 
-from flexi.domain.period import Period
-
 
 class Scope(Flag):
     """What changed, so only the widgets that care redraw."""
@@ -40,27 +38,9 @@ class DataChanged(Message):
         self.scope = scope
 
 
-class PeriodChanged(Message):
-    """The temporal view moved to a different span."""
-
-    def __init__(self, period: Period) -> None:
-        super().__init__()
-        self.period = period
-
-
 class DateSelected(Message):
     """A single date was picked — from the calendar, or from a table row."""
 
     def __init__(self, when: date) -> None:
         super().__init__()
         self.date = when
-
-
-class StatusUpdate(Message):
-    """A service said something worth putting in the status bar."""
-
-    def __init__(self, text: str, *, tone: str = "neutral", pill: str = "") -> None:
-        super().__init__()
-        self.text = text
-        self.tone = tone
-        self.pill = pill

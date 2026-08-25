@@ -61,12 +61,12 @@ async def test_brackets_step_and_t_returns(app_factory: AppFactory) -> None:
         await pilot.pause()
         moved = dashboard(app).period
         assert moved.start == date(2026, 6, 22)
-        assert not moved.is_current(TODAY)
+        assert not moved.contains(TODAY)
 
         await pilot.press("t")
         await pilot.pause()
         home = dashboard(app).period
-        assert home.is_current(TODAY)
+        assert home.contains(TODAY)
         assert home.granularity is Granularity.WEEK
 
 

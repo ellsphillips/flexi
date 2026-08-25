@@ -15,6 +15,7 @@ from flexi.locations import database_file
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import Services
+from tests.conftest import sessions_on
 
 NOON = datetime(2026, 6, 10, 12, 0)
 """The clock these tests run against.
@@ -156,6 +157,6 @@ def test_the_work_records_are_untouched(home: Path) -> None:
     CliRunner().invoke(cli, ["balance", "zero", "--yes"])
     session = get_session(create_db_engine(home))
     try:
-        assert len(Services.build(session).clock.get_sessions_for_date(YESTERDAY)) == 1
+        assert len(sessions_on(session, YESTERDAY)) == 1
     finally:
         session.close()

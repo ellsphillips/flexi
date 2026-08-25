@@ -16,7 +16,7 @@ from flexi.components.progress import ProgressRail, TimeProgress
 from flexi.constants import AbsenceType
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
-from tests.conftest import settled
+from tests.conftest import sessions_on, settled
 from tests.tui.conftest import (
     WIDE,
     AppFactory,
@@ -382,7 +382,7 @@ async def test_x_on_a_worked_day_says_sessions_cannot_be_deleted_yet(
         await pilot.pause()
 
         assert status_text(app) == "Deleting sessions is not implemented yet"
-        assert app.services.clock.get_sessions_for_date(date(2026, 6, 10))
+        assert sessions_on(app.services.session, date(2026, 6, 10))
 
 
 async def test_x_where_there_is_nothing_to_delete_says_nothing(
