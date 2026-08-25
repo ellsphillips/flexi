@@ -12,8 +12,10 @@ already run.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from functools import cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 from textual.theme import Theme
@@ -45,10 +47,14 @@ _PALETTE_DECLARATION: Final = re.compile(
 # values as the PALETTE block; a mismatch here is a bug, and
 # `tests/test_theme.py` asserts the two agree.
 _FALLBACK: Final[dict[str, str]] = {
-    # The palette as it would be if the stylesheet could not be read. Five of
-    # these were also written out as literal `fallback=` arguments at call
-    # sites, where three were unreachable -- so the module that says there is
-    # "exactly one place where a colour is written down" had three.
+    # Every colour Python asks for by name. The other twenty-six declarations
+    # in the stylesheet are only ever read as `$c-...` from the stylesheet
+    # itself, which could not be read at all if it could not be parsed -- so a
+    # fallback for one of those would answer a question nobody could ask.
+    #
+    # Five of these were also written out as literal `fallback=` arguments at
+    # call sites, where three were unreachable, so the module that says there
+    # is "exactly one place where a colour is written down" had three.
     "c-ink": "#0F0E0D",
     "c-surface": "#171614",
     "c-raised": "#201E1B",
@@ -60,6 +66,7 @@ _FALLBACK: Final[dict[str, str]] = {
     "c-muted": "#9C948A",
     "c-accent": "#00AAAD",
     "c-accent-lift": "#4CDCDF",
+    "c-accent-deep": "#003031",
     "c-surplus": "#2E9E52",
     "c-deficit": "#CE3E5D",
     "c-warning": "#C38406",
@@ -67,22 +74,27 @@ _FALLBACK: Final[dict[str, str]] = {
 
 
 @cache
-def palette(path: Path = THEME_PATH) -> dict[str, str]:
+def palette(path: Path = THEME_PATH) -> Mapping[str, str]:
     """The `$c-*` colours declared at the top of ``flexi.tcss``.
 
     Cached because it is read once per process and the stylesheet does not
     change under a running application. A missing or unreadable file yields the
     fallback rather than raising: the CSS itself will fail loudly a moment
     later, and that error names the actual problem.
+
+    Read-only, because the cache means every caller is handed the same object.
+    Returned as a plain dict, one `palette()["c-ink"] = ...` would repaint the
+    application for the rest of the process -- and the module already knew,
+    which is why `theme_variables` copies before it adds to it.
     """
     try:
         source = path.read_text(encoding="utf-8")
     except OSError:
-        return dict(_FALLBACK)
+        return MappingProxyType(dict(_FALLBACK))
     found = {
         name: value.strip() for name, value in _PALETTE_DECLARATION.findall(source)
     }
-    return found or dict(_FALLBACK)
+    return MappingProxyType(found or dict(_FALLBACK))
 
 
 def colour(name: str, fallback: str = "#FF00FF") -> str:

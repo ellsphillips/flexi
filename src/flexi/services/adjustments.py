@@ -12,11 +12,12 @@ a reason, counted like any other term in the sum, and removable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.domain.format import stamp
 from flexi.models.database.db import BalanceAdjustment
 
@@ -69,7 +70,7 @@ class AdjustmentService:
             date=when,
             minutes=minutes,
             reason=reason.strip(),
-            created_at=datetime.now(tz=UTC).replace(tzinfo=None),
+            created_at=wallclock.utc_now().replace(tzinfo=None),
         )
         self._session.add(row)
         self._session.commit()

@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import UTC, datetime
 from pathlib import Path
 
+from flexi import wallclock
 from flexi.locations import backups_directory, ensure
 
 PROTECTED_PREFIX = "pre-init_"
@@ -36,7 +36,7 @@ def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
     reset does.
     """
     directory = ensure(backups_directory())
-    stamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+    stamp = wallclock.utc_now().strftime("%Y%m%dT%H%M%SZ")
     target = directory / f"{prefix}{source.stem}_{stamp}.bak"
 
     attempt = 2

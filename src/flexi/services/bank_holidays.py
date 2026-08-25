@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, timedelta
 
 import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import Division
 from flexi.models.database.db import BankHolidayCache
 
@@ -58,7 +59,7 @@ class BankHolidayService:
         row = self._session.execute(stmt).scalar_one_or_none()
         if row is None:
             return False
-        age = datetime.now(tz=UTC) - row.replace(tzinfo=UTC)
+        age = wallclock.utc_now() - row.replace(tzinfo=UTC)
         return age < CACHE_MAX_AGE
 
     # ---- fetch ----
@@ -75,7 +76,7 @@ class BankHolidayService:
 
         division = self.division
         events = data.get(division, {}).get("events", [])
-        now = datetime.now(tz=UTC).replace(tzinfo=None)
+        now = wallclock.utc_now().replace(tzinfo=None)
 
         # Clear old cache for this division
         self._session.execute(
