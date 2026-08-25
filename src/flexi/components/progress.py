@@ -15,7 +15,7 @@ from textual.app import ComposeResult, RenderResult
 from textual.containers import Horizontal
 from textual.widget import Widget
 
-from flexi.components.common import MARKER, TRACK
+from flexi.components.common import styled_track
 from flexi.domain.format import hm
 
 MIN_RAIL: Final = 8
@@ -44,8 +44,24 @@ class ProgressRail(Widget):
         self.total = timedelta()
         self.compact = False
 
-    def show(self, done: timedelta, total: timedelta, *, compact: bool = False) -> None:
+    def show(
+        self,
+        done: timedelta,
+        total: timedelta,
+        *,
+        label: str | None = None,
+        compact: bool = False,
+    ) -> None:
+        """Draw a reading, and relabel the rail if this one is named differently.
+
+        `label` here rather than assigned from outside: it is a plain attribute,
+        so `rail.label = x` changes nothing until something else calls
+        `refresh()`. `TimeProgress` did exactly that, and it only worked because
+        the `show()` on the next line redrew.
+        """
         self.done, self.total, self.compact = done, total, compact
+        if label is not None:
+            self.label = label
         self.refresh()
 
     @property
@@ -77,25 +93,23 @@ class ProgressRail(Widget):
         return f"{hm(self.done)} of {hm(self.total)}"
 
     def _bar(self, width: int) -> Text:
-        """The track, filled to the share, with anything past full called out."""
-        share = self.share
-        filled = min(width, max(0, round(min(share, 1.0) * width)))
-        glyphs = [TRACK] * width
-        if share > 1.0:
-            # The last cell becomes the overshoot mark rather than a longer bar:
-            # a rail that grew past its own track would push the figures about.
-            glyphs[-1] = MARKER
+        """The track, filled to the share, with anything past full called out.
 
-        # Glyphs first, then spans. Rebuilding a Text to swap a character drops
-        # the base style, which leaves the unfilled track in the default
-        # foreground — a bright line straight across the panel.
-        bar = Text("".join(glyphs))
-        bar.stylize(self.get_component_rich_style("rail--track"), 0, width)
-        if filled:
-            bar.stylize(self.get_component_rich_style("rail--fill"), 0, filled)
-        if share > 1.0:
-            bar.stylize(self.get_component_rich_style("rail--over"), width - 1, width)
-        return bar
+        The last cell becomes the overshoot mark rather than the bar growing:
+        a rail longer than its own track would push the figures about.
+        """
+        share = self.share
+        return styled_track(
+            width,
+            track=self.get_component_rich_style("rail--track"),
+            fill=self.get_component_rich_style("rail--fill"),
+            filled=min(width, max(0, round(min(share, 1.0) * width))),
+            mark=(
+                (width - 1, self.get_component_rich_style("rail--over"))
+                if share > 1.0
+                else None
+            ),
+        )
 
 
 class TimeProgress(Horizontal):
@@ -119,5 +133,6 @@ class TimeProgress(Horizontal):
         day.show(day_done, day_total, compact=compact)
 
         period = self.query_one("#rail-period", ProgressRail)
-        period.label = period_label.upper()
-        period.show(period_done, period_total, compact=compact)
+        period.show(
+            period_done, period_total, label=period_label.upper(), compact=compact
+        )
