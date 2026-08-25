@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import logging
-import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 
 from alembic import command
@@ -15,6 +13,7 @@ from alembic.script import ScriptDirectory
 import flexi
 from flexi.locations import backups_directory, database_file, ensure
 from flexi.models.database.app import create_db_engine
+from flexi.models.database.backup import PROTECTED_PREFIX, snapshot
 
 MAX_BACKUPS = 10
 
@@ -58,20 +57,22 @@ def _current_revision(db_path: Path) -> str | None:
 
 
 def backup_database(db_path: Path | None = None) -> Path | None:
-    """Create a timestamped backup under XDG data flexi/backups/.
+    """A snapshot taken before a migration, or ``None`` if there is nothing yet.
 
-    Returns the backup path, or None if the database does not exist.
+    Through `backup.snapshot`, which is the module that knows how to copy a
+    database that might be open. This used `shutil.copy2` -- the exact call
+    `backup.py`'s docstring names as the thing it exists to avoid -- so the copy
+    taken immediately before a schema change was the one copy in the
+    application that could be torn.
+
+    An empty prefix, so these age out under `_cleanup_old_backups`. The
+    prefixed ones are the reset snapshots, which never do.
     """
     if db_path is None:
         db_path = database_file()
     if not db_path.exists():
         return None
-
-    backup_dir = ensure(backups_directory())
-    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
-    backup_path = backup_dir / f"{db_path.stem}_{timestamp}.bak"
-    shutil.copy2(db_path, backup_path)
-    return backup_path
+    return snapshot(db_path, prefix="")
 
 
 def _cleanup_old_backups() -> None:
@@ -85,8 +86,6 @@ def _cleanup_old_backups() -> None:
     and ten routine migration backups would otherwise age one out inside a
     fortnight of ordinary upgrades.
     """
-    from flexi.models.database.backup import PROTECTED_PREFIX
-
     try:
         backup_dir = backups_directory()
         backups = sorted(
@@ -108,7 +107,7 @@ def run_migrations(db_path: Path | None = None) -> None:
     if db_path is None:
         db_path = database_file()
 
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure(db_path.parent)
 
     with alembic_config(db_path) as cfg:
         script_dir = ScriptDirectory.from_config(cfg)

@@ -9,11 +9,16 @@ from sqlalchemy.orm import Session
 from flexi.locations import database_file
 
 
-def _set_sqlite_pragma(
+def enforce_foreign_keys(
     dbapi_connection: Any,
     _connection_record: Any,
 ) -> None:
-    """Enable SQLite foreign key enforcement on every connection."""
+    """Enable SQLite foreign key enforcement on every connection.
+
+    Public, and named for what it does rather than for how: `migrations/env.py`
+    carried a byte-identical private copy, so the guarantee held on whichever
+    of the two connections the reader happened to look at.
+    """
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
@@ -31,7 +36,7 @@ def create_db_engine(db_path: Path | None = None) -> Engine:
     if db_path is None:
         db_path = database_file()
     engine = create_engine(URL.create("sqlite", database=str(db_path)))
-    event.listen(engine, "connect", _set_sqlite_pragma)
+    event.listen(engine, "connect", enforce_foreign_keys)
     return engine
 
 

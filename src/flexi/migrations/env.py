@@ -1,9 +1,9 @@
 from logging.config import fileConfig
-from typing import Any
 
 from alembic import context
 from sqlalchemy import engine_from_config, event, pool
 
+from flexi.models.database.app import enforce_foreign_keys
 from flexi.models.database.db import Base
 
 config = context.config
@@ -12,15 +12,6 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
-
-
-def _set_sqlite_pragma(
-    dbapi_connection: Any,
-    _connection_record: Any,
-) -> None:
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
 
 
 def run_migrations_offline() -> None:
@@ -59,7 +50,7 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    event.listen(connectable, "connect", _set_sqlite_pragma)
+    event.listen(connectable, "connect", enforce_foreign_keys)
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
