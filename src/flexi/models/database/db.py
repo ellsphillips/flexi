@@ -52,7 +52,9 @@ class Settings(Base):
     bank_holiday_division: Mapped[str] = mapped_column(String(30))
     auto_close_time: Mapped[str] = mapped_column(String(5))  # "HH:MM"
     contracted_minutes: Mapped[int] = mapped_column(
-        Integer(), default=DEFAULT_CONTRACTED_MINUTES, server_default="444"
+        Integer(),
+        default=DEFAULT_CONTRACTED_MINUTES,
+        server_default=str(DEFAULT_CONTRACTED_MINUTES),
     )
     day_window_start: Mapped[str] = mapped_column(
         String(5), default=DEFAULT_WINDOW_START, server_default=DEFAULT_WINDOW_START

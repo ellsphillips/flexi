@@ -18,7 +18,7 @@ from textual.message import Message
 from flexi.components.common import Gauge, Tone
 from flexi.components.modules.base import Module
 from flexi.constants import AbsenceType
-from flexi.domain.format import days, delta, signed_days
+from flexi.domain.format import days, delta, plural, signed_days
 from flexi.domain.wallet import Allowance, Pace, WalletData
 from flexi.messages import Scope
 
@@ -127,7 +127,7 @@ class WalletModule(Module):
             gauge.display = False
             return
         gauge.display = True
-        occasions = "occasion" if allowance.occurrences == 1 else "occasions"
+        occasions = plural(allowance.occurrences, "occasion")
         gauge.show(
             None,
             readout=f"{days(allowance.used)}d · {allowance.occurrences} {occasions}",

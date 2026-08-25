@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import ClockAction
+from flexi.constants import ClockAction, EventSource
+from flexi.domain.format import plural
 from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
-from flexi.models.database.moment import columns, moment_of
+from flexi.models.database.moment import moment_of, punched
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
@@ -22,8 +23,8 @@ def _readable(span: timedelta) -> str:
     seconds = int(span.total_seconds())
     if seconds % SECONDS_PER_MINUTE == 0 and seconds >= SECONDS_PER_MINUTE:
         minutes = seconds // SECONDS_PER_MINUTE
-        return f"{minutes} minute" + ("" if minutes == 1 else "s")
-    return f"{seconds} second" + ("" if seconds == 1 else "s")
+        return f"{minutes} {plural(minutes, 'minute')}"
+    return f"{seconds} {plural(seconds, 'second')}"
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ class ClockService:
         self,
         *,
         now: datetime | None = None,
-        source: str = "user",
+        source: EventSource = EventSource.USER,
     ) -> ClockResult:
         """Clock in. Rejects duplicate clock-in without creating audit rows."""
         self._run_stale_cleanup()
@@ -105,13 +106,7 @@ class ClockService:
                 success=False, message="Cannot clock in on an absence day"
             )
 
-        wall, offset = columns(moment)
-        event = ClockEvent(
-            action=ClockAction.IN,
-            timestamp=wall,
-            utc_offset_minutes=offset,
-            source=source,
-        )
+        event = punched(ClockAction.IN, moment, source=source)
         self._session.add(event)
         self._session.flush()
 
@@ -133,7 +128,7 @@ class ClockService:
         self,
         *,
         now: datetime | None = None,
-        source: str = "user",
+        source: EventSource = EventSource.USER,
     ) -> ClockResult:
         """Clock out. Rejects clock-out without an open session."""
         open_session = self.get_open_session()
@@ -141,13 +136,7 @@ class ClockService:
             return ClockResult(success=False, message="Not clocked in")
 
         moment = wallclock.local(now) if now is not None else wallclock.now()
-        wall, offset = columns(moment)
-        event = ClockEvent(
-            action=ClockAction.OUT,
-            timestamp=wall,
-            utc_offset_minutes=offset,
-            source=source,
-        )
+        event = punched(ClockAction.OUT, moment, source=source)
         self._session.add(event)
         self._session.flush()
 

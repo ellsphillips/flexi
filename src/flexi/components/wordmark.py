@@ -29,8 +29,11 @@ FRAME_SECONDS: Final = 1 / 30
 """Thirty frames a second. Sixty buys nothing over a terminal and costs a lot
 over SSH."""
 
-BACKGROUND: Final = "#0F0E0D"
-"""The ground the strapline fades up out of. A fade needs both ends."""
+BACKGROUND: Final = colour("c-ink")
+"""The ground the strapline fades up out of. A fade needs both ends.
+
+Read rather than restated: this file already takes two other colours through
+`colour`, and the third was the same hex as `$c-ink` typed out again."""
 
 
 def _blend(start: str, end: str, amount: float) -> str:

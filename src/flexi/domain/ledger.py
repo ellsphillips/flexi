@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 from itertools import pairwise
 
 from flexi.constants import AbsenceType, DayKind, Portion
+from flexi.domain.format import plural
 
 MIDDAY_HOUR = 12
 
@@ -175,7 +176,7 @@ class DayLedger:
             return f"{booked} · worked"
         if self.segments:
             count = len(self.segments)
-            return "1 session" if count == 1 else f"{count} sessions"
+            return f"{count} {plural(count, 'session')}"
         if not self.is_working_day:
             return ""
         return "—"

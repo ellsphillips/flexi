@@ -45,10 +45,16 @@ _PALETTE_DECLARATION: Final = re.compile(
 # values as the PALETTE block; a mismatch here is a bug, and
 # `tests/test_theme.py` asserts the two agree.
 _FALLBACK: Final[dict[str, str]] = {
+    # The palette as it would be if the stylesheet could not be read. Five of
+    # these were also written out as literal `fallback=` arguments at call
+    # sites, where three were unreachable -- so the module that says there is
+    # "exactly one place where a colour is written down" had three.
     "c-ink": "#0F0E0D",
     "c-surface": "#171614",
     "c-raised": "#201E1B",
     "c-line": "#2E2B27",
+    "c-line-soft": "#232019",
+    "c-ash": "#7A736A",
     "c-paper": "#EDE9E3",
     "c-cream": "#FAF8F4",
     "c-muted": "#9C948A",
@@ -101,7 +107,7 @@ def theme_variables() -> dict[str, str]:
             # substitutes a `hatch:` colour twice when it is both declared and
             # supplied, and the property then sees four tokens. Derived from the
             # palette so it stays the one place a colour is chosen.
-            "c-hatch-empty": colour("c-line-soft", "#232019"),
+            "c-hatch-empty": colour("c-line-soft"),
             "c-hatch-jump": colour("c-ink"),
         }
     )
@@ -113,7 +119,7 @@ def theme_variables() -> dict[str, str]:
             "block-cursor-text-style": "none",
             "block-cursor-background": colour("c-accent-deep"),
             "block-cursor-foreground": colour("c-cream"),
-            "block-cursor-blurred-background": colour("c-line-soft", "#232019"),
+            "block-cursor-blurred-background": colour("c-line-soft"),
             "block-cursor-blurred-foreground": colour("c-muted"),
             "block-cursor-blurred-text-style": "none",
             "footer-key-foreground": colour("c-accent-lift"),
@@ -123,7 +129,7 @@ def theme_variables() -> dict[str, str]:
             "input-cursor-foreground": colour("c-ink"),
             "border-blurred": colour("c-line"),
             "scrollbar": colour("c-line"),
-            "scrollbar-hover": colour("c-ash", "#7A736A"),
+            "scrollbar-hover": colour("c-ash"),
             "scrollbar-active": colour("c-accent"),
         }
     )
@@ -144,11 +150,11 @@ def flexi_theme() -> Theme:
         primary=colour("c-accent"),
         # Green: Textual reaches for `secondary` on a handful of widget accents,
         # and the second colour Flexi actually means is the one a surplus wears.
-        secondary=colour("c-surplus", "#2E9E52"),
+        secondary=colour("c-surplus"),
         accent=colour("c-accent-lift"),
         warning=colour("c-warning"),
-        error=colour("c-deficit", "#CE3E5D"),
-        success=colour("c-surplus", "#2E9E52"),
+        error=colour("c-deficit"),
+        success=colour("c-surplus"),
         foreground=colour("c-paper"),
         background=colour("c-ink"),
         surface=colour("c-surface"),

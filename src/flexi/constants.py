@@ -11,6 +11,23 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 
+class EventSource(StrEnum):
+    """Who punched the clock.
+
+    Two values, written out as bare strings in six places and typed `str` on
+    the two service methods that take one -- the same closed vocabulary
+    `Division` is an enum for, and for the same reason: migration 0010 tells
+    the two apart to decide whose timestamps it may rewrite, so a typo here is
+    a silent data conversion rather than an error.
+    """
+
+    USER = "user"
+    """Somebody pressed a key."""
+
+    SYSTEM = "system"
+    """Flexi closed a session nobody closed."""
+
+
 class Division(StrEnum):
     """A GOV.UK bank holiday division.
 

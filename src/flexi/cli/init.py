@@ -30,6 +30,7 @@ from rich.text import Text
 
 from flexi.cli import ui
 from flexi.cli.ui.prompt import interactive
+from flexi.domain.format import plural
 from flexi.models.database.backup import snapshot, verify
 
 __all__ = [
@@ -160,7 +161,7 @@ def _options(contents: Contents) -> list[ui.Option]:
     erase = (
         "erase everything"
         if contents.is_empty
-        else f"erase {total} record{'' if total == 1 else 's'}"
+        else f"erase {total} {plural(total, 'record')}"
     )
     return [
         ui.Option(Choice.OPEN, "Open Flexi", "your records, as they are"),

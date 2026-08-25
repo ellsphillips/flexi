@@ -19,10 +19,12 @@ from datetime import date, datetime, time, timedelta
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from flexi import wallclock
-from flexi.constants import AbsenceType, ClockAction, Portion
+from flexi.constants import DEFAULT_DIVISION, AbsenceType, ClockAction, Portion
 from flexi.domain import leaveyear
 from flexi.models.database.db import (
+    DEFAULT_CONTRACTED_MINUTES,
+    DEFAULT_WINDOW_END,
+    DEFAULT_WINDOW_START,
     AbsenceDay,
     BankHolidayCache,
     ClockEvent,
@@ -30,6 +32,7 @@ from flexi.models.database.db import (
     Settings,
     WorkSession,
 )
+from flexi.models.database.moment import punched
 from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
 
 FRIDAY = 4
@@ -141,11 +144,11 @@ def _settings(session: Session, anchor: date) -> None:
         Settings(
             leave_year_start=f"{month:02d}-{day:02d}",
             working_days="0,1,2,3,4",
-            bank_holiday_division="england-and-wales",
+            bank_holiday_division=DEFAULT_DIVISION.value,
             auto_close_time="18:00",
-            contracted_minutes=444,
-            day_window_start="07:00",
-            day_window_end="19:00",
+            contracted_minutes=DEFAULT_CONTRACTED_MINUTES,
+            day_window_start=DEFAULT_WINDOW_START,
+            day_window_end=DEFAULT_WINDOW_END,
         )
     )
     # The leave year the anchor is in, which is not its calendar year between
@@ -167,7 +170,7 @@ def _holidays(session: Session, year: int, anchor: date) -> None:
     for when, title in holidays_in(year):
         session.add(
             BankHolidayCache(
-                division="england-and-wales",
+                division=DEFAULT_DIVISION,
                 date=when,
                 title=title,
                 fetched_at=fetched,
@@ -260,7 +263,9 @@ def _closed_day(session: Session, when: date, index: int, *, morning: bool) -> N
     else:
         back = time(13, 0)
 
-    finish = _add_minutes(back, 444 - (210 if morning else 0) + extra)
+    finish = _add_minutes(
+        back, DEFAULT_CONTRACTED_MINUTES - (210 if morning else 0) + extra
+    )
     _session(session, when, back, finish)
 
 
@@ -271,31 +276,14 @@ def _open_session(session: Session, when: date, index: int) -> None:
     _session(session, when, time(13, 20), None)
 
 
-def _offset(wall: datetime) -> int:
-    """The offset the machine would have recorded for that wall reading."""
-    return round(
-        (wallclock.local(wall).utcoffset() or timedelta()).total_seconds() / 60
-    )
-
-
 def _session(session: Session, when: date, start: time, end: time | None) -> None:
-    clock_in = ClockEvent(
-        action=ClockAction.IN,
-        timestamp=datetime.combine(when, start),
-        utc_offset_minutes=_offset(datetime.combine(when, start)),
-        source="user",
-    )
+    clock_in = punched(ClockAction.IN, datetime.combine(when, start))
     session.add(clock_in)
     session.flush()
 
     clock_out_id = None
     if end is not None:
-        clock_out = ClockEvent(
-            action=ClockAction.OUT,
-            timestamp=datetime.combine(when, end),
-            utc_offset_minutes=_offset(datetime.combine(when, end)),
-            source="user",
-        )
+        clock_out = punched(ClockAction.OUT, datetime.combine(when, end))
         session.add(clock_out)
         session.flush()
         clock_out_id = clock_out.id

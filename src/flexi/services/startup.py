@@ -12,9 +12,9 @@ if TYPE_CHECKING:
     from flexi.services.clock import ClockService
 
 from flexi import wallclock
-from flexi.constants import ClockAction
-from flexi.models.database.db import ClockEvent, WorkSession
-from flexi.models.database.moment import columns, moment_of
+from flexi.constants import ClockAction, EventSource
+from flexi.models.database.db import WorkSession
+from flexi.models.database.moment import moment_of, punched
 
 
 def close_stale_sessions(
@@ -48,13 +48,7 @@ def close_stale_sessions(
             effective_close = time(23, 59)
 
         closed_at = wallclock.local(datetime.combine(ws.work_date, effective_close))
-        wall, offset = columns(closed_at)
-        event = ClockEvent(
-            action=ClockAction.OUT,
-            timestamp=wall,
-            utc_offset_minutes=offset,
-            source="system",
-        )
+        event = punched(ClockAction.OUT, closed_at, source=EventSource.SYSTEM)
         session.add(event)
         session.flush()
         ws.clock_out_id = event.id
