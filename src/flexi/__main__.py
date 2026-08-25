@@ -160,15 +160,12 @@ def _open_database(ctx: click.Context) -> Handles:
     from flexi.models.database.engine import create_db_engine, get_session
     from flexi.models.database.migrate import run_migrations
     from flexi.services.registry import Services
-    from flexi.services.startup import run_startup_cleanup
 
     run_migrations()
     engine = create_db_engine()
     session = get_session(engine)
     services = Services.build(session)
-    run_startup_cleanup(
-        session, services.clock, services.settings.get_auto_close_time()
-    )
+    services.clock.sweep()
     services.bank_holidays.fill_if_empty()
 
     handles = Handles(engine=engine, session=session, services=services)

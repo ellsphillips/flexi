@@ -63,10 +63,8 @@ class WalletService:
 
         return WalletData(
             leave_year=(year_start, year_end),
-            elapsed=elapsed,
             balance=balance,
             period=period,
-            today=self._ledger.day(today, now=now),
             contracted=contracted,
             allowances=self._allowances(year_start, year_end, elapsed, balance_days),
         )

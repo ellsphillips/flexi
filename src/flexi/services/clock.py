@@ -14,6 +14,7 @@ from flexi.models.database.moment import moment_of, punched
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
+from flexi.services.startup import close_stale_sessions
 
 
 @dataclass(frozen=True)
@@ -66,11 +67,23 @@ class ClockService:
     def is_clocked_in(self) -> bool:
         return self.get_open_session() is not None
 
-    def _run_stale_cleanup(self) -> None:
-        """Run stale-session cleanup before clock actions."""
-        from flexi.services.startup import run_startup_cleanup
+    def sweep(self) -> None:
+        """Tidy what an interrupted run left behind, before doing anything else.
 
-        run_startup_cleanup(self._session, self, self._settings.get_auto_close_time())
+        Two halves. A session left running overnight is closed at the
+        configured time, and a session so short it can only have been a slip of
+        the finger is voided -- which also cleans up databases written before
+        there was a threshold.
+
+        Here rather than in `startup`, taking nothing, because both halves are
+        already this service's: the session it writes through, and the
+        auto-close time its own settings service holds. Passed in, they were
+        three arguments of which two were attributes of the third, and the two
+        modules imported each other -- one of them from inside a method, to
+        make the cycle importable.
+        """
+        close_stale_sessions(self._session, self._settings.get_auto_close_time())
+        self.discard_short_sessions()
 
     def clock_in(
         self,
@@ -79,7 +92,7 @@ class ClockService:
         source: EventSource = EventSource.USER,
     ) -> ClockResult:
         """Clock in. Rejects duplicate clock-in without creating audit rows."""
-        self._run_stale_cleanup()
+        self.sweep()
         if self.is_clocked_in():
             return ClockResult(success=False, message="Already clocked in")
 

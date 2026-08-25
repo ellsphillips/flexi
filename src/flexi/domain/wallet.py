@@ -22,7 +22,6 @@ from enum import Enum
 
 from flexi.constants import AbsenceType
 from flexi.domain.balance import BalanceSummary
-from flexi.domain.ledger import DayLedger
 
 PACE_TOLERANCE = 0.15
 """How far ahead of an even spread an allowance may run before it is flagged.
@@ -108,13 +107,10 @@ class WalletData:
     """Everything the wallet module draws."""
 
     leave_year: tuple[date, date]
-    elapsed: float
-    """How far through the leave year today is, 0.0 to 1.0."""
     balance: BalanceSummary
     """The running flexi balance, leave-year to date."""
     period: BalanceSummary
     """The same figures for the period currently on screen."""
-    today: DayLedger
     contracted: timedelta
     allowances: tuple[Allowance, ...]
 

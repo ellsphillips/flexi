@@ -47,7 +47,6 @@ from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.registry import Services
 from flexi.services.settings import SettingsService
-from flexi.services.startup import run_startup_cleanup
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import available_update
 
@@ -124,11 +123,7 @@ class FlexiApp(TextualApp[None]):
             # The CLI sweeps when it opens the database and the application did
             # not, so a session left open overnight was still drawn as running
             # since yesterday morning until something wrote to it.
-            run_startup_cleanup(
-                self._session,
-                self.services.clock,
-                self.services.settings.get_auto_close_time(),
-            )
+            self.services.clock.sweep()
             self.push_screen(DashboardScreen(self.services, id="dashboard"))
             if self.open_settings:
                 self.push_screen(

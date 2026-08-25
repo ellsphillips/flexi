@@ -15,7 +15,6 @@ from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.services.clock import ClockService
 from flexi.services.registry import Services
-from flexi.services.startup import run_startup_cleanup
 from tests.conftest import sessions_on
 from tests.services.conftest import Configured
 
@@ -153,7 +152,7 @@ def test_old_short_sessions_are_swept_on_startup(
     assert len(sessions_on(services.session, DAY)) == 6
 
     built = Services.build(session)
-    run_startup_cleanup(session, built.clock, built.settings.get_auto_close_time())
+    built.clock.sweep()
     assert len(sessions_on(services.session, DAY)) == 1
     assert len(rows(session)) == 6, "voided, not deleted"
 
@@ -162,7 +161,7 @@ def test_an_open_session_is_never_swept(services: Services, session: Session) ->
     """It has no length yet, so it cannot be too short."""
     services.clock.clock_in(now=NINE)
     built = Services.build(session)
-    run_startup_cleanup(session, built.clock, built.settings.get_auto_close_time())
+    built.clock.sweep()
     assert services.clock.is_clocked_in()
 
 
