@@ -197,12 +197,13 @@ async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
 
     app = FlexiApp(db_path=seeded_db)
     async with app.run_test(size=WIDE) as pilot:
+        # Pumped first, so `on_mount` has started the worker: `wait_for_complete`
+        # returns at once if there is nothing to wait for. Then pumped until the
+        # redraw lands rather than a fixed number of times, because the redraw
+        # the worker asks for through `call_from_thread` is a callback the loop
+        # schedules -- and a fixed count is a test measuring the weather.
+        await pilot.pause()
         await app.workers.wait_for_complete()
-        # Pumped until the redraw lands rather than a fixed number of times:
-        # `wait_for_complete` returns when the worker thread has finished, and
-        # the redraw it asks for through `call_from_thread` is a callback the
-        # loop schedules. Waiting a fixed two pauses passed on a quiet machine
-        # and failed under a loaded one, which is a test measuring the weather.
         landed = date(2026, 6, 12)
         for _ in range(20):
             await pilot.pause()
