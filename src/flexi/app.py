@@ -148,9 +148,6 @@ class FlexiApp(TextualApp[None]):
         if not completed:
             self.exit()
             return
-        # Rebuild: the division and the working pattern are chosen during setup,
-        # and the services were wired before either existed.
-        self.services = Services.build(self._session)
         self.push_screen(DashboardScreen(self.services, id="dashboard"))
 
     def on_unmount(self) -> None:
@@ -269,7 +266,6 @@ class FlexiApp(TextualApp[None]):
     def _on_settings_saved(self, saved: bool | None) -> None:
         if not saved:
             return
-        self.services = Services.build(self._session)
         self.services.invalidate()
         screen = self.dashboard()
         if screen is not None:

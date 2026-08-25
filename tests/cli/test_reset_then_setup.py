@@ -88,9 +88,20 @@ def test_the_migration_in_launch_is_what_makes_that_work(erased: Path) -> None:
     Without it this is the exact traceback, thrown after the database has
     already been deleted and with the snapshot the only thing standing between
     somebody and the loss of a year of records.
+
+    Thrown from ``on_mount``'s first question rather than from ``App.__init__``:
+    building the registry stopped reading the settings row when the bank-holiday
+    division became a question asked per query rather than a value captured
+    once. The table is still missing and the application still cannot open on
+    it; only the line number moved.
     """
-    with pytest.raises(OperationalError, match="no such table: settings"):
-        App()
+    app = App()
+    try:
+        with pytest.raises(OperationalError, match="no such table: settings"):
+            app.services.settings.is_setup_complete()
+    finally:
+        app._session.close()
+        app._engine.dispose()
 
 
 def test_every_way_into_the_application_migrates_first(

@@ -14,14 +14,12 @@ from __future__ import annotations
 
 import click
 
-from flexi.constants import DEFAULT_DIVISION
 from flexi.services.registry import Services
 
 
 def run(services: Services) -> int:
     """Fetch the calendar for the configured division. Returns an exit code."""
-    division = services.settings.get_settings()
-    named = division.bank_holiday_division if division else DEFAULT_DIVISION.value
+    named = services.bank_holidays.division.label
 
     if not services.bank_holidays.fetch_and_cache():
         click.secho(

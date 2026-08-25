@@ -337,6 +337,27 @@ def test_a_stored_working_week_that_cannot_be_read_falls_back(
     assert svc.is_working_day(5) is False
 
 
+def test_the_division_falls_back_before_setup(svc: SettingsService) -> None:
+    """Something has to be asked of GOV.UK before anybody has chosen a region."""
+    assert svc.get_division() is DEFAULT_DIVISION
+
+
+def test_a_stored_division_this_build_does_not_know_falls_back(
+    svc: SettingsService, session: Session
+) -> None:
+    """A region GOV.UK has stopped publishing must not close the application.
+
+    The column is a free-text slug, and the three members are what this build
+    understands. Raising here would refuse to open the records of anybody whose
+    row was written by a version that knew a fourth.
+    """
+    _do_setup(svc)
+    session.execute(text("UPDATE settings SET bank_holiday_division = 'mercia'"))
+    session.commit()
+
+    assert svc.get_division() is DEFAULT_DIVISION
+
+
 # ---- the optional fields ----
 
 

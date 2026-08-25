@@ -2,6 +2,11 @@
 
 Which service depends on which is written down here and nowhere else, so a
 widget never constructs its own and never reaches for the session behind it.
+
+Built *once*, and that matters. Nothing here caches a settings value, so there
+is never a reason to build a second one -- and the moment there were two, a
+screen pushed before the rebuild went on reading the registry the rebuild had
+replaced, while the modules inside that same screen read the new one.
 """
 
 from __future__ import annotations
@@ -12,7 +17,6 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import DEFAULT_DIVISION
 from flexi.services.absence import AbsenceService
 from flexi.services.adjustments import (
     OPENING_BALANCE,
@@ -43,8 +47,7 @@ class Services:
     def build(cls, session: Session) -> Services:
         """Construct the whole graph in dependency order."""
         settings = SettingsService(session)
-        division = _division(settings)
-        bank_holidays = BankHolidayService(session, division)
+        bank_holidays = BankHolidayService(session, settings.get_division)
         absence = AbsenceService(session, settings, bank_holidays)
         ledger = LedgerService(session, settings, bank_holidays)
         return cls(
@@ -95,11 +98,3 @@ def _minimum_session() -> timedelta:
     from flexi.config import CONFIG
 
     return timedelta(seconds=CONFIG.defaults.minimum_session_seconds)
-
-
-def _division(settings: SettingsService) -> str:
-    """The configured bank-holiday division, or the default before setup runs."""
-    stored = settings.get_settings()
-    if stored is None or not stored.bank_holiday_division:
-        return DEFAULT_DIVISION.value
-    return stored.bank_holiday_division

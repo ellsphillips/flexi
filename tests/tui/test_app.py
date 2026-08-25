@@ -21,6 +21,7 @@ from textual.widgets import Input, Select
 from flexi.app import FlexiApp
 from flexi.components.chrome import NavBar
 from flexi.components.modules.records import RecordsModule
+from flexi.constants import Division
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import BankHolidayCache, Base
 from flexi.screens.dashboard import DashboardScreen
@@ -300,12 +301,14 @@ async def test_the_clock_runs_on_the_screen_that_owns_it_from_anywhere(
 async def test_the_dashboard_opens_with_services_built_from_the_setup_answers(
     unconfigured: Path,
 ) -> None:
-    """The service graph is wired before the answers exist, so it is rewired.
+    """The service graph is wired before the answers exist, and still answers.
 
-    The bank-holiday division is read once, when the graph is built, and never
-    again. A dashboard handed the graph that was constructed at launch would ask
+    It used to be rewired instead, because the bank-holiday division was read
+    once at construction: a dashboard handed the graph built at launch would ask
     GOV.UK for the English calendar for the rest of a Scottish user's working
-    life, and quietly count their holidays as days they failed to work.
+    life. Rewiring fixed that and introduced a worse one -- see
+    `test_saving_settings_leaves_every_screen_on_the_same_registry`. The
+    division is a question now, so neither is needed.
     """
     app = FlexiApp(db_path=unconfigured)
     async with app.run_test(size=WIDE) as pilot:
@@ -323,7 +326,7 @@ async def test_the_dashboard_opens_with_services_built_from_the_setup_answers(
         await pilot.pause()
 
         showing(app, DashboardScreen)
-        assert app.services.bank_holidays._division == "scotland"
+        assert app.services.bank_holidays.division is Division.SCOTLAND
 
 
 async def test_the_leave_year_opens_on_the_day_the_dashboard_was_showing(
@@ -421,6 +424,37 @@ async def test_leaving_settings_without_saving_rebuilds_nothing(
 
         showing(app, DashboardScreen)
         assert app.services is before, "nothing was answered, so nothing was rewired"
+
+
+async def test_saving_settings_leaves_every_screen_on_the_same_registry(
+    app_factory: AppFactory,
+) -> None:
+    """One session, one registry, for the life of the application.
+
+    Saving settings used to rebuild it, because `BankHolidayService` captured
+    the division. Every screen already mounted kept the registry it was
+    constructed with, while the modules inside those screens resolved the new
+    one through the app -- so one dashboard drew itself from two graphs, and the
+    half of it that went through the screen was still reading the old division.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        board = showing(app, DashboardScreen)
+        before = app.services
+
+        await pilot.press("f4")
+        await pilot.pause()
+        showing(app, SettingsScreen).query_one(
+            "#select-division", Select
+        ).value = "scotland"
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert app.services is before, "the registry was replaced under the screens"
+        assert board._services is app.services
+        assert app.services.bank_holidays.division is Division.SCOTLAND
 
 
 async def test_a_saved_working_pattern_reaches_the_dashboard_without_a_relaunch(

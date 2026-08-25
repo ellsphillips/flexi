@@ -36,11 +36,7 @@ type Configured = Callable[..., Services]
 
 @pytest.fixture
 def configure(session: Session) -> Configured:
-    """Set Flexi up and hand back a registry built against it.
-
-    Rebuilt after saving, because `Services.build` reads the division once and
-    a registry made before the settings row exists holds the default.
-    """
+    """Set Flexi up and hand back a registry built against it."""
 
     def build(
         *,
@@ -72,10 +68,9 @@ def configure(session: Session) -> Configured:
                 )
             )
         session.commit()
-        rebuilt = Services.build(session)
         if entitlement is not None:
-            rebuilt.settings.save_entitlement(*entitlement)
-        return rebuilt
+            built.settings.save_entitlement(*entitlement)
+        return built
 
     return build
 

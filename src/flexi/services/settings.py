@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
 from flexi.domain.stitch import MONTHS_IN_YEAR
 from flexi.models.database.db import (
@@ -155,6 +156,25 @@ class SettingsService:
         except ValueError:
             return DEFAULT_AUTO_CLOSE
         return time(hour, minute)
+
+    def get_division(self) -> Division:
+        """Whose bank holidays apply, or the default before setup has run.
+
+        Typed, and read from here rather than from the settings row directly.
+        Four call sites unpacked the row themselves and three of them wrote the
+        same ``or DEFAULT_DIVISION.value`` fallback out again; the fourth
+        compared a stored slug against a member and never matched.
+        """
+        settings = self.get_settings()
+        if settings is None or not settings.bank_holiday_division:
+            return DEFAULT_DIVISION
+        try:
+            return Division(settings.bank_holiday_division)
+        except ValueError:
+            # A slug this build does not know is a settings problem, not a
+            # reason to refuse to open somebody's records -- the same bargain
+            # `get_working_day_indices` and `get_auto_close_time` strike.
+            return DEFAULT_DIVISION
 
     def get_leave_year_start(self) -> tuple[int, int]:
         """Return (month, day) of leave year start."""

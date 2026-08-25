@@ -8,7 +8,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
-from flexi.constants import DEFAULT_DIVISION, Division
+from flexi.constants import Division
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural
 from flexi.services.registry import Services
@@ -62,9 +62,7 @@ class SettingsScreen(Screen[bool]):
         settings = self._svc.get_settings()
         leave_start = settings.leave_year_start if settings else "01-01"
         working = settings.working_days if settings else "0,1,2,3,4"
-        division = (
-            settings.bank_holiday_division if settings else DEFAULT_DIVISION.value
-        )
+        division = self._svc.get_division().value
         auto_close = settings.auto_close_time if settings else "18:00"
 
         with Container(id="settings-dialog"):

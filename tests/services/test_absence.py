@@ -14,7 +14,7 @@ import pytest
 import time_machine
 from sqlalchemy.orm import Session
 
-from flexi.constants import AbsenceType, Portion
+from flexi.constants import AbsenceType, Division, Portion
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base
 from flexi.services.absence import AbsenceService
@@ -76,7 +76,7 @@ def bank_holidays(session: Session) -> BankHolidayService:
         )
     )
     session.commit()
-    return BankHolidayService(session, "england-and-wales")
+    return BankHolidayService(session, lambda: Division.ENGLAND_AND_WALES)
 
 
 @pytest.fixture
@@ -145,7 +145,9 @@ class TestRejections:
                 auto_close_time="18:00",
             )
             svc = AbsenceService(
-                session, settings, BankHolidayService(session, "england-and-wales")
+                session,
+                settings,
+                BankHolidayService(session, lambda: Division.ENGLAND_AND_WALES),
             )
             result = svc.book(_next_weekday(date(2026, 6, 8), 0), AbsenceType.ANNUAL)
         finally:
