@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 from sqlalchemy import update
 from textual.pilot import Pilot
@@ -154,6 +155,79 @@ async def test_a_calendar_fetched_this_week_is_left_alone(seeded_db: Path) -> No
         assert not [
             line for line in await said(app, pilot) if "bank holiday" in line.lower()
         ]
+
+
+async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
+    seeded_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker writes on a session of its own, and asks the loop to redraw.
+
+    It used to run SELECT, DELETE, INSERT and commit on the session the message
+    loop owns, started in the statement after the one that pushes the dashboard
+    — whose modules read that same session to draw. A `Session` is not
+    thread-safe: the interleavings give `database is locked` or a reader
+    finding the session inactive under a rolled-back write, and nothing catches
+    either.
+
+    Redrawing matters as much as fetching. Every figure on the dashboard
+    depends on which days are holidays, so a calendar that lands after the
+    first draw and is not shown leaves the balance wrong by a day per holiday
+    until an unrelated keystroke.
+    """
+    stale = NOW - CACHE_MAX_AGE - timedelta(days=1)
+    with get_session(create_db_engine(seeded_db)) as session:
+        session.execute(update(BankHolidayCache).values(fetched_at=stale))
+        session.commit()
+
+    def answered(_self: object, url: str, **_kwargs: object) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "england-and-wales": {
+                    "division": "england-and-wales",
+                    # Inside the week the dashboard opens on, so the arrival
+                    # has to change what is already drawn.
+                    "events": [{"title": "A new holiday", "date": "2026-06-12"}],
+                }
+            },
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx.Client, "get", answered)
+
+    app = FlexiApp(db_path=seeded_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert app.services.bank_holidays.get_dates() == {date(2026, 6, 12)}
+        assert app.services.ledger.day(date(2026, 6, 12)).is_holiday, (
+            "the ledger was built before the calendar landed and never rebuilt"
+        )
+        assert not [
+            line for line in await said(app, pilot) if "bank holiday" in line.lower()
+        ], "a calendar that arrived is not a calendar that is missing"
+
+
+async def test_a_calendar_that_lands_during_setup_has_no_dashboard_to_redraw(
+    unconfigured: Path,
+) -> None:
+    """The worker can finish before the questions are answered.
+
+    Nothing is wrong with that — there is simply no dashboard yet, and asking
+    for one must not be an `AttributeError` on a screen the user is typing
+    into.
+    """
+    app = FlexiApp(db_path=unconfigured)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        showing(app, SetupScreen)
+
+        app.holidays_refreshed()
+        await pilot.pause()
+
+        showing(app, SetupScreen)
 
 
 async def test_a_newer_release_is_announced_with_the_command_that_installs_it(

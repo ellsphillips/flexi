@@ -39,7 +39,9 @@ from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
+from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.registry import Services
+from flexi.services.settings import SettingsService
 from flexi.services.startup import run_startup_cleanup
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import available_update
@@ -161,14 +163,60 @@ class FlexiApp(TextualApp[None]):
         trip, and the dashboard should not wait on GOV.UK to draw. Nothing in
         the application refreshed it at all before -- the only route was a
         command-palette entry somebody had to know about.
+
+        On its own session, on the shared engine. A SQLAlchemy ``Session`` is
+        not thread-safe, and this ran ``SELECT``, ``DELETE``, ``INSERT`` and
+        ``commit`` on the one the message loop owns -- started, in ``on_mount``,
+        in the statement after the one that pushes the dashboard, whose modules
+        then read the same session to draw. Two interleavings show up: SQLite
+        answers ``database is locked``, or the reader finds the session
+        ``inactive`` because the writer's transaction was rolled back under it.
+        Neither is caught anywhere, and both surface as a dead application on
+        the first launch of the week -- the only launch that refetches.
         """
-        if self.services.bank_holidays.ensure_cache():
+        with get_session(self._engine) as scratch:
+            settings = SettingsService(scratch)
+            holidays = BankHolidayService(scratch, settings.get_division)
+            if holidays.is_fresh():
+                # Nothing changed, so nothing needs redrawing -- and refetching
+                # would put a GOV.UK timeout in front of the dashboard once a
+                # week for a calendar that already answers every question
+                # correctly for the year it holds.
+                return
+            fetched = holidays.fetch_and_cache()
+        if fetched:
+            self.call_from_thread(self.holidays_refreshed)
             return
         self.notify(
             "No bank holiday calendar. Days off will count as working days.",
             severity="warning",
             timeout=UPDATE_NOTICE_SECONDS,
         )
+
+    def holidays_refreshed(self) -> None:
+        """The calendar changed under the application. Show the new one.
+
+        Every figure on the dashboard depends on which days are holidays -- a
+        bank holiday expects nothing, and without one it is a working day
+        nobody worked, worth a day of deficit each. Both routes that rewrite
+        the cache used to leave the screen showing the old answer: the worker
+        did nothing at all, and the command-palette entry invalidated the
+        ledger cache without asking anything to redraw, so the correction
+        appeared on the next unrelated keystroke.
+
+        The rollback is what lets this session see the worker's rows. It reads
+        on the message loop and every write it makes is committed by the
+        service that made it, so there is never anything pending to lose --
+        but its read transaction is open, and a transaction that began before
+        the fetch cannot see what the fetch committed.
+        """
+        self._session.rollback()
+        self.services.invalidate()
+        screen = self.dashboard()
+        if screen is not None:
+            from flexi.messages import Scope
+
+            screen.refresh_modules(Scope.ALL)
 
     @textual_work(thread=True)
     def _check_for_updates(self) -> None:

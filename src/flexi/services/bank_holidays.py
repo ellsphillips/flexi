@@ -43,7 +43,13 @@ class BankHolidayService:
 
     # ---- cache freshness ----
 
-    def _cache_is_fresh(self) -> bool:
+    def is_fresh(self) -> bool:
+        """True when the cache was fetched recently enough to trust.
+
+        A stale cache still answers every question correctly for the year it
+        holds, so this is what keeps a GOV.UK timeout off the launch path six
+        days out of seven.
+        """
         stmt = (
             select(BankHolidayCache.fetched_at)
             .where(BankHolidayCache.division == self.division)
@@ -92,19 +98,6 @@ class BankHolidayService:
             )
         self._session.commit()
         return True
-
-    def ensure_cache(self) -> bool:
-        """Refresh the cache if stale. True if there is data to read afterwards.
-
-        Nothing in the application called this. The only route to a populated
-        cache was a command-palette entry, so a person who only ever used the
-        command line could not reach one -- and an empty cache is not a quiet
-        state. `book_range` refuses every day of it, and the ledger counts every
-        bank holiday as a working day nobody worked.
-        """
-        if self._cache_is_fresh():
-            return True
-        return self.fetch_and_cache()
 
     def fill_if_empty(self) -> bool:
         """Fetch only when there is nothing at all. True if data is available.

@@ -110,7 +110,7 @@ class _Command:
 
 def _refresh_holidays(app: FlexiApp) -> None:
     ok = app.services.bank_holidays.fetch_and_cache()
-    app.services.invalidate()
+    app.holidays_refreshed()
     app.notify(
         "Bank holidays refreshed" if ok else "Could not reach gov.uk",
         severity="information" if ok else "warning",

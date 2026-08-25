@@ -123,7 +123,7 @@ class TestStaleRefresh:
         session.commit()
 
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        assert svc._cache_is_fresh() is False
+        assert svc.is_fresh() is False
 
 
 # ---------- fetch failure ----------
@@ -292,15 +292,23 @@ class TestFetchingTheIndex:
 
 
 class TestRefreshingOnlyWhenItIsStale:
+    """The two halves the launch worker composes.
+
+    `app.FlexiApp._refresh_holidays` asks `is_fresh` and only then fetches, so
+    that a fresh cache costs no round trip and a stale one is replaced. That
+    composition is asserted in `tests/tui/test_app.py`; what is asserted here
+    is that each half answers correctly on its own.
+    """
+
     def test_an_empty_cache_counts_as_stale(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """There is no `fetched_at` to be young, and nothing to answer with."""
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        assert svc._cache_is_fresh() is False
+        assert svc.is_fresh() is False
 
         monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
-        assert svc.ensure_cache() is True
+        assert svc.fetch_and_cache() is True
         assert svc.is_bank_holiday(date(2026, 1, 1)) is True
 
     def test_a_fresh_cache_is_not_asked_for_again(
@@ -318,13 +326,10 @@ class TestRefreshingOnlyWhenItIsStale:
 
         monkeypatch.setattr(httpx.Client, "get", counted)
 
-        assert (
-            BankHolidayService(
-                session, reading(Division.ENGLAND_AND_WALES)
-            ).ensure_cache()
-            is True
-        )
-        assert asked == [], "a fresh cache costs no round trip"
+        svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
+
+        assert svc.is_fresh() is True
+        assert asked == [], "asking is free; only fetching is not"
 
     def test_a_stale_cache_is_refreshed(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
@@ -344,7 +349,8 @@ class TestRefreshingOnlyWhenItIsStale:
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
 
-        assert svc.ensure_cache() is True
+        assert svc.is_fresh() is False
+        assert svc.fetch_and_cache() is True
         assert svc.get_dates() == {
             date(2026, 1, 1),
             date(2026, 4, 3),
@@ -362,7 +368,8 @@ class TestRefreshingOnlyWhenItIsStale:
         session.commit()
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
 
-        assert svc.ensure_cache() is False, "the refusal is reported"
+        assert svc.is_fresh() is False
+        assert svc.fetch_and_cache() is False, "the refusal is reported"
         assert svc.is_bank_holiday(date(2026, 12, 25)) is True, "and nothing was lost"
 
 
@@ -396,7 +403,7 @@ class TestTitleLookup:
 class TestFillingTheCache:
     """Nothing in the application ever filled it.
 
-    `ensure_cache` had no caller in `src/`; the only route to a populated cache
+    The refresh had no caller in `src/`; the only route to a populated cache
     was a Textual command-palette entry, so a person who used Flexi from the
     command line could not reach one. An empty cache is not a quiet state: every
     leave booking is refused, and every bank holiday is counted as a working day
@@ -430,7 +437,7 @@ class TestFillingTheCache:
         session.commit()
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
 
-        assert svc._cache_is_fresh() is False, "the fixture should be stale"
+        assert svc.is_fresh() is False, "the fixture should be stale"
         assert svc.fill_if_empty() is True, "and stale is good enough to keep"
 
 
