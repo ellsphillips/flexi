@@ -30,7 +30,7 @@ from flexi.components.expandable import SESSION, TOTAL, day_key
 from flexi.components.modules.balance import BalanceModule, _state_class
 from flexi.components.modules.base import Module
 from flexi.components.modules.clock import ClockModule
-from flexi.components.modules.monthview import MonthView
+from flexi.components.modules.monthview import MonthView, _month_grid
 from flexi.components.modules.records import (
     MAX_JUMP_ROWS,
     BookHere,
@@ -370,6 +370,22 @@ async def test_the_arrows_beside_the_month_page_it_either_way(
         await pilot.pause()
 
         assert str(label.render()) == "May 2026"
+
+
+def test_the_month_grid_starts_on_the_day_the_week_is_configured_to_start() -> None:
+    """It started on Monday whatever the period beside it was doing.
+
+    `Period` honours `first_day_of_week`; the grid did not. Set the week to
+    start on Sunday and the row tint -- which marks every row the period touches
+    -- lit two rows for one week, fourteen days presented as this week, under
+    headings that still read M T W T F S S.
+    """
+    monday_first = _month_grid(date(2026, 6, 1))
+    sunday_first = _month_grid(date(2026, 6, 1), first_weekday=6)
+
+    assert monday_first[0] == date(2026, 6, 1), "June 2026 opens on a Monday"
+    assert sunday_first[0] == date(2026, 5, 31)
+    assert {when.weekday() for when in sunday_first[::7]} == {6}
 
 
 async def test_an_arrow_key_asks_for_the_neighbouring_day(flexi: Services) -> None:

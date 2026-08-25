@@ -72,7 +72,7 @@ class MonthView(Module):
             yield Button("›", id="calendar-next", classes="-quiet")
         with Container(classes="calendar"):
             with Horizontal(classes="calendar-dotw-row"):
-                for initial in weekday_initials():
+                for initial in weekday_initials(CONFIG.defaults.first_day_of_week):
                     yield Label(initial)
             for week in range(WEEKS):
                 with Horizontal(classes="calendar-row", id=f"calendar-row-{week}"):
@@ -93,7 +93,7 @@ class MonthView(Module):
         if period.anchor != self._last_anchor:
             self._visible = period.anchor.replace(day=1)
             self._last_anchor = period.anchor
-        grid = _month_grid(self._visible)
+        grid = _month_grid(self._visible, period.first_weekday)
         ledgers = {
             item.date: item
             for item in self.services.ledger.days(grid[0], grid[-1], now=self.now)
@@ -187,7 +187,13 @@ class MonthView(Module):
         self.post_message(DateSelected(self.period.anchor))
 
 
-def _month_grid(first_of_month: date) -> list[date]:
-    """Six weeks of dates covering the month, Monday first."""
-    start = week_start(first_of_month)
+def _month_grid(first_of_month: date, first_weekday: int = 0) -> list[date]:
+    """Six weeks of dates covering the month, starting on the configured day.
+
+    It always started on Monday, while the period the same widget tints came
+    from `CONFIG.defaults.first_day_of_week`. Set the week to start on Sunday
+    and one week of the period straddled two rows of the grid, so fourteen days
+    were highlighted as "this week" under headings that said Monday.
+    """
+    start = week_start(first_of_month, first_weekday)
     return [start + timedelta(days=offset) for offset in range(WEEKS * DAYS_IN_WEEK)]
