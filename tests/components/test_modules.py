@@ -568,7 +568,7 @@ async def test_with_nothing_under_the_cursor_the_screen_is_told_so(
 
 def test_a_strip_with_no_day_to_draw_is_blank() -> None:
     """The clock module composes its strip before it has read the database."""
-    assert str(PunchStrip().render()) == ""
+    assert str(PunchStrip(now=NOW).render()) == ""
 
 
 def test_a_strip_told_only_a_new_day_keeps_the_window_it_draws_in() -> None:
@@ -579,9 +579,9 @@ def test_a_strip_told_only_a_new_day_keeps_the_window_it_draws_in() -> None:
     one redraw would rescale every strip on the screen.
     """
     window = Window.parse("06:00", "22:00")
-    strip = PunchStrip(window=window)
+    strip = PunchStrip(window=window, now=NOW)
 
-    strip.set_ledger(holiday("Summer bank holiday"))
+    strip.set_ledger(holiday("Summer bank holiday"), now=NOW)
 
     assert strip.window is window
 

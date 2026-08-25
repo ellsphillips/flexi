@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, ClassVar, Final
 
 from rich.style import Style
@@ -262,15 +262,25 @@ class WeekRibbon(Widget):
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {*PUNCH_CLASSES, "chart--label"}
 
-    def __init__(self, *, window: Window | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self, *, window: Window | None = None, now: datetime, **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
         self.ledgers: tuple[DayLedger, ...] = ()
         self.window = window or Window()
+        self.now = now
 
-    def show(self, ledgers: list[DayLedger], window: Window | None = None) -> None:
+    def show(
+        self,
+        ledgers: list[DayLedger],
+        window: Window | None = None,
+        *,
+        now: datetime,
+    ) -> None:
         self.ledgers = tuple(ledgers)
         if window is not None:
             self.window = window
+        self.now = now
         self.refresh()
 
     def render(self) -> RenderResult:
@@ -284,7 +294,13 @@ class WeekRibbon(Widget):
         for ledger in self.ledgers:
             row = Text(f"{ledger.date.strftime('%a %d')}".ljust(gutter), style=label)
             row.append(
-                render_strip(ledger, width, self.window, self.get_component_rich_style)
+                render_strip(
+                    ledger,
+                    width,
+                    self.window,
+                    self.get_component_rich_style,
+                    now=self.now,
+                )
             )
             lines.append(row)
         return Text("\n").join(lines)

@@ -103,7 +103,7 @@ class ShapeOfTheWeeks(Module):
         super().__init__(id="week-ribbon", title="Shape of the days", **kwargs)
 
     def compose(self) -> ComposeResult:
-        yield WeekRibbon(id="ribbon")
+        yield WeekRibbon(id="ribbon", now=self.now)
 
     def on_mount(self) -> None:
         self.rebuild()
@@ -117,7 +117,7 @@ class ShapeOfTheWeeks(Module):
             if item.is_working_day or item.segments
         ]
         self.query_one("#ribbon", WeekRibbon).show(
-            ledgers[-RIBBON_DAYS:], self.services.ledger.window
+            ledgers[-RIBBON_DAYS:], self.services.ledger.window, now=self.now
         )
         self.set_subtitle(f"to {day_month(end)}")
 

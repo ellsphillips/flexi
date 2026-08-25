@@ -125,16 +125,25 @@ def strip(
     ledger: DayLedger,
     width: int,
     window: Window | None = None,
-    now: datetime | None = None,
+    *,
+    now: datetime,
 ) -> tuple[Cell, ...]:
     """Draw one day as a row of cells, never wider than ``width``.
 
-    ``now`` defaults to the ledger's last clock-out, so a historical day draws
-    identically however often it is redrawn.
+    ``now`` is required, and that is the point. It defaulted to ``None``, which
+    the body read as midnight at the *start* of the ledger's date -- and an
+    open session ends at ``now``, so every one of its cells failed the overlap
+    test and a day somebody was still working drew as an empty rail. The week
+    ribbon took that default and the records table did not, so the same open
+    day was drawn two different ways on two screens.
+
+    There is no honest default. A closed day could take its own last
+    clock-out, but that is `DayLedger.last_out`, which needs ``now`` itself for
+    exactly the case that goes wrong.
     """
     window = window or Window()
     count = cell_count(window, max(1, width))
-    moment = now or wallclock.local(datetime.combine(ledger.date, time.min))
+    moment = now
 
     if ledger.is_holiday:
         return (Cell.HOLIDAY,) * count

@@ -82,10 +82,11 @@ def render_strip(
     width: int,
     window: Window,
     style_of: StyleLookup,
-    now: datetime | None = None,
+    *,
+    now: datetime,
 ) -> Text:
     """One day as styled text, ready to be put in a cell or rendered by a widget."""
-    cells = strip(ledger, width, window, now)
+    cells = strip(ledger, width, window, now=now)
     tokens = absence_tokens(ledger, len(cells), window)
     text = Text(no_wrap=True, end="")
     for index, cell in enumerate(cells):
@@ -112,7 +113,7 @@ class PunchStrip(Widget):
         ledger: DayLedger | None = None,
         *,
         window: Window | None = None,
-        now: datetime | None = None,
+        now: datetime,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -125,7 +126,7 @@ class PunchStrip(Widget):
         ledger: DayLedger | None,
         *,
         window: Window | None = None,
-        now: datetime | None = None,
+        now: datetime,
     ) -> None:
         """Draw a different day."""
         self.ledger = ledger
@@ -142,5 +143,5 @@ class PunchStrip(Widget):
             self.content_size.width,
             self.window,
             self.get_component_rich_style,
-            self.now,
+            now=self.now,
         )

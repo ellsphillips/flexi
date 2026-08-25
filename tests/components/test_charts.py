@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import PurePath
 from typing import ClassVar
 
@@ -25,6 +25,7 @@ from textual.app import App, ComposeResult
 from textual.pilot import Pilot
 from textual.widget import Widget
 
+from flexi import wallclock
 from flexi.components.charts import (
     BASELINE,
     BLOCK,
@@ -48,6 +49,10 @@ PACKAGE = THEME_PATH.parent.parent
 CONSOLE = Console()
 CONTRACTED = timedelta(hours=7, minutes=24)
 MONDAY = date(2025, 6, 2)
+NOW = wallclock.local(datetime.combine(MONDAY, time(23, 59)))
+"""When these ribbons are drawn. `render_strip` takes the moment rather than
+guessing at it, and the end of the day is the reading that draws a closed day
+the same however often it is redrawn."""
 
 
 @asynccontextmanager
@@ -283,16 +288,16 @@ async def test_the_reference_mark_stays_on_the_track(pace: float) -> None:
 
 
 async def test_a_ribbon_with_no_days_says_so() -> None:
-    ribbon = WeekRibbon()
+    ribbon = WeekRibbon(now=NOW)
     async with mounted(ribbon):
         assert str(ribbon.render()) == "Nothing recorded yet"
 
 
 async def test_each_row_of_the_ribbon_is_named_by_its_day() -> None:
     """A table of weekly totals says how much; the ribbon says when."""
-    ribbon = WeekRibbon()
+    ribbon = WeekRibbon(now=NOW)
     async with mounted(ribbon, width=40):
-        ribbon.show([day(MONDAY), day(MONDAY + timedelta(days=1))])
+        ribbon.show([day(MONDAY), day(MONDAY + timedelta(days=1))], now=NOW)
         drawn = lines(ribbon)
         assert [row[:6] for row in drawn] == ["Mon 02", "Tue 03"]
         assert len({len(row) for row in drawn}) == 1
@@ -302,11 +307,11 @@ async def test_a_ribbon_keeps_the_window_it_was_given_until_it_is_given_another(
     None
 ):
     """Redrawing a week is not a reason to snap back to the default day."""
-    ribbon = WeekRibbon(window=Window(time(6), time(20)))
+    ribbon = WeekRibbon(window=Window(time(6), time(20)), now=NOW)
     async with mounted(ribbon):
-        ribbon.show([day(MONDAY)])
+        ribbon.show([day(MONDAY)], now=NOW)
         assert ribbon.window == Window(time(6), time(20))
-        ribbon.show([day(MONDAY)], Window(time(8), time(18)))
+        ribbon.show([day(MONDAY)], Window(time(8), time(18)), now=NOW)
         assert ribbon.window == Window(time(8), time(18))
 
 

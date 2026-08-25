@@ -305,7 +305,15 @@ def parse_written(
 def parse_day_of_month(
     text: str, today: date, prefer: Preference = Preference.CURRENT
 ) -> date | None:
-    """A bare day number, in this month or the next.
+    """A bare day number: this month, or the next month that has one.
+
+    Booking forwards, the answer is the next date with that day number on it,
+    which is not always next month. This used to land the day in *today's*
+    month before consulting the preference, so `flexi leave annual 30` in
+    February was refused outright -- "February has no day 30", for a day
+    somebody was entitled to ask for -- and on the 31st of January it took the
+    30th one month forward and clamped it, booking the 28th of February for a
+    request that meant the 30th of March.
 
     Raises rather than returning ``None`` for a number no month has: ``32`` is
     a typo, and the last reader in the chain is the only one that can tell.
@@ -315,20 +323,31 @@ def parse_day_of_month(
         datetime.date(2026, 8, 12)
         >>> parse_day_of_month("3", date(2026, 8, 10), Preference.FORWARD)
         datetime.date(2026, 9, 3)
+        >>> parse_day_of_month("30", date(2026, 2, 10), Preference.FORWARD)
+        datetime.date(2026, 3, 30)
+        >>> parse_day_of_month("30", date(2026, 1, 31), Preference.FORWARD)
+        datetime.date(2026, 3, 30)
         >>> parse_day_of_month("friday", date(2026, 8, 10)) is None
         True
     """
     if not text.isdigit():
         return None
     day = int(text)
+    if prefer is Preference.FORWARD:
+        # Walked from the first of this month, so `add_months` can never clamp
+        # the cursor itself. `clamp` shortens the candidate, and a candidate
+        # that came back shorter is a month that does not have this day.
+        month = today.replace(day=1)
+        for _ in range(MONTHS_IN_YEAR):
+            candidate = leaveyear.clamp(month.year, month.month, day)
+            if candidate.day == day and candidate >= today:
+                return candidate
+            month = add_months(month, 1)
     try:
-        this_month = today.replace(day=day)
+        return today.replace(day=day)
     except ValueError as error:
         msg = f"{today:%B} has no day {day}"
         raise ValueError(msg) from error
-    if prefer is Preference.FORWARD and this_month < today:
-        return add_months(this_month, 1)
-    return this_month
 
 
 # -- arithmetic ---------------------------------------------------------------

@@ -112,6 +112,36 @@ def test_booking_reads_a_bare_day_as_the_next_one() -> None:
     assert parse_date("5", today=MONDAY, prefer=Preference.FORWARD) == date(2026, 9, 5)
 
 
+def test_booking_a_day_this_month_does_not_have_finds_one_that_does() -> None:
+    """The next date with that day number on it, which is not always next month.
+
+    `flexi leave annual 30` in February was refused outright -- "February has
+    no day 30", for a day somebody was entitled to ask for -- because the day
+    was landed in today's month before the preference was consulted.
+    """
+    assert parse_date("30", today=date(2026, 2, 10), prefer=Preference.FORWARD) == date(
+        2026, 3, 30
+    )
+
+
+def test_booking_forward_over_a_short_month_does_not_clamp_into_it() -> None:
+    """The 30th, asked for on the 31st of January, is the 30th of March.
+
+    It used to take the 30th of January one month forward and clamp, booking
+    the 28th of February -- a different day, silently, for a request that could
+    not have meant it.
+    """
+    assert parse_date("30", today=date(2026, 1, 31), prefer=Preference.FORWARD) == date(
+        2026, 3, 30
+    )
+
+
+def test_a_day_no_month_has_is_still_refused_when_booking_forwards() -> None:
+    """32 is a typo whichever way the preference points."""
+    with pytest.raises(ValueError, match="has no day 32"):
+        parse_date("32", today=MONDAY, prefer=Preference.FORWARD)
+
+
 def test_a_month_that_has_passed_books_next_year() -> None:
     assert parse_date("12 jun", today=MONDAY, prefer=Preference.FORWARD) == date(
         2027, 6, 12
@@ -177,6 +207,7 @@ def test_the_refusal_names_the_forms_it_understands() -> None:
 
 
 def test_a_day_the_month_does_not_have() -> None:
+    """Reading a date, not booking one: February has no 30th and that is that."""
     with pytest.raises(ValueError, match="February has no day 30"):
         parse_date("30", today=date(2026, 2, 10))
 

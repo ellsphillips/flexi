@@ -171,7 +171,7 @@ class RecordsModule(Module):
                     self._strip_width,
                     window,
                     self.get_component_rich_style,
-                    self.now,
+                    now=self.now,
                 ),
                 self._worked_cell(ledger),
                 self._delta_cell(ledger),

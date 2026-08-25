@@ -40,7 +40,7 @@ class ClockModule(Module):
         with Horizontal(id="clock-state"):
             yield Pill("off the clock", id="clock-pill")
             yield Switch(value=False, id="clock-switch")
-        yield PunchStrip(id="clock-strip")
+        yield PunchStrip(id="clock-strip", now=self.now)
         yield Static("", id="clock-detail", classes="caption")
         yield Button("Arrive", id="clock-button", classes="-primary")
 
