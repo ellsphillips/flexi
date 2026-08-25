@@ -37,7 +37,6 @@ from flexi.components.yearcalendar import (
     MORNING,
     SPLIT,
     YearCalendar,
-    days_between,
     legend,
 )
 from flexi.config import CONFIG
@@ -871,18 +870,6 @@ def test_the_legend_explains_the_glyphs_the_grid_draws() -> None:
     text = legend().plain
     assert f"{MORNING}{AFTERNOON}" in text
     assert SPLIT in text
-
-
-def test_a_span_of_days_includes_both_of_its_ends() -> None:
-    """A span of days includes both of its ends.
-
-    A fortnight booked from Monday to the Friday after is ten working days, and
-    an exclusive end would quietly book nine of them.
-    """
-    assert days_between(JUNE, JUNE) == [JUNE]
-    assert days_between(JUNE, date(2026, 6, 5)) == [
-        date(2026, 6, day) for day in range(1, 6)
-    ]
 
 
 # -- the heading stands over the dates -------------------------------------

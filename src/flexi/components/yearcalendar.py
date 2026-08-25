@@ -10,7 +10,7 @@ so nothing here is colour alone.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import ClassVar, Final
 
 from rich.segment import Segment
@@ -25,6 +25,7 @@ from textual.strip import Strip
 from flexi import wallclock
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Portion
+from flexi.domain.dates import add_months
 from flexi.domain.ledger import DayLedger
 from flexi.domain.stitch import (
     DAYS_IN_WEEK,
@@ -237,13 +238,9 @@ class YearCalendar(ScrollView, can_focus=True):
         Clamped to the length of the target month, so stepping from the 31st
         lands on the 30th rather than refusing to move.
         """
-        head = self.selection.head
-        total = head.year * 12 + head.month - 1 + offset
-        year, month = total // 12, total % 12 + 1
-        import calendar
-
-        day = min(head.day, calendar.monthrange(year, month)[1])
-        self.set_selection(self.selection.go_to(date(year, month, day)))
+        self.set_selection(
+            self.selection.go_to(add_months(self.selection.head, offset))
+        )
 
     def action_first(self) -> None:
         if self.blocks:
@@ -482,8 +479,3 @@ def legend() -> Text:
         text.append("\n")
     text.append(f"{MORNING}{AFTERNOON} half day   {SPLIT} split")
     return text
-
-
-def days_between(start: date, end: date) -> list[date]:
-    """Every date in a span, inclusive."""
-    return [start + timedelta(days=n) for n in range((end - start).days + 1)]

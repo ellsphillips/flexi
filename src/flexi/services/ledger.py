@@ -24,6 +24,7 @@ from flexi.domain.balance import (
     toil_taken_for,
     worked_from,
 )
+from flexi.domain.dates import days_between
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.punch import Window
 from flexi.models.database.db import (
@@ -85,7 +86,7 @@ class LedgerService:
         moment = wallclock.local(now) if now is not None else wallclock.now()
         today = moment.date()
 
-        wanted = _date_range(start, end)
+        wanted = days_between(start, end)
         missing = [day for day in wanted if day not in self._cache or day == today]
         if missing:
             self._build(min(missing), max(missing), moment, today)
@@ -120,7 +121,7 @@ class LedgerService:
         working_days = set(self._settings.get_working_day_indices())
         contracted = self.contracted
 
-        for when in _date_range(start, end):
+        for when in days_between(start, end):
             segments = tuple(
                 sorted(
                     (_segment(row) for row in sessions[when]),
@@ -264,11 +265,6 @@ def _kind(
     if slices:
         return DayKind.PARTIAL
     return DayKind.WORKING
-
-
-def _date_range(start: date, end: date) -> list[date]:
-    span = (end - start).days
-    return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
 
 
 def utc_now() -> datetime:

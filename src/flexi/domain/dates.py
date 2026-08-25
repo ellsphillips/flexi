@@ -1,4 +1,4 @@
-"""Reading the several ways somebody might type a date.
+"""Reading, and shifting, the several ways somebody might type a date.
 
 Lives in the domain rather than beside the modal that used to own it, because a
 command line needs the same vocabulary a dialog does, and the CLI cannot import
@@ -9,6 +9,11 @@ A dialog and a command line want different defaults, though. Somebody typing
 or not it has passed. Somebody typing ``flexi leave annual 12`` is booking
 leave, and leave is booked forwards. That is what :class:`Preference` chooses
 between; nothing else about the grammar changes.
+
+:func:`add_months` and :func:`days_between` are public for the same reason
+``leaveyear`` is: they are the two questions every layer asks about a span, and
+answering them privately here left four other answers scattered across the
+widgets and the services.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Final
 
+from flexi.domain import leaveyear
 from flexi.domain.format import stamp
 
 DAYS_IN_WEEK: Final = 7
@@ -193,8 +199,8 @@ def _offset(text: str, today: date, prefer: Preference) -> date | None:
     if unit in OFFSET_UNITS:
         return today + timedelta(days=count * OFFSET_UNITS[unit])
     if unit == "m":
-        return _add_months(today, count)
-    return _add_months(today, count * MONTHS_IN_YEAR)
+        return add_months(today, count)
+    return add_months(today, count * MONTHS_IN_YEAR)
 
 
 def _formatted(text: str, today: date, prefer: Preference) -> date | None:
@@ -232,8 +238,53 @@ def _day_of_month(text: str, today: date, prefer: Preference) -> date | None:
         msg = f"{today:%B} has no day {day}"
         raise ValueError(msg) from error
     if prefer is Preference.FORWARD and this_month < today:
-        return _add_months(this_month, 1)
+        return add_months(this_month, 1)
     return this_month
+
+
+# -- arithmetic ---------------------------------------------------------------
+
+
+def add_months(when: date, count: int) -> date:
+    """Move whole months, clamping to the end of a shorter one.
+
+    Clamping is :func:`flexi.domain.leaveyear.clamp`, which is where the reason
+    for it is written down: the 31st of a month has no counterpart in the next,
+    and neither does the 29th of February in three years out of four.
+
+    Examples:
+        >>> add_months(date(2026, 1, 31), 1)
+        datetime.date(2026, 2, 28)
+        >>> add_months(date(2026, 3, 15), -2)
+        datetime.date(2026, 1, 15)
+        >>> add_months(date(2026, 12, 1), 1)
+        datetime.date(2027, 1, 1)
+    """
+    total = when.year * MONTHS_IN_YEAR + (when.month - 1) + count
+    year, month = divmod(total, MONTHS_IN_YEAR)
+    return leaveyear.clamp(year, month + 1, when.day)
+
+
+def days_between(start: date, end: date) -> list[date]:
+    """Every date from ``start`` to ``end``, inclusive.
+
+    Empty when ``end`` falls before ``start``, because that is how many dates
+    there are between them. Callers refuse a backwards span before they get
+    here -- ``parse_span`` raises and the leave screen will not build one -- so
+    this is the answer to a question nobody should be asking, not a fallback
+    anybody relies on.
+
+    Examples:
+        >>> days_between(date(2026, 6, 1), date(2026, 6, 3))[-1]
+        datetime.date(2026, 6, 3)
+        >>> len(days_between(date(2026, 6, 1), date(2026, 6, 3)))
+        3
+        >>> days_between(date(2026, 6, 1), date(2026, 6, 1))
+        [datetime.date(2026, 6, 1)]
+        >>> days_between(date(2026, 6, 3), date(2026, 6, 1))
+        []
+    """
+    return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
 
 
 # -- helpers -----------------------------------------------------------------
@@ -242,19 +293,5 @@ def _day_of_month(text: str, today: date, prefer: Preference) -> date | None:
 def _forward_if_passed(parsed: date, today: date, prefer: Preference) -> date:
     """A date already read in this year, moved on if booking has passed it."""
     if prefer is Preference.FORWARD and parsed < today:
-        return _add_months(parsed, MONTHS_IN_YEAR)
+        return add_months(parsed, MONTHS_IN_YEAR)
     return parsed
-
-
-def _add_months(when: date, count: int) -> date:
-    """Move whole months, clamping to the end of a shorter one."""
-    total = when.year * MONTHS_IN_YEAR + (when.month - 1) + count
-    year, month = divmod(total, MONTHS_IN_YEAR)
-    month += 1
-    last = _days_in(year, month)
-    return date(year, month, min(when.day, last))
-
-
-def _days_in(year: int, month: int) -> int:
-    following = date(year + (month == MONTHS_IN_YEAR), month % MONTHS_IN_YEAR + 1, 1)
-    return (following - timedelta(days=1)).day

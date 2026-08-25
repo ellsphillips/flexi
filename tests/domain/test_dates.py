@@ -1,7 +1,11 @@
-"""Every way somebody might type a date at a command line.
+"""Every way somebody might type a date at a command line, and shifting one.
 
 The parser used to live beside the "go to date" modal, accepted none of the
 words a CLI user reaches for, and had no tests at all.
+
+`add_months` and `days_between` were four implementations across the widgets and
+the services before they were one here, so the cases that separated them --
+clamping a short month, and a span that runs backwards -- are pinned below.
 """
 
 from __future__ import annotations
@@ -10,7 +14,13 @@ from datetime import date
 
 import pytest
 
-from flexi.domain.dates import Preference, parse_date, parse_span
+from flexi.domain.dates import (
+    Preference,
+    add_months,
+    days_between,
+    parse_date,
+    parse_span,
+)
 
 MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
@@ -169,3 +179,48 @@ def test_the_refusal_names_the_forms_it_understands() -> None:
 def test_a_day_the_month_does_not_have() -> None:
     with pytest.raises(ValueError, match="February has no day 30"):
         parse_date("30", today=date(2026, 2, 10))
+
+
+# -- arithmetic --------------------------------------------------------------
+
+
+def test_a_span_of_days_includes_both_of_its_ends() -> None:
+    """A fortnight booked Monday to the Friday after is ten working days.
+
+    An exclusive end would quietly book nine of them.
+    """
+    june = date(2026, 6, 1)
+    assert days_between(june, june) == [june]
+    assert days_between(june, date(2026, 6, 5)) == [
+        date(2026, 6, day) for day in range(1, 6)
+    ]
+
+
+def test_a_backwards_span_holds_no_days() -> None:
+    """Not `[start]`.
+
+    Every caller refuses a backwards span before it gets here, so the honest
+    answer to "which dates lie between these two" is none of them. The three
+    copies this replaced disagreed: two answered `[start]` and one answered
+    nothing, and no caller could tell which it had.
+    """
+    assert days_between(date(2026, 6, 3), date(2026, 6, 1)) == []
+
+
+@pytest.mark.parametrize(
+    ("start", "count", "expected"),
+    [
+        (date(2026, 1, 31), 1, date(2026, 2, 28)),
+        (date(2024, 1, 31), 1, date(2024, 2, 29)),
+        (date(2026, 3, 31), -1, date(2026, 2, 28)),
+        (date(2026, 12, 15), 1, date(2027, 1, 15)),
+        (date(2026, 1, 15), -1, date(2025, 12, 15)),
+        (date(2026, 6, 30), 12, date(2027, 6, 30)),
+        (date(2026, 6, 30), 0, date(2026, 6, 30)),
+    ],
+)
+def test_moving_whole_months_clamps_to_a_shorter_one(
+    start: date, count: int, expected: date
+) -> None:
+    """The 31st has no counterpart in February, and neither does 29 February."""
+    assert add_months(start, count) == expected

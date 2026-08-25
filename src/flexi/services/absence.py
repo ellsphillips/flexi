@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain import leaveyear
+from flexi.domain.dates import days_between
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural, short_date
 from flexi.domain.ledger import MIDDAY_HOUR
@@ -33,12 +34,6 @@ from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
-
-
-def _walk(start: date, end: date) -> list[date]:
-    """Every date from start to end, inclusive."""
-    span = (end - start).days
-    return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
 
 
 def covers_the_whole_day(booked: Iterable[Portion]) -> bool:
@@ -110,11 +105,7 @@ class RangeResult:
     @property
     def reasons(self) -> tuple[str, ...]:
         """The distinct refusals, in the order they were first hit."""
-        seen: list[str] = []
-        for _when, reason in self.skipped:
-            if reason not in seen:
-                seen.append(reason)
-        return tuple(seen)
+        return tuple(dict.fromkeys(reason for _when, reason in self.skipped))
 
     def message(self, what: str) -> str:
         """One sentence a status bar can show unedited."""
@@ -186,11 +177,7 @@ class AbsencePlan:
     @property
     def reasons(self) -> tuple[str, ...]:
         """The distinct refusals, in the order they were first hit."""
-        seen: list[str] = []
-        for day in self.refused:
-            if day.reason not in seen:
-                seen.append(day.reason)
-        return tuple(seen)
+        return tuple(dict.fromkeys(day.reason for day in self.refused))
 
     @property
     def headline(self) -> str:
@@ -549,7 +536,7 @@ class AbsenceService:
         remaining = self.get_remaining_annual_leave(start)
         days: list[PlannedDay] = []
 
-        for when in _walk(start, end):
+        for when in days_between(start, end):
             verdict, reason, detail = self._verdict(
                 when, absence_type, portion, note, remaining_annual=remaining
             )
@@ -641,7 +628,7 @@ class AbsenceService:
         """
         cleared = [
             when
-            for when in _walk(start, end)
+            for when in days_between(start, end)
             if self.for_date(when) and self.remove(when).success
         ]
         return RangeResult(tuple(cleared))
