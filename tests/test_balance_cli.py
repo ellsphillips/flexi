@@ -160,3 +160,26 @@ def test_the_work_records_are_untouched(home: Path) -> None:
         assert len(sessions_on(session, YESTERDAY)) == 1
     finally:
         session.close()
+
+
+def test_as_of_reads_the_dates_the_rest_of_the_command_line_reads(home: Path) -> None:
+    """One grammar across one command line.
+
+    `--as-of` was a `click.DateTime` accepting only `%Y-%m-%d`, so
+    `flexi leave annual friday` worked and `flexi balance show --as-of friday`
+    was a usage error — and the refusal named `%Y-%m-%d` rather than the forms
+    Flexi actually understands.
+    """
+    runner = CliRunner()
+
+    assert balance_of(runner, YESTERDAY) == _balance_on(runner, "yesterday")
+
+    refused = runner.invoke(cli, ["balance", "show", "--as-of", "whenever"])
+    assert refused.exit_code != 0
+    assert "12 Jun" in refused.output, "the refusal should name what it accepts"
+
+
+def _balance_on(runner: CliRunner, typed: str) -> str:
+    output = runner.invoke(cli, ["balance", "show", "--as-of", typed]).output
+    line = next(row for row in output.splitlines() if row.startswith("balance"))
+    return line.removeprefix("balance").strip()

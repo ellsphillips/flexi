@@ -33,7 +33,7 @@ from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import CACHE_MAX_AGE
 from flexi.services.registry import Services
 from flexi.services.samples import NOW
-from tests.conftest import sessions_on, settled
+from tests.conftest import sessions_on
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
 
 TODAY = date(2026, 6, 11)
@@ -197,16 +197,20 @@ async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
 
     app = FlexiApp(db_path=seeded_db)
     async with app.run_test(size=WIDE) as pilot:
-        await pilot.pause()
         await app.workers.wait_for_complete()
-        # Twice, and then settled: `wait_for_complete` returns when the worker
-        # thread has finished, and the redraw it asks for is a callback the
-        # loop has not necessarily run yet.
-        await pilot.pause()
-        await settled(pilot)
+        # Pumped until the redraw lands rather than a fixed number of times:
+        # `wait_for_complete` returns when the worker thread has finished, and
+        # the redraw it asks for through `call_from_thread` is a callback the
+        # loop schedules. Waiting a fixed two pauses passed on a quiet machine
+        # and failed under a loaded one, which is a test measuring the weather.
+        landed = date(2026, 6, 12)
+        for _ in range(20):
+            await pilot.pause()
+            if app.services.ledger.day(landed).is_holiday:
+                break
 
-        assert app.services.bank_holidays.get_dates() == {date(2026, 6, 12)}
-        assert app.services.ledger.day(date(2026, 6, 12)).is_holiday, (
+        assert app.services.bank_holidays.get_dates() == {landed}
+        assert app.services.ledger.day(landed).is_holiday, (
             "the ledger was built before the calendar landed and never rebuilt"
         )
         assert not [

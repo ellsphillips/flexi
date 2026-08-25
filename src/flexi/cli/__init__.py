@@ -7,9 +7,39 @@ without a subprocess. The decorators in `__main__` are adapters over these.
 
 from __future__ import annotations
 
+from datetime import date
+
 import click
 
+from flexi import wallclock
+from flexi.domain.dates import Preference, parse_date
 from flexi.services.outcome import Outcome
+
+
+class TypedDate(click.ParamType):
+    """A date option, read with the grammar the rest of Flexi understands.
+
+    `click.DateTime` accepts `%Y-%m-%d` and hands back a `datetime`, so every
+    option using it had to unwrap `.date()` and declare a parameter as a
+    `datetime` that was never anything but a date. It also left
+    `flexi balance show --as-of friday` a usage error while
+    `flexi leave annual friday` worked -- one command line, two date grammars.
+    """
+
+    name = "date"
+
+    def convert(
+        self,
+        value: object,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> date:
+        try:
+            return parse_date(
+                str(value), today=wallclock.today(), prefer=Preference.CURRENT
+            )
+        except ValueError as error:
+            self.fail(str(error), param, ctx)
 
 
 def report(result: Outcome) -> int:
