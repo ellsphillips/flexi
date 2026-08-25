@@ -28,6 +28,8 @@ from flexi.domain.format import plural
 class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     """A dialog with a title, a body, and the two keys every dialog has."""
 
+    HELP_LABEL = "Dialog"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "cancel", "Cancel", show=True),
         Binding("enter", "confirm", "Confirm", show=True, priority=True),

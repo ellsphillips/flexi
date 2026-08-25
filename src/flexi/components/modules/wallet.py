@@ -46,6 +46,8 @@ class BookRequested(Message):
 class WalletModule(Module):
     """One gauge per allowance, plus the period's own figures."""
 
+    HELP_LABEL = "Wallet"
+
     WATCHES: ClassVar[Scope] = (
         Scope.ABSENCE | Scope.CLOCK | Scope.SETTINGS | Scope.PERIOD
     )

@@ -43,6 +43,8 @@ KIND_CLASSES: dict[DayKind, str] = {
 class MonthView(Module):
     """A month grid that drives, and reflects, the dashboard's period."""
 
+    HELP_LABEL = "Calendar"
+
     WATCHES: ClassVar[Scope] = Scope.ALL
 
     BINDINGS: ClassVar[list[BindingType]] = [

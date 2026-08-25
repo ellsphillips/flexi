@@ -23,6 +23,8 @@ from flexi.components.common import KeyHint, Rule
 class HelpScreen(ModalScreen[None]):
     """The keyboard, written down."""
 
+    HELP_LABEL = "Help"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss_help", "Close", show=True),
         Binding("question_mark", "dismiss_help", "Close", show=False),
@@ -81,16 +83,13 @@ def _is_ours(node: object) -> bool:
 
 
 def _label_for(node: object) -> str:
-    """A human name for the widget a binding belongs to."""
-    name = type(node).__name__
-    return {
-        "FlexiApp": "Anywhere",
-        "DashboardScreen": "Dashboard",
-        "InsightsScreen": "Insights",
-        "SettingsScreen": "Settings",
-        "RecordsModule": "Records",
-        "ExpandableTable": "Records table",
-        "WalletModule": "Wallet",
-        "MonthView": "Calendar",
-        "ClockModule": "Clock",
-    }.get(name, name)
+    """The heading a binding is filed under.
+
+    Read off the class rather than looked up in a table here. The table had no
+    entry for the leave screen or its calendar, so the help modal filed their
+    eleven keys under `LeaveScreen` and `YearCalendar` -- and nothing said so,
+    because a missing entry falls back to the class name and a class name is a
+    string like any other. `tests/tui/test_modals.py` now refuses a Flexi class
+    that declares bindings and no `HELP_LABEL`.
+    """
+    return str(getattr(type(node), "HELP_LABEL", type(node).__name__))

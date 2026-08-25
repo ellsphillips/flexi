@@ -34,6 +34,8 @@ focused, which reads as the jump having gone to the wrong place.
 class JumpOverlay(ModalScreen[str | Widget | None]):
     """The badges, and the two bars that explain the mode."""
 
+    HELP_LABEL = "Jump mode"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss_overlay", "Dismiss", show=False),
     ]

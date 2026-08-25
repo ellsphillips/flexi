@@ -53,6 +53,8 @@ class RowGroup:
 class ExpandableTable(DataTable[RenderableType]):
     """A ``DataTable`` with openable rows."""
 
+    HELP_LABEL = "Records table"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("space", "toggle_row", "Expand", show=True),
         Binding("shift+space", "toggle_all", "Expand all", show=False),

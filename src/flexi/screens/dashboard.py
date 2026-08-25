@@ -60,6 +60,8 @@ JUMP_TARGETS = {
 class DashboardScreen(Screen[None]):
     """Everything you need twice a day, on one screen."""
 
+    HELP_LABEL = "Dashboard"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.today, "today", "Today", show=True),
         Binding(CONFIG.hotkeys.period_prev, "shift(-1)", "Previous", show=False),

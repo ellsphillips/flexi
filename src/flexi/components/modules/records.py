@@ -83,6 +83,8 @@ class DeleteHere(Message):
 class RecordsModule(Module):
     """Every day in the period, expandable."""
 
+    HELP_LABEL = "Records"
+
     WATCHES: ClassVar[Scope] = Scope.ALL
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {

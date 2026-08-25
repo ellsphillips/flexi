@@ -93,6 +93,8 @@ PORTION_GLYPH: Final[dict[Portion, str]] = {
 class YearCalendar(ScrollView, can_focus=True):
     """Months stitched into one scrolling grid, with a movable selection."""
 
+    HELP_LABEL = "Leave calendar"
+
     COMPONENT_CLASSES: ClassVar[set[str]] = {
         "cal--month",
         "cal--weekday",

@@ -184,6 +184,8 @@ class Question(Horizontal):
 class SetupScreen(Screen[bool]):
     """First launch. Returns True when the answers are saved."""
 
+    HELP_LABEL = "Setup"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "cancel", "Cancel"),
         Binding("ctrl+s", "save", "Save"),

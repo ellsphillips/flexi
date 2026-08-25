@@ -148,6 +148,8 @@ class YearAtAGlance(Module):
 class InsightsScreen(Screen[None]):
     """The four questions the dashboard does not answer."""
 
+    HELP_LABEL = "Insights"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.today, "today", "Today", show=True),
         Binding(CONFIG.hotkeys.period_prev, "shift(-1)", "Previous", show=False),

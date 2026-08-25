@@ -60,6 +60,8 @@ Below the threshold it is faster to undo than to confirm.
 class LeaveScreen(Screen[None]):
     """Book, change and remove leave across a whole year."""
 
+    HELP_LABEL = "Leave"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.book_annual, "book('annual')", "Annual", show=True),
         Binding(CONFIG.hotkeys.book_sick, "book('sick')", "Sick", show=True),

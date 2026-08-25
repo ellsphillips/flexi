@@ -28,6 +28,8 @@ from flexi.messages import Scope
 class ClockModule(Module):
     """Clock in, clock out, and see today at a glance."""
 
+    HELP_LABEL = "Clock"
+
     WATCHES: ClassVar[Scope] = Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS
 
     def __init__(self, **kwargs: Any) -> None:

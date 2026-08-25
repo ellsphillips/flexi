@@ -52,6 +52,8 @@ class FlexiApp(TextualApp[None]):
 
     TITLE = "flexi"
 
+    HELP_LABEL = "Anywhere"
+
     CSS_PATH: ClassVar[list[str | PurePath]] = [
         "theme/flexi.tcss",
         "styles/dashboard.tcss",

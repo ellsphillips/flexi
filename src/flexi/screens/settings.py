@@ -18,6 +18,8 @@ from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
 class SettingsScreen(Screen[bool]):
     """Settings edit screen. Returns True when saved."""
 
+    HELP_LABEL = "Settings"
+
     BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "back", "Back")]
 
     DEFAULT_CSS = """

@@ -167,3 +167,49 @@ def test_the_type_checking_block_is_not_a_loophole() -> None:
         for alias in node.names
     }
     assert "annotations" in futures
+
+
+def declares_bindings(tree: ast.Module) -> Iterator[ast.ClassDef]:
+    """Every class in a module whose body assigns ``BINDINGS``."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        assigned = {
+            target.id
+            for statement in node.body
+            for target in _targets(statement)
+            if isinstance(target, ast.Name)
+        }
+        if "BINDINGS" in assigned:
+            yield node
+
+
+def _targets(statement: ast.stmt) -> Iterator[ast.expr]:
+    if isinstance(statement, ast.AnnAssign):
+        yield statement.target
+    elif isinstance(statement, ast.Assign):
+        yield from statement.targets
+
+
+@pytest.mark.parametrize("path", sorted(SRC.rglob("*.py")), ids=lambda p: p.name)
+def test_every_class_with_keys_says_what_to_call_it(path: Path) -> None:
+    """A binding is filed in the help modal under its owner's `HELP_LABEL`.
+
+    `_label_for` used to look the class name up in a table and fall back to the
+    class name itself, so a screen missing from the table filed its keys under
+    `LeaveScreen` — which is what the leave screen and its calendar did, for
+    eleven keys, silently. A fallback that looks like an answer needs something
+    that refuses it.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in declares_bindings(tree):
+        labelled = {
+            target.id
+            for statement in node.body
+            for target in _targets(statement)
+            if isinstance(target, ast.Name)
+        }
+        assert "HELP_LABEL" in labelled, (
+            f"{node.name} declares BINDINGS but no HELP_LABEL, so the help "
+            f"modal would file its keys under {node.name!r}."
+        )
