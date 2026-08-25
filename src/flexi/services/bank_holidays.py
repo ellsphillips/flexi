@@ -152,10 +152,11 @@ class BankHolidayService:
         return (self.titles_between(day, day) or {}).get(day)
 
     def get_dates(self) -> set[date] | None:
-        """Return all cached bank holiday dates, or None if unavailable."""
-        if not self.is_available():
+        """Every cached bank holiday, or None when there is no calendar at all."""
+        division = self.division
+        if not self._has_any(division):
             return None
         stmt = select(BankHolidayCache.date).where(
-            BankHolidayCache.division == self.division
+            BankHolidayCache.division == division
         )
         return set(self._session.execute(stmt).scalars())

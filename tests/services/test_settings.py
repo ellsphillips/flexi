@@ -337,6 +337,38 @@ def test_a_stored_working_week_that_cannot_be_read_falls_back(
     assert svc.is_working_day(5) is False
 
 
+def test_a_leave_year_start_that_cannot_be_read_falls_back(
+    svc: SettingsService, session: Session
+) -> None:
+    """It raised, where the four accessors beside it fall back.
+
+    A settings problem is not a reason to refuse to open somebody's records --
+    there would be no way in to correct the setting.
+    """
+    _do_setup(svc)
+    session.execute(text("UPDATE settings SET leave_year_start = 'April the 1st'"))
+    session.commit()
+
+    assert svc.get_leave_year_start() == (1, 1)
+
+
+def test_a_day_window_that_cannot_be_read_falls_back(
+    svc: SettingsService, session: Session
+) -> None:
+    """It handed its strings straight on to `Window.parse`, which raises.
+
+    Inside a widget's `render`, where Textual logs the traceback and swallows
+    it — so the symptom is a blank panel and no message. `save_settings`
+    normalises the leave year and the auto-close time and does not normalise
+    these two, so an unreadable pair is reachable.
+    """
+    _do_setup(svc)
+    session.execute(text("UPDATE settings SET day_window_start = 'sunrise'"))
+    session.commit()
+
+    assert svc.get_day_window() == (DEFAULT_WINDOW_START, DEFAULT_WINDOW_END)
+
+
 def test_the_division_falls_back_before_setup(svc: SettingsService) -> None:
     """Something has to be asked of GOV.UK before anybody has chosen a region."""
     assert svc.get_division() is DEFAULT_DIVISION

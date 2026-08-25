@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import date, time, timedelta
 
 from sqlalchemy import select
@@ -36,6 +37,92 @@ DEFAULT_ENTITLEMENT_DAYS = 25.0
 Named because the setup form, the settings screen and the demo data each typed
 it out, so the number a new install sees was three numbers that happened to
 agree."""
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSettings:
+    """The settings row, read once, with every fallback already applied.
+
+    The six accessors below each opened by selecting the one-row settings
+    table and each wrote its own "or the default" clause. Drawing a wallet took
+    ten of those selects, and two of the six had drifted from the rule the
+    other four state: a stored value that cannot be read is a settings problem,
+    not a reason to refuse to open somebody's time records.
+
+    One read, one place the fallbacks live, and a value the hot paths can take
+    once and pass down.
+    """
+
+    contracted: timedelta
+    day_window: tuple[str, str]
+    working_days: tuple[int, ...]
+    auto_close: time
+    division: Division
+    leave_year_start: tuple[int, int]
+
+    @classmethod
+    def of(cls, settings: Settings | None) -> ResolvedSettings:
+        """Read a row, or answer for the absence of one."""
+        if settings is None:
+            return cls(
+                contracted=timedelta(minutes=DEFAULT_CONTRACTED_MINUTES),
+                day_window=(DEFAULT_WINDOW_START, DEFAULT_WINDOW_END),
+                working_days=DEFAULT_WORKING_DAYS,
+                auto_close=DEFAULT_AUTO_CLOSE,
+                division=DEFAULT_DIVISION,
+                leave_year_start=parse_month_day(DEFAULT_LEAVE_YEAR_START),
+            )
+        return cls(
+            contracted=timedelta(minutes=settings.contracted_minutes),
+            day_window=_read(
+                lambda: _readable_window(
+                    settings.day_window_start, settings.day_window_end
+                ),
+                (DEFAULT_WINDOW_START, DEFAULT_WINDOW_END),
+            ),
+            working_days=_read(
+                lambda: tuple(parse_working_days(settings.working_days)),
+                DEFAULT_WORKING_DAYS,
+            ),
+            auto_close=_read(
+                lambda: time(*parse_clock_time(settings.auto_close_time)),
+                DEFAULT_AUTO_CLOSE,
+            ),
+            division=_read(
+                lambda: Division(settings.bank_holiday_division), DEFAULT_DIVISION
+            ),
+            leave_year_start=_read(
+                lambda: parse_month_day(settings.leave_year_start),
+                parse_month_day(DEFAULT_LEAVE_YEAR_START),
+            ),
+        )
+
+
+def _readable_window(start: str, end: str) -> tuple[str, str]:
+    """The stored day window, checked before anything tries to draw in it.
+
+    `save_settings` normalises the leave year and the auto-close time and does
+    not normalise these two, so an unreadable pair could reach `Window.parse`
+    and raise inside a widget's `render` -- which Textual logs and swallows,
+    leaving a blank panel and no message.
+    """
+    parse_clock_time(start)
+    parse_clock_time(end)
+    return start, end
+
+
+def _read[T](value: Callable[[], T], fallback: T) -> T:
+    """A stored field, or the default when it cannot be read.
+
+    The bargain the module strikes, in one place rather than in four of the six
+    accessors that were supposed to be striking it. A value written by an older
+    version, or by hand, must not be an application that will not open — there
+    would be no way in to correct the setting.
+    """
+    try:
+        return value()
+    except ValueError:
+        return fallback
 
 
 class SettingsService:
@@ -110,6 +197,14 @@ class SettingsService:
 
     # ---- helpers ----
 
+    def resolved(self) -> ResolvedSettings:
+        """Every setting, in one read, with the fallbacks already applied.
+
+        What a caller that needs more than one of them should ask for. The
+        accessors below are for the callers that need exactly one.
+        """
+        return ResolvedSettings.of(self.get_settings())
+
     def get_contracted(self) -> timedelta:
         """How long a standard working day is.
 
@@ -117,80 +212,30 @@ class SettingsService:
         floating point, and a leave year of rounding it produces a balance that
         disagrees with the sum of its own rows.
         """
-        settings = self.get_settings()
-        minutes = (
-            settings.contracted_minutes if settings else DEFAULT_CONTRACTED_MINUTES
-        )
-        return timedelta(minutes=minutes)
+        return self.resolved().contracted
 
     def get_day_window(self) -> tuple[str, str]:
         """The span of the day the punch strip draws, as ``HH:MM`` strings."""
-        settings = self.get_settings()
-        if settings is None:
-            return DEFAULT_WINDOW_START, DEFAULT_WINDOW_END
-        return settings.day_window_start, settings.day_window_end
+        return self.resolved().day_window
 
     def get_working_day_indices(self) -> list[int]:
-        """Weekday indices (0=Monday) for the configured working days.
-
-        Falls back to Monday-Friday rather than raising. A stored value that
-        cannot be read is a settings problem, not a reason to refuse to open
-        somebody's time records.
-        """
-        settings = self.get_settings()
-        if settings is None:
-            return list(DEFAULT_WORKING_DAYS)
-        try:
-            return parse_working_days(settings.working_days)
-        except ValueError:
-            return list(DEFAULT_WORKING_DAYS)
+        """Weekday indices (0=Monday) for the configured working days."""
+        return list(self.resolved().working_days)
 
     def is_working_day(self, weekday: int) -> bool:
-        return weekday in self.get_working_day_indices()
+        return weekday in self.resolved().working_days
 
     def get_auto_close_time(self) -> time:
-        """When to close a session nobody closed.
-
-        Falls back rather than raising, for the same reason
-        :meth:`get_working_day_indices` does -- and for one more. Values written
-        before this was validated are still in databases, and this is read from
-        `_open_database` on every command and from `App.on_mount` before a screen
-        is drawn. Raising here is not a settings error; it is an application that
-        will not open, with no way in to correct the setting.
-        """
-        settings = self.get_settings()
-        if settings is None:
-            return DEFAULT_AUTO_CLOSE
-        try:
-            hour, minute = parse_clock_time(settings.auto_close_time)
-        except ValueError:
-            return DEFAULT_AUTO_CLOSE
-        return time(hour, minute)
+        """When to close a session nobody closed."""
+        return self.resolved().auto_close
 
     def get_division(self) -> Division:
-        """Whose bank holidays apply, or the default before setup has run.
-
-        Typed, and read from here rather than from the settings row directly.
-        Four call sites unpacked the row themselves and three of them wrote the
-        same ``or DEFAULT_DIVISION.value`` fallback out again; the fourth
-        compared a stored slug against a member and never matched.
-        """
-        settings = self.get_settings()
-        if settings is None or not settings.bank_holiday_division:
-            return DEFAULT_DIVISION
-        try:
-            return Division(settings.bank_holiday_division)
-        except ValueError:
-            # A slug this build does not know is a settings problem, not a
-            # reason to refuse to open somebody's records -- the same bargain
-            # `get_working_day_indices` and `get_auto_close_time` strike.
-            return DEFAULT_DIVISION
+        """Whose bank holidays apply, or the default before setup has run."""
+        return self.resolved().division
 
     def get_leave_year_start(self) -> tuple[int, int]:
-        """Return (month, day) of leave year start."""
-        settings = self.get_settings()
-        raw = settings.leave_year_start if settings else DEFAULT_LEAVE_YEAR_START
-        return parse_month_day(raw)
+        """The month and day a leave year begins on."""
+        return self.resolved().leave_year_start
 
     def active_leave_year(self, ref: date | None = None) -> int:
         """The calendar year the active leave year is filed under."""

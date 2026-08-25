@@ -62,13 +62,7 @@ class LedgerService:
     @property
     def window(self) -> Window:
         """The span of the day the punch strip should draw."""
-        start, end = self._settings.get_day_window()
-        return Window.parse(start, end)
-
-    @property
-    def contracted(self) -> timedelta:
-        """How long a standard working day is."""
-        return self._settings.get_contracted()
+        return Window.parse(*self._settings.get_day_window())
 
     def day(self, when: date, *, now: datetime | None = None) -> DayLedger:
         """One day's ledger."""
@@ -122,8 +116,9 @@ class LedgerService:
         # must not do is read the cache table itself.
         holidays = self._holidays_service.titles_between(start, end) or {}
         corrections = self._adjustments(start, end)
-        working_days = set(self._settings.get_working_day_indices())
-        contracted = self.contracted
+        settings = self._settings.resolved()
+        working_days = set(settings.working_days)
+        contracted = settings.contracted
 
         for when in days_between(start, end):
             segments = tuple(

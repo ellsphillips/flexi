@@ -628,7 +628,7 @@ class AbsenceService:
         until something writes, and a verdict read through a stale cache would
         book over a day that had just been taken.
         """
-        working = set(self._settings.get_working_day_indices())
+        working = set(self._settings.resolved().working_days)
         titles = self._bank_holidays.titles_between(start, end)
         booked: defaultdict[date, list[Portion]] = defaultdict(list)
         for row in self.in_range(start, end):
