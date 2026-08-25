@@ -12,8 +12,12 @@ from alembic.script import ScriptDirectory
 
 import flexi
 from flexi.locations import backups_directory, database_file, ensure
-from flexi.models.database.app import create_db_engine
-from flexi.models.database.backup import PROTECTED_PREFIX, snapshot
+from flexi.models.database.backup import (
+    PROTECTED_PREFIX,
+    ROUTINE_PREFIX,
+    snapshot,
+)
+from flexi.models.database.engine import create_db_engine
 
 MAX_BACKUPS = 10
 
@@ -46,7 +50,7 @@ def alembic_config(db_path: Path) -> Iterator[Config]:
         engine.dispose()
 
 
-def _current_revision(db_path: Path) -> str | None:
+def current_revision(db_path: Path) -> str | None:
     """The revision the database is stamped with, or ``None`` for an empty one."""
     engine = create_db_engine(db_path)
     try:
@@ -72,10 +76,10 @@ def backup_database(db_path: Path | None = None) -> Path | None:
         db_path = database_file()
     if not db_path.exists():
         return None
-    return snapshot(db_path, prefix="")
+    return snapshot(db_path, prefix=ROUTINE_PREFIX)
 
 
-def _cleanup_old_backups() -> None:
+def prune_backups(directory: Path) -> None:
     """Keep only the latest MAX_BACKUPS files, and every protected one.
 
     Housekeeping runs after a backup has already been taken, so a full disk or
@@ -87,11 +91,10 @@ def _cleanup_old_backups() -> None:
     fortnight of ordinary upgrades.
     """
     try:
-        backup_dir = backups_directory()
         backups = sorted(
             (
                 path
-                for path in backup_dir.glob("*.bak")
+                for path in directory.glob("*.bak")
                 if not path.name.startswith(PROTECTED_PREFIX)
             ),
             key=lambda p: p.stat().st_mtime,
@@ -114,7 +117,7 @@ def run_migrations(db_path: Path | None = None) -> None:
         head = script_dir.get_current_head()
 
         if db_path.exists():
-            if _current_revision(db_path) == head:
+            if current_revision(db_path) == head:
                 return  # Already up to date
 
             backup = backup_database(db_path)
@@ -122,6 +125,6 @@ def run_migrations(db_path: Path | None = None) -> None:
                 msg = "Database file exists but backup failed"
                 raise RuntimeError(msg)
 
-            _cleanup_old_backups()
+            prune_backups(backups_directory())
 
         command.upgrade(cfg, "head")

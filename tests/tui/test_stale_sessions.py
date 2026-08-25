@@ -27,8 +27,8 @@ import time_machine
 
 from flexi.app import FlexiApp
 from flexi.constants import ClockAction
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base, ClockEvent, WorkSession
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.moment import moment_of
 from flexi.screens.dashboard import DashboardScreen
 from flexi.services.registry import Services

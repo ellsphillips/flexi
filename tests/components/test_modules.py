@@ -44,7 +44,7 @@ from flexi.domain.ledger import AbsenceSlice, DayLedger
 from flexi.domain.period import Period
 from flexi.domain.punch import Window
 from flexi.domain.wallet import Allowance
-from flexi.messages import DataChanged, DateSelected, Scope
+from flexi.messages import DateSelected
 from flexi.services.registry import Services
 from tests.conftest import settled
 from tests.services.conftest import (  # noqa: F401 - `configure` is used as a fixture
@@ -79,9 +79,6 @@ class Panel(Screen[None]):
         yield self.module
 
     def on_date_selected(self, message: DateSelected) -> None:
-        self.posted.append(message)
-
-    def on_data_changed(self, message: DataChanged) -> None:
         self.posted.append(message)
 
     def on_book_here(self, message: BookHere) -> None:
@@ -241,23 +238,6 @@ async def test_a_module_takes_its_period_and_its_moment_from_the_screen(
         assert module.period is panel.period
         assert module.period.anchor == THURSDAY
         assert module.now == NOW
-
-
-async def test_a_module_announces_a_change_rather_than_redrawing_its_neighbours(
-    flexi: Services,
-) -> None:
-    """One rule: a module never calls another module's rebuild.
-
-    It says what changed, the screen invalidates once and redraws whoever
-    declared an interest — so a sixth module is a declaration rather than an
-    edit to somebody else's method.
-    """
-    module = ClockModule()
-    async with showing(module, flexi) as (pilot, panel):
-        module.announce(Scope.CLOCK)
-        await pilot.pause()
-
-        assert only(panel, DataChanged).scope is Scope.CLOCK
 
 
 # -- the balance -------------------------------------------------------------

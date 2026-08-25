@@ -17,7 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from flexi.constants import AbsenceType, ClockAction, Portion
+from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
 
 DEFAULT_CONTRACTED_MINUTES = 444
 """7h24 — the standard day these figures are all measured against.
@@ -109,9 +109,24 @@ class ClockEvent(Base):
     utc_offset_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     """Minutes east of UTC when the clock was read; the instant is ``timestamp``
     minus this. ``None`` only on rows Flexi wrote before it recorded one."""
-    source: Mapped[str] = mapped_column(
-        String(20), default="user", server_default="user"
+    source: Mapped[EventSource] = mapped_column(
+        Enum(
+            EventSource,
+            native_enum=False,
+            create_constraint=False,
+            values_callable=lambda members: [member.value for member in members],
+            length=20,
+        ),
+        default=EventSource.USER,
+        server_default=EventSource.USER.value,
     )
+    """Whether a person punched this or the auto-close sweep did.
+
+    Stored as its value rather than its name, and without a CHECK constraint,
+    because migration 0004 wrote a plain `VARCHAR(20)` and 0010 reads the
+    column back to decide whose timestamps it may rewrite. `create_constraint`
+    is already False by default; it is written down because the default is what
+    keeps `create_all` from building a schema the migrations never did."""
 
 
 class WorkSession(Base):

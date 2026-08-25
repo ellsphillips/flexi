@@ -15,9 +15,9 @@ import pytest
 
 from flexi.cli import init as init_cli
 from flexi.cli import ui
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.backup import snapshot, verify
 from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.registry import Services
 
 

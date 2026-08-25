@@ -17,7 +17,7 @@ from flexi import wallclock
 from flexi.constants import Granularity
 from flexi.context import flexi_app
 from flexi.domain.period import Period
-from flexi.messages import DataChanged, Scope
+from flexi.messages import Scope
 
 if TYPE_CHECKING:
     from flexi.services.registry import Services
@@ -76,10 +76,6 @@ class Module(Static):
         """Redraw only when the change was one this module cares about."""
         if scope & self.WATCHES:
             self.rebuild()
-
-    def announce(self, scope: Scope) -> None:
-        """Tell the screen that something was written."""
-        self.post_message(DataChanged(scope))
 
     def focus_target(self) -> Widget:
         """The widget a jump to this module should focus.

@@ -2,8 +2,8 @@
 
 A period loads in three queries regardless of its length, and the results are
 memoised until something writes. The dashboard calls ``invalidate()`` when a
-:class:`~flexi.services.registry.DataChanged` scope says the rows moved; nothing
-else clears the cache, so a redraw provoked by a resize costs nothing.
+:class:`~flexi.messages.Scope` says the rows moved; nothing else clears the
+cache, so a redraw provoked by a resize costs nothing.
 """
 
 from __future__ import annotations

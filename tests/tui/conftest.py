@@ -19,8 +19,8 @@ from textual.screen import Screen
 
 from flexi.app import FlexiApp
 from flexi.components.chrome import AppFooter
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
 from flexi.services.samples import NOW, seed_demo
 

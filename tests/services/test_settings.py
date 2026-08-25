@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from flexi.config import CONFIG
 from flexi.constants import DEFAULT_DIVISION, AbsenceType, Division
-from flexi.models.database.app import get_session
 from flexi.models.database.db import DEFAULT_WINDOW_END, DEFAULT_WINDOW_START
+from flexi.models.database.engine import get_session
 from flexi.services.settings import (
     SettingsService,
     parse_clock_time,

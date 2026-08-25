@@ -34,8 +34,8 @@ from flexi.__main__ import cli
 from flexi.cli import init as init_cli
 from flexi.cli import ui
 from flexi.locations import backups_directory, database_file
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import AbsenceDay, BankHolidayCache
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import Services
 

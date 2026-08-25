@@ -20,8 +20,8 @@ import time_machine
 from flexi.cli import balance as balance_cli
 from flexi.cli import clock as clock_cli
 from flexi.constants import AbsenceType
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import BankHolidayCache, Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.registry import Services
 
 NOON = date(2026, 6, 10)

@@ -31,7 +31,7 @@ from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, NavBar
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import Jumper
 from flexi.config import CONFIG
-from flexi.models.database.app import create_db_engine, get_session
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.provider import FlexiCommands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings

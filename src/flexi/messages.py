@@ -1,9 +1,17 @@
-"""Messages that travel between widgets.
+"""What travels between widgets, and the flags that decide who redraws.
 
-One rule: a module never calls another module's ``rebuild()``. It posts
-:class:`DataChanged` with a scope, the screen invalidates the ledger cache once,
-and every module that declared an interest in that scope redraws -- so adding a
-module is a declaration rather than an edit to somebody else's method.
+One rule: a module never calls another module's ``rebuild()``. A module that
+wants something written posts a message the *screen* handles -- `BookHere`,
+`DeleteHere`, `BookRequested` -- and the screen reports the result, invalidates
+the ledger cache once, and calls ``refresh_modules(scope)``. Each module
+declares in ``WATCHES`` which scopes it cares about, so clocking in does not
+rebuild the calendar's bank-holiday markers, and adding a module is a
+declaration rather than an edit to somebody else's method.
+
+There was a generic `DataChanged` message for the same job, and nothing in the
+application ever posted one: every write in Flexi goes through a screen, which
+is a better rule than the one it was there to allow. Its handler and the
+`Module.announce` that would have fed it went with it.
 """
 
 from __future__ import annotations
@@ -28,14 +36,6 @@ class Scope(Flag):
     """The temporal view moved. No rows changed."""
 
     ALL = CLOCK | ABSENCE | SETTINGS | PERIOD
-
-
-class DataChanged(Message):
-    """Something was written. Bubbles to the screen, which decides who redraws."""
-
-    def __init__(self, scope: Scope = Scope.ALL) -> None:
-        super().__init__()
-        self.scope = scope
 
 
 class DateSelected(Message):

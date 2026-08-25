@@ -22,8 +22,8 @@ from alembic.script import ScriptDirectory
 
 from flexi.constants import AbsenceType, Portion
 from flexi.locations import backups_directory, ensure
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import AbsenceDay, Base, Settings
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import (
     MAX_BACKUPS,
     alembic_config,

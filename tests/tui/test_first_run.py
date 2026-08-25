@@ -14,8 +14,8 @@ from textual.widgets import Input, Select
 
 from flexi.app import FlexiApp
 from flexi.components.wordmark import Wordmark
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
 from flexi.services.settings import SettingsService

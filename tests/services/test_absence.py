@@ -15,8 +15,8 @@ import time_machine
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Division, Portion
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.absence import AbsenceService, covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.registry import Services

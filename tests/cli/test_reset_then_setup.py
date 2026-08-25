@@ -23,7 +23,7 @@ from sqlalchemy.exc import OperationalError
 import flexi.__main__ as main
 from flexi.app import FlexiApp
 from flexi.cli import init as init_cli
-from flexi.models.database.app import create_db_engine, get_session
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services import setup
 from flexi.services.settings import SettingsService
@@ -31,7 +31,7 @@ from flexi.services.settings import SettingsService
 LOCATIONS = (
     "flexi.locations",
     "flexi.__main__",
-    "flexi.models.database.app",
+    "flexi.models.database.engine",
     "flexi.models.database.migrate",
     "flexi.services.setup",
 )

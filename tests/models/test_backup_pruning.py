@@ -21,10 +21,15 @@ from flexi.models.database.backup import PROTECTED_PREFIX
 
 
 @pytest.fixture
-def backups(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def backups(tmp_path: Path) -> Path:
+    """The directory the pruner is pointed at.
+
+    Handed to it rather than patched onto the module: it takes the directory it
+    deletes from, so a test does not have to redirect an ambient lookup to say
+    which one it means.
+    """
     directory = tmp_path / "backups"
     directory.mkdir()
-    monkeypatch.setattr(migrate, "backups_directory", lambda: directory)
     return directory
 
 
@@ -38,7 +43,7 @@ def routine(directory: Path, count: int) -> None:
 
 def test_it_keeps_only_the_most_recent_routine_backups(backups: Path) -> None:
     routine(backups, migrate.MAX_BACKUPS + 5)
-    migrate._cleanup_old_backups()
+    migrate.prune_backups(backups)
     assert len(list(backups.glob("*.bak"))) == migrate.MAX_BACKUPS
 
 
@@ -49,7 +54,7 @@ def test_the_snapshot_taken_before_a_reset_is_never_pruned(backups: Path) -> Non
     os.utime(protected, (0, 0))
 
     routine(backups, migrate.MAX_BACKUPS + 5)
-    migrate._cleanup_old_backups()
+    migrate.prune_backups(backups)
 
     assert protected.is_file(), "the one file that cannot be recreated was pruned"
 
@@ -62,7 +67,7 @@ def test_protected_snapshots_do_not_use_up_the_allowance(backups: Path) -> None:
         os.utime(kept, (n, n))
 
     routine(backups, migrate.MAX_BACKUPS + 5)
-    migrate._cleanup_old_backups()
+    migrate.prune_backups(backups)
 
     survivors = sorted(p.name for p in backups.glob("*.bak"))
     assert sum(name.startswith(PROTECTED_PREFIX) for name in survivors) == 2
@@ -93,7 +98,7 @@ def test_a_pruner_that_cannot_delete_complains_rather_than_failing_the_upgrade(
     monkeypatch.setattr(Path, "unlink", refuse)
 
     with caplog.at_level(logging.WARNING):
-        migrate._cleanup_old_backups()
+        migrate.prune_backups(backups)
 
     assert len(list(backups.glob("*.bak"))) == migrate.MAX_BACKUPS + 5
     assert "could not prune old backups" in caplog.text

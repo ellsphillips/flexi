@@ -16,8 +16,8 @@ import pytest
 from sqlalchemy import Engine, text
 
 from flexi.locations import backups_directory, database_file
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.backup import verify
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import backup_database, run_migrations
 
 

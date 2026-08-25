@@ -21,7 +21,7 @@ from click.testing import CliRunner
 import flexi.__main__ as main
 from flexi.__main__ import cli
 from flexi.locations import database_file
-from flexi.models.database.app import create_db_engine, get_session
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import Services
 

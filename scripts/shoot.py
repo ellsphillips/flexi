@@ -33,8 +33,8 @@ os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="flexi-config-")
 
 from flexi import wallclock  # noqa: E402
 from flexi.app import FlexiApp  # noqa: E402
-from flexi.models.database.app import create_db_engine, get_session  # noqa: E402
 from flexi.models.database.db import Base  # noqa: E402
+from flexi.models.database.engine import create_db_engine, get_session  # noqa: E402
 from flexi.services.samples import NOW, TIMEZONE, seed_demo  # noqa: E402
 
 # The same pin the snapshot suite applies in `tests/conftest.py`, through the

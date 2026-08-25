@@ -38,7 +38,7 @@ from flexi.constants import AbsenceType, Granularity
 from flexi.domain.format import clock as clock_time
 from flexi.domain.format import short_date
 from flexi.domain.period import Period
-from flexi.messages import DataChanged, DateSelected, Scope
+from flexi.messages import DateSelected, Scope
 from flexi.screens.modals import (
     AbsenceBooking,
     AbsenceModal,
@@ -202,11 +202,6 @@ class DashboardScreen(Screen[None]):
                 period_total=period.expected,
                 compact=self.size.width < TINY_COLUMNS,
             )
-
-    def on_data_changed(self, event: DataChanged) -> None:
-        event.stop()
-        self.refresh_modules(event.scope)
-        self._start_tick_if_open()
 
     def _sync_header(self) -> None:
         for header in self.query(AppHeader):

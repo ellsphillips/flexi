@@ -35,8 +35,8 @@ from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 
 from flexi import wallclock
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base, WorkSession
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services import setup
 
 settings.register_profile(

@@ -14,13 +14,6 @@ from flexi.constants import ClockAction, EventSource
 from flexi.models.database.db import ClockEvent
 
 
-def columns(moment: datetime) -> tuple[datetime, int]:
-    """A moment as the pair of values that go on disk."""
-    pinned = wallclock.local(moment)
-    offset = pinned.utcoffset() or timedelta()
-    return pinned.replace(tzinfo=None), round(offset.total_seconds() / 60)
-
-
 def punched(
     action: ClockAction,
     moment: datetime,
@@ -30,12 +23,16 @@ def punched(
     """A clock event for a moment, with both of its columns filled from it.
 
     The module promised that nothing outside it touches either column, and five
-    call sites did -- one of which had its own copy of the offset half of
-    :func:`columns`, computed from the same wall reading by a different route.
+    call sites did -- one of which had its own copy of the offset arithmetic,
+    computed from the same wall reading by a different route.
     """
-    wall, offset = columns(moment)
+    pinned = wallclock.local(moment)
+    offset = pinned.utcoffset() or timedelta()
     return ClockEvent(
-        action=action, timestamp=wall, utc_offset_minutes=offset, source=source
+        action=action,
+        timestamp=pinned.replace(tzinfo=None),
+        utc_offset_minutes=round(offset.total_seconds() / 60),
+        source=source,
     )
 
 

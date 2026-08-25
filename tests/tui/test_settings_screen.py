@@ -17,8 +17,8 @@ from textual.widgets import Button, Input, Select
 
 from flexi.app import FlexiApp
 from flexi.constants import Division
-from flexi.models.database.app import create_db_engine
 from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.settings import SettingsScreen
 from tests.tui.conftest import WIDE, AppFactory, showing

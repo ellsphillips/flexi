@@ -25,8 +25,24 @@ FORBIDDEN: dict[str, frozenset[str]] = {
         {"textual", "flexi.app", "flexi.screens", "flexi.components", "flexi.cli"}
     ),
     "cli": frozenset({"flexi.app", "flexi.screens", "flexi.components"}),
+    "models": frozenset(
+        {
+            "textual",
+            "httpx",
+            "flexi.app",
+            "flexi.screens",
+            "flexi.components",
+            "flexi.services",
+            "flexi.cli",
+        }
+    ),
 }
 """Which packages may not reach which.
+
+`models` was the one layer nothing checked, and it is the layer every other one
+sits on -- a single upward import there makes the whole graph a cycle. It is
+not forbidden `flexi.domain`: nothing reaches for it today, and forbidding it
+would pre-judge a move that may turn out to be right.
 
 `services` and `cli` were unconstrained, so nothing stopped a service importing
 a widget or the command line importing a screen -- the two directions that would

@@ -23,8 +23,8 @@ from flexi.app import FlexiApp
 from flexi.components.chrome import NavBar
 from flexi.components.modules.records import RecordsModule
 from flexi.constants import Division
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import BankHolidayCache, Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
@@ -33,7 +33,7 @@ from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import CACHE_MAX_AGE
 from flexi.services.registry import Services
 from flexi.services.samples import NOW
-from tests.conftest import sessions_on
+from tests.conftest import sessions_on, settled
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
 
 TODAY = date(2026, 6, 11)
@@ -199,7 +199,11 @@ async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         await app.workers.wait_for_complete()
+        # Twice, and then settled: `wait_for_complete` returns when the worker
+        # thread has finished, and the redraw it asks for is a callback the
+        # loop has not necessarily run yet.
         await pilot.pause()
+        await settled(pilot)
 
         assert app.services.bank_holidays.get_dates() == {date(2026, 6, 12)}
         assert app.services.ledger.day(date(2026, 6, 12)).is_holiday, (

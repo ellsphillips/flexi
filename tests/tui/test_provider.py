@@ -19,8 +19,8 @@ from textual.widgets import Input, RadioSet
 
 from flexi.app import FlexiApp
 from flexi.constants import AbsenceType, Granularity
-from flexi.models.database.app import create_db_engine
 from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine
 from flexi.provider import FlexiCommands
 from flexi.screens.modals import AbsenceModal
 from flexi.screens.setup import SetupScreen

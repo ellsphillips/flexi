@@ -134,15 +134,15 @@ async def test_the_elapsed_time_is_in_the_border_subtitle(
         assert str(app.screen.query_one(ClockModule).border_subtitle) == "/"
 
 
-async def test_a_module_that_writes_tells_the_screen_and_the_live_tick_follows(
+async def test_a_write_through_the_screen_carries_the_live_tick_with_it(
     app_factory: AppFactory,
 ) -> None:
-    """A module never redraws its neighbours; it announces, and the screen does.
+    """The screen owns the write, and the redraw, and the timer.
 
-    The announcement is the whole contract between the panels and the screen:
-    the ledger is invalidated once, the interested modules rebuild, and the
-    one-second tick is started or stopped. Without that last part a session
-    closed from a panel leaves a timer redrawing a clock that has stopped.
+    A module never redraws its neighbours: it asks the screen, which reports
+    the result, invalidates the ledger once, rebuilds whoever declared an
+    interest, and starts or stops the one-second tick. Without that last part a
+    session closed from a panel leaves a timer redrawing a clock that stopped.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -150,8 +150,7 @@ async def test_a_module_that_writes_tells_the_screen_and_the_live_tick_follows(
         screen = dashboard(app)
         assert screen._tick is not None, "the seed's open session should be ticking"
 
-        app.services.clock.clock_out()  # written behind the screen's back
-        app.screen.query_one(ClockModule).announce(Scope.CLOCK)
+        screen.toggle_clock()
         await pilot.pause()
 
         assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"

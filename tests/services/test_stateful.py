@@ -38,8 +38,8 @@ from hypothesis.stateful import (
 from sqlalchemy import func, select
 
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base, WorkSession
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.registry import Services

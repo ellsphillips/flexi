@@ -3,8 +3,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, event, pool
 
-from flexi.models.database.app import enforce_foreign_keys
 from flexi.models.database.db import Base
+from flexi.models.database.engine import enforce_foreign_keys
 
 config = context.config
 

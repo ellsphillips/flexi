@@ -157,7 +157,7 @@ def _open_database(ctx: click.Context) -> Handles:
     failure was unreachable -- which is to say the session and the engine leaked
     on exactly the paths where something had already gone wrong.
     """
-    from flexi.models.database.app import create_db_engine, get_session
+    from flexi.models.database.engine import create_db_engine, get_session
     from flexi.models.database.migrate import run_migrations
     from flexi.services.registry import Services
     from flexi.services.startup import run_startup_cleanup
@@ -210,8 +210,8 @@ def _run_demo() -> None:
     from pathlib import Path
 
     from flexi.app import FlexiApp
-    from flexi.models.database.app import create_db_engine, get_session
     from flexi.models.database.db import Base
+    from flexi.models.database.engine import create_db_engine, get_session
     from flexi.services.samples import seed_demo
 
     # `ignore_cleanup_errors`, because the last thing a demo may do is fail to

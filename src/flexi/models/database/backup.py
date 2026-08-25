@@ -27,6 +27,14 @@ from flexi.locations import backups_directory, ensure
 PROTECTED_PREFIX = "pre-init_"
 """A snapshot taken before a reset. Never aged out by the migration pruner."""
 
+ROUTINE_PREFIX = ""
+"""A snapshot taken before a migration. Aged out once there are `MAX_BACKUPS`.
+
+Unprefixed on purpose, and therefore the one prefix that must never be handed
+to `startswith`: every filename begins with the empty string, so the test that
+looks as though it selects the routine backups would select the protected ones
+with them."""
+
 
 def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
     """A consistent copy of the database, in the backups directory.
