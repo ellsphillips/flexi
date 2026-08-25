@@ -109,12 +109,6 @@ def test_a_block_knows_its_own_bounds() -> None:
     assert not block.contains(date(2026, 9, 1))
 
 
-def test_height_counts_the_title() -> None:
-    """The screen scrolls by rows, so a block has to know how tall it is."""
-    block = month_block(*JUNE)
-    assert block.height == len(block.rows) + 1
-
-
 # -- the selection ---------------------------------------------------------
 
 MONDAY = date(2026, 8, 10)

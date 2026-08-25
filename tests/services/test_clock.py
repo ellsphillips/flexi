@@ -7,7 +7,7 @@ nothing at all.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import AbsenceType, ClockAction, Portion
+from flexi.constants import AbsenceType, Portion
 from flexi.models.database.db import BankHolidayCache, ClockEvent, WorkSession
 from flexi.services.absence import AbsenceResult
 from flexi.services.adjustments import AdjustmentResult
@@ -44,8 +44,7 @@ class TestClockIn:
     ) -> None:
         result = svc.clock_in()
         assert result.success is True
-        assert result.event is not None
-        assert result.event.action is ClockAction.IN
+        assert result.at is not None, "a clock-in records the moment it recorded"
         assert result.session is not None
         assert result.session.clock_out_id is None
 
@@ -65,11 +64,13 @@ class TestClockOut:
     def test_creates_event_and_closes_session(
         self, svc: ClockService, session: Session
     ) -> None:
-        svc.clock_in()
-        result = svc.clock_out()
+        started = datetime.now(tz=UTC)
+        svc.clock_in(now=started)
+        # An hour, not an instant: clocking straight back out is a slip of the
+        # finger, and that path is discarded rather than recorded.
+        result = svc.clock_out(now=started + timedelta(hours=1))
         assert result.success is True
-        assert result.event is not None
-        assert result.event.action is ClockAction.OUT
+        assert result.at is not None, "a clock-out records the moment it recorded"
         assert result.session is not None
         assert result.session.clock_out_id is not None
 
@@ -85,7 +86,7 @@ class TestRejections:
         svc.clock_in()
         result = svc.clock_in()
         assert result.success is False
-        assert result.event is None
+        assert result.at is None, "nothing was recorded, so there is no moment"
         # Only one event from the first clock-in
         events = session.execute(select(ClockEvent)).scalars().all()
         assert len(events) == 1
@@ -95,7 +96,7 @@ class TestRejections:
     ) -> None:
         result = svc.clock_out()
         assert result.success is False
-        assert result.event is None
+        assert result.at is None, "nothing was recorded, so there is no moment"
         events = session.execute(select(ClockEvent)).scalars().all()
         assert len(events) == 0
 

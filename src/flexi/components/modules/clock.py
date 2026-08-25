@@ -93,7 +93,7 @@ class ClockModule(Module):
         if first is None:
             return "Not arrived" if ledger.is_working_day else "Not a working day"
         parts = [f"since {clock(first)}"]
-        leave_at = ledger.leave_at()
+        leave_at = ledger.leave_at
         if leave_at is not None and ledger.is_open:
             parts.append(f"go home {clock(leave_at)}")
         else:

@@ -45,6 +45,7 @@ from flexi.screens.modals import (
     ConfirmModal,
     GoToDateModal,
 )
+from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
 from flexi.services.registry import Services
 
@@ -350,16 +351,18 @@ class DashboardScreen(Screen[None]):
 
 
 def _with_time(message: str, result: Outcome) -> str:
-    """Stamp a clock result with the time it recorded.
+    """Stamp a clock result with the moment it recorded.
 
     "Clocked out" is a fact about the past tense; "Clocked out at 12:04" is a
     fact somebody can check against the clock on their wall, which is what makes
     a mistaken keystroke visible the moment it happens.
+
+    The result says whether it recorded one. It used to be inferred, by reaching
+    past the `Outcome` protocol with two `getattr`s for a `ClockEvent` and then
+    asking whether the message began with the word "Clocked" -- so the sentence
+    a service wrote for a status bar was load-bearing, and rewording it would
+    have dropped the time with nothing to say so.
     """
-    # Only a clock result carries an event; the protocol does not promise one,
-    # and asking for it is cheaper than a second protocol for one field.
-    event = getattr(result, "event", None)
-    stamp = getattr(event, "timestamp", None)
-    if stamp is None or not message.startswith("Clocked"):
+    if not isinstance(result, ClockResult) or result.at is None:
         return message
-    return f"{message} at {clock_time(stamp)}"
+    return f"{message} at {clock_time(result.at)}"

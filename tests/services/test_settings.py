@@ -104,11 +104,6 @@ class TestHelpers:
         _do_setup(svc)
         assert svc.get_working_day_indices() == [0, 1, 2, 3, 4]
 
-    def test_is_working_day(self, svc: SettingsService) -> None:
-        _do_setup(svc)
-        assert svc.is_working_day(0) is True  # Monday
-        assert svc.is_working_day(5) is False  # Saturday
-
     def test_auto_close_time(self, svc: SettingsService) -> None:
         svc.save_settings(
             leave_year_start="01-01",
@@ -334,7 +329,6 @@ def test_a_stored_working_week_that_cannot_be_read_falls_back(
     session.commit()
 
     assert svc.get_working_day_indices() == [0, 1, 2, 3, 4]
-    assert svc.is_working_day(5) is False
 
 
 def test_a_leave_year_start_that_cannot_be_read_falls_back(

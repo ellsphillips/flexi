@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, time, timedelta
 
@@ -222,9 +222,6 @@ class SettingsService:
         """Weekday indices (0=Monday) for the configured working days."""
         return list(self.resolved().working_days)
 
-    def is_working_day(self, weekday: int) -> bool:
-        return weekday in self.resolved().working_days
-
     def get_auto_close_time(self) -> time:
         """When to close a session nobody closed."""
         return self.resolved().auto_close
@@ -332,16 +329,6 @@ def parse_working_days(raw: str) -> list[int]:
         msg = "Choose at least one working day"
         raise ValueError(msg)
     return sorted(days)
-
-
-def format_working_days(indices: Sequence[int]) -> str:
-    """The days named, for a label somebody has to read back.
-
-    Examples:
-        >>> format_working_days([0, 1, 2, 3, 4])
-        'Mon, Tue, Wed, Thu, Fri'
-    """
-    return ", ".join(DAY_NAMES[index][:3].title() for index in sorted(set(indices)))
 
 
 _CLOCK = re.compile(r"^(\d{1,2})(?:[:.](\d{1,2}))?\s*([ap]m?)?$", re.IGNORECASE)

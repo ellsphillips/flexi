@@ -10,11 +10,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from flexi.services.settings import (
-    SettingsService,
-    format_working_days,
-    parse_working_days,
-)
+from flexi.services.settings import SettingsService, parse_working_days
 
 
 @pytest.mark.parametrize(
@@ -48,11 +44,6 @@ def test_the_refusal_says_what_to_do_instead() -> None:
     with pytest.raises(ValueError, match="Monday") as raised:
         parse_working_days("someday")
     assert "someday" in str(raised.value)
-
-
-def test_days_are_named_back_to_the_reader() -> None:
-    assert format_working_days([0, 1, 2, 3, 4]) == "Mon, Tue, Wed, Thu, Fri"
-    assert format_working_days([6, 5]) == "Sat, Sun"
 
 
 def test_saving_normalises_whatever_was_typed(session: Session) -> None:

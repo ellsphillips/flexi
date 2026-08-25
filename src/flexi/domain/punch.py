@@ -10,6 +10,11 @@ precision it cannot draw.
 
 Everything is a pure function of ``(ledger, width, window, now)``, which is what
 lets one implementation draw a table cell, an expanded row and a week ribbon.
+
+Three shapes of name, so a reader can tell what a call does before reading it:
+a noun phrase returns a value (``edges``, ``cell_count``, ``cell_holding``,
+``covering_slices``), ``paint_*`` writes into the list of cells it is handed,
+and a bare verb asks a question (``overlaps``).
 """
 
 from __future__ import annotations
@@ -153,11 +158,11 @@ def strip(
 
     # Layers, painted in order. Each may overwrite the one before it, which is
     # what puts a session on top of an absence and the live cell on top of both.
-    absence_cells(cells, ledger, bounds)
-    worked_cells(cells, ledger, bounds, moment)
-    break_cells(cells, ledger, bounds)
-    target_cell(cells, ledger, bounds)
-    live_cell(cells, ledger, bounds, moment)
+    paint_absences(cells, ledger, bounds)
+    paint_sessions(cells, ledger, bounds, moment)
+    paint_breaks(cells, ledger, bounds)
+    paint_target(cells, ledger, bounds)
+    paint_live(cells, ledger, bounds, moment)
     return tuple(cells)
 
 
@@ -203,14 +208,16 @@ def covering_slices(
     return found
 
 
-def absence_cells(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
+def paint_absences(
+    cells: list[Cell], ledger: DayLedger, bounds: list[datetime]
+) -> None:
     """A cell is absent when a booking covers it."""
     for index, slice_ in enumerate(covering_slices(ledger, bounds)):
         if slice_ is not None:
             cells[index] = Cell.ABSENCE
 
 
-def worked_cells(
+def paint_sessions(
     cells: list[Cell], ledger: DayLedger, bounds: list[datetime], moment: datetime
 ) -> None:
     """A cell is on the clock when a session touches it."""
@@ -221,21 +228,21 @@ def worked_cells(
                 cells[index] = Cell.ON
 
 
-def break_cells(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
+def paint_breaks(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
     """A break is only a break *between* two sessions.
 
     Time before arriving and after leaving is not being away, it is not being
     at work, so it stays off rather than reading as a three-hour lunch.
     """
-    for start, end in ledger.breaks():
+    for start, end in ledger.breaks:
         for index, cell in enumerate(cells):
             if cell is Cell.OFF and overlaps(start, end, bounds, index):
                 cells[index] = Cell.BREAK
 
 
-def target_cell(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
+def paint_target(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
     """Put the go-home tick on the first cell that is free to carry it."""
-    leave_at = ledger.leave_at()
+    leave_at = ledger.leave_at
     if leave_at is None or ledger.expected <= timedelta():
         return
     index = cell_holding(leave_at, bounds)
@@ -243,7 +250,7 @@ def target_cell(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) ->
         cells[index] = Cell.TARGET
 
 
-def live_cell(
+def paint_live(
     cells: list[Cell], ledger: DayLedger, bounds: list[datetime], moment: datetime
 ) -> None:
     """Highlight the cell an open session is currently in."""

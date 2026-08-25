@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import ClockAction, EventSource
 from flexi.domain.format import spoken
-from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
+from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of, punched
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
@@ -22,9 +22,17 @@ class ClockResult:
 
     success: bool
     message: str
-    event: ClockEvent | None = None
     warning: str | None = None
     session: WorkSession | None = None
+    at: datetime | None = None
+    """The moment recorded, on the two returns that record one.
+
+    The status bar stamps a clock message with it -- "Clocked out at 12:04" is
+    a fact somebody can check against the wall, which is what makes a mistaken
+    keystroke visible the moment it happens. It carried the whole `ClockEvent`
+    before, so the screen reached past the `Outcome` protocol with two
+    `getattr`s and then decided *whether* to stamp by asking whether the
+    message began with the word "Clocked"."""
 
 
 class ClockService:
@@ -109,8 +117,8 @@ class ClockService:
         return ClockResult(
             success=True,
             message="Clocked in",
-            event=event,
             session=work_session,
+            at=moment,
         )
 
     def clock_out(
@@ -146,7 +154,6 @@ class ClockService:
             return ClockResult(
                 success=False,
                 message="That clock-out is earlier than the clock-in",
-                event=event,
                 session=open_session,
             )
 
@@ -156,7 +163,6 @@ class ClockService:
             return ClockResult(
                 success=True,
                 message=f"Discarded — under {spoken(self._minimum)} on the clock",
-                event=event,
                 session=open_session,
             )
 
@@ -164,8 +170,8 @@ class ClockService:
         return ClockResult(
             success=True,
             message="Clocked out",
-            event=event,
             session=open_session,
+            at=moment,
         )
 
     def discard_short_sessions(self) -> list[WorkSession]:

@@ -58,11 +58,6 @@ class MonthBlock:
     def contains(self, when: date) -> bool:
         return (when.year, when.month) == (self.year, self.month)
 
-    @property
-    def height(self) -> int:
-        """Rows the block occupies, including its title."""
-        return len(self.rows) + 1
-
 
 def month_block(year: int, month: int, *, first_weekday: int = 0) -> MonthBlock:
     """One month laid out as whole weeks.
