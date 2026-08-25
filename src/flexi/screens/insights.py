@@ -198,6 +198,15 @@ class InsightsScreen(Screen[None]):
 
     # -- period ------------------------------------------------------------
 
+    def refresh_modules(self, scope: Scope) -> None:
+        """Redraw on an external change, so the app can treat every screen alike.
+
+        `LeaveScreen` said that and the app called it on neither, singling the
+        dashboard out instead; this screen did not have the method at all.
+        """
+        for module in self.query(Module):
+            module.rebuild_if(scope)
+
     def set_period(self, period: Period) -> None:
         self.period = period
         for header in self.query(AppHeader):

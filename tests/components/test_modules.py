@@ -26,7 +26,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Digits, Label, Static, Switch
 
 from flexi.components.common import Tone
-from flexi.components.expandable import SESSION, TOTAL, day_key
+from flexi.components.expandable import SESSION, TOTAL, ExpandableTable, day_key
 from flexi.components.modules.balance import BalanceModule, _state_class
 from flexi.components.modules.base import Module
 from flexi.components.modules.clock import ClockModule
@@ -238,6 +238,28 @@ async def test_a_module_takes_its_period_and_its_moment_from_the_screen(
         assert module.period is panel.period
         assert module.period.anchor == THURSDAY
         assert module.now == NOW
+
+
+async def test_a_redraw_before_the_table_has_columns_draws_nothing(
+    flexi: Services,
+) -> None:
+    """`compose` yields the table; `on_mount` gives it its columns.
+
+    A redraw asked for from outside can land between the two — the launch
+    worker's bank-holiday calendar arriving is the real case — and adding rows
+    to a table with no columns raises `ValueError: More values provided than
+    there are columns`. On a worker thread Textual reports that as the whole
+    application failing.
+    """
+    module = RecordsModule()
+    async with showing(module, flexi) as (pilot, _panel):
+        table = module.query_one("#records-table", ExpandableTable)
+        table.clear(columns=True)
+
+        module.rebuild()
+        await pilot.pause()
+
+        assert not table.columns, "nothing to draw into, so nothing drawn"
 
 
 # -- the balance -------------------------------------------------------------

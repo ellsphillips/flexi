@@ -148,10 +148,20 @@ class RecordsModule(Module):
     # -- drawing -----------------------------------------------------------
 
     def rebuild(self) -> None:
+        table = self.query_one("#records-table", ExpandableTable)
+        if not table.columns:
+            # Composed, not yet mounted. `on_mount` sets the columns and
+            # rebuilds on the next line, so there is nothing to draw into and
+            # nothing lost by waiting -- but a redraw asked for from outside
+            # can land in that window, and adding rows to a table with no
+            # columns is `ValueError: More values provided than there are
+            # columns` on a worker thread, which Textual reports as the
+            # application failing.
+            return
+
         period = self.period
         ledgers = self.services.ledger.days(period.start, period.end, now=self.now)
         window = self.services.ledger.window
-        table = self.query_one("#records-table", ExpandableTable)
 
         # Accumulated once, by the domain, and handed to both places that draw
         # it. The total row summed `worked - expected - toil` by hand, dropping

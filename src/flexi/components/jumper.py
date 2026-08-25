@@ -17,12 +17,21 @@ from textual.geometry import Offset
 from textual.screen import Screen
 from textual.widget import Widget
 
+from flexi.messages import Scope
+
 
 @runtime_checkable
 class Jumpable(Protocol):
     """A widget that names its own jump key rather than being registered."""
 
     jump_key: str
+
+
+@runtime_checkable
+class Refreshable(Protocol):
+    """A screen that can redraw itself when the data underneath it moves."""
+
+    def refresh_modules(self, scope: Scope) -> None: ...
 
 
 @runtime_checkable

@@ -34,8 +34,10 @@ from flexi.components.jumper import (
     HasJumpOverlays,
     HasJumpTargets,
     Jumper,
+    Refreshable,
 )
 from flexi.config import CONFIG
+from flexi.messages import Scope
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.provider import FlexiCommands
 from flexi.screens.dashboard import DashboardScreen
@@ -211,12 +213,7 @@ class FlexiApp(TextualApp[None]):
         the fetch cannot see what the fetch committed.
         """
         self._session.rollback()
-        self.services.invalidate()
-        screen = self.dashboard()
-        if screen is not None:
-            from flexi.messages import Scope
-
-            screen.refresh_modules(Scope.ALL)
+        self.refresh_open_screens()
 
     @textual_work(thread=True)
     def _check_for_updates(self) -> None:
@@ -313,12 +310,22 @@ class FlexiApp(TextualApp[None]):
     def _on_settings_saved(self, saved: bool | None) -> None:
         if not saved:
             return
-        self.services.invalidate()
-        screen = self.dashboard()
-        if screen is not None:
-            from flexi.messages import Scope
+        self.refresh_open_screens()
 
-            screen.refresh_modules(Scope.ALL)
+    def refresh_open_screens(self, scope: Scope = Scope.ALL) -> None:
+        """Something was written behind the screens. Redraw whichever are up.
+
+        Every screen on the stack that can redraw, not the dashboard alone.
+        Both callers singled the dashboard out, so saving settings while the
+        leave screen was open left it showing a year measured against the
+        working pattern that had just been replaced -- and `LeaveScreen`
+        carried a `refresh_modules` written "so the app can treat every screen
+        alike" that the app never called.
+        """
+        self.services.invalidate()
+        for screen in self.screen_stack:
+            if isinstance(screen, Refreshable):
+                screen.refresh_modules(scope)
 
     def dashboard(self) -> DashboardScreen | None:
         for screen in self.screen_stack:

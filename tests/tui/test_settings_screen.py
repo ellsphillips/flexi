@@ -10,16 +10,19 @@ will not parse.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from textual.pilot import Pilot
 from textual.widgets import Button, Input, Select
 
 from flexi.app import FlexiApp
+from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import Division
 from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
+from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from tests.tui.conftest import WIDE, AppFactory, showing
 
@@ -262,6 +265,38 @@ async def test_adding_a_year_keeps_the_screen_and_everything_typed_into_it(
         assert screen.query_one("#input-working-days", Input).value == "Mon-Wed"
         year = app.services.settings.active_leave_year() + 1
         assert screen.query_one(f"#ent-{year}", Input), "the new row should be mounted"
+
+
+async def test_saving_settings_redraws_the_leave_screen_under_the_dialog(
+    app_factory: AppFactory,
+) -> None:
+    """Settings is reachable from anywhere, so anything can be underneath it.
+
+    The application used to find the dashboard and redraw only that, so saving
+    a new working pattern while the leave year was on screen left it measured
+    against the pattern that had just been replaced -- until the user left the
+    screen and came back.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f2")
+        await pilot.pause()
+        monday = date(2026, 6, 22)
+        leave = showing(app, LeaveScreen)
+        assert leave.query_one(YearCalendar).ledgers[monday].is_working_day
+
+        await pilot.press("f4")
+        await pilot.pause()
+        showing(app, SettingsScreen).query_one(
+            "#input-working-days", Input
+        ).value = "Tue-Thu"
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        drawn = showing(app, LeaveScreen).query_one(YearCalendar).ledgers[monday]
+        assert not drawn.is_working_day, (
+            "the year is still measured against the working pattern that was replaced"
+        )
 
 
 # -- leaving ---------------------------------------------------------------
