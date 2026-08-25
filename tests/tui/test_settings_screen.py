@@ -232,6 +232,32 @@ async def test_adding_a_year_with_none_on_record_uses_the_default(
         assert added.days == 25.0
 
 
+async def test_adding_a_year_keeps_the_screen_and_everything_typed_into_it(
+    app_factory: AppFactory,
+) -> None:
+    """The button adds a row. It used to leave, taking the form with it.
+
+    `# Refresh screen` described a recompose the code did not perform: it
+    dismissed instead, so every field edited above the button was discarded
+    unsaved and unmentioned, and dismissing with `True` told the application
+    that settings had been changed when only an entitlement had.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        screen = showing(app, SettingsScreen)
+        screen.query_one("#input-working-days", Input).value = "Mon-Wed"
+        await pilot.pause()
+
+        await pilot.click("#btn-add-year")
+        await pilot.pause()
+
+        screen = showing(app, SettingsScreen)
+        assert screen.query_one("#input-working-days", Input).value == "Mon-Wed"
+        year = app.services.settings.active_leave_year() + 1
+        assert screen.query_one(f"#ent-{year}", Input), "the new row should be mounted"
+
+
 # -- leaving ---------------------------------------------------------------
 
 

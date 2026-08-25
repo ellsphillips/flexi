@@ -27,6 +27,16 @@ NOON = 12
 DEFAULT_AUTO_CLOSE = time(18, 0)
 """When a session somebody forgot to close is closed for them."""
 
+DEFAULT_LEAVE_YEAR_START = "01-01"
+"""The calendar year, until somebody says otherwise."""
+
+DEFAULT_ENTITLEMENT_DAYS = 25.0
+"""What a year of annual leave is offered as before anybody edits it.
+
+Named because the setup form, the settings screen and the demo data each typed
+it out, so the number a new install sees was three numbers that happened to
+agree."""
+
 
 class SettingsService:
     """Read/write application settings and leave entitlements."""
@@ -179,7 +189,7 @@ class SettingsService:
     def get_leave_year_start(self) -> tuple[int, int]:
         """Return (month, day) of leave year start."""
         settings = self.get_settings()
-        raw = settings.leave_year_start if settings else "01-01"
+        raw = settings.leave_year_start if settings else DEFAULT_LEAVE_YEAR_START
         return parse_month_day(raw)
 
     def active_leave_year(self, ref: date | None = None) -> int:

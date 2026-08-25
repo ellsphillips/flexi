@@ -30,6 +30,7 @@ from flexi.models.database.db import (
     Settings,
     WorkSession,
 )
+from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
 
 FRIDAY = 4
 """The last working weekday, as datetime.weekday() numbers them."""
@@ -150,7 +151,10 @@ def _settings(session: Session, anchor: date) -> None:
     # January and April: an allowance filed under a year that has not started
     # cannot be found by the screen looking for this one's.
     session.add(
-        LeaveEntitlement(year=leaveyear.active_year(anchor, *LEAVE_YEAR), days=25.0)
+        LeaveEntitlement(
+            year=leaveyear.active_year(anchor, *LEAVE_YEAR),
+            days=DEFAULT_ENTITLEMENT_DAYS,
+        )
     )
 
 

@@ -12,6 +12,7 @@ from flexi.constants import Division
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural
 from flexi.services.registry import Services
+from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
 
 
 class SettingsScreen(Screen[bool]):
@@ -59,11 +60,15 @@ class SettingsScreen(Screen[bool]):
         self._svc = services.settings
 
     def compose(self) -> ComposeResult:
-        settings = self._svc.get_settings()
-        leave_start = settings.leave_year_start if settings else "01-01"
-        working = settings.working_days if settings else "0,1,2,3,4"
+        # Every field through the service's own accessor, which is where each
+        # one's fallback is written down. Read from the row instead, this screen
+        # carried a second copy of all four -- and one of them, the region, was
+        # a slug compared against a member that never matched.
+        month, day = self._svc.get_leave_year_start()
+        leave_start = f"{month:02d}-{day:02d}"
+        working = ",".join(str(index) for index in self._svc.get_working_day_indices())
         division = self._svc.get_division().value
-        auto_close = settings.auto_close_time if settings else "18:00"
+        auto_close = f"{self._svc.get_auto_close_time():%H:%M}"
 
         with Container(id="settings-dialog"):
             yield Static("Settings\n")
@@ -110,22 +115,33 @@ class SettingsScreen(Screen[bool]):
             self._add_next_year()
 
     def _add_next_year(self) -> None:
-        ents = self._svc.all_entitlements()
-        if ents:
-            last = ents[-1]
-            next_year = last.year + 1
-            default_days = last.days
+        """Add a year to the list, and stay on the screen.
+
+        It used to dismiss, which looked like a refresh and was an exit: every
+        field typed into the form above went with it, unsaved and unmentioned,
+        and dismissing with ``True`` told the application settings had been
+        changed. Mounting the row is what "refresh screen" meant.
+        """
+        years = self._svc.all_entitlements()
+        if years:
+            next_year = years[-1].year + 1
+            default_days = years[-1].days
         else:
             next_year = self._svc.active_leave_year()
-            default_days = 25.0
+            default_days = DEFAULT_ENTITLEMENT_DAYS
 
         self._svc.save_entitlement(next_year, default_days)
+        self.query_one("#entitlements-list", Vertical).mount(
+            Horizontal(
+                Label(str(next_year)),
+                Input(str(default_days), id=f"ent-{next_year}"),
+                classes="entitlement-row",
+            )
+        )
         self.notify(
             f"Added {next_year} with {fmt_days(default_days)}"
             f" {plural(default_days, 'day')}"
         )
-        # Refresh screen
-        self.dismiss(True)
 
     def _save(self) -> None:
         leave_start = self.query_one("#input-leave-start", Input).value.strip()

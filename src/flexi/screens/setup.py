@@ -33,6 +33,7 @@ from textual.widgets import Input, Label, Select, Static
 from flexi.components.wordmark import Wordmark
 from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.services.registry import Services
+from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
 from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
 
 GUTTER = "  "
@@ -229,7 +230,11 @@ class SetupScreen(Screen[bool]):
             ),
             Question(
                 "Annual entitlement",
-                Input("25.0", id="input-entitlement", placeholder="25.0"),
+                Input(
+                    str(DEFAULT_ENTITLEMENT_DAYS),
+                    id="input-entitlement",
+                    placeholder=str(DEFAULT_ENTITLEMENT_DAYS),
+                ),
                 f"days for {year}, halves allowed",
                 id="ask-entitlement",
             ),
