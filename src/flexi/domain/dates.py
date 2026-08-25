@@ -29,25 +29,22 @@ from flexi.domain.format import stamp
 DAYS_IN_WEEK: Final = 7
 MONTHS_IN_YEAR: Final = 12
 
-WEEKDAYS: Final[dict[str, int]] = {
-    "monday": 0,
-    "mon": 0,
-    "tuesday": 1,
-    "tue": 1,
-    "tues": 1,
-    "wednesday": 2,
-    "wed": 2,
-    "thursday": 3,
-    "thu": 3,
-    "thur": 3,
-    "thurs": 3,
-    "friday": 4,
-    "fri": 4,
-    "saturday": 5,
-    "sat": 5,
-    "sunday": 6,
-    "sun": 6,
-}
+DAY_NAMES: Final[tuple[str, ...]] = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+"""The week, in order. Written out rather than taken from `calendar.day_name`,
+which follows the locale: a working pattern is stored as the words somebody
+typed, and a machine that reads it back under a different locale must not
+decide the answer has changed."""
+
+SHORTEST_DAY_NAME: Final = 3
+"""Mon, Tue, Wed -- shorter than that and Tue and Thu are the same word."""
 
 OFFSET_UNITS: Final[dict[str, int]] = {"d": 1, "w": 7}
 
@@ -190,6 +187,31 @@ def relative_to(text: str, today: date) -> date | None:
     return None if offset is None else today + timedelta(days=offset)
 
 
+def weekday_index(name: str) -> int | None:
+    """A weekday by name, however far it was abbreviated, or ``None``.
+
+    Names only. A bare number is a day of the month everywhere else in this
+    grammar, and reading ``0`` as Monday would take ``flexi leave annual 3``
+    from the third of the month to Thursday.
+
+    Examples:
+        >>> weekday_index("Friday")
+        4
+        >>> weekday_index("thurs")
+        3
+        >>> weekday_index("th") is None
+        True
+        >>> weekday_index("junuary") is None
+        True
+    """
+    token = name.strip().lower()
+    if len(token) < SHORTEST_DAY_NAME:
+        return None
+    return next(
+        (index for index, day in enumerate(DAY_NAMES) if day.startswith(token)), None
+    )
+
+
 def parse_weekday(text: str, today: date) -> date | None:
     """A weekday name, optionally with ``next`` or ``last`` in front of it.
 
@@ -202,8 +224,9 @@ def parse_weekday(text: str, today: date) -> date | None:
         True
     """
     word, _, rest = text.partition(" ")
-    if word in {"next", "last"} and rest in WEEKDAYS:
-        target = WEEKDAYS[rest]
+    leading = weekday_index(rest)
+    if word in {"next", "last"} and leading is not None:
+        target = leading
         if word == "next":
             # Never today: "next friday" said on a Friday means the one coming.
             ahead = (target - today.weekday()) % DAYS_IN_WEEK
@@ -212,10 +235,10 @@ def parse_weekday(text: str, today: date) -> date | None:
         behind = (today.weekday() - target) % DAYS_IN_WEEK
         return today - timedelta(days=behind or DAYS_IN_WEEK)
 
-    if text in WEEKDAYS:
+    bare = weekday_index(text)
+    if bare is not None:
         # A bare weekday is the next one, and today counts as itself.
-        ahead = (WEEKDAYS[text] - today.weekday()) % DAYS_IN_WEEK
-        return today + timedelta(days=ahead)
+        return today + timedelta(days=(bare - today.weekday()) % DAYS_IN_WEEK)
     return None
 
 

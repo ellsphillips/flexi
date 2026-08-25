@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import AbsenceType
+from flexi.domain import leaveyear
 from flexi.domain.wallet import Allowance, WalletData
 from flexi.services.absence import AbsenceService
 from flexi.services.ledger import LedgerService
@@ -53,7 +54,7 @@ class WalletService:
         """The wallet as at ``today``, with ``start``–``end`` as the shown period."""
         today = today or wallclock.today()
         year_start, year_end = self._absence.leave_year_bounds(today)
-        elapsed = _fraction_elapsed(year_start, year_end, today)
+        elapsed = leaveyear.fraction_elapsed(year_start, year_end, today)
         contracted = self._settings.get_contracted()
 
         balance = self._ledger.balance(today, now=now)
@@ -117,16 +118,3 @@ class WalletService:
             AbsenceType.FLEXI, today + timedelta(days=1), year_end
         )
         return banked - committed
-
-
-def _fraction_elapsed(start: date, end: date, today: date) -> float:
-    """How far through a span today is, clamped to 0..1.
-
-    Clamped rather than allowed to run past 1.0 so a pace marker can never leave
-    the track — a marker off the end of a gauge reads as a rendering fault, and
-    the honest statement at that point is "all of it".
-    """
-    span = (end - start).days
-    if span <= 0:
-        return 1.0
-    return min(1.0, max(0.0, (today - start).days / span))

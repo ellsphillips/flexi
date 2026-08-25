@@ -8,23 +8,12 @@ from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import ClockAction, EventSource
-from flexi.domain.format import plural
+from flexi.domain.format import spoken
 from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 from flexi.models.database.moment import moment_of, punched
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
-
-SECONDS_PER_MINUTE = 60
-
-
-def _readable(span: timedelta) -> str:
-    """A threshold as somebody would say it out loud."""
-    seconds = int(span.total_seconds())
-    if seconds % SECONDS_PER_MINUTE == 0 and seconds >= SECONDS_PER_MINUTE:
-        minutes = seconds // SECONDS_PER_MINUTE
-        return f"{minutes} {plural(minutes, 'minute')}"
-    return f"{seconds} {plural(seconds, 'second')}"
 
 
 @dataclass(frozen=True)
@@ -166,7 +155,7 @@ class ClockService:
             self._session.commit()
             return ClockResult(
                 success=True,
-                message=f"Discarded — under {_readable(self._minimum)} on the clock",
+                message=f"Discarded — under {spoken(self._minimum)} on the clock",
                 event=event,
                 session=open_session,
             )

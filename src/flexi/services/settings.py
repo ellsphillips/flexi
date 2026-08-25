@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
-from flexi.domain.dates import MONTHS_IN_YEAR
+from flexi.domain.dates import DAY_NAMES, MONTHS_IN_YEAR, weekday_index
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
     DEFAULT_WINDOW_END,
@@ -223,34 +223,29 @@ class SettingsService:
         return list(self._session.execute(stmt).scalars())
 
 
-DAY_NAMES: tuple[str, ...] = (
-    "monday",
-    "tuesday",
-    "wednesday",
-    "thursday",
-    "friday",
-    "saturday",
-    "sunday",
-)
 DEFAULT_WORKING_DAYS = (0, 1, 2, 3, 4)
-SHORTEST_DAY_NAME = 3
-"""Mon, Tue, Wed -- shorter than that and Tue and Thu are the same word."""
 
 
-def _weekday(token: str) -> int:
-    """One weekday, however it was written."""
+def named_weekday(token: str) -> int:
+    """One weekday of a working pattern, by name or by index.
+
+    Raising rather than answering ``None``, because every caller is reading a
+    field somebody typed into and the message is the whole of what they get
+    back. The names themselves come from `flexi.domain.dates`, which is where
+    the rest of the grammar reads them.
+    """
     token = token.strip().lower()
     if token.isdigit():
         index = int(token)
-        if 0 <= index <= len(DAY_NAMES) - 1:
+        if 0 <= index < len(DAY_NAMES):
             return index
         msg = f"Day {index} is out of range: use 0 (Monday) to 6 (Sunday)"
         raise ValueError(msg)
-    for index, name in enumerate(DAY_NAMES):
-        if name.startswith(token) and len(token) >= SHORTEST_DAY_NAME:
-            return index
-    msg = f"'{token}' is not a day: use Mon-Fri, or 0 (Monday) to 6 (Sunday)"
-    raise ValueError(msg)
+    found = weekday_index(token)
+    if found is None:
+        msg = f"'{token}' is not a day: use Mon-Fri, or 0 (Monday) to 6 (Sunday)"
+        raise ValueError(msg)
+    return found
 
 
 def parse_working_days(raw: str) -> list[int]:
@@ -280,13 +275,13 @@ def parse_working_days(raw: str) -> list[int]:
             continue
         start, separator, end = token.partition("-")
         if separator and end.strip():
-            first, last = _weekday(start), _weekday(end)
+            first, last = named_weekday(start), named_weekday(end)
             if first > last:
                 msg = f"'{token}' runs backwards"
                 raise ValueError(msg)
             days.update(range(first, last + 1))
         else:
-            days.add(_weekday(token))
+            days.add(named_weekday(token))
 
     if not days:
         msg = "Choose at least one working day"

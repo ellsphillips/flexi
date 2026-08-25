@@ -116,7 +116,11 @@ class LedgerService:
     def _build(self, start: date, end: date, moment: datetime, today: date) -> None:
         sessions = self._sessions(start, end)
         absences = self._absences(start, end)
-        holidays = self._holidays(start, end)
+        # `or {}`: "none in this span" and "no calendar at all" are the
+        # service's distinction to make and to report. The ledger cannot
+        # invent holidays it has not been told about either way, and what it
+        # must not do is read the cache table itself.
+        holidays = self._holidays_service.titles_between(start, end) or {}
         corrections = self._adjustments(start, end)
         working_days = set(self._settings.get_working_day_indices())
         contracted = self.contracted
@@ -124,7 +128,7 @@ class LedgerService:
         for when in days_between(start, end):
             segments = tuple(
                 sorted(
-                    (_segment(row) for row in sessions[when]),
+                    (segment_of(row) for row in sessions[when]),
                     key=lambda item: item.start,
                 )
             )
@@ -136,7 +140,7 @@ class LedgerService:
             is_working = when.weekday() in working_days
 
             worked = worked_from(
-                segments, now=moment if when >= today else _end_of(when)
+                segments, now=moment if when >= today else end_of_day(when)
             )
             expected = expected_for(
                 contracted,
@@ -147,7 +151,7 @@ class LedgerService:
 
             self._cache[when] = DayLedger(
                 date=when,
-                kind=_kind(title, slices, segments, is_working=is_working),
+                kind=day_kind(title, slices, segments, is_working=is_working),
                 is_working_day=is_working,
                 contracted=contracted,
                 worked=worked,
@@ -214,18 +218,8 @@ class LedgerService:
             totals[row.date] += timedelta(minutes=row.minutes)
         return totals
 
-    def _holidays(self, start: date, end: date) -> dict[date, str]:
-        """Bank holidays in the span, empty when there is no calendar.
 
-        The distinction between "none in this span" and "no calendar at all" is
-        the service's to make and to report; the ledger cannot invent holidays
-        it has not been told about either way. What it must not do is query the
-        cache table directly, which is how the two came to look identical.
-        """
-        return self._holidays_service.titles_between(start, end) or {}
-
-
-def _end_of(day: date) -> datetime:
+def end_of_day(day: date) -> datetime:
     """The last moment of a date.
 
     A session nobody closed is worth the rest of its own day, not every hour
@@ -236,7 +230,7 @@ def _end_of(day: date) -> datetime:
     return wallclock.local(datetime.combine(day, time.max))
 
 
-def _segment(row: WorkSession) -> Segment:
+def segment_of(row: WorkSession) -> Segment:
     start = moment_of(row.clock_in_event)
     end = moment_of(row.clock_out_event) if row.clock_out_event is not None else None
     return Segment(
@@ -248,13 +242,19 @@ def _segment(row: WorkSession) -> Segment:
     )
 
 
-def _kind(
+def day_kind(
     holiday: str | None,
     slices: tuple[AbsenceSlice, ...],
     segments: tuple[Segment, ...],
     *,
     is_working: bool,
 ) -> DayKind:
+    """What a date is, from what is recorded against it.
+
+    The one place the five kinds are decided. `PARTIAL` is the case a
+    one-status-per-day table gets wrong: a half-day absence with work in the
+    other half.
+    """
     if holiday is not None:
         return DayKind.HOLIDAY
     if not is_working:

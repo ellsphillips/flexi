@@ -79,6 +79,33 @@ def deficit(shortfall: float) -> str:
     return f"the flexi balance {short} into deficit"
 
 
+def overdraw(after: float | None, *, opening: str = "This") -> str | None:
+    """The sentence for a balance this would leave under zero, or ``None``.
+
+    ``after`` is what the flexi balance would read once the booking is made,
+    and ``None`` means the booking does not touch it -- annual leave does not,
+    so a balance already in deficit is not this booking's news, and saying so
+    on every annual booking teaches people to ignore the line.
+
+    One rule, asked by the single booking and by the plan. They had their own
+    arithmetic and their own sentence, so a day and a fortnight could disagree
+    about whether the same request was worth mentioning.
+
+    Examples:
+        >>> overdraw(None) is None
+        True
+        >>> overdraw(1.5) is None
+        True
+        >>> overdraw(-2.5)
+        'This takes the flexi balance 2.5 days into deficit'
+        >>> overdraw(-1, opening="Booked, but this")
+        'Booked, but this takes the flexi balance 1 day into deficit'
+    """
+    if after is None or after >= 0:
+        return None
+    return f"{opening} takes {deficit(-after)}"
+
+
 @dataclass(frozen=True)
 class AbsenceResult:
     """The outcome of an absence action, and what to tell the user about it."""
@@ -381,10 +408,7 @@ class AbsencePlan:
         """
         if not self.absence_type.draws_down_balance:
             return None
-        after = self.toil_after
-        if after is None or after >= 0:
-            return None
-        return f"This takes {deficit(abs(after))}"
+        return overdraw(self.toil_after)
 
 
 @dataclass(frozen=True, slots=True)
@@ -570,6 +594,11 @@ class AbsenceService:
         if decided.verdict is not Verdict.BOOK:
             return AbsenceResult(False, decided.reason)
 
+        after = (
+            available_toil_days - portion.days
+            if absence_type.draws_down_balance and available_toil_days is not None
+            else None
+        )
         absence = AbsenceDay(
             date=day,
             absence_type=absence_type,
@@ -583,7 +612,7 @@ class AbsenceService:
             success=True,
             message=f"{absence_type.label} booked for {short_date(day)}",
             absence=absence,
-            warning=self._toil_warning(absence_type, portion, available_toil_days),
+            warning=overdraw(after, opening="Booked, but this"),
         )
 
     # -- what deciding a date needs -----------------------------------------
@@ -640,19 +669,6 @@ class AbsenceService:
             .order_by(WorkSession.work_date, WorkSession.id)
         )
         return list(self._session.execute(stmt).scalars())
-
-    def _toil_warning(
-        self,
-        absence_type: AbsenceType,
-        portion: Portion,
-        available_toil_days: float | None,
-    ) -> str | None:
-        """A note about overdrawing the flexi balance, which is allowed."""
-        if not absence_type.draws_down_balance or available_toil_days is None:
-            return None
-        if available_toil_days >= portion.days:
-            return None
-        return f"Booked, but this takes {deficit(portion.days - available_toil_days)}"
 
     # -- planning -----------------------------------------------------------
 

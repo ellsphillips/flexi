@@ -9,6 +9,8 @@ MINUS = "−"
 
 ZERO = "0:00"
 
+SECONDS_PER_MINUTE = 60
+
 
 def hm(value: timedelta) -> str:
     """A duration as ``h:mm``, unsigned, rounding toward zero.
@@ -132,6 +134,29 @@ def clock(moment: datetime) -> str:
         '09:12'
     """
     return moment.strftime("%H:%M")
+
+
+def spoken(span: timedelta) -> str:
+    """A short duration as somebody would say it out loud.
+
+    Whole minutes where it divides, seconds otherwise, so a threshold reads as
+    "a minute" rather than as "60 seconds".
+
+    Examples:
+        >>> spoken(timedelta(minutes=1))
+        '1 minute'
+        >>> spoken(timedelta(minutes=5))
+        '5 minutes'
+        >>> spoken(timedelta(seconds=90))
+        '90 seconds'
+        >>> spoken(timedelta(seconds=1))
+        '1 second'
+    """
+    seconds = int(span.total_seconds())
+    minutes, remainder = divmod(seconds, SECONDS_PER_MINUTE)
+    if minutes and not remainder:
+        return f"{minutes} {plural(minutes, 'minute')}"
+    return f"{seconds} {plural(seconds, 'second')}"
 
 
 def days(value: float) -> str:
