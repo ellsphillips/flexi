@@ -12,7 +12,7 @@ of somebody's records, and the fork between "already set up" and "ask the five
 questions" all live in the wiring, and the reset arm of that fork is the one
 thing in Flexi that loses data.
 
-The application is stood in for throughout. `App.__init__` builds an engine and
+The application is stood in for throughout. `FlexiApp.__init__` builds an engine and
 `run` wants a terminal, and neither is what is under test here: what matters is
 *which* database it was pointed at, whether the splash was earned, and whether
 it was opened at all.
@@ -135,7 +135,7 @@ def instead_of_the_application(
 ) -> list[_Opened]:
     """Record every application `__main__` builds, and draw none of them.
 
-    Patched at `flexi.app.App`, not on `__main__`: the name is imported inside
+    Patched at `flexi.app.FlexiApp`, not on `__main__`: the name is imported inside
     `_launch` and `_run_demo` so that `flexi --version` does not load six
     Textual screens, which means there is nothing bound here to replace.
     """
@@ -146,7 +146,7 @@ def instead_of_the_application(
         opened.append(app)
         return app
 
-    monkeypatch.setattr("flexi.app.App", building)
+    monkeypatch.setattr("flexi.app.FlexiApp", building)
     return opened
 
 

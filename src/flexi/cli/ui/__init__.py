@@ -21,12 +21,10 @@ terminal exists, and it is the only part that cannot be tested without one.
 
 from __future__ import annotations
 
-from flexi.cli.ui.keys import Key, decode
-from flexi.cli.ui.menu import Menu, Option
+from flexi.cli.ui.menu import Option
 from flexi.cli.ui.prompt import (
     abandon,
     choose,
-    console,
     interactive,
     type_the_word,
     write,
@@ -34,15 +32,11 @@ from flexi.cli.ui.prompt import (
 from flexi.cli.ui.rail import Tone, body, measure, step, tail, wordmark
 
 __all__ = [
-    "Key",
-    "Menu",
     "Option",
     "Tone",
     "abandon",
     "body",
     "choose",
-    "console",
-    "decode",
     "interactive",
     "measure",
     "step",
@@ -51,3 +45,7 @@ __all__ = [
     "wordmark",
     "write",
 ]
+"""What `flexi init` reaches for. `Key`, `decode`, `Menu` and `console` are
+the vocabulary the three modules speak to each other, and were re-exported here
+without an importer -- a facade repeating its own internals is a second name for
+each of them to fall out of step with."""

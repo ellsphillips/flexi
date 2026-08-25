@@ -161,11 +161,6 @@ class YearCalendar(ScrollView, can_focus=True):
         )
 
     @property
-    def cell(self) -> int:
-        """The narrowest column, for anything that has to fit in all of them."""
-        return min(self.columns)
-
-    @property
     def grid_width(self) -> int:
         return sum(self.columns)
 
@@ -262,24 +257,6 @@ class YearCalendar(ScrollView, can_focus=True):
             if any(cell.date == when for cell in block.rows[row]):
                 return index
         return None
-
-    def month_rows(self) -> list[tuple[MonthBlock, int]]:
-        """Every month title on the drawn surface, with its line."""
-        return [
-            (block, index)
-            for index, (block, row) in enumerate(self._rows)
-            if block is not None and row == TITLE_ROW
-        ]
-
-    def visible_months(self) -> list[tuple[MonthBlock, int]]:
-        """The month titles currently on screen, for jump targets."""
-        top = int(self.scroll_offset.y)
-        bottom = top + self.size.height
-        return [
-            (block, line - top)
-            for block, line in self.month_rows()
-            if top <= line < bottom
-        ]
 
     def scroll_to_day(self, when: date) -> None:
         """Keep the cursor on screen, with a row of context either side."""

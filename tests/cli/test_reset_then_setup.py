@@ -1,7 +1,7 @@
 """What happens in the moment after the records are thrown away.
 
 `flexi init` -> Start again deletes the database and then asks the five
-questions again. The setup form is a Textual application, and `App.__init__`
+questions again. The setup form is a Textual application, and `FlexiApp.__init__`
 builds an engine, opens a session and reads the settings row before a single
 screen is drawn -- so between the delete and the form there has to be a
 migration, or the command dies with `no such table: settings` having already
@@ -21,7 +21,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 import flexi.__main__ as main
-from flexi.app import App
+from flexi.app import FlexiApp
 from flexi.cli import init as init_cli
 from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
@@ -89,13 +89,13 @@ def test_the_migration_in_launch_is_what_makes_that_work(erased: Path) -> None:
     already been deleted and with the snapshot the only thing standing between
     somebody and the loss of a year of records.
 
-    Thrown from ``on_mount``'s first question rather than from ``App.__init__``:
+    Thrown from ``on_mount``'s first question rather than from ``__init__``:
     building the registry stopped reading the settings row when the bank-holiday
     division became a question asked per query rather than a value captured
     once. The table is still missing and the application still cannot open on
     it; only the line number moved.
     """
-    app = App()
+    app = FlexiApp()
     try:
         with pytest.raises(OperationalError, match="no such table: settings"):
             app.services.settings.is_setup_complete()
@@ -126,11 +126,11 @@ def test_every_way_into_the_application_migrates_first(
         return _Stub()
 
     monkeypatch.setattr("flexi.models.database.migrate.run_migrations", migrated)
-    monkeypatch.setattr("flexi.app.App", opened)
+    monkeypatch.setattr("flexi.app.FlexiApp", opened)
 
     main._launch()
 
-    assert order == ["migrated", "opened"], "the schema must exist before App is built"
+    assert order == ["migrated", "opened"], "the schema must exist before the app"
 
 
 class _Stub:

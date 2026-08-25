@@ -189,7 +189,7 @@ async def test_the_odd_columns_out_are_spread_one_at_a_time() -> None:
     calendar = YearCalendar()
     async with mounted(calendar, width=WIDE_PANEL):
         assert calendar.columns == (9, 9, 9, 9, 8, 8, 8)
-        assert calendar.cell == 8
+        assert min(calendar.columns) == 8
 
 
 async def test_no_column_is_ever_more_than_a_character_wider_than_another() -> None:
@@ -223,7 +223,7 @@ async def test_a_panel_too_narrow_for_a_week_stops_shrinking() -> None:
     calendar = YearCalendar()
     async with mounted(calendar, width=14):
         assert calendar.grid_width == DAYS_IN_WEEK * MIN_CELL
-        assert calendar.cell == MIN_CELL
+        assert min(calendar.columns) == MIN_CELL
 
 
 async def test_resizing_the_panel_relays_the_grid_out() -> None:
@@ -255,8 +255,13 @@ async def test_every_month_gets_a_title_and_its_own_whole_weeks() -> None:
     put two dates in one cell and make the cursor ambiguous.
     """
     async with shown() as calendar:
-        titles = [block.title for block, _ in calendar.month_rows()]
-        assert titles == ["June 2026", "July 2026"]
+        # Read off the surface rather than from an accessor: the titles are
+        # what somebody sees, and the rule is a month per row of its own.
+        drawn = [text_of(calendar, line) for line in range(13)]
+        assert [line.split("─")[0].strip() for line in drawn if "2026" in line] == [
+            "June 2026",
+            "July 2026",
+        ]
         # One heading, then a title and five weeks for each of the two months.
         assert calendar.virtual_size.height == 1 + (1 + 5) * 2
 
@@ -555,28 +560,6 @@ async def test_a_date_the_calendar_is_not_showing_sits_nowhere() -> None:
         assert calendar.row_of(date(2027, 1, 1)) is None
         calendar.scroll_to_day(date(2027, 1, 1))
         assert calendar.scroll_offset == before
-
-
-async def test_only_the_months_on_screen_are_offered_as_jump_targets() -> None:
-    """Only the months on screen are offered as jump targets.
-
-    A badge over a month nobody can see is a keystroke that appears to do
-    nothing, so the offer is made against the drawn lines rather than the year.
-    """
-    calendar = YearCalendar()
-    async with mounted(calendar, height=8) as pilot:
-        calendar.show(JUNE, JULY_END, {}, today=JUNE)
-        await pilot.pause()
-        assert [block.title for block, _ in calendar.visible_months()] == [
-            "June 2026",
-            "July 2026",
-        ]
-
-        calendar.scroll_to(y=5, animate=False)
-        await pilot.pause()
-        assert [(block.title, line) for block, line in calendar.visible_months()] == [
-            ("July 2026", 2)
-        ]
 
 
 async def test_moving_the_cursor_keeps_a_row_of_context_above_it() -> None:

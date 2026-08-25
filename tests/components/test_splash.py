@@ -228,13 +228,6 @@ def test_a_word_wider_than_the_canvas_is_cropped_rather_than_wrapped(
     assert cropped == [row[margin : margin + NARROW_CANVAS] for row in full]
 
 
-def test_a_frame_is_text_the_width_of_the_canvas() -> None:
-    rows = splash.frame(splash.DURATION)
-    assert len(rows) == splash.CANVAS_HEIGHT
-    assert {len(row) for row in rows} == {splash.CANVAS_WIDTH}
-    assert set("".join(rows)) <= set(splash.RAMP) | {" "}
-
-
 # -- the strapline -----------------------------------------------------------
 
 

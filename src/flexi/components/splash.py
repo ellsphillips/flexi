@@ -316,14 +316,6 @@ def settled_rows() -> tuple[int, int]:
     return inked[0], inked[-1]
 
 
-def frame(elapsed: float) -> list[str]:
-    """The canvas as text, one character per cell."""
-    return [
-        "".join(RAMP[level] if level >= 0 else " " for level in row)
-        for row in luminance(elapsed)
-    ]
-
-
 def should_play(*, interactive: bool, animations: bool) -> bool:
     """Whether to run it at all.
 

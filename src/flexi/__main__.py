@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Engine
     from sqlalchemy.orm import Session
 
-    from flexi.app import App
+    from flexi.app import FlexiApp
     from flexi.services.registry import Services
 
 
@@ -126,10 +126,10 @@ def requires_setup(command: Callable[..., None]) -> Callable[..., None]:
     return guarded
 
 
-def _launch(*, settings: bool = False, splash: bool = False) -> App:
+def _launch(*, settings: bool = False, splash: bool = False) -> FlexiApp:
     """Every way into the application goes through here.
 
-    ``App.__init__`` builds an engine, opens a session and reads the settings
+    ``FlexiApp.__init__`` builds an engine, opens a session and reads the settings
     row, so opening it against a database with no tables raises before a single
     screen is drawn. Leaving each caller to migrate first meant the invariant
     lived everywhere except where it was needed, and the reset path -- which
@@ -139,11 +139,11 @@ def _launch(*, settings: bool = False, splash: bool = False) -> App:
     so calling it on every path costs one revision check and takes no extra
     backup. That is a cheap price for the guarantee.
     """
-    from flexi.app import App
+    from flexi.app import FlexiApp
     from flexi.models.database.migrate import run_migrations
 
     run_migrations()
-    app = App()
+    app = FlexiApp()
     app.open_settings = settings
     app.show_splash = splash
     return app
@@ -209,7 +209,7 @@ def _run_demo() -> None:
     import tempfile
     from pathlib import Path
 
-    from flexi.app import App
+    from flexi.app import FlexiApp
     from flexi.models.database.app import create_db_engine, get_session
     from flexi.models.database.db import Base
     from flexi.services.samples import seed_demo
@@ -230,7 +230,7 @@ def _run_demo() -> None:
         seed_demo(session, anchor=wallclock.today())
         session.close()
         engine.dispose()
-        App(db_path=path).run()
+        FlexiApp(db_path=path).run()
 
 
 @cli.command()

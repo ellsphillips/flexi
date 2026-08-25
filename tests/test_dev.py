@@ -9,7 +9,7 @@ at the moment somebody reached for them to debug something else.
 So it is loaded here the way ``textual run`` loads it, by path, rather than
 imported. Both of the things it calls are replaced first: a real
 ``run_migrations`` would touch the developer's own database, and a real
-``App().run()`` would take the terminal the suite is running in.
+``FlexiApp().run()`` would take the terminal the suite is running in.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def watched(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         "run_migrations",
         lambda: happened.append("migrated"),
     )
-    monkeypatch.setattr(flexi.app, "App", Fake)
+    monkeypatch.setattr(flexi.app, "FlexiApp", Fake)
     return happened
 
 

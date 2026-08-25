@@ -366,7 +366,3 @@ class FlexiApp(TextualApp[None]):
             widget.post_message(
                 events.Click(widget, 0, 0, 0, 0, 0, False, False, False)
             )
-
-
-App = FlexiApp
-"""The v1 name, kept so ``flexi.__main__`` and older tests keep importing."""
