@@ -83,7 +83,7 @@ class ExpandableTable(DataTable[RenderableType]):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.cursor_type = "row"
-        self.expanded: set[str] = set()
+        self._expanded: set[str] = set()
         self._groups: tuple[RowGroup, ...] = ()
 
     # -- content -----------------------------------------------------------
@@ -119,7 +119,7 @@ class ExpandableTable(DataTable[RenderableType]):
         session.
         """
         self._groups = tuple(groups)
-        self.expanded &= {group.parent.key for group in self._groups}
+        self._expanded &= {group.parent.key for group in self._groups}
         self._redraw()
 
     @property
@@ -127,12 +127,23 @@ class ExpandableTable(DataTable[RenderableType]):
         """The groups currently loaded, expanded or not."""
         return self._groups
 
+    @property
+    def expanded(self) -> frozenset[str]:
+        """The keys of the rows currently open.
+
+        Read-only, like `groups` beside it. It was a public `set` that `toggle`
+        mutated in place and `expand_all` rebound in one branch and mutated in
+        the other -- three treatments of one attribute inside one class, and a
+        caller could have opened a row the table did not hold.
+        """
+        return frozenset(self._expanded)
+
     def visible_rows(self) -> list[Row]:
         """Every row that would be drawn, parents and opened children, in order."""
         rows: list[Row] = []
         for group in self._groups:
             rows.append(group.parent)
-            if group.parent.key in self.expanded:
+            if group.parent.key in self._expanded:
                 rows.extend(group.children)
         return rows
 
@@ -214,8 +225,8 @@ class ExpandableTable(DataTable[RenderableType]):
         # to the parent — collapsing a group the cursor is in has nowhere else to
         # put it, but toggling some *other* row must leave the cursor alone.
         cursor_inside = self._group_at_cursor() is group
-        expanded = parent not in self.expanded
-        self.expanded.symmetric_difference_update({parent})
+        expanded = parent not in self._expanded
+        self._expanded.symmetric_difference_update({parent})
         self._redraw()
         if cursor_inside:
             self.focus_key(parent)
@@ -230,13 +241,13 @@ class ExpandableTable(DataTable[RenderableType]):
         visible thing beats two keys nobody remembers.
         """
         if expanded is None:
-            expanded = not self.expanded
+            expanded = not self._expanded
         if expanded:
-            self.expanded = {
+            self._expanded = {
                 group.parent.key for group in self._groups if group.expandable
             }
         else:
-            self.expanded.clear()
+            self._expanded.clear()
         self._redraw()
 
     def _group_at_cursor(self) -> RowGroup | None:
@@ -256,7 +267,7 @@ class ExpandableTable(DataTable[RenderableType]):
         if key is None:
             return
         group = self.group_for(key)
-        if group is not None and group.expandable and key not in self.expanded:
+        if group is not None and group.expandable and key not in self._expanded:
             self.toggle(key)
         self.post_message(self.RowSelected(key))
 

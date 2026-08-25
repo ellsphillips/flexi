@@ -36,7 +36,7 @@ def test_a_month_starting_on_a_monday_has_no_leading_blanks() -> None:
 def test_a_month_starting_late_in_the_week_is_padded() -> None:
     """August 2026 begins on a Saturday, so five cells lead it."""
     block = month_block(*AUGUST)
-    leading = [cell for cell in block.rows[0] if not cell.filled]
+    leading = [cell for cell in block.rows[0] if cell.date is None]
     assert len(leading) == 5
     assert block.rows[0][5].date == date(2026, 8, 1)
 
@@ -62,7 +62,7 @@ def test_every_day_of_the_month_is_present() -> None:
 
 def test_a_leap_february_gains_a_day() -> None:
     block = month_block(2024, 2)
-    assert sum(1 for row in block.rows for cell in row if cell.filled) == 29
+    assert sum(1 for row in block.rows for cell in row if cell.date is not None) == 29
 
 
 def test_the_first_weekday_rotates_the_grid() -> None:

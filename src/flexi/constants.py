@@ -46,11 +46,6 @@ class Granularity(StrEnum):
         order: list[Granularity] = list(Granularity)
         return order[(order.index(self) + 1) % len(order)]
 
-    def previous(self) -> Granularity:
-        """The previous granularity in the cycle."""
-        order: list[Granularity] = list(Granularity)
-        return order[(order.index(self) - 1) % len(order)]
-
 
 class Division(StrEnum):
     """A GOV.UK bank holiday division.

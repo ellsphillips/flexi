@@ -28,10 +28,6 @@ class Cell:
 
     date: date | None
 
-    @property
-    def filled(self) -> bool:
-        return self.date is not None
-
 
 @dataclass(frozen=True, slots=True)
 class MonthBlock:

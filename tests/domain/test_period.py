@@ -211,8 +211,7 @@ def test_a_granularity_names_itself_apart_from_the_value_it_is_stored_as(
 def test_granularity_cycles() -> None:
     """It cycles day to week to month to year and back."""
     assert Granularity.DAY.next() is Granularity.WEEK
-    assert Granularity.YEAR.next() is Granularity.DAY
-    assert Granularity.DAY.previous() is Granularity.YEAR
+    assert Granularity.YEAR.next() is Granularity.DAY, "and wraps"
 
 
 def test_first_weekday_moves_the_week_boundary() -> None:
@@ -318,24 +317,6 @@ def test_a_year_period_is_the_leave_year_the_services_use(period: Period) -> Non
         return
     assert (period.start, period.end) == leaveyear.bounds(
         period.anchor, *period.year_start
-    )
-
-
-@given(granularity=strategies.granularities)
-def test_the_two_directions_of_the_cycle_are_opposites(
-    granularity: Granularity,
-) -> None:
-    """`p` forward then back is where you started, and forward is not back.
-
-    Nothing distinguished `previous` from `next`: changing the minus to a plus
-    left the whole suite green, because every test that walked the cycle walked
-    it in one direction.
-    """
-    assert granularity.next().previous() == granularity
-    assert granularity.previous().next() == granularity
-    assert granularity.next() != granularity.previous()
-    assert granularity.next().next() == granularity.previous().previous(), (
-        "four granularities, so two steps either way meet in the middle"
     )
 
 
