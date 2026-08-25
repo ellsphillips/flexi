@@ -21,11 +21,11 @@ from textual.widgets import Button, Label
 from flexi import wallclock
 from flexi.components.modules.base import Module
 from flexi.config import CONFIG
-from flexi.constants import DayKind
+from flexi.constants import DayKind, Granularity
 from flexi.domain.dates import DAYS_IN_WEEK, add_months, week_start
 from flexi.domain.format import month_title
 from flexi.domain.ledger import DayLedger
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from flexi.domain.stitch import weekday_initials
 from flexi.messages import DateSelected, Scope
 

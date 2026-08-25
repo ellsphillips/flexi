@@ -9,7 +9,7 @@ import pytest
 from flexi.app import FlexiApp
 from flexi.components.expandable import DAY, ExpandableTable
 from flexi.components.modules.monthview import MonthView
-from flexi.domain.period import Granularity
+from flexi.constants import Granularity
 from tests.tui.conftest import WIDE, AppFactory, dashboard
 
 TODAY = date(2026, 6, 11)

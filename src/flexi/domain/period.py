@@ -13,35 +13,11 @@ from __future__ import annotations
 import calendar
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
-from enum import StrEnum
 
+from flexi.constants import Granularity
 from flexi.domain import leaveyear
 from flexi.domain.dates import add_months, days_between, week_start
 from flexi.domain.format import day_month, long_date, month_title
-
-
-class Granularity(StrEnum):
-    """The span a period covers."""
-
-    DAY = "day"
-    WEEK = "week"
-    MONTH = "month"
-    YEAR = "year"
-
-    @property
-    def label(self) -> str:
-        """The name shown to a reader."""
-        return self.value.capitalize()
-
-    def next(self) -> Granularity:
-        """The next granularity in the cycle ``day → week → month → year → day``."""
-        order: list[Granularity] = list(Granularity)
-        return order[(order.index(self) + 1) % len(order)]
-
-    def previous(self) -> Granularity:
-        """The previous granularity in the cycle."""
-        order: list[Granularity] = list(Granularity)
-        return order[(order.index(self) - 1) % len(order)]
 
 
 @dataclass(frozen=True, slots=True)

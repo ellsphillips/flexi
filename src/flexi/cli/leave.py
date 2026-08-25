@@ -18,6 +18,7 @@ the result was a receipt.
 from __future__ import annotations
 
 from datetime import date
+from typing import NamedTuple
 
 import click
 
@@ -48,20 +49,34 @@ VERDICT_NOTE: dict[Verdict, str] = {
 }
 
 
-def parse_request(words: tuple[str, ...]) -> tuple[str, Portion, str]:
-    """Split ``annual monday to friday pm`` into its three parts.
+class Request(NamedTuple):
+    """``annual monday to friday pm``, split into what it asks for.
 
-    Returns the head word, the portion, and the remaining date text. The
-    portion is taken off the end rather than looked for anywhere, so a note or
-    a month name cannot be mistaken for one.
+    ``kind`` is ``None`` for a cancellation, which is the one word that names
+    no kind of leave. It was a bare head word, so `run` looked the type up a
+    second time and carried a branch for a failure `parse_request` had already
+    refused -- unreachable, and marked as such.
+    """
+
+    kind: AbsenceType | None
+    portion: Portion
+    when: str
+
+
+def parse_request(words: tuple[str, ...]) -> Request:
+    """Split ``annual monday to friday pm`` into what it asks for.
+
+    The portion is taken off the end rather than looked for anywhere, so a note
+    or a month name cannot be mistaken for one.
     """
     if not words:
         msg = "Say what kind of leave: annual, sick, toil, unpaid, other, or cancel"
         raise click.UsageError(msg)
 
     head, *rest = words
-    known = head.lower() == CANCEL_WORD or absence_from_word(head) is not None
-    if not known:
+    word = head.strip().lower()
+    kind = absence_from_word(word)
+    if kind is None and word != CANCEL_WORD:
         msg = (
             f"'{head}' is not a kind of leave. "
             "Try annual, sick, toil, unpaid, other, or cancel."
@@ -72,7 +87,7 @@ def parse_request(words: tuple[str, ...]) -> tuple[str, Portion, str]:
     if rest and rest[-1].lower() in PORTION_WORDS:
         portion = PORTION_WORDS[rest.pop().lower()]
 
-    return head.lower(), portion, " ".join(rest)
+    return Request(kind, portion, " ".join(rest))
 
 
 def render(plan: AbsencePlan, *, cancelling: bool = False) -> str:
@@ -118,20 +133,15 @@ def run(
     today: date,
 ) -> int:
     """Plan, show, ask, write. Returns the exit code."""
-    head, portion, when = parse_request(words)
+    kind, portion, when = parse_request(words)
 
     try:
         start, end = parse_span(when or "today", today=today, prefer=Preference.FORWARD)
     except ValueError as error:
         raise click.UsageError(str(error)) from error
 
-    if head == CANCEL_WORD:
+    if kind is None:
         return _cancel(services, start, end, assume_yes=assume_yes, dry_run=dry_run)
-
-    kind = absence_from_word(head)
-    if kind is None:  # pragma: no cover - parse_request has already refused
-        msg = f"'{head}' is not a kind of leave"
-        raise click.UsageError(msg)
 
     if kind is AbsenceType.OTHER and not (note or "").strip():
         msg = "Other leave needs --note saying what it is"

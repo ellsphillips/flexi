@@ -7,7 +7,7 @@ from datetime import date, datetime
 import pytest
 from sqlalchemy.orm import Session
 
-from flexi.cli.leave import parse_request, render, run
+from flexi.cli.leave import Request, parse_request, render, run
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.db import AbsenceDay, BankHolidayCache
 from flexi.services.registry import Services
@@ -47,32 +47,33 @@ def _booked(session: Session) -> list[AbsenceDay]:
 
 
 @pytest.mark.parametrize(
-    ("words", "head", "portion", "when"),
+    ("words", "kind", "portion", "when"),
     [
-        (("annual", "friday"), "annual", Portion.FULL, "friday"),
-        (("sick", "today", "pm"), "sick", Portion.PM, "today"),
-        (("sick", "today", "afternoon"), "sick", Portion.PM, "today"),
-        (("toil", "12", "jun"), "toil", Portion.FULL, "12 jun"),
+        (("annual", "friday"), AbsenceType.ANNUAL, Portion.FULL, "friday"),
+        (("sick", "today", "pm"), AbsenceType.SICK, Portion.PM, "today"),
+        (("sick", "today", "afternoon"), AbsenceType.SICK, Portion.PM, "today"),
+        (("toil", "12", "jun"), AbsenceType.FLEXI, Portion.FULL, "12 jun"),
         (
             ("annual", "monday", "to", "friday"),
-            "annual",
+            AbsenceType.ANNUAL,
             Portion.FULL,
             "monday to friday",
         ),
         (
             ("annual", "monday", "to", "friday", "am"),
-            "annual",
+            AbsenceType.ANNUAL,
             Portion.AM,
             "monday to friday",
         ),
-        (("cancel", "friday"), "cancel", Portion.FULL, "friday"),
-        (("annual",), "annual", Portion.FULL, ""),
+        (("cancel", "friday"), None, Portion.FULL, "friday"),
+        (("annual",), AbsenceType.ANNUAL, Portion.FULL, ""),
     ],
 )
 def test_the_grammar_splits_into_kind_portion_and_when(
-    words: tuple[str, ...], head: str, portion: Portion, when: str
+    words: tuple[str, ...], kind: AbsenceType | None, portion: Portion, when: str
 ) -> None:
-    assert parse_request(words) == (head, portion, when)
+    """The kind comes back resolved. `None` is a cancellation, and only that."""
+    assert parse_request(words) == Request(kind, portion, when)
 
 
 def test_a_portion_is_only_taken_from_the_end() -> None:

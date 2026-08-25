@@ -18,8 +18,7 @@ from textual.notifications import Notification
 from textual.widgets import Input, RadioSet
 
 from flexi.app import FlexiApp
-from flexi.constants import AbsenceType
-from flexi.domain.period import Granularity
+from flexi.constants import AbsenceType, Granularity
 from flexi.models.database.app import create_db_engine
 from flexi.models.database.db import Base
 from flexi.provider import FlexiCommands

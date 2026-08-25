@@ -26,10 +26,10 @@ from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import Gauge, Tone, mark_width
 from flexi.components.yearcalendar import YearCalendar, legend
 from flexi.config import CONFIG
-from flexi.constants import AbsenceType, Portion, Verdict
+from flexi.constants import AbsenceType, Granularity, Portion, Verdict
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import delta, plural, short_date
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from flexi.domain.stitch import Selection
 from flexi.messages import Scope
 from flexi.screens.modals import (

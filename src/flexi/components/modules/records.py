@@ -35,11 +35,10 @@ from flexi.components.jumper import JumpInfo
 from flexi.components.modules.base import Module
 from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.config import CONFIG
-from flexi.constants import DayKind
+from flexi.constants import DayKind, Granularity
 from flexi.domain.format import clock, delta, hm
 from flexi.domain.ledger import DayLedger
-from flexi.domain.period import Granularity
-from flexi.domain.punch import cell_count
+from flexi.domain.punch import Window, cell_count
 from flexi.messages import Scope
 
 COLUMNS: tuple[tuple[str, int] | str, ...] = (
@@ -160,7 +159,7 @@ class RecordsModule(Module):
         table.display = bool(ledgers)
         self.set_subtitle(_totals_subtitle(ledgers))
 
-    def _group(self, ledger: DayLedger, window: object) -> RowGroup:
+    def _group(self, ledger: DayLedger, window: Window) -> RowGroup:
         parent = Row(
             key=day_key(ledger.date.isoformat()),
             cells=(
@@ -168,7 +167,7 @@ class RecordsModule(Module):
                 render_strip(
                     ledger,
                     self._strip_width,
-                    window,  # type: ignore[arg-type]
+                    window,
                     self.get_component_rich_style,
                     self.now,
                 ),

@@ -19,8 +19,7 @@ from datetime import date, datetime, time, timedelta
 
 from hypothesis import strategies as st
 
-from flexi.constants import AbsenceType, Portion
-from flexi.domain.period import Granularity
+from flexi.constants import AbsenceType, Granularity, Portion
 
 EARLIEST = date(2020, 1, 1)
 """Before Flexi existed. Far enough back to cross several leap years."""

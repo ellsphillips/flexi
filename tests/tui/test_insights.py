@@ -14,9 +14,8 @@ from flexi.components.charts import (
     week_columns,
 )
 from flexi.components.chrome import AppHeader
-from flexi.constants import DayKind
+from flexi.constants import DayKind, Granularity
 from flexi.domain.ledger import DayLedger
-from flexi.domain.period import Granularity
 from flexi.screens.insights import InsightsScreen
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
 

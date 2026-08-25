@@ -16,9 +16,8 @@ from typing import TYPE_CHECKING, Any
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 
 from flexi.components.chrome import NAV_ITEMS
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Granularity
 from flexi.context import flexi_app
-from flexi.domain.period import Granularity
 
 if TYPE_CHECKING:
     from flexi.app import FlexiApp

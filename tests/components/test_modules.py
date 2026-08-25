@@ -39,9 +39,9 @@ from flexi.components.modules.records import (
 )
 from flexi.components.modules.wallet import _pace_tone
 from flexi.components.punch import PunchStrip
-from flexi.constants import AbsenceType, DayKind, Portion
+from flexi.constants import AbsenceType, DayKind, Granularity, Portion
 from flexi.domain.ledger import AbsenceSlice, DayLedger
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from flexi.domain.punch import Window
 from flexi.domain.wallet import Allowance
 from flexi.messages import DataChanged, DateSelected, Scope

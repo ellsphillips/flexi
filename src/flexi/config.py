@@ -18,7 +18,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Granularity
 from flexi.locations import config_file
 
 
@@ -75,8 +75,19 @@ class Defaults(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    period: str = "week"
-    first_day_of_week: int = 0
+    period: Granularity = Granularity.WEEK
+    """Which span the dashboard opens on.
+
+    Typed, so a misspelling in the file is a validation error `load_config`
+    turns into the defaults. As a bare `str` it reached `Granularity(...)` in
+    the dashboard's constructor and raised there instead -- a `ValueError`
+    thrown while building the first screen, which is a preference typo taking
+    the application down."""
+
+    first_day_of_week: int = Field(default=0, ge=0, le=6)
+    """Monday is 0. Bounded, because nothing downstream rejects a 9: the grid
+    would rotate by `9 % 7` while the column headings, sliced rather than
+    rotated, would silently stay on Monday."""
     minimum_session_seconds: int = 60
     """A session shorter than this never happened.
 

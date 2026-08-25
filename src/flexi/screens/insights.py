@@ -27,9 +27,9 @@ from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import Tone, mark_width
 from flexi.components.modules.base import Module
 from flexi.config import CONFIG
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Granularity
 from flexi.domain.format import day_month, delta, hm, short_date
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from flexi.messages import Scope
 from flexi.services.registry import Services
 

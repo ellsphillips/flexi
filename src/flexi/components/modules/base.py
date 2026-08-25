@@ -14,8 +14,9 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from flexi import wallclock
+from flexi.constants import Granularity
 from flexi.context import flexi_app
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from flexi.messages import DataChanged, Scope
 
 if TYPE_CHECKING:

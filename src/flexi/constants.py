@@ -28,6 +28,30 @@ class EventSource(StrEnum):
     """Flexi closed a session nobody closed."""
 
 
+class Granularity(StrEnum):
+    """The span a period covers."""
+
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+
+    @property
+    def label(self) -> str:
+        """The name shown to a reader."""
+        return self.value.capitalize()
+
+    def next(self) -> Granularity:
+        """The next granularity in the cycle ``day → week → month → year → day``."""
+        order: list[Granularity] = list(Granularity)
+        return order[(order.index(self) + 1) % len(order)]
+
+    def previous(self) -> Granularity:
+        """The previous granularity in the cycle."""
+        order: list[Granularity] = list(Granularity)
+        return order[(order.index(self) - 1) % len(order)]
+
+
 class Division(StrEnum):
     """A GOV.UK bank holiday division.
 

@@ -34,10 +34,10 @@ from flexi.components.modules.records import BookHere, DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Granularity
 from flexi.domain.format import clock as clock_time
 from flexi.domain.format import short_date
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from flexi.messages import DataChanged, DateSelected, Scope
 from flexi.screens.modals import (
     AbsenceBooking,
@@ -95,7 +95,7 @@ class DashboardScreen(Screen[None]):
         self._services = services
         self.period = Period.containing(
             wallclock.today(),
-            Granularity(CONFIG.defaults.period),
+            CONFIG.defaults.period,
             year_start=services.settings.get_leave_year_start(),
             first_weekday=CONFIG.defaults.first_day_of_week,
         )

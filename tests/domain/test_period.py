@@ -5,8 +5,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from flexi.constants import Granularity
 from flexi.domain import leaveyear
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from tests import strategies
 
 THURSDAY = date(2026, 6, 11)  # week 24, a Thursday

@@ -100,6 +100,26 @@ def test_a_value_of_the_wrong_shape_gets_the_defaults(tmp_path: Path) -> None:
     assert load_config(path) == Config()
 
 
+@pytest.mark.parametrize(
+    "line",
+    ["  period: fortnight\n", "  first_day_of_week: 9\n"],
+)
+def test_a_default_outside_its_vocabulary_gets_the_defaults(
+    tmp_path: Path, line: str
+) -> None:
+    """Both were bare enough to reach the screens and fail there instead.
+
+    `period` was a `str`, so `fortnight` sailed through validation and became a
+    `ValueError` inside `DashboardScreen.__init__` -- a preference typo taking
+    the application down while it built its first screen. `first_day_of_week`
+    was an unbounded `int`, and a 9 rotated the calendar grid by `9 % 7` while
+    the column headings, sliced rather than rotated, silently stayed on Monday.
+    """
+    path = written(tmp_path / "config.yaml", f"defaults:\n{line}")
+
+    assert load_config(path) == Config()
+
+
 def test_what_the_file_says_is_what_is_used(tmp_path: Path) -> None:
     """The other half of the bargain: a valid file is honoured, field by field."""
     path = written(
