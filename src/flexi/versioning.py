@@ -13,8 +13,15 @@ TIMEOUT_SECONDS = 5.0
 
 def get_pypi_version() -> str | None:
     """The latest published version, or None if PyPI could not be read."""
+    # Through a `Client`, like the bank-holiday fetch, because that is the one
+    # form the suite can intercept. `httpx.get` builds a client of its own and
+    # goes straight to `Client.request`, so patching `httpx.Client.get` -- the
+    # seam every other outbound call in this project goes through -- did not
+    # catch this one, and the suite needed a second fixture to stub the
+    # function instead.
     try:
-        response = httpx.get(PYPI_URL, timeout=TIMEOUT_SECONDS)
+        with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
+            response = client.get(PYPI_URL)
         response.raise_for_status()
         return str(response.json()["info"]["version"])
     except (httpx.HTTPError, ValueError, KeyError, TypeError):

@@ -142,7 +142,9 @@ class YearAtAGlance(Module):
         today = self.now.date()
         start, _ = self.services.absence.leave_year_bounds(today)
         ledgers = self.services.ledger.days(start, today, now=self.now)
-        self.query_one("#heatmap", YearHeatmap).show(ledgers)
+        self.query_one("#heatmap", YearHeatmap).show(
+            ledgers, first_weekday=self.period.first_weekday
+        )
         worked = sum((item.worked for item in ledgers), start=timedelta())
         self.set_subtitle(f"{hm(worked)} worked")
 

@@ -23,6 +23,7 @@ from flexi.domain.format import MINUS, delta, hm
 from flexi.domain.format import days as fmt_days
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window
+from flexi.domain.stitch import weekday_initials
 
 BLOCK: Final = "█"
 BASELINE: Final = "─"
@@ -327,9 +328,13 @@ class YearHeatmap(Widget):
         super().__init__(**kwargs)
         self.ledgers: dict[date, DayLedger] = {}
         self.scale = timedelta(hours=2)
+        self.first_weekday = 0
+        """Which day the rows start on. Set by `show`; initialised because
+        `render` can run before the first one."""
 
-    def show(self, ledgers: list[DayLedger]) -> None:
+    def show(self, ledgers: list[DayLedger], *, first_weekday: int) -> None:
         self.ledgers = {item.date: item for item in ledgers}
+        self.first_weekday = first_weekday
         worst = max(
             (abs(item.balance_effect) for item in ledgers), default=timedelta(hours=2)
         )
@@ -343,13 +348,17 @@ class YearHeatmap(Widget):
         if not self.ledgers:
             return Text("Nothing recorded yet", style=label)
 
-        start = min(self.ledgers)
-        start -= timedelta(days=start.weekday())
+        # Both the grid and its row labels take the configured first day. They
+        # were a hardcoded Monday and a hardcoded "MTWTFSS" while the bars
+        # above them, on the same screen, honoured the setting -- so a
+        # Sunday-first week put the two charts a day out of step with each
+        # other and with the calendar on the leave screen.
+        start = week_start(min(self.ledgers), first_weekday=self.first_weekday)
         end = max(self.ledgers)
         weeks = ((end - start).days // 7) + 1
 
         lines: list[Text] = []
-        for weekday, initial in enumerate("MTWTFSS"):
+        for weekday, initial in enumerate(weekday_initials(self.first_weekday)):
             row = Text(f"{initial} ", style=label)
             for week in range(weeks):
                 when = start + timedelta(weeks=week, days=weekday)

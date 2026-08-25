@@ -328,7 +328,7 @@ async def test_a_day_nobody_recorded_is_left_blank() -> None:
     """The grid starts on a Monday, so the first week is usually part empty."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([day(MONDAY + timedelta(days=2))])
+        heatmap.show([day(MONDAY + timedelta(days=2))], first_weekday=0)
         glyph, _ = heatmap._cell(MONDAY)
         assert glyph == " "
 
@@ -347,7 +347,7 @@ async def test_a_day_that_was_never_going_to_be_worked_is_drawn_neutral(
     """A Sunday off is not a deficit, and colouring it as one would swamp the year."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([ledger])
+        heatmap.show([ledger], first_weekday=0)
         glyph, style = heatmap._cell(ledger.date)
         assert glyph == EMPTY
         assert style == heatmap.get_component_rich_style("chart--neutral")
@@ -357,7 +357,7 @@ async def test_a_day_worked_exactly_to_contract_is_present_but_uncoloured() -> N
     """It happened, so it is drawn; it was neither good nor bad, so it has no hue."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([day(MONDAY)])
+        heatmap.show([day(MONDAY)], first_weekday=0)
         glyph, style = heatmap._cell(MONDAY)
         assert glyph == HEAT
         assert style == heatmap.get_component_rich_style("chart--neutral")
@@ -376,7 +376,8 @@ async def test_the_ramp_ranks_days_by_how_far_off_they_were() -> None:
                 day(MONDAY, effect=timedelta(hours=4)),
                 day(MONDAY + timedelta(days=1), effect=timedelta(hours=1)),
                 day(MONDAY + timedelta(days=2), effect=-timedelta(hours=4)),
-            ]
+            ],
+            first_weekday=0,
         )
         assert heatmap._cell(MONDAY)[1] == heatmap.get_component_rich_style(
             f"chart--surplus-{DIVERGING_STEPS}"
@@ -401,7 +402,8 @@ async def test_a_fortnight_of_near_perfect_days_is_not_drawn_as_a_disaster() -> 
             [
                 day(MONDAY + timedelta(days=n), effect=timedelta(minutes=6))
                 for n in (0, 1)
-            ]
+            ],
+            first_weekday=0,
         )
         assert heatmap.scale == timedelta(hours=2)
         assert heatmap._cell(MONDAY)[1] == heatmap.get_component_rich_style(
@@ -416,7 +418,9 @@ async def test_the_grid_is_a_weekday_per_row_starting_on_monday() -> None:
     """
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([day(MONDAY + timedelta(days=n)) for n in range(14)])
+        heatmap.show(
+            [day(MONDAY + timedelta(days=n)) for n in range(14)], first_weekday=0
+        )
         drawn = lines(heatmap)
         assert [row[0] for row in drawn[:7]] == list("MTWTFSS")
         assert all(len(row) == 4 for row in drawn[:7])
@@ -426,7 +430,7 @@ async def test_the_legend_names_both_ends_of_the_ramp() -> None:
     """Never colour alone. The ramp is drawn with the hours it stands for."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([day(MONDAY, effect=timedelta(hours=3))])
+        heatmap.show([day(MONDAY, effect=timedelta(hours=3))], first_weekday=0)
         legend = lines(heatmap)[-1]
         assert legend.startswith("−3:00 ")
         assert legend.endswith(" +3:00")
@@ -524,3 +528,21 @@ async def test_each_arm_is_given_room_in_proportion_to_its_reach(
         )
 
         assert chart._arms(shown) == expected
+
+
+async def test_the_heatmap_starts_its_rows_on_the_configured_day() -> None:
+    """The third chart that assumed Monday, on a screen with two that do not.
+
+    The grid stepped back to `date.weekday() == 0` and labelled its rows with a
+    hardcoded "MTWTFSS", while the bars above it take `first_weekday` — so a
+    Sunday-first week put the two charts a day out of step with each other and
+    with the calendar on the leave screen.
+    """
+    heatmap = YearHeatmap()
+    async with mounted(heatmap, width=40):
+        heatmap.show(
+            [day(MONDAY + timedelta(days=n)) for n in range(14)], first_weekday=6
+        )
+        drawn = lines(heatmap)
+
+        assert [row[0] for row in drawn[:7]] == list("SMTWTFS")

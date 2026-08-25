@@ -10,7 +10,9 @@ at the same six weeks.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+import tempfile
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -21,6 +23,13 @@ from textual.pilot import Pilot
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+
+# Before `flexi.config` is imported, because it resolves CONFIG at import and
+# every BINDINGS list reads it at class-definition time. For the same reason
+# the timezone is pinned below: the command that fixes a failing snapshot
+# cannot be the command that causes one, and a developer's own hotkeys or
+# opening period would be baked into the committed shots.
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="flexi-config-")
 
 from flexi import wallclock  # noqa: E402
 from flexi.app import FlexiApp  # noqa: E402

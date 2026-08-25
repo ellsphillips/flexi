@@ -1,6 +1,25 @@
+"""Fixtures every test in the suite gets, and the two seams set before imports.
+
+`flexi.config` resolves `CONFIG` at import, and every `BINDINGS` list reads it
+at class-definition time -- both of which happen while pytest is collecting,
+long before any fixture runs. So a developer with a real
+`~/.config/flexi/config.yaml` was running the suite against their own
+preferences: a `period: month` in it fails five tests in
+`tests/tui/test_period.py` that have nothing to do with configuration. The
+autouse `_never_the_real_home` below cannot close that hole -- it is
+function-scoped, and by the time it runs the answer has been read.
+
+Hence the two lines before the imports, and the `E402` exemption in
+`pyproject.toml` that lets them be there.
+"""
+
+import os
+import tempfile
+
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="flexi-config-")
+
 import asyncio
 import inspect
-import os
 from collections.abc import Callable, Iterator
 from datetime import UTC, date
 from pathlib import Path
@@ -174,34 +193,22 @@ def _never_the_real_home(
 
 
 @pytest.fixture(autouse=True)
-def _never_the_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No test may ask PyPI whether there is a newer Flexi.
-
-    `FlexiApp.on_mount` starts a worker that does, and Textual waits for its
-    workers as the application exits, so every one of the hundred-odd interface
-    tests paid for a name lookup. On a machine that resolves quickly that is
-    invisible. On one that does not it took the suite from two minutes to nine,
-    which makes the timing of CI a function of the weather rather than of the
-    code, and makes a slow afternoon look like somebody's regression.
-
-    Patched where it is bound, not where it is defined: `flexi.app` imports the
-    function by name at module scope, so rebinding it in `flexi.versioning`
-    would leave the application holding the original.
-    """
-    monkeypatch.setattr("flexi.app.available_update", lambda: None)
-    monkeypatch.setattr("flexi.versioning.available_update", lambda: None)
-
-
-@pytest.fixture(autouse=True)
 def _never_the_internet(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No test may reach GOV.UK.
+    """No test may reach the network.
 
-    Startup now fills an empty bank holiday cache, which every test that opens
-    a database goes through. A suite that quietly makes real requests is slow,
+    Startup fills an empty bank holiday cache, which every test that opens a
+    database goes through, and `FlexiApp.on_mount` starts a worker that asks
+    PyPI for a newer Flexi. A suite that quietly makes real requests is slow,
     fails on a train, and passes for the wrong reason when the fetch happens to
-    succeed. `fetch_and_cache` already treats a connection error as "no
-    calendar", so refusing the connection exercises the path a first run
-    offline actually takes.
+    succeed -- on a machine that resolves slowly it took this one from two
+    minutes to nine, which makes the timing of CI a function of the weather.
+
+    One seam, because there is now one form. The version check used the
+    module-level `httpx.get`, which builds a client of its own and never
+    reaches `Client.get`, so it needed a second fixture stubbing
+    `available_update` by name. `fetch_and_cache` already treats a connection
+    error as "no calendar", so refusing the connection exercises the path a
+    first run offline actually takes.
     """
 
     def refused(*_args: object, **_kwargs: object) -> None:
