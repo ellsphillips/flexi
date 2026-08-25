@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import PurePath
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 
 from textual import events, log
 from textual import work as textual_work
@@ -29,7 +29,12 @@ from textual.widgets import Input, TextArea
 import flexi
 from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, NavBar
 from flexi.components.jump_overlay import JumpOverlay
-from flexi.components.jumper import Jumper
+from flexi.components.jumper import (
+    HasFocusTarget,
+    HasJumpOverlays,
+    HasJumpTargets,
+    Jumper,
+)
 from flexi.config import CONFIG
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.provider import FlexiCommands
@@ -361,10 +366,18 @@ class FlexiApp(TextualApp[None]):
         if focused_before is not None:
             self.set_focus(None, scroll_visible=False)
 
+        # `isinstance` against a runtime-checkable Protocol rather than three
+        # `getattr` lookups by string. A renamed hook was valid Python, clean
+        # under `--strict`, and a jump mode that silently offered nothing --
+        # which is the failure `context.py` was written to abolish, one level
+        # up.
+        screen = self.screen
         self.jumper = Jumper(
-            self._jump_targets(),
-            screen=self.screen,
-            extra=getattr(self.screen, "jump_overlays", None),
+            screen.jump_targets() if isinstance(screen, HasJumpTargets) else {},
+            screen=screen,
+            extra=(
+                screen.jump_overlays if isinstance(screen, HasJumpOverlays) else None
+            ),
         )
 
         def handle(target: str | Widget | None) -> None:
@@ -379,10 +392,6 @@ class FlexiApp(TextualApp[None]):
 
         self.clear_notifications()
         self.push_screen(JumpOverlay(self.jumper), callback=handle)
-
-    def _jump_targets(self) -> dict[str, str]:
-        getter = getattr(self.screen, "jump_targets", None)
-        return dict(getter()) if callable(getter) else {}
 
     def _jump_to_id(self, target: str) -> None:
         """Focus the target, or click it if it cannot take focus.
@@ -404,10 +413,9 @@ class FlexiApp(TextualApp[None]):
         except NoMatches:
             log.warning(f"jump target #{target} is not on {self.screen!r}")
             return
-        focus_on: Widget = widget
-        chooser = getattr(widget, "focus_target", None)
-        if callable(chooser):
-            focus_on = cast("Widget", chooser())
+        focus_on = (
+            widget.focus_target() if isinstance(widget, HasFocusTarget) else widget
+        )
         if focus_on.focusable:
             self.set_focus(focus_on)
         else:

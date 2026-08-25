@@ -25,6 +25,32 @@ class Jumpable(Protocol):
     jump_key: str
 
 
+@runtime_checkable
+class HasJumpTargets(Protocol):
+    """A screen that says which of its regions a key can reach."""
+
+    def jump_targets(self) -> Mapping[str, str]: ...
+
+
+@runtime_checkable
+class HasJumpOverlays(Protocol):
+    """A screen with targets that are not widgets -- table rows, say."""
+
+    def jump_overlays(self) -> dict[Offset, JumpInfo]: ...
+
+
+@runtime_checkable
+class HasFocusTarget(Protocol):
+    """A widget that would rather the jump landed somewhere inside it.
+
+    A module whose content is a table wants the table: landing on the panel and
+    needing a second key to get into the rows is the friction jump mode exists
+    to remove.
+    """
+
+    def focus_target(self) -> Widget: ...
+
+
 class JumpInfo(NamedTuple):
     """One jump target: the key that reaches it, and what it reaches."""
 
