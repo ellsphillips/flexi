@@ -78,26 +78,24 @@ class WalletService:
         balance_days: float,
     ) -> tuple[Allowance, ...]:
         entitlement = self._settings.get_active_entitlement_days(year_start)
-        allowances: list[Allowance] = []
-        for kind in AbsenceType:
-            used = self._absence.count_days(
-                kind, start=year_start, end=year_end, valid_only=True
-            )
-            occurrences = self._absence.count_absences(
-                kind, start=year_start, end=year_end, valid_only=True
-            )
+        # One pass over the year's rows. It used to ask for days and occurrences
+        # separately, per type -- ten scans of the same rows with byte-identical
+        # arguments, each re-validating every row it read with three queries of
+        # its own, so a year of twenty-five bookings cost 162 round trips.
+        counted = self._absence.tally(year_start, year_end)
+
+        def allowance(kind: AbsenceType) -> Allowance:
             total = entitlement if kind.draws_down_entitlement else None
-            allowances.append(
-                Allowance(
-                    type=kind,
-                    used=used,
-                    occurrences=occurrences,
-                    total=total,
-                    pace=None if total is None else total * elapsed,
-                    balance_days=balance_days if kind.draws_down_balance else None,
-                )
+            return Allowance(
+                type=kind,
+                used=counted[kind].days,
+                occurrences=counted[kind].occurrences,
+                total=total,
+                pace=None if total is None else total * elapsed,
+                balance_days=balance_days if kind.draws_down_balance else None,
             )
-        return tuple(allowances)
+
+        return tuple(allowance(kind) for kind in AbsenceType)
 
     # -- convenience for the absence modal ---------------------------------
 

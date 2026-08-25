@@ -124,10 +124,11 @@ class BankHolidayService:
         Returning an empty mapping for both cases is what let a fresh install
         book a full day's deficit against every bank holiday without saying so.
         """
-        if not self.is_available():
+        division = self.division
+        if not self._has_any(division):
             return None
         stmt = select(BankHolidayCache.date, BankHolidayCache.title).where(
-            BankHolidayCache.division == self.division,
+            BankHolidayCache.division == division,
             BankHolidayCache.date >= start,
             BankHolidayCache.date <= end,
         )
@@ -137,9 +138,12 @@ class BankHolidayService:
 
     def is_available(self) -> bool:
         """Return True if any cached data exists for this division."""
+        return self._has_any(self.division)
+
+    def _has_any(self, division: Division) -> bool:
         stmt = (
             select(BankHolidayCache.id)
-            .where(BankHolidayCache.division == self.division)
+            .where(BankHolidayCache.division == division)
             .limit(1)
         )
         return self._session.execute(stmt).scalar_one_or_none() is not None
