@@ -80,7 +80,7 @@ async def test_setup_can_hand_straight_over_to_the_settings_screen(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         showing(app, SettingsScreen)
-        assert app._dashboard() is not None, "settings should open over the dashboard"
+        assert app.dashboard() is not None, "settings should open over the dashboard"
 
 
 async def test_declining_setup_closes_the_application(unconfigured: Path) -> None:

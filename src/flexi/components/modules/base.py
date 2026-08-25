@@ -14,6 +14,7 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from flexi import wallclock
+from flexi.context import flexi_app
 from flexi.domain.period import Granularity, Period
 from flexi.messages import DataChanged, Scope
 
@@ -52,7 +53,7 @@ class Module(Static):
     @property
     def services(self) -> Services:
         """The application's service registry."""
-        return cast("Services", self.app.services)  # type: ignore[attr-defined]
+        return flexi_app(self.app).services
 
     @property
     def period(self) -> Period:

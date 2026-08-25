@@ -65,7 +65,7 @@ def app_factory(seeded_db: Path) -> AppFactory:
 
 def dashboard(app: FlexiApp) -> DashboardScreen:
     """The dashboard, wherever it is on the stack."""
-    found = app._dashboard()
+    found = app.dashboard()
     assert found is not None, "the dashboard should be mounted"
     return found
 

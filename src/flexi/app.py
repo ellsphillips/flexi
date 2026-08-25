@@ -198,7 +198,7 @@ class FlexiApp(TextualApp[None]):
                 SettingsScreen(self.services), callback=self._on_settings_saved
             )
             return
-        board = self._dashboard()
+        board = self.dashboard()
         if name == "insights" and board is not None:
             self._open(name, InsightsScreen(self.services, board.period))
             return
@@ -271,13 +271,13 @@ class FlexiApp(TextualApp[None]):
             return
         self.services = Services.build(self._session)
         self.services.invalidate()
-        screen = self._dashboard()
+        screen = self.dashboard()
         if screen is not None:
             from flexi.messages import Scope
 
             screen.refresh_modules(Scope.ALL)
 
-    def _dashboard(self) -> DashboardScreen | None:
+    def dashboard(self) -> DashboardScreen | None:
         for screen in self.screen_stack:
             if isinstance(screen, DashboardScreen):
                 return screen
@@ -298,7 +298,7 @@ class FlexiApp(TextualApp[None]):
 
     def action_clock_toggle(self) -> None:
         """One key, from anywhere. The dashboard owns the confirmation."""
-        screen = self._dashboard()
+        screen = self.dashboard()
         if screen is None:
             return
         screen.toggle_clock()
