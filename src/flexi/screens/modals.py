@@ -9,6 +9,7 @@ written rather than the day somebody remembers to add a test.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, ClassVar
 
@@ -131,25 +132,17 @@ class ConfirmModal(FlexiModal[bool]):
         self.dismiss(False)
 
 
+@dataclass(frozen=True, slots=True)
 class AbsenceBooking:
     """What the absence modal collected."""
 
-    __slots__ = ("kind", "note", "portion", "until", "when")
-
-    def __init__(
-        self,
-        when: date,
-        kind: AbsenceType,
-        portion: Portion,
-        note: str | None,
-        until: date | None = None,
-    ) -> None:
-        self.when = when
-        self.kind = kind
-        self.portion = portion
-        self.note = note
-        self.until = until or when
-        """The last day, inclusive. One day booked is one day, not None."""
+    when: date
+    kind: AbsenceType
+    portion: Portion
+    note: str | None
+    until: date
+    """The last day, inclusive. One day booked is one day, not ``None`` -- the
+    modal defaults it to ``when``, so nothing downstream has to."""
 
 
 class AbsenceModal(FlexiModal[AbsenceBooking]):

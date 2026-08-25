@@ -10,7 +10,9 @@ so nothing here is colour alone.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from datetime import date
+from itertools import accumulate
 from typing import ClassVar, Final
 
 from rich.segment import Segment
@@ -415,14 +417,12 @@ class YearCalendar(ScrollView, can_focus=True):
         if offset is None:
             return
         line = int(offset.y) + int(self.scroll_offset.y)
-        column, edge = 0, 0
-        for index, width in enumerate(self.columns):
-            edge += width
-            if int(offset.x) < edge:
-                column = index
-                break
-        else:
-            column = DAYS_IN_WEEK - 1
+        # The columns are uneven -- the remainder is spread over the first few
+        # -- so the edges are their running total, and the column somebody hit
+        # is where the click falls in it. Clamped rather than allowed to run
+        # off the end, because a click past the grid is a click on Sunday.
+        edges = list(accumulate(self.columns))
+        column = min(bisect_right(edges, int(offset.x)), DAYS_IN_WEEK - 1)
         if not (0 <= line < len(self._rows)) or not (0 <= column < DAYS_IN_WEEK):
             return
         block, row = self._rows[line]

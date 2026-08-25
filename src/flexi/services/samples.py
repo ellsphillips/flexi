@@ -77,17 +77,18 @@ LUNCHES = (45, 30, 60, 40, 55, 35, 50, 45, 40, 30)
 EXTRAS = (0, 48, 5, -10, 12, 0, 25, -5, 18, 8)
 
 MAY, AUGUST = 5, 8
-MONDAY = 0
 
 
 def _monday(year: int, month: int, *, last: bool) -> date:
-    """The first or last Monday of a month."""
-    first = date(year, month, 1)
-    start = first + timedelta(days=(MONDAY - first.weekday()) % 7)
-    if not last:
-        return start
-    days = calendar.monthrange(year, month)[1]
-    return start + timedelta(days=((days - start.day) // 7) * 7)
+    """The first or last Monday of a month.
+
+    `Calendar(MONDAY)` explicitly, not the bare `monthcalendar`: that one reads
+    a module-global first weekday which `setfirstweekday` mutates, and this
+    application lets somebody choose one.
+    """
+    weeks = calendar.Calendar(calendar.MONDAY).monthdayscalendar(year, month)
+    mondays = [week[0] for week in weeks if week[0]]
+    return date(year, month, mondays[-1 if last else 0])
 
 
 def holidays_in(year: int) -> tuple[tuple[date, str], ...]:

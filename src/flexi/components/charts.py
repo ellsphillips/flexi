@@ -7,6 +7,7 @@ the mark, so none of them is the only way to read its own numbers.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, ClassVar, Final
@@ -17,6 +18,7 @@ from textual.app import RenderResult
 from textual.widget import Widget
 
 from flexi.components.punch import PUNCH_CLASSES, render_strip
+from flexi.domain.dates import week_start
 from flexi.domain.format import MINUS, delta, hm
 from flexi.domain.format import days as fmt_days
 from flexi.domain.ledger import DayLedger
@@ -369,10 +371,9 @@ class YearHeatmap(Widget):
 
 def week_columns(ledgers: list[DayLedger]) -> list[Column]:
     """Group a run of days into one bar per week, for :class:`DivergingBars`."""
-    buckets: dict[date, timedelta] = {}
+    buckets: defaultdict[date, timedelta] = defaultdict(timedelta)
     for ledger in ledgers:
-        monday = ledger.date - timedelta(days=ledger.date.weekday())
-        buckets[monday] = buckets.get(monday, timedelta()) + ledger.balance_effect
+        buckets[week_start(ledger.date)] += ledger.balance_effect
     return [
         Column(
             label=str(monday.day),

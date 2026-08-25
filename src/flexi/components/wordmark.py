@@ -14,6 +14,7 @@ lands, and stays exactly where it is while the questions arrive underneath it.
 from __future__ import annotations
 
 import sys
+from itertools import groupby
 from typing import Any, Final
 
 from rich.text import Text
@@ -164,18 +165,15 @@ class Wordmark(Static):
                 art.append("\n")
                 continue
             art.append(margin)
-            at = 0
-            while at < len(row):
-                level = row[at]
-                run = at
-                while run < len(row) and row[run] == level:
-                    run += 1
+            # One span per run of equal levels, so a row of a thousand cells is
+            # a handful of styled appends rather than a thousand.
+            for level, run in groupby(row):
+                length = len(list(run))
                 if level < 0:
-                    art.append(" " * (run - at))
+                    art.append(" " * length)
                 else:
                     art.append(
-                        splash.RAMP[level] * (run - at), style=f"bold {_shade(level)}"
+                        splash.RAMP[level] * length, style=f"bold {_shade(level)}"
                     )
-                at = run
             art.append("\n")
         self.update(art)

@@ -11,6 +11,7 @@ a note explaining it" is a real case and does not deserve a key of its own.
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from datetime import date
 from typing import ClassVar
 
@@ -243,12 +244,12 @@ class LeaveScreen(Screen[None]):
                 else f" ({booked[0].portion.label.lower()})"
             )
         else:
-            kinds: dict[str, float] = {}
+            kinds: defaultdict[str, float] = defaultdict(float)
             for row in booked:
-                kinds[row.absence_type.label] = (
-                    kinds.get(row.absence_type.label, 0.0) + row.portion.days
-                )
-            body = " · ".join(f"{fmt_days(v)}d {k.lower()}" for k, v in kinds.items())
+                kinds[row.absence_type.label] += row.portion.days
+            body = " · ".join(
+                f"{fmt_days(days)}d {label.lower()}" for label, days in kinds.items()
+            )
         narrow = self.has_class("-narrow")
         if narrow:
             # One line instead of three: on a narrow terminal every row the rail
@@ -449,8 +450,9 @@ def preview(plan: AbsencePlan) -> str:
     # Weekends and bank holidays are both passed over, and they are not the
     # same news: one is the shape of the week and the other is a day off that
     # somebody would otherwise have spent leave on.
-    weekends = sum(1 for day in plan.skipped if day.verdict is Verdict.NON_WORKING)
-    holidays = sum(1 for day in plan.skipped if day.verdict is Verdict.BANK_HOLIDAY)
+    passed_over = Counter(day.verdict for day in plan.skipped)
+    weekends = passed_over[Verdict.NON_WORKING]
+    holidays = passed_over[Verdict.BANK_HOLIDAY]
     if weekends:
         lines.append(f"  — {weekends} non-working {plural(weekends, 'day')}")
     if holidays:

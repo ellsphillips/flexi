@@ -205,11 +205,13 @@ class LedgerService:
         stmt = select(BalanceAdjustment.date, BalanceAdjustment.minutes).where(
             BalanceAdjustment.date >= start, BalanceAdjustment.date <= end
         )
-        totals: dict[date, timedelta] = {}
+        # Declared as a plain mapping, though it is built as a `defaultdict`.
+        # The consumer reads it with `.get(when, timedelta())` on purpose:
+        # advertising a defaultdict would invite a caller to index it and grow
+        # the mapping silently while iterating a span.
+        totals: defaultdict[date, timedelta] = defaultdict(timedelta)
         for row in self._session.execute(stmt):
-            totals[row.date] = totals.get(row.date, timedelta()) + timedelta(
-                minutes=row.minutes
-            )
+            totals[row.date] += timedelta(minutes=row.minutes)
         return totals
 
     def _holidays(self, start: date, end: date) -> dict[date, str]:
