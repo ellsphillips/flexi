@@ -36,6 +36,7 @@ from flexi.components.modules.base import Module
 from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.config import CONFIG
 from flexi.constants import DayKind, Granularity
+from flexi.domain.balance import BalanceSummary, accumulate
 from flexi.domain.format import clock, delta, hm
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window, cell_count
@@ -152,14 +153,21 @@ class RecordsModule(Module):
         window = self.services.ledger.window
         table = self.query_one("#records-table", ExpandableTable)
 
+        # Accumulated once, by the domain, and handed to both places that draw
+        # it. The total row summed `worked - expected - toil` by hand, dropping
+        # the adjustment term `BalanceSummary.delta` carries -- so the figure
+        # under the table and the wallet's figure for the same span disagreed
+        # by every correction ever recorded in it. The subtitle then summed two
+        # of the same three columns a third time.
+        total = accumulate(ledgers)
         groups = [self._group(ledger, window) for ledger in ledgers]
-        groups.append(self._total_group(ledgers))
+        groups.append(self._total_group(total))
         table.set_groups(groups)
 
         empty = self.query_one("#records-empty", Static)
         empty.display = not ledgers
         table.display = bool(ledgers)
-        self.set_subtitle(_totals_subtitle(ledgers))
+        self.set_subtitle(_totals_subtitle(total))
 
     def _group(self, ledger: DayLedger, window: Window) -> RowGroup:
         parent = Row(
@@ -252,12 +260,9 @@ class RecordsModule(Module):
             )
         return tuple(rows)
 
-    def _total_group(self, ledgers: list[DayLedger]) -> RowGroup:
+    def _total_group(self, total: BalanceSummary) -> RowGroup:
         """The period's own line, under a rule."""
         style = self.get_component_rich_style("record--total")
-        worked = sum((item.worked for item in ledgers), start=timedelta())
-        expected = sum((item.expected for item in ledgers), start=timedelta())
-        toil = sum((item.toil_taken for item in ledgers), start=timedelta())
         label = (
             "Day"
             if self.period.granularity is Granularity.DAY
@@ -269,8 +274,8 @@ class RecordsModule(Module):
                 cells=(
                     Text(label, style=style),
                     Text("", style=style),
-                    Text(hm(worked), style=style, justify="right"),
-                    self._signed(worked - expected - toil),
+                    Text(hm(total.worked), style=style, justify="right"),
+                    self._signed(total.delta),
                 ),
             )
         )
@@ -378,8 +383,6 @@ class RecordsModule(Module):
         self.post_message(DeleteHere(self.table.cursor_key))
 
 
-def _totals_subtitle(ledgers: list[DayLedger]) -> str:
+def _totals_subtitle(total: BalanceSummary) -> str:
     """Worked against expected for the whole period, in the module's live slot."""
-    worked = sum((item.worked for item in ledgers), start=timedelta())
-    expected = sum((item.expected for item in ledgers), start=timedelta())
-    return f"{hm(worked)} of {hm(expected)}"
+    return f"{hm(total.worked)} of {hm(total.expected)}"

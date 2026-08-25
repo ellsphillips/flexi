@@ -156,3 +156,28 @@ async def test_a_module_that_writes_tells_the_screen_and_the_live_tick_follows(
 
         assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
         assert screen._tick is None, "a closed session left the timer running"
+
+
+async def test_a_tick_keeps_every_day_but_today(app_factory: AppFactory) -> None:
+    """The second that passes is only news about today.
+
+    `_on_tick` cleared the whole ledger memo to refresh the live readout, and
+    `LedgerService.days` already rebuilds today unconditionally for exactly
+    that reason — an open session's length changes every second, so caching it
+    would freeze the clock. Clearing the memo threw away every other day in the
+    period too, so a month view re-derived thirty-one day ledgers a second to
+    refresh the one the memo was never keeping.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        screen = dashboard(app)
+        yesterday = screen.period.start
+        kept = app.services.ledger.day(yesterday)
+
+        screen._on_tick()
+        await pilot.pause()
+
+        assert app.services.ledger.day(yesterday) is kept, (
+            "a day nobody wrote to was rebuilt because a second passed"
+        )

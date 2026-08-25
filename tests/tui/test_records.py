@@ -9,11 +9,19 @@ from textual.pilot import Pilot
 from textual.widgets import Input, RadioSet
 
 from flexi.app import FlexiApp
-from flexi.components.expandable import ABSENCE, DAY, SESSION, ExpandableTable
+from flexi.components.expandable import (
+    ABSENCE,
+    DAY,
+    SESSION,
+    TOTAL,
+    ExpandableTable,
+)
 from flexi.components.modules.records import DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import ProgressRail, TimeProgress
 from flexi.constants import AbsenceType
+from flexi.domain.format import delta
+from flexi.messages import Scope
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
 from tests.conftest import sessions_on, settled
@@ -219,6 +227,34 @@ async def test_the_period_total_is_in_the_border_subtitle(
         await pilot.pause()
         subtitle = str(app.screen.query_one(RecordsModule).border_subtitle)
         assert " of " in subtitle
+
+
+async def test_the_period_total_counts_a_correction_as_the_wallet_does(
+    app_factory: AppFactory,
+) -> None:
+    """Two panels on one screen, showing one span, must agree about it.
+
+    The total row summed `worked - expected - toil` by hand and dropped the
+    adjustment term `BalanceSummary.delta` carries, so a recorded correction
+    moved the wallet's figure and left the table's alone. Both accumulate the
+    same ledgers through the domain now.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        board = showing(app, DashboardScreen)
+        before = str(table(app).get_row(f"{TOTAL}period")[3])
+
+        app.services.adjustments.record(
+            board.period.anchor, timedelta(hours=3), "carried over"
+        )
+        board.refresh_modules(Scope.ALL)
+        await pilot.pause()
+
+        after = str(table(app).get_row(f"{TOTAL}period")[3])
+        assert after != before, f"the correction never reached the total ({before})"
+        summary = app.services.ledger.summary(board.period.start, board.period.end)
+        assert after.strip() == delta(summary.delta)
 
 
 # -- booking from a row ----------------------------------------------------

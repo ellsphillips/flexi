@@ -229,8 +229,16 @@ class DashboardScreen(Screen[None]):
             self._tick = None
 
     def _on_tick(self) -> None:
+        """A second passed. Redraw the two readouts that measure elapsed time.
+
+        No `invalidate()`: nothing was written, and `LedgerService.days`
+        already rebuilds *today* on every call for exactly this reason -- an
+        open session's length changes every second, so caching it would freeze
+        the live readout. Clearing the whole memo threw away every other day in
+        the period as well, so a month view re-derived thirty-one day ledgers a
+        second to refresh the one the memo was never keeping.
+        """
         self.now = wallclock.now()
-        self._services.ledger.invalidate()
         for module in (ClockModule, BalanceModule):
             for widget in self.query(module):
                 widget.rebuild()
