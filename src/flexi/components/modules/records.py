@@ -22,14 +22,12 @@ from textual.widgets import Static
 
 from flexi.components.common import EmptyIndicator
 from flexi.components.expandable import (
-    ABSENCE,
-    DAY,
-    SESSION,
-    TOTAL,
     ExpandableTable,
     Row,
     RowGroup,
-    day_key,
+    RowKind,
+    row_ident,
+    row_key,
 )
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.base import Module
@@ -181,7 +179,7 @@ class RecordsModule(Module):
 
     def _group(self, ledger: DayLedger, window: Window) -> RowGroup:
         parent = Row(
-            key=day_key(ledger.date.isoformat()),
+            key=row_key(RowKind.DAY, ledger.date),
             cells=(
                 self._day_cell(ledger),
                 render_strip(
@@ -210,7 +208,7 @@ class RecordsModule(Module):
             detail = f"{slice_.label} — {slice_.note}" if slice_.note else slice_.label
             rows.append(
                 Row(
-                    key=f"{ABSENCE}{slice_.absence_id}",
+                    key=row_key(RowKind.ABSENCE, slice_.absence_id),
                     cells=(
                         Text("", style=sub),
                         Text(f"  {BRANCH} {detail}", style=sub),
@@ -226,7 +224,7 @@ class RecordsModule(Module):
             note = segment.note or ("auto-closed" if segment.auto_closed else "worked")
             rows.append(
                 Row(
-                    key=f"{SESSION}{segment.session_id}",
+                    key=row_key(RowKind.SESSION, segment.session_id),
                     cells=(
                         Text("", style=sub),
                         Text(
@@ -245,7 +243,7 @@ class RecordsModule(Module):
                 if gap > timedelta():
                     rows.append(
                         Row(
-                            key=f"{SESSION}{segment.session_id}-break",
+                            key=row_key(RowKind.SESSION, f"{segment.session_id}-break"),
                             cells=(
                                 Text("", style=sub),
                                 Text(f"  {BRANCH} break", style=sub),
@@ -259,7 +257,7 @@ class RecordsModule(Module):
             total = self.get_component_rich_style("record--total")
             rows.append(
                 Row(
-                    key=f"{TOTAL}{ledger.date.isoformat()}",
+                    key=row_key(RowKind.TOTAL, ledger.date),
                     cells=(
                         Text("", style=total),
                         Text(f"  {LAST} expected", style=total),
@@ -280,7 +278,7 @@ class RecordsModule(Module):
         )
         return RowGroup(
             Row(
-                key=f"{TOTAL}period",
+                key=row_key(RowKind.TOTAL, "period"),
                 cells=(
                     Text(label, style=style),
                     Text("", style=style),
@@ -359,7 +357,7 @@ class RecordsModule(Module):
         targets: dict[Offset, JumpInfo] = {}
         numbered = 0
         for index, row in enumerate(table.visible_rows()):
-            if row.kind != DAY:
+            if row.kind != RowKind.DAY:
                 continue
             numbered += 1
             if numbered > MAX_JUMP_ROWS:
@@ -384,7 +382,7 @@ class RecordsModule(Module):
         if group is None:  # pragma: no cover
             return None
         parent = group.parent.key
-        return parent[len(DAY) :] if parent.startswith(DAY) else None
+        return row_ident(RowKind.DAY, parent)
 
     def action_book_here(self) -> None:
         self.post_message(BookHere(self.selected_date()))

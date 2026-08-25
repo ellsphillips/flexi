@@ -26,7 +26,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Digits, Label, Static, Switch
 
 from flexi.components.common import Tone
-from flexi.components.expandable import SESSION, TOTAL, ExpandableTable, day_key
+from flexi.components.expandable import ExpandableTable, RowKind, row_key
 from flexi.components.modules.balance import BalanceModule, _state_class
 from flexi.components.modules.base import Module
 from flexi.components.modules.clock import ClockModule
@@ -433,7 +433,7 @@ async def test_a_day_that_met_its_hours_exactly_is_drawn_without_a_sign(
         row = next(
             item
             for item in module.table.visible_rows()
-            if item.key == day_key(MONDAY.isoformat())
+            if item.key == row_key(RowKind.DAY, MONDAY)
         )
         delta = cell(row.cells[3])
 
@@ -494,20 +494,20 @@ async def test_the_cursor_names_its_day_from_anywhere_inside_the_group(
     module = RecordsModule()
     async with showing(module, flexi) as (pilot, _panel):
         table = module.table
-        table.focus_key(day_key(MONDAY.isoformat()))
+        table.focus_key(row_key(RowKind.DAY, MONDAY))
         await pilot.pause()
         assert module.selected_date() == MONDAY.isoformat()
 
-        table.toggle(day_key(MONDAY.isoformat()))
+        table.toggle(row_key(RowKind.DAY, MONDAY))
         await pilot.pause()
         session = next(
-            row for row in table.visible_rows() if row.key.startswith(SESSION)
+            row for row in table.visible_rows() if row.key.startswith(RowKind.SESSION)
         )
         table.focus_key(session.key)
         await pilot.pause()
         assert module.selected_date() == MONDAY.isoformat()
 
-        table.focus_key(f"{TOTAL}period")
+        table.focus_key(f"{RowKind.TOTAL}period")
         await pilot.pause()
         assert module.selected_date() is None, "the period line is not a day"
 
@@ -524,7 +524,7 @@ async def test_booking_and_deleting_carry_whatever_the_cursor_is_on(
     module = RecordsModule()
     async with showing(module, flexi) as (pilot, panel):
         table = module.table
-        tuesday = day_key((MONDAY + timedelta(days=1)).isoformat())
+        tuesday = row_key(RowKind.DAY, MONDAY + timedelta(days=1))
         table.focus_key(tuesday)
         await pilot.pause()
 
@@ -535,7 +535,7 @@ async def test_booking_and_deleting_carry_whatever_the_cursor_is_on(
         table.toggle(tuesday)
         await pilot.pause()
         session = next(
-            row for row in table.visible_rows() if row.key.startswith(SESSION)
+            row for row in table.visible_rows() if row.key.startswith(RowKind.SESSION)
         )
         table.focus_key(session.key)
         await pilot.pause()

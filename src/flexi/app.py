@@ -401,9 +401,9 @@ class FlexiApp(TextualApp[None]):
         A row key lands here too: the records table owns the cursor rather than
         the focus, so a `d-` key moves the cursor and focuses the table.
         """
-        from flexi.components.expandable import DAY, ExpandableTable
+        from flexi.components.expandable import ExpandableTable, RowKind
 
-        if target.startswith(DAY):
+        if target.startswith(RowKind.DAY):
             for table in self.screen.query(ExpandableTable):
                 table.focus_key(target)
                 self.set_focus(table)

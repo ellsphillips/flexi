@@ -20,14 +20,11 @@ from textual.message import Message
 from textual.pilot import Pilot
 
 from flexi.components.expandable import (
-    ABSENCE,
-    DAY,
-    SESSION,
-    TOTAL,
     ExpandableTable,
     Row,
     RowGroup,
-    day_key,
+    RowKind,
+    row_key,
 )
 from flexi.theme import THEME_NAME, THEME_PATH, flexi_theme
 
@@ -91,9 +88,9 @@ def posted(pilot: Pilot[None]) -> list[Message]:
 def day(iso: str, *sessions: str) -> RowGroup:
     """A day, with one session row hidden behind it per `sessions`."""
     return RowGroup(
-        Row(day_key(iso), (iso,)),
+        Row(row_key(RowKind.DAY, iso), (iso,)),
         tuple(
-            Row(f"{SESSION}{iso}-{index}", (text,))
+            Row(f"{RowKind.SESSION}{iso}-{index}", (text,))
             for index, text in enumerate(sessions)
         ),
     )
@@ -118,16 +115,16 @@ def test_a_row_says_what_kind_of_row_it_is_in_its_key() -> None:
     deletes a session or refuses — reads the kind back off the key, so a day key
     that stopped starting with `d-` would silently make every day undeletable.
     """
-    assert Row(day_key(MONDAY), ()).kind == DAY
-    assert Row(f"{SESSION}12", ()).kind == SESSION
-    assert Row(f"{ABSENCE}12", ()).kind == ABSENCE
-    assert Row(f"{TOTAL}week", ()).kind == TOTAL
-    assert day_key(MONDAY) == f"d-{MONDAY}"
+    assert Row(row_key(RowKind.DAY, MONDAY), ()).kind == RowKind.DAY
+    assert Row(f"{RowKind.SESSION}12", ()).kind == RowKind.SESSION
+    assert Row(f"{RowKind.ABSENCE}12", ()).kind == RowKind.ABSENCE
+    assert Row(f"{RowKind.TOTAL}week", ()).kind == RowKind.TOTAL
+    assert row_key(RowKind.DAY, MONDAY) == f"d-{MONDAY}"
 
 
 def test_a_row_with_nothing_behind_it_is_not_expandable() -> None:
     """A day nobody worked still gets a row, and space on it must do nothing."""
-    assert not RowGroup(Row(day_key(MONDAY), ())).expandable
+    assert not RowGroup(Row(row_key(RowKind.DAY, MONDAY), ())).expandable
     assert day(MONDAY, "09:00 – 17:00").expandable
 
 
@@ -153,7 +150,9 @@ async def test_a_column_given_a_width_keeps_it_whatever_the_cells_hold() -> None
     table = ExpandableTable()
     async with mounted(table) as pilot:
         table.set_columns(("Day", 7), ("strip", 20), "Worked")
-        table.set_groups([RowGroup(Row(day_key(MONDAY), ("Mon", "▁▂▃", "7:24")))])
+        table.set_groups(
+            [RowGroup(Row(row_key(RowKind.DAY, MONDAY), ("Mon", "▁▂▃", "7:24")))]
+        )
         await pilot.pause()
         widths = [column.width for column in table.ordered_columns]
         assert widths[:2] == [7, 20]
@@ -189,7 +188,7 @@ async def test_children_stay_hidden_until_their_parent_is_opened() -> None:
         await table_of(pilot, day(MONDAY, "09:00 – 12:30"), day(TUESDAY))
         assert keys_of(table.visible_rows()) == [f"d-{MONDAY}", f"d-{TUESDAY}"]
 
-        table.toggle(day_key(MONDAY))
+        table.toggle(row_key(RowKind.DAY, MONDAY))
         await pilot.pause()
         assert keys_of(table.visible_rows()) == [
             f"d-{MONDAY}",
@@ -208,14 +207,14 @@ async def test_space_inside_an_open_day_closes_the_day() -> None:
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "09:00 – 12:30", "13:00 – 17:00"))
-        table.toggle(day_key(MONDAY))
+        table.toggle(row_key(RowKind.DAY, MONDAY))
         await pilot.pause()
 
         table.focus_key(f"s-{MONDAY}-1")
         assert table.toggle() is False
         await pilot.pause()
         assert keys_of(table.visible_rows()) == [f"d-{MONDAY}"]
-        assert table.cursor_key == day_key(MONDAY)
+        assert table.cursor_key == row_key(RowKind.DAY, MONDAY)
 
 
 async def test_opening_a_row_the_cursor_is_not_on_leaves_the_cursor_where_it_was() -> (
@@ -229,11 +228,11 @@ async def test_opening_a_row_the_cursor_is_not_on_leaves_the_cursor_where_it_was
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "09:00 – 17:00"), day(TUESDAY, "all day"))
-        table.focus_key(day_key(TUESDAY))
+        table.focus_key(row_key(RowKind.DAY, TUESDAY))
 
-        assert table.toggle(day_key(MONDAY)) is True
+        assert table.toggle(row_key(RowKind.DAY, MONDAY)) is True
         await pilot.pause()
-        assert table.cursor_key == day_key(TUESDAY)
+        assert table.cursor_key == row_key(RowKind.DAY, TUESDAY)
 
 
 async def test_a_day_with_nothing_behind_it_refuses_to_open() -> None:
@@ -245,7 +244,7 @@ async def test_a_day_with_nothing_behind_it_refuses_to_open() -> None:
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY))
-        assert table.toggle(day_key(MONDAY)) is False
+        assert table.toggle(row_key(RowKind.DAY, MONDAY)) is False
         await pilot.pause()
         assert table.row_count == 1
         assert posted(pilot) == []
@@ -272,7 +271,7 @@ async def test_pressing_space_opens_the_row_under_the_cursor() -> None:
         assert keys_of(table.visible_rows()) == [f"d-{MONDAY}", f"s-{MONDAY}-0"]
         opened = posted(pilot)[0]
         assert isinstance(opened, ExpandableTable.Expanded)
-        assert (opened.key, opened.expanded) == (day_key(MONDAY), True)
+        assert (opened.key, opened.expanded) == (row_key(RowKind.DAY, MONDAY), True)
 
 
 async def test_expand_all_does_whichever_of_the_two_is_visible() -> None:
@@ -296,7 +295,7 @@ async def test_expand_all_can_be_told_which_way_to_go() -> None:
         await table_of(pilot, day(MONDAY, "09:00 – 17:00"), day(TUESDAY))
         table.expand_all(expanded=True)
         await pilot.pause()
-        assert table.expanded == {day_key(MONDAY)}
+        assert table.expanded == {row_key(RowKind.DAY, MONDAY)}
 
         table.expand_all(expanded=False)
         await pilot.pause()
@@ -328,10 +327,10 @@ async def test_the_cursor_stays_on_its_own_row_when_the_table_is_rebuilt() -> No
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "morning"), day(TUESDAY), day(WEDNESDAY))
-        table.focus_key(day_key(WEDNESDAY))
-        table.toggle(day_key(MONDAY))
+        table.focus_key(row_key(RowKind.DAY, WEDNESDAY))
+        table.toggle(row_key(RowKind.DAY, MONDAY))
         await pilot.pause()
-        assert table.cursor_key == day_key(WEDNESDAY)
+        assert table.cursor_key == row_key(RowKind.DAY, WEDNESDAY)
 
 
 async def test_a_cursor_whose_row_has_gone_falls_to_the_bottom() -> None:
@@ -343,10 +342,10 @@ async def test_a_cursor_whose_row_has_gone_falls_to_the_bottom() -> None:
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY), day(TUESDAY), day(WEDNESDAY))
-        table.focus_key(day_key(WEDNESDAY))
+        table.focus_key(row_key(RowKind.DAY, WEDNESDAY))
         table.set_groups([day(MONDAY), day(TUESDAY)])
         await pilot.pause()
-        assert table.cursor_key == day_key(TUESDAY)
+        assert table.cursor_key == row_key(RowKind.DAY, TUESDAY)
 
 
 async def test_deleting_the_last_record_leaves_the_cursor_nowhere_to_go() -> None:
@@ -358,7 +357,7 @@ async def test_deleting_the_last_record_leaves_the_cursor_nowhere_to_go() -> Non
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY))
-        table.focus_key(day_key(MONDAY))
+        table.focus_key(row_key(RowKind.DAY, MONDAY))
         table.set_groups([])
         await pilot.pause()
         assert table.row_count == 0
@@ -388,7 +387,7 @@ async def test_rows_arriving_before_the_columns_do_leave_the_cursor_unread() -> 
     """
     table = ExpandableTable()
     async with mounted(table) as pilot:
-        table.set_groups([RowGroup(Row(day_key(MONDAY), ()))])
+        table.set_groups([RowGroup(Row(row_key(RowKind.DAY, MONDAY), ()))])
         await pilot.pause()
         assert table.row_count == 1
         assert table.cursor_key is None
@@ -399,10 +398,10 @@ async def test_jumping_to_a_row_that_is_not_drawn_leaves_the_cursor_alone() -> N
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "morning"), day(TUESDAY))
-        table.focus_key(day_key(TUESDAY))
+        table.focus_key(row_key(RowKind.DAY, TUESDAY))
         table.focus_key(f"s-{MONDAY}-0")
         await pilot.pause()
-        assert table.cursor_key == day_key(TUESDAY)
+        assert table.cursor_key == row_key(RowKind.DAY, TUESDAY)
 
 
 async def test_a_key_belonging_to_no_group_belongs_to_nothing() -> None:
@@ -414,7 +413,7 @@ async def test_a_key_belonging_to_no_group_belongs_to_nothing() -> None:
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "morning"))
-        assert table.group_for(f"{TOTAL}week") is None
+        assert table.group_for(f"{RowKind.TOTAL}week") is None
         assert table.group_for(f"s-{MONDAY}-0") is table.groups[0]
 
 
@@ -430,7 +429,7 @@ async def test_enter_opens_the_day_it_names() -> None:
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "09:00 – 17:00"))
-        table.focus_key(day_key(MONDAY))
+        table.focus_key(row_key(RowKind.DAY, MONDAY))
         table.action_open_row()
         await pilot.pause()
         assert keys_of(table.visible_rows()) == [f"d-{MONDAY}", f"s-{MONDAY}-0"]
@@ -440,7 +439,7 @@ async def test_enter_opens_the_day_it_names() -> None:
         ]
         selected = posted(pilot)[-1]
         assert isinstance(selected, ExpandableTable.RowSelected)
-        assert selected.key == day_key(MONDAY)
+        assert selected.key == row_key(RowKind.DAY, MONDAY)
 
 
 async def test_enter_on_a_day_already_open_names_it_without_closing_it() -> None:
@@ -452,8 +451,8 @@ async def test_enter_on_a_day_already_open_names_it_without_closing_it() -> None
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "09:00 – 17:00"))
-        table.toggle(day_key(MONDAY))
-        table.focus_key(day_key(MONDAY))
+        table.toggle(row_key(RowKind.DAY, MONDAY))
+        table.focus_key(row_key(RowKind.DAY, MONDAY))
         table.action_open_row()
         await pilot.pause()
         assert keys_of(table.visible_rows()) == [f"d-{MONDAY}", f"s-{MONDAY}-0"]
@@ -471,7 +470,7 @@ async def test_enter_on_a_row_with_nothing_behind_it_still_names_the_row() -> No
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY))
-        table.focus_key(day_key(MONDAY))
+        table.focus_key(row_key(RowKind.DAY, MONDAY))
         table.action_open_row()
         await pilot.pause()
         assert [type(message) for message in posted(pilot)] == [
@@ -503,9 +502,9 @@ async def test_replacing_the_rows_forgets_expansions_of_rows_that_have_gone() ->
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "morning"))
-        table.toggle(day_key(MONDAY))
+        table.toggle(row_key(RowKind.DAY, MONDAY))
         await pilot.pause()
-        assert table.expanded == {day_key(MONDAY)}
+        assert table.expanded == {row_key(RowKind.DAY, MONDAY)}
 
         await table_of(pilot, day(WEDNESDAY, "morning"))
 

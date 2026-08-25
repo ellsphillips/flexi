@@ -24,7 +24,7 @@ from textual.timer import Timer
 from flexi import wallclock
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import TINY_COLUMNS, Tone, mark_width
-from flexi.components.expandable import ABSENCE, DAY, SESSION
+from flexi.components.expandable import RowKind, row_ident
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.balance import BalanceModule
 from flexi.components.modules.base import Module
@@ -304,9 +304,10 @@ class DashboardScreen(Screen[None]):
         event.stop()
         if event.key is None:
             return
-        if event.key.startswith(ABSENCE):
-            self._delete_absence(int(event.key[len(ABSENCE) :]))
-        elif event.key.startswith((DAY, SESSION)):
+        absence = row_ident(RowKind.ABSENCE, event.key)
+        if absence is not None:
+            self._delete_absence(int(absence))
+        elif event.key.startswith((RowKind.DAY, RowKind.SESSION)):
             self.status("Deleting sessions is not implemented yet", Tone.WARN)
 
     def _delete_absence(self, absence_id: int) -> None:

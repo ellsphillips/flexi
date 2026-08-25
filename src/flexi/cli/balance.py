@@ -65,7 +65,7 @@ def zero(
     events that produced the balance stay exactly where they are, and the line
     can be taken back with `flexi balance undo`.
     """
-    when = as_of or wallclock.today() - timedelta(days=1)
+    when = services.settles_to(as_of)
     standing = services.ledger.balance(when).delta
 
     click.echo(f"balance as at {long_date(when)} is {delta(standing)}")

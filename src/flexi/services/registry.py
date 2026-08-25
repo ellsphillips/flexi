@@ -69,18 +69,28 @@ class Services:
         """The flexi balance in days — what a TOIL booking would draw against."""
         return self.wallet.available_toil_days(today)
 
+    @staticmethod
+    def settles_to(as_of: date | None = None) -> date:
+        """The date a settlement draws its line under.
+
+        *Yesterday*, not today, when the caller does not say. Today is not
+        over: absorbing its contracted hours before they have been worked would
+        leave the evening looking like unearned overtime, and tomorrow's
+        balance wrong by a day. Settling to the end of yesterday leaves today
+        behaving exactly as any other day does.
+
+        Public, because the command line has to name the date in the question
+        it asks before it settles -- and it resolved the default a second time
+        to do so, six lines from a third statement of the same rule in a Click
+        help string.
+        """
+        return as_of or wallclock.today() - timedelta(days=1)
+
     def zero_balance(
         self, as_of: date | None = None, *, reason: str = OPENING_BALANCE
     ) -> AdjustmentResult:
-        """Settle the balance so that it reads zero as at the end of ``as_of``.
-
-        Defaults to *yesterday*, not today. Today is not over: absorbing its
-        contracted hours before they have been worked would leave the evening
-        looking like unearned overtime, and tomorrow's balance wrong by a day.
-        Settling to the end of yesterday leaves today behaving exactly as any
-        other day does.
-        """
-        as_of = as_of or (wallclock.today() - timedelta(days=1))
+        """Settle the balance so that it reads zero as at the end of ``as_of``."""
+        as_of = self.settles_to(as_of)
         standing = self.ledger.balance(as_of).delta
         if not round(standing.total_seconds() / 60):
             return AdjustmentResult(False, "The balance is already zero")

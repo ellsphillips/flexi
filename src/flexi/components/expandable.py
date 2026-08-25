@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, ClassVar
 
 from rich.console import RenderableType
@@ -18,10 +19,36 @@ from textual.message import Message
 from textual.widgets import DataTable
 from textual.widgets.data_table import RowDoesNotExist
 
-DAY = "d-"
-SESSION = "s-"
-ABSENCE = "a-"
-TOTAL = "t-"
+
+class RowKind(StrEnum):
+    """What a row is, carried in its own key.
+
+    A key says what it is, so no parallel bookkeeping can fall out of step with
+    the table. The four prefixes were four bare strings, one of which had a
+    constructor and three of which were f-strung at their call sites, while
+    three other modules each half-wrote the splitter -- `int(key[len(ABSENCE):])`
+    in one, `key[len(DAY):] if key.startswith(DAY)` in another,
+    `target.startswith(DAY)` in a third.
+    """
+
+    DAY = "d-"
+    SESSION = "s-"
+    ABSENCE = "a-"
+    TOTAL = "t-"
+
+
+def row_key(kind: RowKind, ident: object) -> str:
+    """A row key: what the row is, and which one -- `d-2026-06-11`, `a-7`."""
+    return f"{kind.value}{ident}"
+
+
+def row_ident(kind: RowKind, key: str) -> str | None:
+    """What a key of that kind names, or ``None`` when it is another kind.
+
+    `row_ident(RowKind.ABSENCE, "a-7")` is `"7"`; asked for a `DAY`, the same
+    key is `None`.
+    """
+    return key[len(kind.value) :] if key.startswith(kind.value) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,8 +297,3 @@ class ExpandableTable(DataTable[RenderableType]):
         if group is not None and group.expandable and key not in self._expanded:
             self.toggle(key)
         self.post_message(self.RowSelected(key))
-
-
-def day_key(iso: str) -> str:
-    """The row key for a day."""
-    return f"{DAY}{iso}"
