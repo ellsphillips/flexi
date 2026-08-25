@@ -49,8 +49,14 @@ NAV_ITEMS: Final[tuple[NavItem, ...]] = (
 NAV_BY_SCREEN: Final[dict[str, NavItem]] = {item.screen: item for item in NAV_ITEMS}
 
 
-class Wordmark(Horizontal):
-    """`flexi` plus a teal full stop. The only fixed point in the interface."""
+class Lockup(Horizontal):
+    """`flexi` plus a teal full stop. The only fixed point in the interface.
+
+    Not `Wordmark`, which is what `components/wordmark.py` calls the ray-traced
+    animation on the setup screen. Two classes with one name in one package,
+    sharing nothing but the word, is one import line away from a screen drawing
+    the other one.
+    """
 
     def compose(self) -> ComposeResult:
         yield Static("flexi", classes="wordmark-name")
@@ -113,7 +119,7 @@ class AppHeader(Horizontal):
     context: reactive[str] = reactive("", init=False)
 
     def compose(self) -> ComposeResult:
-        yield Wordmark()
+        yield Lockup()
         yield NavBar()
         yield Static(self.context, classes="header-context", id="header-context")
 

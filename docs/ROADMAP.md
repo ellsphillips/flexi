@@ -55,7 +55,7 @@ revision. See [`DOMAIN.md`](DOMAIN.md) §6.
 
 `theme/flexi.tcss` with the validated palette, `theme/__init__.py` with the
 `palette()` parser, `styles/*.tcss`. Port `common.py` (`Tone`, `Pill`,
-`StatCard`, `KeyHint`, `Rule`, `Gauge`) and `chrome.py` (`Wordmark`, `NavBar`,
+`StatCard`, `KeyHint`, `Rule`, `Gauge`) and `chrome.py` (`Lockup`, `NavBar`,
 `AppHeader`, `StatusBar`, `KeyStrip`, `AppFooter`).
 
 **Done when:** `KeyStrip` shows `+n more` at 80 columns rather than a half-drawn

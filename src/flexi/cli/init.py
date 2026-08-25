@@ -29,7 +29,6 @@ import click
 from rich.text import Text
 
 from flexi.cli import ui
-from flexi.cli.ui.prompt import interactive
 from flexi.domain.format import plural
 from flexi.models.database.backup import snapshot, verify
 
@@ -37,12 +36,17 @@ __all__ = [
     "Choice",
     "Contents",
     "ask",
+    "confirm_reset",
     "describe",
-    "interactive",
     "overview",
     "reset",
     "settled",
 ]
+"""What `__main__` reaches for.
+
+It omitted `confirm_reset`, which `__main__` calls, and published `interactive`
+-- a re-export of `flexi.cli.ui.prompt.interactive` that gave one function two
+public paths, and `_already_set_up` used both of them within nine lines."""
 
 CONFIRM_WORD = "reset"
 

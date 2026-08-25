@@ -43,8 +43,6 @@ ACTIVE: Final = MARK_LIVE
 SETTLED: Final = MARK_DONE
 ALERT: Final = MARK_GRAVE
 
-__all__ = ["ALERT", "CURSOR", "HAIRLINE", "HEAVY", "SETTLED", "TAIL", "Tone"]
-
 GUTTER: Final = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
 

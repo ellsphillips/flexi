@@ -57,7 +57,7 @@ src/flexi/
 
   components/
     common.py            Tone, Pill, StatCard, KeyHint, Rule, Gauge
-    chrome.py            Wordmark, NavBar, AppHeader, StatusBar, KeyStrip, AppFooter
+    chrome.py            Lockup, NavBar, AppHeader, StatusBar, KeyStrip, AppFooter
     punch.py             PunchStrip
     jumper.py            Jumper
     jump_overlay.py      JumpOverlay

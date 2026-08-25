@@ -127,7 +127,7 @@ def test_a_torn_snapshot_stops_the_reset(
 def test_a_pipe_is_not_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     """`yes | flexi init` must never answer for a person."""
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
-    assert init_cli.interactive() is False
+    assert ui.interactive() is False
 
 
 def test_a_database_that_cannot_be_read_is_not_reported_as_empty(

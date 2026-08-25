@@ -71,17 +71,17 @@ class Turning(App[None]):
 
 
 def test_every_letter_is_the_same_height() -> None:
-    for character, rows in splash.GLYPHS.items():
+    for character, rows in splash.LETTER_GLYPHS.items():
         assert len(rows) == splash.ROWS, character
 
 
 def test_every_letter_is_rectangular() -> None:
-    for character, rows in splash.GLYPHS.items():
+    for character, rows in splash.LETTER_GLYPHS.items():
         assert len({len(row) for row in rows}) == 1, character
 
 
 def test_the_word_is_spelled_with_letters_that_exist() -> None:
-    assert set(splash.WORD) <= set(splash.GLYPHS)
+    assert set(splash.WORD) <= set(splash.LETTER_GLYPHS)
     assert splash.WORD.startswith("flexi")
 
 

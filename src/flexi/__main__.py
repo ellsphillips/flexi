@@ -269,7 +269,7 @@ def _already_set_up(ctx: click.Context, db_path: Path) -> None:
     from flexi.cli import init as init_cli
     from flexi.cli import ui
 
-    if not init_cli.interactive():
+    if not ui.interactive():
         # The whole of the headless behaviour, deliberately: report and stop.
         # There is no flag that erases Flexi's records with nobody present.
         click.echo(f"Flexi is set up. Its records are at {db_path}.")
@@ -319,9 +319,9 @@ def _ask_the_questions(
     straight on into the application once the questions are answered, because
     that is what the person asked for; ``flexi init`` stops and says so.
     """
-    from flexi.cli import init as init_cli
+    from flexi.cli import ui
 
-    if not init_cli.interactive():
+    if not ui.interactive():
         click.secho(
             f"The database is ready at {db_path}, but setup needs answering.\n"
             "Run `flexi init` from a terminal to finish.",

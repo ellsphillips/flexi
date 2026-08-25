@@ -39,7 +39,7 @@ INK: Final = "#"
 
 # Seven rows apiece. Lowercase with real ascenders, because "flexi" in capitals
 # is a different word about a different kind of company.
-GLYPHS: Final[dict[str, tuple[str, ...]]] = {
+LETTER_GLYPHS: Final[dict[str, tuple[str, ...]]] = {
     "f": (".###", ".#..", "###.", ".#..", ".#..", ".#..", ".#.."),
     "l": ("##.", ".#.", ".#.", ".#.", ".#.", ".#.", ".##"),
     "e": (".....", ".....", ".###.", "#...#", "#####", "#....", ".###."),
@@ -135,7 +135,7 @@ def cells() -> list[tuple[int, int]]:
     inked: list[tuple[int, int]] = []
     column = 0
     for character in WORD:
-        glyph = GLYPHS[character]
+        glyph = LETTER_GLYPHS[character]
         for row, line in enumerate(glyph):
             inked.extend(
                 (column + offset, row)

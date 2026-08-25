@@ -161,7 +161,7 @@ def answering_the_questions(app: _Opened) -> None:
 
 def choosing(monkeypatch: pytest.MonkeyPatch, choice: init_cli.Choice | None) -> None:
     """Stand at the `flexi init` menu and pick something, or escape."""
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
     def picking(question: str, options: Sequence[ui.Option]) -> ui.Option | None:
         if choice is None:
@@ -279,7 +279,7 @@ def test_bare_flexi_carries_straight_on_once_the_questions_are_answered(
     and reports, because setting up is all it was asked to do.
     """
     instead_of_the_application(monkeypatch, answering_the_questions)
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
     result = CliRunner().invoke(cli, [])
 
@@ -289,7 +289,7 @@ def test_bare_flexi_carries_straight_on_once_the_questions_are_answered(
 
 def test_the_first_run_earns_the_splash(monkeypatch: pytest.MonkeyPatch) -> None:
     opened = instead_of_the_application(monkeypatch, answering_the_questions)
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
     CliRunner().invoke(cli, [])
 
@@ -306,7 +306,7 @@ def test_closing_the_setup_form_without_answering_is_not_treated_as_setup(
     `flexi balance show` on one reports a deficit of a thousand hours against a
     leave year nobody chose.
     """
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
     instead_of_the_application(monkeypatch)
 
     result = CliRunner().invoke(cli, [])
@@ -474,7 +474,7 @@ def test_init_finishes_and_says_where_the_records_are(
     person asked to set Flexi up, not to use it.
     """
     opened = instead_of_the_application(monkeypatch, answering_the_questions)
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
     result = CliRunner().invoke(cli, ["init"])
 

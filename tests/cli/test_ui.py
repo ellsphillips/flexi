@@ -27,6 +27,7 @@ from rich.text import Text
 from flexi.cli.ui import prompt, rail
 from flexi.cli.ui.keys import Key, decode, incomplete
 from flexi.cli.ui.menu import HINT, Menu, Option
+from flexi.theme import CURSOR, TAIL
 
 
 def styles_on(line: Text, needle: str) -> list[str]:
@@ -120,8 +121,8 @@ def test_an_ordinary_row_is_left_in_default_ink_until_picked() -> None:
 
 def test_the_cursor_carries_the_selection_as_well_as_the_colour() -> None:
     """Colour alone would leave somebody who cannot see teal with no cursor."""
-    assert rail.CURSOR in rail.option("a", "", picked=True).plain
-    assert rail.CURSOR not in rail.option("a", "", picked=False).plain
+    assert CURSOR in rail.option("a", "", picked=True).plain
+    assert CURSOR not in rail.option("a", "", picked=False).plain
 
 
 def test_hints_line_up_in_a_column() -> None:
@@ -215,7 +216,7 @@ def test_the_tail_closes_the_rail_with_or_without_a_hint() -> None:
     Under a menu the tail carries the keys that work there, and after an
     abandoned step there is nothing left to say.
     """
-    assert rail.tail().plain.strip() == rail.TAIL
+    assert rail.tail().plain.strip() == TAIL
     assert rail.tail("esc cancel").plain.endswith("esc cancel")
 
 
@@ -392,7 +393,7 @@ def test_abandoning_closes_the_rail_and_says_why() -> None:
 
     prompt.abandon("Nothing was changed", console)
 
-    assert rail.TAIL in visible(stream)
+    assert TAIL in visible(stream)
     assert "Nothing was changed" in visible(stream)
 
 
