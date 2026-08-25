@@ -15,12 +15,14 @@ lets one implementation draw a table cell, an expanded row and a week ribbon.
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
+from itertools import pairwise
 
 from flexi import wallclock
-from flexi.domain.ledger import DayLedger
+from flexi.domain.ledger import AbsenceSlice, DayLedger
 
 BUCKET_SIZES: tuple[int, ...] = (5, 10, 15, 20, 30, 60)
 """Bucket widths in minutes, finest first. The strip takes the first that fits."""
@@ -142,76 +144,102 @@ def strip(
 
     # Layers, painted in order. Each may overwrite the one before it, which is
     # what puts a session on top of an absence and the live cell on top of both.
-    _mark_absences(cells, ledger, bounds)
-    _mark_sessions(cells, ledger, bounds, moment)
-    _mark_breaks(cells, ledger, bounds)
-    _mark_target(cells, ledger, bounds)
-    _mark_live(cells, ledger, bounds, moment)
+    absence_cells(cells, ledger, bounds)
+    worked_cells(cells, ledger, bounds, moment)
+    break_cells(cells, ledger, bounds)
+    target_cell(cells, ledger, bounds)
+    live_cell(cells, ledger, bounds, moment)
     return tuple(cells)
 
 
-def _overlaps(
+def overlaps(
     start: datetime, end: datetime, bounds: list[datetime], index: int
 ) -> bool:
     """Whether a span touches the cell at ``index``."""
     return start < bounds[index + 1] and end > bounds[index]
 
 
-def _mark_absences(
-    cells: list[Cell], ledger: DayLedger, bounds: list[datetime]
-) -> None:
-    """A cell is absent when its midpoint falls inside a booked portion."""
+def cell_holding(moment: datetime, bounds: list[datetime]) -> int | None:
+    """The index of the cell a moment falls in, or ``None`` if it is outside.
+
+    ``bounds`` is sorted by construction, so this is a bisection rather than
+    the walk it was written as twice -- once to place the go-home tick and once
+    to find the live cell.
+    """
+    index = bisect_right(bounds, moment) - 1
+    return index if 0 <= index < len(bounds) - 1 else None
+
+
+def covering_slices(
+    ledger: DayLedger, bounds: list[datetime]
+) -> list[AbsenceSlice | None]:
+    """Which booking, if any, covers each cell -- by the cell's midpoint.
+
+    One rule, in one place. The widget that colours the strip had a
+    byte-identical copy of this walk, so "a cell is absent when its midpoint
+    falls inside a booked portion" was two statements that had to agree.
+
+    The midpoints are worked out once for the row rather than once per booking:
+    they depend only on the grid, and a day with a booked morning and a booked
+    afternoon computed all of them twice.
+    """
+    found: list[AbsenceSlice | None] = [None] * (len(bounds) - 1)
+    if not ledger.absences:
+        return found
+    middles = [start + (end - start) / 2 for start, end in pairwise(bounds)]
     for slice_ in ledger.absences:
-        for index in range(len(cells)):
-            middle = bounds[index] + (bounds[index + 1] - bounds[index]) / 2
+        for index, middle in enumerate(middles):
             if slice_.covers(middle):
-                cells[index] = Cell.ABSENCE
+                found[index] = slice_
+    return found
 
 
-def _mark_sessions(
+def absence_cells(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
+    """A cell is absent when a booking covers it."""
+    for index, slice_ in enumerate(covering_slices(ledger, bounds)):
+        if slice_ is not None:
+            cells[index] = Cell.ABSENCE
+
+
+def worked_cells(
     cells: list[Cell], ledger: DayLedger, bounds: list[datetime], moment: datetime
 ) -> None:
+    """A cell is on the clock when a session touches it."""
     for segment in ledger.segments:
         finish = segment.finish(moment)
         for index in range(len(cells)):
-            if _overlaps(segment.start, finish, bounds, index):
+            if overlaps(segment.start, finish, bounds, index):
                 cells[index] = Cell.ON
 
 
-def _mark_breaks(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
+def break_cells(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
     """A break is only a break *between* two sessions.
 
     Time before arriving and after leaving is not being away, it is not being
     at work, so it stays off rather than reading as a three-hour lunch.
     """
     for start, end in ledger.breaks():
-        for index in range(len(cells)):
-            if cells[index] is Cell.OFF and _overlaps(start, end, bounds, index):
+        for index, cell in enumerate(cells):
+            if cell is Cell.OFF and overlaps(start, end, bounds, index):
                 cells[index] = Cell.BREAK
 
 
-def _mark_target(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
+def target_cell(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
     """Put the go-home tick on the first cell that is free to carry it."""
     leave_at = ledger.leave_at()
     if leave_at is None or ledger.expected <= timedelta():
         return
-    for index in range(len(cells)):
-        if bounds[index] <= leave_at < bounds[index + 1]:
-            if cells[index] in {Cell.OFF, Cell.BREAK}:
-                cells[index] = Cell.TARGET
-            return
+    index = cell_holding(leave_at, bounds)
+    if index is not None and cells[index] in {Cell.OFF, Cell.BREAK}:
+        cells[index] = Cell.TARGET
 
 
-def _mark_live(
-    cells: list[Cell],
-    ledger: DayLedger,
-    bounds: list[datetime],
-    moment: datetime,
+def live_cell(
+    cells: list[Cell], ledger: DayLedger, bounds: list[datetime], moment: datetime
 ) -> None:
     """Highlight the cell an open session is currently in."""
     if not ledger.is_open:
         return
-    for index in range(len(cells)):
-        if bounds[index] <= moment < bounds[index + 1] and cells[index] is Cell.ON:
-            cells[index] = Cell.LIVE
-            return
+    index = cell_holding(moment, bounds)
+    if index is not None and cells[index] is Cell.ON:
+        cells[index] = Cell.LIVE

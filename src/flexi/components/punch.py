@@ -20,7 +20,7 @@ from textual.app import RenderResult
 from textual.widget import Widget
 
 from flexi.domain.ledger import DayLedger
-from flexi.domain.punch import Cell, Window, edges, strip
+from flexi.domain.punch import Cell, Window, covering_slices, edges, strip
 
 GLYPHS: Final[dict[Cell, str]] = {
     Cell.OFF: "─",
@@ -62,22 +62,19 @@ StyleLookup = Callable[[str], Style]
 
 
 def absence_tokens(ledger: DayLedger, count: int, window: Window) -> list[str | None]:
-    """Which absence type, if any, covers each cell.
+    """The colour token, if any, each cell should wear.
 
-    Fast path first: most days have no absence at all, and walking the cell
-    boundaries for every row of a month view to discover that would be the
-    table's slowest loop for no result.
+    The rule about which booking covers which cell belongs to the domain and is
+    asked of it. This had its own copy, which also recomputed the cell
+    boundaries `strip` had just worked out.
     """
     if not ledger.absences:
         return [None] * count
     bounds = edges(ledger.date, count, window)
-    tokens: list[str | None] = [None] * count
-    for slice_ in ledger.absences:
-        for index in range(count):
-            middle = bounds[index] + (bounds[index + 1] - bounds[index]) / 2
-            if slice_.covers(middle):
-                tokens[index] = slice_.type.token
-    return tokens
+    return [
+        None if slice_ is None else slice_.type.token
+        for slice_ in covering_slices(ledger, bounds)
+    ]
 
 
 def render_strip(
