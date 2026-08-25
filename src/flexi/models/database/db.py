@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -106,7 +107,9 @@ class ClockEvent(Base):
     utc_offset_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     """Minutes east of UTC when the clock was read; the instant is ``timestamp``
     minus this. ``None`` only on rows Flexi wrote before it recorded one."""
-    source: Mapped[str] = mapped_column(String(20), default="user")
+    source: Mapped[str] = mapped_column(
+        String(20), default="user", server_default="user"
+    )
 
 
 class WorkSession(Base):
@@ -125,7 +128,9 @@ class WorkSession(Base):
         ForeignKey("clock_events.id"), nullable=True
     )
     work_date: Mapped[date_type] = mapped_column(Date())
-    auto_closed: Mapped[bool] = mapped_column(Boolean(), default=False)
+    auto_closed: Mapped[bool] = mapped_column(
+        Boolean(), default=False, server_default=text("0")
+    )
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     voided: Mapped[bool] = mapped_column(Boolean(), default=False, server_default="0")
     """A corrected session. Clock events are immutable, so a correction inserts
