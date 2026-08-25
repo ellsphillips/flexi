@@ -98,11 +98,11 @@ class TestCacheHit:
         assert date(2026, 12, 25) in dates
         assert len(dates) == 3
 
-    def test_is_bank_holiday(self, session: Session) -> None:
+    def test_holiday_on(self, session: Session) -> None:
         _seed_cache(session)
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        assert svc.is_bank_holiday(date(2026, 1, 1)) is True
-        assert svc.is_bank_holiday(date(2026, 6, 15)) is False
+        assert svc.holiday_on(date(2026, 1, 1)) is not None
+        assert svc.holiday_on(date(2026, 6, 15)) is None
 
 
 # ---------- stale refresh ----------
@@ -134,7 +134,7 @@ class TestFetchFailure:
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         assert svc.is_available() is False
         assert svc.get_dates() is None
-        assert svc.is_bank_holiday(date(2026, 1, 1)) is None
+        assert svc.holiday_on(date(2026, 1, 1)) is None
 
     def test_fetch_failure_returns_false(self, session: Session) -> None:
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
@@ -160,7 +160,7 @@ class TestFetchFailure:
         monkeypatch.setattr(httpx.Client, "get", _answering("", status=503))
 
         assert svc.fetch_and_cache() is False
-        assert svc.is_bank_holiday(date(2026, 12, 25)) is True
+        assert svc.holiday_on(date(2026, 12, 25)) is not None
 
     def test_a_response_that_is_not_json_is_a_failed_fetch(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
@@ -209,7 +209,7 @@ class TestFetchingTheIndex:
             date(2026, 4, 3),
             date(2026, 12, 25),
         }
-        assert svc.get_title(date(2026, 7, 4)) is None
+        assert svc.holiday_on(date(2026, 7, 4)) is None
 
     def test_only_the_division_asked_for_is_stored(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
@@ -277,8 +277,8 @@ class TestFetchingTheIndex:
         monkeypatch.setattr(httpx.Client, "get", _answering(payload))
 
         assert svc.fetch_and_cache() is True
-        assert svc.is_bank_holiday(date(2026, 1, 1)) is True
-        assert svc.get_title(date(2026, 1, 1)) == ""
+        assert svc.holiday_on(date(2026, 1, 1)) is not None
+        assert svc.holiday_on(date(2026, 1, 1)) == ""
 
     def test_an_empty_cache_is_filled_from_the_index(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
@@ -288,7 +288,7 @@ class TestFetchingTheIndex:
         monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
 
         assert svc.fill_if_empty() is True
-        assert svc.is_bank_holiday(date(2026, 4, 3)) is True
+        assert svc.holiday_on(date(2026, 4, 3)) is not None
 
 
 class TestRefreshingOnlyWhenItIsStale:
@@ -309,7 +309,7 @@ class TestRefreshingOnlyWhenItIsStale:
 
         monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
         assert svc.fetch_and_cache() is True
-        assert svc.is_bank_holiday(date(2026, 1, 1)) is True
+        assert svc.holiday_on(date(2026, 1, 1)) is not None
 
     def test_a_fresh_cache_is_not_asked_for_again(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
@@ -370,7 +370,7 @@ class TestRefreshingOnlyWhenItIsStale:
 
         assert svc.is_fresh() is False
         assert svc.fetch_and_cache() is False, "the refusal is reported"
-        assert svc.is_bank_holiday(date(2026, 12, 25)) is True, "and nothing was lost"
+        assert svc.holiday_on(date(2026, 12, 25)) is not None, "and nothing was lost"
 
 
 # ---------- division changes ----------
@@ -384,9 +384,9 @@ class TestDivisionChanges:
         ew = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         sc = BankHolidayService(session, reading(Division.SCOTLAND))
 
-        assert ew.is_bank_holiday(date(2026, 12, 25)) is True
-        assert sc.is_bank_holiday(date(2026, 12, 25)) is False
-        assert sc.is_bank_holiday(date(2026, 11, 30)) is True
+        assert ew.holiday_on(date(2026, 12, 25)) is not None
+        assert sc.holiday_on(date(2026, 12, 25)) is None
+        assert sc.holiday_on(date(2026, 11, 30)) is not None
 
 
 # ---------- title lookup ----------
@@ -396,8 +396,8 @@ class TestTitleLookup:
     def test_get_title(self, session: Session) -> None:
         _seed_cache(session)
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        assert svc.get_title(date(2026, 12, 25)) == "Christmas Day"
-        assert svc.get_title(date(2026, 6, 15)) is None
+        assert svc.holiday_on(date(2026, 12, 25)) == "Christmas Day"
+        assert svc.holiday_on(date(2026, 6, 15)) is None
 
 
 class TestFillingTheCache:

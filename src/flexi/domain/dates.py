@@ -4,6 +4,12 @@ Lives in the domain rather than beside the modal that used to own it, because a
 command line needs the same vocabulary a dialog does, and the CLI cannot import
 Textual.
 
+Read relative to ``reference``, which is usually today and often is not:
+``parse_span`` reads the end of a range from its *start*, so ``28 dec to 4 jan``
+lands in the following year, and both modals read from the day on screen. It was
+called ``today``, which is what a reader assumes when a screen anchored on last
+March offers "an offset moves from today".
+
 A dialog and a command line want different defaults, though. Somebody typing
 ``12`` into "go to date" while looking at June means the 12th of June, whether
 or not it has passed. Somebody typing ``flexi leave annual 12`` is booking
@@ -55,7 +61,7 @@ RELATIVE_DAYS: Final[dict[str, int]] = {
     "next week": DAYS_IN_WEEK,
     "last week": -DAYS_IN_WEEK,
 }
-"""Dates named by their distance from today, in words."""
+"""Dates named by their distance from the reference day, in words."""
 
 SEPARATORS: Final[tuple[str, ...]] = (" to ", " until ", " through ", "..")
 
@@ -83,11 +89,11 @@ class Preference(enum.Enum):
     """This month, this year. What "go to date" means."""
 
     FORWARD = "forward"
-    """The next such date on or after today. What booking leave means."""
+    """The next such date on or after the reference. What booking leave means."""
 
 
 def parse_date(
-    raw: str, *, today: date, prefer: Preference = Preference.CURRENT
+    raw: str, *, reference: date, prefer: Preference = Preference.CURRENT
 ) -> date:
     """Read the several ways somebody might type a date.
 
@@ -100,11 +106,11 @@ def parse_date(
     date" tells nobody anything.
 
     Examples:
-        >>> parse_date("friday", today=date(2026, 8, 10))
+        >>> parse_date("friday", reference=date(2026, 8, 10))
         datetime.date(2026, 8, 14)
-        >>> parse_date("next monday", today=date(2026, 8, 10))
+        >>> parse_date("next monday", reference=date(2026, 8, 10))
         datetime.date(2026, 8, 17)
-        >>> parse_date("tomorrow", today=date(2026, 8, 10))
+        >>> parse_date("tomorrow", reference=date(2026, 8, 10))
         datetime.date(2026, 8, 11)
     """
     text = " ".join(raw.strip().lower().split())
@@ -117,11 +123,11 @@ def parse_date(
     # keeps the signature it deserves instead of a uniform one that had three
     # of them `del` an argument they never read.
     found = (
-        relative_to(text, today)
-        or parse_weekday(text, today)
-        or parse_offset(text, today)
-        or parse_written(text, today, prefer)
-        or parse_day_of_month(text, today, prefer)
+        relative_to(text, reference)
+        or parse_weekday(text, reference)
+        or parse_offset(text, reference)
+        or parse_written(text, reference, prefer)
+        or parse_day_of_month(text, reference, prefer)
     )
     if found is None:
         raise ValueError(_HELP)
@@ -129,26 +135,26 @@ def parse_date(
 
 
 def parse_span(
-    raw: str, *, today: date, prefer: Preference = Preference.FORWARD
+    raw: str, *, reference: date, prefer: Preference = Preference.FORWARD
 ) -> tuple[date, date]:
     """A date, or a pair separated by ``to``, ``until``, ``through`` or ``..``.
 
-    The end is read *from the start* rather than from today, so ``28 dec to
+    The end is read *from the start* rather than from the reference, so ``28 dec to
     4 jan`` lands in the following year and ``monday to friday`` stays in one
     week.
 
     Examples:
-        >>> parse_span("monday to friday", today=date(2026, 8, 10))
+        >>> parse_span("monday to friday", reference=date(2026, 8, 10))
         (datetime.date(2026, 8, 10), datetime.date(2026, 8, 14))
-        >>> parse_span("12 jun", today=date(2026, 8, 10))
+        >>> parse_span("12 jun", reference=date(2026, 8, 10))
         (datetime.date(2027, 6, 12), datetime.date(2027, 6, 12))
     """
     text = " ".join(raw.strip().lower().split())
     for separator in SEPARATORS:
         if separator in text:
             head, _, tail = text.partition(separator)
-            start = parse_date(head, today=today, prefer=prefer)
-            end = parse_date(tail, today=start, prefer=Preference.FORWARD)
+            start = parse_date(head, reference=reference, prefer=prefer)
+            end = parse_date(tail, reference=start, prefer=Preference.FORWARD)
             if end < start:
                 # Through `stamp`, not `{end:%-d %b %Y}`. `%-d` is a glibc and
                 # BSD extension: on Windows `strftime` raises `ValueError:
@@ -162,15 +168,15 @@ def parse_span(
                 raise ValueError(msg)
             return start, end
 
-    only = parse_date(text, today=today, prefer=prefer)
+    only = parse_date(text, reference=reference, prefer=prefer)
     return only, only
 
 
 # -- the readers, tried in order --------------------------------------------
 
 
-def relative_to(text: str, today: date) -> date | None:
-    """A date named by how far it is from today, in words.
+def relative_to(text: str, reference: date) -> date | None:
+    """A date named by how far it is from the reference day, in words.
 
     A table rather than a ladder of five comparisons: the vocabulary is data,
     and this way it can be read -- and extended -- without reading code.
@@ -184,7 +190,7 @@ def relative_to(text: str, today: date) -> date | None:
         True
     """
     offset = RELATIVE_DAYS.get(text)
-    return None if offset is None else today + timedelta(days=offset)
+    return None if offset is None else reference + timedelta(days=offset)
 
 
 def weekday_index(name: str) -> int | None:
@@ -212,7 +218,7 @@ def weekday_index(name: str) -> int | None:
     )
 
 
-def parse_weekday(text: str, today: date) -> date | None:
+def parse_weekday(text: str, reference: date) -> date | None:
     """A weekday name, optionally with ``next`` or ``last`` in front of it.
 
     Examples:
@@ -228,21 +234,21 @@ def parse_weekday(text: str, today: date) -> date | None:
     if word in {"next", "last"} and leading is not None:
         target = leading
         if word == "next":
-            # Never today: "next friday" said on a Friday means the one coming.
-            ahead = (target - today.weekday()) % DAYS_IN_WEEK
-            return today + timedelta(days=ahead or DAYS_IN_WEEK)
+            # Never the same day: "next friday" on a Friday means the one coming.
+            ahead = (target - reference.weekday()) % DAYS_IN_WEEK
+            return reference + timedelta(days=ahead or DAYS_IN_WEEK)
         # And "last friday" said on a Friday means the one just gone.
-        behind = (today.weekday() - target) % DAYS_IN_WEEK
-        return today - timedelta(days=behind or DAYS_IN_WEEK)
+        behind = (reference.weekday() - target) % DAYS_IN_WEEK
+        return reference - timedelta(days=behind or DAYS_IN_WEEK)
 
     bare = weekday_index(text)
     if bare is not None:
-        # A bare weekday is the next one, and today counts as itself.
-        return today + timedelta(days=(bare - today.weekday()) % DAYS_IN_WEEK)
+        # A bare weekday is the next one, and the reference day counts as itself.
+        return reference + timedelta(days=(bare - reference.weekday()) % DAYS_IN_WEEK)
     return None
 
 
-def parse_offset(text: str, today: date) -> date | None:
+def parse_offset(text: str, reference: date) -> date | None:
     """A signed step in days, weeks, months or years, like ``+3d`` or ``-2w``.
 
     Examples:
@@ -259,14 +265,14 @@ def parse_offset(text: str, today: date) -> date | None:
         return None
     unit, count = text[-1], int(text[:-1])
     if unit in OFFSET_UNITS:
-        return today + timedelta(days=count * OFFSET_UNITS[unit])
+        return reference + timedelta(days=count * OFFSET_UNITS[unit])
     if unit == "m":
-        return add_months(today, count)
-    return add_months(today, count * MONTHS_IN_YEAR)
+        return add_months(reference, count)
+    return add_months(reference, count * MONTHS_IN_YEAR)
 
 
 def parse_written(
-    text: str, today: date, prefer: Preference = Preference.CURRENT
+    text: str, reference: date, prefer: Preference = Preference.CURRENT
 ) -> date | None:
     """A date written out: ISO, ``12 Jun``, ``jun 12``, ``12/06``.
 
@@ -290,7 +296,7 @@ def parse_written(
             # A year-less pattern defaults to 1900, which is not a leap year, so
             # "29 feb" raises rather than parsing. Python 3.15 changes the
             # default besides. Supplying a year takes the question away.
-            else (f"{text} {today.year}", f"{pattern} %Y")
+            else (f"{text} {reference.year}", f"{pattern} %Y")
         )
         try:
             parsed = datetime.strptime(dated, dated_pattern).date()  # noqa: DTZ007
@@ -298,12 +304,12 @@ def parse_written(
             continue
         if "%Y" in pattern:
             return parsed
-        return forward_if_passed(parsed, today, prefer)
+        return forward_if_passed(parsed, reference, prefer)
     return None
 
 
 def parse_day_of_month(
-    text: str, today: date, prefer: Preference = Preference.CURRENT
+    text: str, reference: date, prefer: Preference = Preference.CURRENT
 ) -> date | None:
     """A bare day number: this month, or the next month that has one.
 
@@ -337,16 +343,16 @@ def parse_day_of_month(
         # Walked from the first of this month, so `add_months` can never clamp
         # the cursor itself. `clamp` shortens the candidate, and a candidate
         # that came back shorter is a month that does not have this day.
-        month = today.replace(day=1)
+        month = reference.replace(day=1)
         for _ in range(MONTHS_IN_YEAR):
             candidate = leaveyear.clamp(month.year, month.month, day)
-            if candidate.day == day and candidate >= today:
+            if candidate.day == day and candidate >= reference:
                 return candidate
             month = add_months(month, 1)
     try:
-        return today.replace(day=day)
+        return reference.replace(day=day)
     except ValueError as error:
-        msg = f"{today:%B} has no day {day}"
+        msg = f"{reference:%B} has no day {day}"
         raise ValueError(msg) from error
 
 
@@ -422,7 +428,7 @@ def days_between(start: date, end: date) -> list[date]:
 
 
 def forward_if_passed(
-    parsed: date, today: date, prefer: Preference = Preference.CURRENT
+    parsed: date, reference: date, prefer: Preference = Preference.CURRENT
 ) -> date:
     """A date already read in this year, moved on if booking has passed it.
 
@@ -432,6 +438,6 @@ def forward_if_passed(
         >>> forward_if_passed(date(2026, 6, 12), date(2026, 8, 10), Preference.FORWARD)
         datetime.date(2027, 6, 12)
     """
-    if prefer is Preference.FORWARD and parsed < today:
+    if prefer is Preference.FORWARD and parsed < reference:
         return add_months(parsed, MONTHS_IN_YEAR)
     return parsed

@@ -129,7 +129,7 @@ class TestRejections:
         """It refuses rather than guess when it cannot tell if a date is a holiday.
 
         A fresh database, so the bank-holiday cache is genuinely empty:
-        `is_bank_holiday` answers None, which is not the same as False, and
+        `titles_between` answers None, which is not the same as an empty mapping, and
         booking leave over a bank holiday it could not see would be worse than
         refusing.
         """

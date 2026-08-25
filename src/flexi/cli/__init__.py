@@ -36,7 +36,7 @@ class TypedDate(click.ParamType):
     ) -> date:
         try:
             return parse_date(
-                str(value), today=wallclock.today(), prefer=Preference.CURRENT
+                str(value), reference=wallclock.today(), prefer=Preference.CURRENT
             )
         except ValueError as error:
             self.fail(str(error), param, ctx)

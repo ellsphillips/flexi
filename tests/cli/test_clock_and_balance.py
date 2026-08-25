@@ -111,7 +111,7 @@ BANK_HOLIDAY = date(2026, 8, 31)
 def stocked(services: Services) -> Services:
     """The same machine, with a bank holiday calendar on it.
 
-    `AbsenceService` refuses every booking while `is_bank_holiday` answers
+    `AbsenceService` refuses every booking while the calendar answers
     `None`, so a test that books anything needs at least one cached row.
     """
     services.session.add(

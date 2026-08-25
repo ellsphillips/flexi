@@ -213,7 +213,7 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
     def result(self) -> AbsenceBooking:
         raw = self.query_one("#absence-date", Input).value.strip()
         try:
-            when = parse_date(raw, today=self._when)
+            when = parse_date(raw, reference=self._when)
         except ValueError as error:
             raise ValueError(str(error)) from error
 
@@ -231,7 +231,7 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         if self._until:
             raw_until = self.query_one("#absence-until", Input).value.strip()
             try:
-                until = parse_date(raw_until, today=self._until)
+                until = parse_date(raw_until, reference=self._until)
             except ValueError as error:
                 raise ValueError(str(error)) from error
             if until < when:
@@ -241,14 +241,19 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
 
 
 class GoToDateModal(FlexiModal[date]):
-    """Jump the period anchor to a date, typed however is quickest."""
+    """Jump the period anchor to a date, typed however is quickest.
+
+    Everything typed here is read relative to the day already on screen, not to
+    today. Somebody browsing last March and typing `12` means the 12th of March,
+    and the parameter was called `today` while being handed the anchor.
+    """
 
     title_text: ClassVar[str] = "Go to date"
     confirm_label: ClassVar[str] = "Go"
 
-    def __init__(self, today: date) -> None:
+    def __init__(self, anchor: date) -> None:
         super().__init__()
-        self._today = today
+        self._anchor = anchor
 
     def compose_body(self) -> ComposeResult:
         yield Input(
@@ -257,8 +262,8 @@ class GoToDateModal(FlexiModal[date]):
             placeholder="12 · 12 Jun · 2026-06-12 · +3d · -2w",
         )
         yield Static(
-            "A bare number is a day of the current month. "
-            "An offset moves from today: d, w, m, y.",
+            "A bare number is a day of the month on screen. "
+            "An offset moves from the day on screen: d, w, m, y.",
             classes="caption",
         )
 
@@ -266,7 +271,9 @@ class GoToDateModal(FlexiModal[date]):
         self.query_one("#goto-input", Input).focus()
 
     def result(self) -> date:
-        return parse_date(self.query_one("#goto-input", Input).value, today=self._today)
+        return parse_date(
+            self.query_one("#goto-input", Input).value, reference=self._anchor
+        )
 
 
 def _selected_name(screen: ModalScreen[Any], selector: str, fallback: str) -> str:

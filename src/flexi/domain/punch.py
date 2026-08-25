@@ -8,8 +8,16 @@ session is overstated rather than lost. And it coarsens rather than truncating,
 falling back to three cells below :data:`MIN_CELLS` rather than claiming a
 precision it cannot draw.
 
-Everything is a pure function of ``(ledger, width, window, now)``, which is what
-lets one implementation draw a table cell, an expanded row and a week ribbon.
+Everything is a function of ``(ledger, width, window, now)`` and the zone
+`flexi.wallclock` is pinned to, which is what lets one implementation draw a
+table cell, an expanded row and a week ribbon.
+
+The zone is the fifth input and the docstring used to say there were four.
+`edges` localises each cell boundary through `wallclock`, because the grid has
+to be a *wall* grid: on the October Sunday, 02:00 is an hour further from
+midnight than 01:00 was, and a strip drawn on a fixed offset would put an hour
+of that day in the wrong cell. It is the only outward import in `flexi.domain`,
+and it is deliberate.
 
 Three shapes of name, so a reader can tell what a call does before reading it:
 a noun phrase returns a value (``edges``, ``cell_count``, ``cell_holding``,

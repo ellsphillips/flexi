@@ -100,7 +100,7 @@ class ClockService:
         work_date = moment.date()
 
         # Block clocking on bank holidays (if data available)
-        if self._holidays.is_bank_holiday(work_date) is True:
+        if self._holidays.holiday_on(work_date) is not None:
             return ClockResult(
                 success=False, message="Cannot clock in on a bank holiday"
             )

@@ -142,13 +142,20 @@ class BankHolidayService:
         )
         return self._session.execute(stmt).scalar_one_or_none() is not None
 
-    def is_bank_holiday(self, day: date) -> bool | None:
-        """Check if a date is a bank holiday. Returns None if data unavailable."""
-        found = self.titles_between(day, day)
-        return None if found is None else day in found
+    def holiday_on(self, day: date) -> str | None:
+        """What this date is a bank holiday for, or ``None``.
 
-    def get_title(self, day: date) -> str | None:
-        """Return bank holiday title for a date, or None."""
+        One name where there were three for the same question at one date:
+        `is_bank_holiday` answered `bool | None`, so its one caller had to write
+        `is True`; `get_title` answered the same thing without the calendar
+        check; and `titles_between(day, day)` answered it correctly.
+
+        "No calendar" and "not a holiday" are both `None` here, deliberately.
+        The caller that needs to tell them apart is `AbsenceService`, which
+        refuses to book against an unknown calendar rather than guessing, and it
+        asks `titles_between` for a whole span and reads `has_calendar` off the
+        result -- which is the shape that keeps the distinction.
+        """
         return (self.titles_between(day, day) or {}).get(day)
 
     def get_dates(self) -> set[date] | None:

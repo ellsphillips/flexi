@@ -136,7 +136,9 @@ def run(
     kind, portion, when = parse_request(words)
 
     try:
-        start, end = parse_span(when or "today", today=today, prefer=Preference.FORWARD)
+        start, end = parse_span(
+            when or "today", reference=today, prefer=Preference.FORWARD
+        )
     except ValueError as error:
         raise click.UsageError(str(error)) from error
 
