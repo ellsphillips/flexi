@@ -145,6 +145,15 @@ class SettingsScreen(Screen[bool]):
         )
 
     def _save(self) -> None:
+        """Write every field, or none of them.
+
+        The entitlements used to be parsed after `save_settings` had already
+        committed, so a year somebody could not type left the working pattern
+        and the region written to the database, the screen open, and the ledger
+        cache holding figures built against the settings that had just been
+        replaced. Nothing invalidates it on this path: the application hangs
+        that off `dismiss(True)`, and a rejection does not dismiss.
+        """
         leave_start = self.query_one("#input-leave-start", Input).value.strip()
         working_days = self.query_one("#input-working-days", Input).value.strip()
         division = self.query_one("#select-division", Select).value
@@ -155,6 +164,22 @@ class SettingsScreen(Screen[bool]):
             return
         if not isinstance(division, str):
             self.notify("Select a bank holiday region", severity="error")
+            return
+
+        allowances: dict[int, float] = {}
+        rejected: list[str] = []
+        for entitlement in self._svc.all_entitlements():
+            field = self.query_one(f"#ent-{entitlement.year}", Input)
+            try:
+                allowances[entitlement.year] = float(field.value)
+            except ValueError:
+                rejected.append(str(entitlement.year))
+
+        if rejected:
+            self.notify(
+                f"Leave for {', '.join(rejected)} must be a number of days",
+                severity="error",
+            )
             return
 
         try:
@@ -168,22 +193,8 @@ class SettingsScreen(Screen[bool]):
             self.notify(str(error), severity="error")
             return
 
-        rejected: list[str] = []
-        for entitlement in self._svc.all_entitlements():
-            field = self.query_one(f"#ent-{entitlement.year}", Input)
-            try:
-                days = float(field.value)
-            except ValueError:
-                rejected.append(str(entitlement.year))
-                continue
-            self._svc.save_entitlement(entitlement.year, days)
-
-        if rejected:
-            self.notify(
-                f"Leave for {', '.join(rejected)} must be a number of days",
-                severity="error",
-            )
-            return
+        for year, days in allowances.items():
+            self._svc.save_entitlement(year, days)
 
         self.dismiss(True)
 

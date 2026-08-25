@@ -172,18 +172,23 @@ async def test_a_changed_entitlement_is_written(app_factory: AppFactory) -> None
 async def test_an_entitlement_that_is_not_a_number_is_refused(
     app_factory: AppFactory,
 ) -> None:
-    """The branch that drops a year's leave without changing it.
+    """A year somebody could not type stops the whole save.
 
-    `_save` skips an unparseable entitlement, carries on with the rest, and
-    names the year it could not read rather than guessing at a number.
+    `_save` used to commit the four settings fields first and parse the
+    entitlements after, so a rejection left the working pattern and the region
+    written, the screen open, and the ledger cache holding figures built
+    against the settings that had just been replaced — the application hangs
+    `invalidate()` off `dismiss(True)`, and a rejection does not dismiss.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         year = app.services.settings.active_leave_year()
         app.services.settings.save_entitlement(year, 25.0)
+        was = stored_start(app)
 
         await open_settings(pilot)
         screen = showing(app, SettingsScreen)
+        screen.query_one("#input-leave-start", Input).value = "07-07"
         screen.query_one(f"#ent-{year}", Input).value = "loads"
 
         await pilot.click("#btn-save")
@@ -193,6 +198,7 @@ async def test_an_entitlement_that_is_not_a_number_is_refused(
         kept = app.services.settings.get_entitlement(year)
         assert kept is not None
         assert kept.days == 25.0, "the year somebody could not type is left alone"
+        assert stored_start(app) == was, "and neither is anything else"
 
 
 async def test_adding_next_year_carries_this_year_forward(
