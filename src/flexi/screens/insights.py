@@ -198,9 +198,13 @@ class InsightsScreen(Screen[None]):
         self.period = period
         for header in self.query(AppHeader):
             header.context = f"{short_date(wallclock.today())} · {period.label}"
-        self._services.invalidate()
+        # No `invalidate()`: moving the view changes no rows, and the ledger
+        # cache is what stops a leave year being re-derived from scratch on
+        # every keypress. `DashboardScreen.refresh_modules` states the same rule
+        # -- `Scope.PERIOD` is "the temporal view moved" -- and this screen was
+        # dropping 371 day ledgers to redraw with the same numbers.
         for module in self.query(Module):
-            module.rebuild()
+            module.rebuild_if(Scope.PERIOD)
 
     def action_today(self) -> None:
         self.set_period(self.period.go_to(wallclock.today()))

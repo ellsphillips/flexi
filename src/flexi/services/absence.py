@@ -440,6 +440,15 @@ class AbsenceService:
         stmt = select(AbsenceDay).where(AbsenceDay.date == day).order_by(AbsenceDay.id)
         return list(self._session.execute(stmt).scalars())
 
+    def by_id(self, absence_id: int) -> AbsenceDay | None:
+        """One booking, by the key a table row carries.
+
+        The records table hands a row key back as a primary key, and the screen
+        turned it into a row by fetching every booking in the visible period and
+        scanning for it -- a year of them, when the period was zoomed to a year.
+        """
+        return self._session.get(AbsenceDay, absence_id)
+
     def get_absence(self, day: date) -> AbsenceDay | None:
         """The first absence on a date, or ``None``.
 

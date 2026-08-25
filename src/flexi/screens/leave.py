@@ -220,15 +220,15 @@ class LeaveScreen(Screen[None]):
 
     def _draw_selection(self) -> None:
         selection = self.selection
-        working = [
-            when
-            for when in selection.days()
-            if self._services.settings.is_working_day(when.weekday())
-        ]
+        # The pattern once, not once per selected day: `is_working_day` reads
+        # the settings row, so extending the selection to a month cost 31
+        # queries on every cursor move and every resize.
+        pattern = set(self._services.settings.get_working_day_indices())
+        working = sum(1 for when in selection.days() if when.weekday() in pattern)
         booked = self._services.absence.in_range(selection.start, selection.end)
 
         self.query_one("#leave-selection-label", Static).update(selection.label())
-        count = f"{len(working)} working day" + ("" if len(working) == 1 else "s")
+        count = f"{working} {plural(working, 'working day')}"
         portion = (
             "" if self.portion is Portion.FULL else f" · {self.portion.label.lower()}s"
         )

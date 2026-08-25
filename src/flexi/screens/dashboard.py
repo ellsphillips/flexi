@@ -311,16 +311,7 @@ class DashboardScreen(Screen[None]):
             self.status("Deleting sessions is not implemented yet", Tone.WARN)
 
     def _delete_absence(self, absence_id: int) -> None:
-        found = next(
-            (
-                row
-                for row in self._services.absence.in_range(
-                    self.period.start, self.period.end
-                )
-                if row.id == absence_id
-            ),
-            None,
-        )
+        found = self._services.absence.by_id(absence_id)
         if found is None:
             self.status("That booking has already gone", Tone.WARN)
             return
