@@ -109,8 +109,17 @@ class ExpandableTable(DataTable[RenderableType]):
                 self.add_column(spec, key=spec or None)
 
     def set_groups(self, groups: Iterable[RowGroup]) -> None:
-        """Replace every row, keeping the cursor on whatever it was on."""
+        """Replace every row, keeping the cursor on whatever it was on.
+
+        Expansions are kept for the rows that survived and dropped for the rest.
+        Keeping all of them meant `expanded` answered "has any row ever been
+        open" rather than "is any row open": the widget outlives its rows -- the
+        records table is rebuilt on every redraw -- so one expansion in June
+        left `expand_all` closing an already-closed July for the rest of the
+        session.
+        """
         self._groups = tuple(groups)
+        self.expanded &= {group.parent.key for group in self._groups}
         self._redraw()
 
     @property

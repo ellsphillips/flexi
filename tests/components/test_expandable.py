@@ -490,3 +490,23 @@ async def test_enter_on_an_empty_table_names_nothing() -> None:
         table.action_open_row()
         await pilot.pause()
         assert posted(pilot) == []
+
+
+async def test_replacing_the_rows_forgets_expansions_of_rows_that_have_gone() -> None:
+    """`expanded` has to answer "is any row open", not "was one, ever".
+
+    The widget outlives its rows -- the records table calls `set_groups` on
+    every redraw -- so a key left in the set from a period nobody is looking at
+    made `expand_all` close an already-closed table instead of opening it, for
+    the rest of the session.
+    """
+    table = ExpandableTable()
+    async with mounted(table) as pilot:
+        await table_of(pilot, day(MONDAY, "morning"))
+        table.toggle(day_key(MONDAY))
+        await pilot.pause()
+        assert table.expanded == {day_key(MONDAY)}
+
+        await table_of(pilot, day(WEDNESDAY, "morning"))
+
+        assert table.expanded == set(), "a row that is gone cannot be open"

@@ -45,12 +45,9 @@ give the key to the field. That exception is correct: typing a date into
 
 ### Clocking with one key
 
-`/` toggles. It never asks. Two guards, both non-blocking:
-
-- Clocking out before `defaults.confirm_clock_out_before` (16:00) shows a
-  confirmation, because an accidental `/` at 11:00 silently ends your morning.
-- Clocking in on a day already marked as a full-day absence is refused with a
-  status-bar message naming the absence, not a modal.
+`/` toggles. It never asks. One guard, non-blocking: clocking in on a day
+already marked as a full-day absence is refused with a status-bar message
+naming the absence, not a modal.
 
 The result of every clock action goes to the status bar (`Clocked in at 09:12`),
 the clock module's pill flips, and the punch strip grows a live edge.

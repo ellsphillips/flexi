@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from flexi.config import CONFIG, Config, Hotkeys, load_config
+from flexi.config import CONFIG, Config, Defaults, Hotkeys, load_config
 from flexi.constants import AbsenceType
 
 
@@ -80,10 +80,11 @@ def test_a_key_the_file_invents_falls_back_whole_rather_than_in_part(
 ) -> None:
     """One misspelling must not leave a half-applied keymap.
 
-    `extra="forbid"` rejects the document, and the fallback is the *whole*
-    default config -- so the good line beside the bad one is discarded too.
+    `extra="forbid"` rejects the section, and the fallback is the whole of that
+    section -- so the good line beside the bad one is discarded with it.
     Applying it would give a keymap that exists in no file and cannot be
-    reproduced by fixing the typo.
+    reproduced by fixing the typo. The *other* section still reads; that is
+    what `test_a_bad_section_does_not_take_the_good_one_with_it` pins.
     """
     path = written(
         tmp_path / "config.yaml",
@@ -120,6 +121,25 @@ def test_a_default_outside_its_vocabulary_gets_the_defaults(
     assert load_config(path) == Config()
 
 
+def test_a_bad_section_does_not_take_the_good_one_with_it(tmp_path: Path) -> None:
+    """`extra="forbid"` makes an unknown key an error, and the file was one unit.
+
+    So a single unknown key under `defaults` threw the hotkeys away too, with
+    nothing said — and the example in `docs/ARCHITECTURE.md` contained two of
+    them, so somebody who copied the documented config got every default back
+    and no way to tell why.
+    """
+    path = written(
+        tmp_path / "config.yaml",
+        "hotkeys:\n  clock_toggle: x\ndefaults:\n  round_to_minutes: 1\n",
+    )
+
+    config = load_config(path)
+
+    assert config.hotkeys.clock_toggle == "x", "the section that read was discarded"
+    assert config.defaults == Defaults(), "and the one that did not falls back"
+
+
 def test_what_the_file_says_is_what_is_used(tmp_path: Path) -> None:
     """The other half of the bargain: a valid file is honoured, field by field."""
     path = written(
@@ -134,7 +154,7 @@ def test_what_the_file_says_is_what_is_used(tmp_path: Path) -> None:
     assert config.hotkeys.help == Hotkeys().help, "unstated keys keep their defaults"
 
 
-# -- writing it back ---------------------------------------------------------
+# -- the loaded config -------------------------------------------------------
 
 
 def test_the_module_level_config_is_the_one_the_bindings_read() -> None:

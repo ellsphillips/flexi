@@ -111,12 +111,16 @@ class Config(BaseModel):
 
 
 def load_config(path: Path | None = None) -> Config:
-    """Read the config file, falling back to defaults.
+    """Read the config file, falling back to defaults section by section.
 
-    A malformed file yields the defaults rather than refusing to start: a typo in
-    a keybinding should not lock somebody out of their own time records. The
-    application reports it on the status bar once it has a status bar to report
-    it on.
+    A malformed file yields the defaults rather than refusing to start: a typo
+    in a keybinding should not lock somebody out of their own time records.
+
+    Section by section, though, and not wholesale. Validated as one document, a
+    single unknown key under `defaults` -- and `extra="forbid"` makes an unknown
+    key an error -- threw away the hotkeys too, silently. The documented example
+    contained two such keys, so somebody who copied it from `ARCHITECTURE.md`
+    got every default back and no way to tell why.
     """
     path = path or config_file()
     try:
@@ -125,10 +129,20 @@ def load_config(path: Path | None = None) -> Config:
         return Config()
     if not isinstance(raw, dict):
         return Config()
+    return Config(
+        hotkeys=_section(Hotkeys, raw.get("hotkeys")),
+        defaults=_section(Defaults, raw.get("defaults")),
+    )
+
+
+def _section[T: BaseModel](model: type[T], raw: Any) -> T:
+    """One section of the file, or that section's defaults."""
+    if not isinstance(raw, dict):
+        return model()
     try:
-        return Config.model_validate(raw)
+        return model.model_validate(raw)
     except Exception:  # noqa: BLE001 - pydantic raises a family of errors
-        return Config()
+        return model()
 
 
 CONFIG: Config = load_config()

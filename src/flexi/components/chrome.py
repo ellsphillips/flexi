@@ -103,18 +103,16 @@ class NavBar(Horizontal):
 class AppHeader(Horizontal):
     """Wordmark, navigation, and the date and period in play.
 
-    Reads its context on mount and is pushed to afterwards -- both, because
-    Textual's ``ScreenResume`` does not bubble to the app, so a header on a newly
-    raised screen has to ask. The app is reached with ``getattr`` to keep this
-    module out of an import cycle.
+    The context is pushed to it. It used to try to *ask* as well, on mount,
+    through `getattr(self.app, "context_label", "")` -- and no such attribute
+    has ever existed on the application, so the fallback was the only answer
+    that branch ever gave. Every screen that has a context writes it in its own
+    `on_mount` or `rebuild`, which is the half that works.
     """
 
     context: reactive[str] = reactive("", init=False)
 
     def compose(self) -> ComposeResult:
-        self.set_reactive(
-            AppHeader.context, str(getattr(self.app, "context_label", ""))
-        )
         yield Wordmark()
         yield NavBar()
         yield Static(self.context, classes="header-context", id="header-context")

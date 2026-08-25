@@ -277,8 +277,6 @@ hotkeys:            # every binding, see KEYMAP.md
 defaults:
   period: week
   first_day_of_week: 0
-  round_to_minutes: 1
-  confirm_clock_out_before: "16:00"   # ask if departing unusually early
 ```
 
 Bindings read from `CONFIG.hotkeys` at class-definition time,
