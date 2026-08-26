@@ -95,7 +95,7 @@ class MonthView(Module):
         if period.anchor != self._last_anchor:
             self._visible = period.anchor.replace(day=1)
             self._last_anchor = period.anchor
-        grid = _month_grid(self._visible, period.first_weekday)
+        grid = month_grid(self._visible, first_weekday=period.first_weekday)
         ledgers = {
             item.date: item
             for item in self.services.ledger.days(grid[0], grid[-1], now=self.now)
@@ -189,7 +189,7 @@ class MonthView(Module):
         self.post_message(DateSelected(self.period.anchor))
 
 
-def _month_grid(first_of_month: date, first_weekday: int = 0) -> list[date]:
+def month_grid(first_of_month: date, *, first_weekday: int) -> list[date]:
     """Six weeks of dates covering the month, starting on the configured day.
 
     It always started on Monday, while the period the same widget tints came

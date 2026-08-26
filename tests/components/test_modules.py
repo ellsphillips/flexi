@@ -28,10 +28,10 @@ from textual.widgets import Button, Digits, Label, Static, Switch
 from flexi.components.allowance import pace_tone
 from flexi.components.common import Tone
 from flexi.components.expandable import ExpandableTable, RowKind, row_key
-from flexi.components.modules.balance import BalanceModule, _state_class
+from flexi.components.modules.balance import BalanceModule, lean_class
 from flexi.components.modules.base import Module
 from flexi.components.modules.clock import ClockModule
-from flexi.components.modules.monthview import MonthView, _month_grid
+from flexi.components.modules.monthview import MonthView, month_grid
 from flexi.components.modules.records import (
     MAX_JUMP_ROWS,
     BookHere,
@@ -299,7 +299,7 @@ def test_a_balance_with_no_contract_behind_it_is_left_in_hours() -> None:
 
 def test_a_level_balance_is_muted_rather_than_coloured() -> None:
     """Green is earned by a surplus; nil is not a very small one."""
-    assert _state_class(timedelta()) == "muted"
+    assert lean_class(timedelta()) == "muted"
 
 
 # -- the wallet --------------------------------------------------------------
@@ -382,8 +382,8 @@ def test_the_month_grid_starts_on_the_day_the_week_is_configured_to_start() -> N
     -- lit two rows for one week, fourteen days presented as this week, under
     headings that still read M T W T F S S.
     """
-    monday_first = _month_grid(date(2026, 6, 1))
-    sunday_first = _month_grid(date(2026, 6, 1), first_weekday=6)
+    monday_first = month_grid(date(2026, 6, 1), first_weekday=0)
+    sunday_first = month_grid(date(2026, 6, 1), first_weekday=6)
 
     assert monday_first[0] == date(2026, 6, 1), "June 2026 opens on a Monday"
     assert sunday_first[0] == date(2026, 5, 31)

@@ -56,7 +56,7 @@ class BalanceModule(Module):
         readout = self.query_one("#balance-digits", Digits)
         readout.update(digits(summary.delta))
         readout.remove_class(*STATE_CLASSES)
-        readout.add_class(_state_class(summary.delta))
+        readout.add_class(lean_class(summary.delta))
 
         self.query_one("#balance-detail", Static).update(
             self._detail(summary.delta, contracted)
@@ -80,7 +80,7 @@ class BalanceModule(Module):
         return f"{hm(value)} {word} · {signed_days(days)} {plural(abs(days), 'day')}"
 
 
-def _state_class(value: timedelta) -> str:
+def lean_class(value: timedelta) -> str:
     """Which way the figure beside it leans, by the same rule that draws it.
 
     Through `is_level` rather than against zero, so the colour cannot claim a
