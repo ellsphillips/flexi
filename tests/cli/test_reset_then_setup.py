@@ -7,7 +7,7 @@ screen is drawn -- so between the delete and the form there has to be a
 migration, or the command dies with `no such table: settings` having already
 destroyed everything it was asked to destroy.
 
-It shipped like that. `_ask_the_questions` opened the application and left every
+It shipped like that. `ask_the_questions` opened the application and left every
 caller to have migrated first; there were four callers and the reset path,
 added last, did not. The invariant is now established where it is needed rather
 than asserted in the places that happen to remember.
@@ -74,7 +74,7 @@ def test_the_records_really_are_gone(erased: Path) -> None:
 
 def test_the_setup_form_opens_after_the_records_are_erased(erased: Path) -> None:
     """The crash somebody hit: erase, then straight into the five questions."""
-    app = main._launch(splash=True)
+    app = main.launch(splash=True)
     try:
         assert app.show_splash, "the first run after a reset earns the animation"
     finally:
@@ -98,7 +98,7 @@ def test_every_way_into_the_application_migrates_first(
 ) -> None:
     """Four callers, one forgot. Assert the seam rather than the callers.
 
-    `_launch` is the only place in `__main__` that constructs the application,
+    `launch` is the only place in `__main__` that constructs the application,
     so this is the one place the invariant has to hold.
 
     Patched at the source modules rather than on `__main__`: neither name is
@@ -117,7 +117,7 @@ def test_every_way_into_the_application_migrates_first(
     monkeypatch.setattr("flexi.models.database.migrate.run_migrations", migrated)
     monkeypatch.setattr("flexi.app.App", opened)
 
-    main._launch()
+    main.launch()
 
     assert order == ["migrated", "opened"], "the schema must exist before App is built"
 

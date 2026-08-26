@@ -58,7 +58,7 @@ def interactive() -> bool:
 
 
 @contextmanager
-def _unbuffered() -> Iterator[int]:
+def unbuffered() -> Iterator[int]:
     """The terminal delivering keys as they are struck.
 
     ``cbreak`` rather than ``raw``: it leaves signal handling on, so ctrl-c
@@ -85,16 +85,16 @@ def _unbuffered() -> Iterator[int]:
         termios.tcsetattr(descriptor, termios.TCSADRAIN, saved)
 
 
-def _more_coming(descriptor: int) -> bool:
+def more_coming(descriptor: int) -> bool:
     import select
 
     ready, _, _ = select.select([descriptor], [], [], ESCAPE_WAIT)
     return bool(ready)
 
 
-def _read_posix(descriptor: int) -> Key:
+def read_posix(descriptor: int) -> Key:
     sequence = os.read(descriptor, 1).decode("utf-8", errors="ignore")
-    while incomplete(sequence) and _more_coming(descriptor):
+    while incomplete(sequence) and more_coming(descriptor):
         sequence += os.read(descriptor, 1).decode("utf-8", errors="ignore")
     return decode(sequence)
 
@@ -106,7 +106,7 @@ WINDOWS_SCANCODES: Final[dict[str, Key]] = {"H": Key.UP, "P": Key.DOWN}
 """The scan codes for the two keys a menu moves on."""
 
 
-def _read_windows(getwch: Callable[[], str]) -> Key:
+def read_windows(getwch: Callable[[], str]) -> Key:
     """One key press, as the Windows console delivers it.
 
     An arrow comes as two reads -- a prefix saying a scan code follows, then the
@@ -131,8 +131,8 @@ def read_key(descriptor: int) -> Key:
     if sys.platform == "win32":  # pragma: no cover - POSIX takes the branch below
         import msvcrt
 
-        return _read_windows(msvcrt.getwch)
-    return _read_posix(descriptor)
+        return read_windows(msvcrt.getwch)
+    return read_posix(descriptor)
 
 
 # -- drawing -----------------------------------------------------------------
@@ -201,7 +201,7 @@ def choose(
     surface = Surface(out)
     menu = Menu(question, tuple(options))
 
-    with _unbuffered() as descriptor, surface.without_cursor():
+    with unbuffered() as descriptor, surface.without_cursor():
         surface.draw(menu.render())
         while True:
             try:

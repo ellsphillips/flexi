@@ -155,7 +155,7 @@ def overview(db_path: Path, contents: Contents) -> list[Text]:
     return lines
 
 
-def _options(contents: Contents) -> list[ui.Option]:
+def options(contents: Contents) -> list[ui.Option]:
     total = contents.total
     erase = (
         "erase everything"
@@ -172,7 +172,7 @@ def _options(contents: Contents) -> list[ui.Option]:
 def ask(db_path: Path, contents: Contents) -> Choice | None:
     """Show what is there, and return what was chosen about it."""
     ui.write(overview(db_path, contents))
-    picked = ui.choose("What would you like to do?", _options(contents))
+    picked = ui.choose("What would you like to do?", options(contents))
     return Choice(picked.value) if picked is not None else None
 
 

@@ -303,7 +303,7 @@ class LeaveScreen(Screen[None]):
         )
 
         if plan.is_empty:
-            self._after_write(_nothing_doing(plan), ok=False)
+            self._after_write(nothing_doing(plan), ok=False)
             return
 
         if selection.start == selection.end:
@@ -467,6 +467,6 @@ def preview(plan: AbsencePlan) -> str:
     return "\n".join(lines)
 
 
-def _nothing_doing(plan: AbsencePlan) -> str:
+def nothing_doing(plan: AbsencePlan) -> str:
     """Why an empty plan is empty, in one line."""
     return plan.reasons[0] if plan.reasons else "Nothing to book in that selection"

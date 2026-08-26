@@ -99,7 +99,7 @@ def test_interior_walls_are_never_sampled() -> None:
     """
     inked = splash.cells()
     every_face = len(inked) * (
-        2 * splash._FACE_SAMPLES**2 + 4 * splash._FACE_SAMPLES * splash._DEPTH_SAMPLES
+        2 * splash.FACE_SAMPLES**2 + 4 * splash.FACE_SAMPLES * splash.DEPTH_SAMPLES
     )
     assert len(splash.surface()) < every_face
 

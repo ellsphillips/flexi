@@ -154,7 +154,7 @@ def test_an_absent_database_is_empty_rather_than_unreadable(tmp_path: Path) -> N
 
 
 def erase_option(contents: init_cli.Contents) -> ui.Option:
-    options = init_cli._options(contents)
+    options = init_cli.options(contents)
     return next(o for o in options if o.value == init_cli.Choice.RESET)
 
 
@@ -171,7 +171,7 @@ def test_the_destructive_row_is_drawn_in_the_deficit_red(populated: Path) -> Non
 
 def test_the_safe_option_is_first(populated: Path) -> None:
     """Enter on arrival must never be the keystroke that erases anything."""
-    first = init_cli._options(init_cli.describe(populated))[0]
+    first = init_cli.options(init_cli.describe(populated))[0]
     assert first.value == init_cli.Choice.OPEN
     assert not first.grave
 

@@ -1,5 +1,11 @@
 """A plausible working life, for demos, screenshots and snapshot tests.
 
+`seed_demo` is the whole of what this module offers. The steps under it are its
+body broken up to be readable, and they run in an order nothing enforces --
+wiping before writing settings, settings before work, absences before the work
+that has to skip them. Publishing them would advertise a sequence a caller could
+get wrong, which is the one case where private earns its keep here.
+
 Deterministic by construction -- no ``random``, no clock reads. Every figure is
 derived from the day's index, so the seed produces byte-identical output on any
 machine on any day, which is what a committed SVG snapshot requires.
@@ -79,7 +85,7 @@ MAY, AUGUST = 5, 8
 MONDAY = 0
 
 
-def _monday(year: int, month: int, *, last: bool) -> date:
+def nth_monday(year: int, month: int, *, last: bool) -> date:
     """The first or last Monday of a month."""
     first = date(year, month, 1)
     start = first + timedelta(days=(MONDAY - first.weekday()) % 7)
@@ -102,9 +108,9 @@ def holidays_in(year: int) -> tuple[tuple[date, str], ...]:
     them all from its own starting year.
     """
     return (
-        (_monday(year, MAY, last=False), "Early May bank holiday"),
-        (_monday(year, MAY, last=True), "Spring bank holiday"),
-        (_monday(year, AUGUST, last=True), "Summer bank holiday"),
+        (nth_monday(year, MAY, last=False), "Early May bank holiday"),
+        (nth_monday(year, MAY, last=True), "Spring bank holiday"),
+        (nth_monday(year, AUGUST, last=True), "Summer bank holiday"),
     )
 
 
@@ -255,11 +261,11 @@ def _closed_day(session: Session, when: date, index: int, *, morning: bool) -> N
 
     if morning:
         _session(session, when, arrive, time(12, 30))
-        back = _add_minutes(time(12, 30), lunch)
+        back = add_minutes(time(12, 30), lunch)
     else:
         back = time(13, 0)
 
-    finish = _add_minutes(back, 444 - (210 if morning else 0) + extra)
+    finish = add_minutes(back, 444 - (210 if morning else 0) + extra)
     _session(session, when, back, finish)
 
 
@@ -308,6 +314,6 @@ def _session(session: Session, when: date, start: time, end: time | None) -> Non
     )
 
 
-def _add_minutes(base: time, minutes: int) -> time:
+def add_minutes(base: time, minutes: int) -> time:
     total = base.hour * 60 + base.minute + minutes
     return time(min(23, total // 60), total % 60)

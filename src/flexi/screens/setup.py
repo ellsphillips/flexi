@@ -69,7 +69,7 @@ exactly as wide as its widest child, so a narrower wordmark sat against its left
 edge -- correctly centred as a block, visibly off-centre as a logo."""
 
 
-def _sized(css: str) -> str:
+def sized(css: str) -> str:
     """Fill the column widths into a stylesheet.
 
     The widths have to be known in Python -- the wordmark is told to be as wide
@@ -90,7 +90,7 @@ def _sized(css: str) -> str:
 class Rail(Static):
     """The line down the left of the form, and the marker travelling on it."""
 
-    DEFAULT_CSS = _sized("""
+    DEFAULT_CSS = sized("""
     Rail { width: RAIL_W; height: auto; }
     """)
 
@@ -143,7 +143,7 @@ class Rail(Static):
 class Question(Horizontal):
     """One moment on the rail: a label, a field and a note beyond it."""
 
-    DEFAULT_CSS = _sized("""
+    DEFAULT_CSS = sized("""
     Question {
         height: 1;
         width: auto;
@@ -188,7 +188,7 @@ class SetupScreen(Screen[bool]):
         Binding("ctrl+s", "save", "Save"),
     ]
 
-    DEFAULT_CSS = _sized("""
+    DEFAULT_CSS = sized("""
     SetupScreen { align: center middle; background: $c-ink; }
 
     #setup { width: FORM_W; height: auto; }

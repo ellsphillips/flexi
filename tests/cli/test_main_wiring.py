@@ -136,7 +136,7 @@ def instead_of_the_application(
     """Record every application `__main__` builds, and draw none of them.
 
     Patched at `flexi.app.App`, not on `__main__`: the name is imported inside
-    `_launch` and `_run_demo` so that `flexi --version` does not load six
+    `launch` and `run_demo` so that `flexi --version` does not load six
     Textual screens, which means there is nothing bound here to replace.
     """
     opened: list[_Opened] = []
@@ -153,7 +153,7 @@ def instead_of_the_application(
 def answering_the_questions(app: _Opened) -> None:
     """What the setup screen does when somebody actually fills it in.
 
-    `_ask_the_questions` asks the database whether setup finished, never the
+    `ask_the_questions` asks the database whether setup finished, never the
     form, so this has to write the row rather than merely return.
     """
     set_up(app.db_path or database_file())
@@ -213,7 +213,7 @@ def test_the_demo_opens_a_working_life_rather_than_an_empty_week(
     """An empty demo is a worse advertisement than no demo.
 
     The seed is read while the application is up, because that is the only
-    moment it exists: the temporary directory goes as `_run_demo` returns.
+    moment it exists: the temporary directory goes as `run_demo` returns.
     """
     counted: list[int] = []
 
@@ -644,7 +644,7 @@ def test_erasing_a_database_that_is_not_there_promises_no_snapshot(
     The rail must not then close with "Snapshot kept at None", pointing at a
     backup nobody has on the one path where the safety net is the whole point.
     """
-    main._erase(tmp_path / "absent.db")
+    main.erase(tmp_path / "absent.db")
 
     assert "Snapshot" not in capsys.readouterr().err
 

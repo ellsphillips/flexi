@@ -429,7 +429,7 @@ def test_the_windows_console_vocabulary(
     one arrives depends on the key and the keyboard. Reading one and not the
     other makes the arrows work on some machines.
     """
-    assert prompt._read_windows(typing(*characters)) is expected
+    assert prompt.read_windows(typing(*characters)) is expected
 
 
 def test_a_windows_scan_code_flexi_has_no_use_for_is_not_a_key() -> None:
@@ -440,8 +440,8 @@ def test_a_windows_scan_code_flexi_has_no_use_for_is_not_a_key() -> None:
     """
     keyboard = typing("\x00", ";", "j")
 
-    assert prompt._read_windows(keyboard) is Key.UNKNOWN
-    assert prompt._read_windows(keyboard) is Key.DOWN
+    assert prompt.read_windows(keyboard) is Key.UNKNOWN
+    assert prompt.read_windows(keyboard) is Key.DOWN
 
 
 def test_escape_on_windows_is_not_the_start_of_anything() -> None:
@@ -453,8 +453,8 @@ def test_escape_on_windows_is_not_the_start_of_anything() -> None:
     """
     keyboard = typing("\x1b", "\x00", "H")
 
-    assert prompt._read_windows(keyboard) is Key.QUIT
-    assert prompt._read_windows(keyboard) is Key.UP
+    assert prompt.read_windows(keyboard) is Key.QUIT
+    assert prompt.read_windows(keyboard) is Key.UP
 
 
 # -- choosing ----------------------------------------------------------------
@@ -477,7 +477,7 @@ def options() -> Sequence[Option]:
 @pytest.fixture
 def pressing(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
     """Somebody at the keyboard, pressing the keys they are given in order."""
-    monkeypatch.setattr(prompt, "_unbuffered", _no_terminal)
+    monkeypatch.setattr(prompt, "unbuffered", _no_terminal)
 
     def press(*keys: Key) -> None:
         presses = iter(keys)
@@ -557,7 +557,7 @@ def test_a_ctrl_c_the_terminal_turns_into_a_signal_is_still_a_refusal(
     def interrupted(_descriptor: int) -> Key:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(prompt, "_unbuffered", _no_terminal)
+    monkeypatch.setattr(prompt, "unbuffered", _no_terminal)
     monkeypatch.setattr(prompt, "read_key", interrupted)
 
     assert prompt.choose("What would you like to do?", options(), out=console) is None

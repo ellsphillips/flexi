@@ -70,7 +70,7 @@ TONE_CLASSES: Final[dict[Tone, str]] = {
     Tone.ACCENT: "pill--accent",
 }
 
-_ALL_TONE_CLASSES: Final[tuple[str, ...]] = tuple(
+ALL_TONE_CLASSES: Final[tuple[str, ...]] = tuple(
     name for name in TONE_CLASSES.values() if name
 )
 
@@ -134,7 +134,7 @@ class Pill(Static):
         They are mutually exclusive, so removing all of them first is cheaper to
         reason about than tracking which one is on.
         """
-        self.remove_class(*_ALL_TONE_CLASSES)
+        self.remove_class(*ALL_TONE_CLASSES)
         if applied := TONE_CLASSES[self.tone]:
             self.add_class(applied)
 

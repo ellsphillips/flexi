@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from textual.widgets import Button, Input, Switch
 
 from flexi.components.modules.clock import ClockModule
+from flexi.constants import ClockAction
 from flexi.messages import Scope
+from flexi.models.database.db import ClockEvent
+from flexi.screens.dashboard import with_time
+from flexi.services.absence import AbsenceResult
+from flexi.services.clock import ClockResult
 from tests.tui.conftest import WIDE, AppFactory, dashboard, status_text
 
 
@@ -156,3 +163,44 @@ async def test_a_module_that_writes_tells_the_screen_and_the_live_tick_follows(
 
         assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
         assert screen._tick is None, "a closed session left the timer running"
+
+
+# -- stamping the status line ------------------------------------------------
+
+STAMPED_AT = datetime(2026, 6, 11, 12, 4, tzinfo=UTC)
+
+
+def punched(message: str) -> ClockResult:
+    """A clock result carrying the event every clock-out return carries."""
+    return ClockResult(
+        success=True,
+        message=message,
+        event=ClockEvent(action=ClockAction.OUT, timestamp=STAMPED_AT),
+    )
+
+
+def test_a_clock_message_is_stamped_with_the_moment_it_recorded() -> None:
+    """A stamped message is a fact somebody can check against the wall clock."""
+    assert with_time("Clocked out", punched("Clocked out")).endswith("at 12:04")
+
+
+def test_a_result_that_is_not_a_clocking_is_left_alone() -> None:
+    """A discarded session carries an event and must not be stamped with it.
+
+    "Discarded — under 1 minute on the clock at 12:04" reads as a discard that
+    happened at 12:04, which is not what the sentence is about — and both
+    returns that say something other than "Clocked" carry an event, so the
+    presence of one cannot be the test.
+    """
+    discarded = "Discarded — under 1 minute on the clock"
+    assert with_time(discarded, punched(discarded)) == discarded
+
+    backwards = "That clock-out is earlier than the clock-in"
+    assert with_time(backwards, punched(backwards)) == backwards
+
+
+def test_a_result_from_somewhere_other_than_the_clock_is_left_alone() -> None:
+    """Absence and adjustment results reach the same status bar."""
+    assert with_time("Booked 3 days", AbsenceResult(True, "Booked 3 days")) == (
+        "Booked 3 days"
+    )

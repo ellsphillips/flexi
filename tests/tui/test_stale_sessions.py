@@ -1,7 +1,7 @@
 """A session left open overnight, seen from the application.
 
 The CLI sweeps stale sessions when it opens the database, in
-`__main__._open_database`. The application never did. So a Tuesday somebody
+`__main__.open_database`. The application never did. So a Tuesday somebody
 forgot to close was still drawn as running when they opened Flexi on Thursday,
 and pressing `/` closed Tuesday's session at Thursday's time -- one work session,
 dated Tuesday, fifty-one hours long, and about forty-three hours of overtime

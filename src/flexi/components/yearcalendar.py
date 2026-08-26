@@ -65,7 +65,7 @@ HOLIDAY: Final = "·"
 BLANK: Final = " "
 
 
-def _units_column(width: int) -> int:
+def units_column(width: int) -> int:
     """Where the day's units digit sits inside a cell of this width.
 
     One answer, asked by the tile that draws the number and by the heading that
@@ -73,9 +73,9 @@ def _units_column(width: int) -> int:
     initials came to sit three cells right of the dates.
 
     Examples:
-        >>> _units_column(12)  # " 13 annual"
+        >>> units_column(12)  # " 13 annual"
         2
-        >>> _units_column(6)  # "  13 "
+        >>> units_column(6)  # "  13 "
         3
     """
     return 2 if width >= LABELLED_CELL else width - 3
@@ -324,7 +324,7 @@ class YearCalendar(ScrollView, can_focus=True):
         style = self.get_component_rich_style("cal--weekday")
         initials = weekday_initials(self.first_weekday)
         text = "".join(
-            initial.rjust(_units_column(width) + 1).ljust(width)
+            initial.rjust(units_column(width) + 1).ljust(width)
             for initial, width in zip(initials, self.columns, strict=False)
         )
         return Strip([Segment(text, style)], self.grid_width)

@@ -45,6 +45,7 @@ from flexi.screens.modals import (
     ConfirmModal,
     GoToDateModal,
 )
+from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
 from flexi.services.registry import Services
 
@@ -345,7 +346,7 @@ class DashboardScreen(Screen[None]):
     def _report(self, result: Outcome, scope: Scope = Scope.CLOCK) -> None:
         """Put a service result on the status bar, and redraw if it wrote."""
         success = result.success
-        message = _with_time(result.message, result)
+        message = with_time(result.message, result)
         if success and result.warning:
             self.status(result.warning, Tone.WARN)
         else:
@@ -360,17 +361,23 @@ class DashboardScreen(Screen[None]):
             footer.set_status(message, tone)
 
 
-def _with_time(message: str, result: Outcome) -> str:
+CLOCKED = "Clocked"
+"""What a message says when it is reporting a moment worth stamping."""
+
+
+def with_time(message: str, result: Outcome) -> str:
     """Stamp a clock result with the time it recorded.
 
     "Clocked out" is a fact about the past tense; "Clocked out at 12:04" is a
     fact somebody can check against the clock on their wall, which is what makes
     a mistaken keystroke visible the moment it happens.
     """
-    # Only a clock result carries an event; the protocol does not promise one,
-    # and asking for it is cheaper than a second protocol for one field.
-    event = getattr(result, "event", None)
-    stamp = getattr(event, "timestamp", None)
-    if stamp is None or not message.startswith("Clocked"):
+    if not isinstance(result, ClockResult) or result.event is None:
         return message
-    return f"{message} at {clock_time(stamp)}"
+    # A prose test, and the weakest thing here: `ClockResult` also comes back
+    # from a discarded session, which carries an event and must not be stamped
+    # with one. The strong version is for `event` to be set only on the two
+    # returns that record a moment somebody can check.
+    if not message.startswith(CLOCKED):
+        return message
+    return f"{message} at {clock_time(result.event.timestamp)}"

@@ -45,7 +45,7 @@ def is_initialised(db_path: Path | None = None) -> bool:
     if not path.is_file():
         return False
 
-    answer = _stamped_and_configured(path)
+    answer = stamped_and_configured(path)
     if answer:
         _INITIALISED.add(path)
     return answer
@@ -57,7 +57,7 @@ def forget(db_path: Path | None = None) -> None:
     _INITIALISED.discard(path)
 
 
-def _stamped_and_configured(path: Path) -> bool:
+def stamped_and_configured(path: Path) -> bool:
     """The database carries a migration stamp and a complete settings row.
 
     ``mode=ro`` refuses to create the file, which is the invariant

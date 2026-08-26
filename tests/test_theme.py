@@ -40,7 +40,7 @@ def test_the_fallback_palette_agrees_with_the_stylesheet() -> None:
     """
     parsed = theme.palette()
 
-    assert {name: parsed.get(name) for name in theme._FALLBACK} == theme._FALLBACK
+    assert {name: parsed.get(name) for name in theme.FALLBACK} == theme.FALLBACK
 
 
 def test_the_palette_is_read_from_the_file_rather_than_restated_here(
@@ -84,7 +84,7 @@ def test_a_stylesheet_that_cannot_be_read_gives_the_fallback(tmp_path: Path) -> 
     Raising here would take the application down before the parser had a chance
     to say what was actually wrong with the file.
     """
-    assert theme.palette(tmp_path / "gone.tcss") == theme._FALLBACK
+    assert theme.palette(tmp_path / "gone.tcss") == theme.FALLBACK
 
 
 def test_a_stylesheet_with_no_palette_left_in_it_gives_the_fallback(
@@ -98,7 +98,7 @@ def test_a_stylesheet_with_no_palette_left_in_it_gives_the_fallback(
     """
     path = stylesheet(tmp_path, "/* the palette moved */\nScreen { background: red; }")
 
-    assert theme.palette(path) == theme._FALLBACK
+    assert theme.palette(path) == theme.FALLBACK
 
 
 # -- one colour at a time ----------------------------------------------------

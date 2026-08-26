@@ -12,6 +12,7 @@ from datetime import date, timedelta
 import click
 
 from flexi import wallclock
+from flexi.cli import report
 from flexi.domain.format import delta, hm, long_date, stamp
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services
@@ -79,8 +80,7 @@ def zero(
         return 0
 
     result = services.zero_balance(when, reason=reason or OPENING_BALANCE)
-    click.secho(result.message, fg="green" if result.success else "red")
-    if not result.success:
+    if report(result):
         return 1
 
     now = services.ledger.balance(wallclock.today()).delta
@@ -103,6 +103,4 @@ def log(services: Services) -> int:
 
 def undo(services: Services, adjustment_id: int) -> int:
     """Remove a correction by its id, as listed by `log`."""
-    result = services.adjustments.remove(adjustment_id)
-    click.secho(result.message, fg="green" if result.success else "red")
-    return 0 if result.success else 1
+    return report(services.adjustments.remove(adjustment_id))

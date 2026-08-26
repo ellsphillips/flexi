@@ -97,7 +97,7 @@ class MonthView(Module):
         if period.anchor != self._last_anchor:
             self._visible = period.anchor.replace(day=1)
             self._last_anchor = period.anchor
-        grid = _month_grid(self._visible)
+        grid = month_grid(self._visible)
         ledgers = {
             item.date: item
             for item in self.services.ledger.days(grid[0], grid[-1], now=self.now)
@@ -191,7 +191,7 @@ class MonthView(Module):
         self.post_message(DateSelected(self.period.anchor))
 
 
-def _month_grid(first_of_month: date) -> list[date]:
+def month_grid(first_of_month: date) -> list[date]:
     """Six weeks of dates covering the month, Monday first."""
     start = first_of_month - timedelta(days=first_of_month.weekday())
     return [start + timedelta(days=offset) for offset in range(WEEKS * DAYS_IN_WEEK)]

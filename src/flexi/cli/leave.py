@@ -126,7 +126,7 @@ def run(
         raise click.UsageError(str(error)) from error
 
     if head == CANCEL_WORD:
-        return _cancel(services, start, end, assume_yes=assume_yes, dry_run=dry_run)
+        return cancel(services, start, end, assume_yes=assume_yes, dry_run=dry_run)
 
     kind = absence_from_word(head)
     if kind is None:  # pragma: no cover - parse_request has already refused
@@ -160,7 +160,7 @@ def run(
     return 0
 
 
-def _cancel(
+def cancel(
     services: Services,
     start: date,
     end: date,

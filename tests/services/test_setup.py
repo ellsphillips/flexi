@@ -52,7 +52,7 @@ test asserting otherwise would pass by describing something that had not
 happened. Denying a read there means an ACL, which is a great deal of machinery
 to reach a branch the other two platforms reach in a line.
 
-What is skipped is the *arrangement*, not the behaviour: `_stamped_and_configured`
+What is skipped is the *arrangement*, not the behaviour: `stamped_and_configured`
 has no platform in it, and a connection that raises is a connection that raises.
 """
 
