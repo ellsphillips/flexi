@@ -9,7 +9,7 @@ from textual.pilot import Pilot
 from textual.widgets import Input
 
 from flexi.app import FlexiApp
-from flexi.components.common import Gauge
+from flexi.components.common import Gauge, Tone
 from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.screens.leave import LeaveScreen, preview
@@ -394,6 +394,32 @@ async def test_the_wallet_moves_with_the_booking(app_factory: AppFactory) -> Non
         assert before is not None
         after = showing(app, LeaveScreen).query_one("#leave-gauge-annual", Gauge)
         assert after.value == before + 1
+
+
+async def test_the_planner_says_when_an_allowance_has_run_out(
+    app_factory: AppFactory,
+) -> None:
+    """The sidebar passed a hardcoded tone, so it never went amber or red.
+
+    On the one screen where the question is whether you can afford the booking,
+    an exhausted entitlement was drawn in the same green as an untouched one --
+    the dashboard's wallet, painting the same allowance, got this right.
+    """
+
+    def annual_tone() -> Tone:
+        return app.screen.query_one("#leave-gauge-annual", Gauge).tone
+
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        assert annual_tone() is Tone.OK
+
+        screen = showing(app, LeaveScreen)
+        app.services.settings.save_entitlement(screen.period.start.year, 0.0)
+        screen.rebuild()
+        await pilot.pause()
+
+        assert annual_tone() is Tone.ERR
 
 
 # -- removing --------------------------------------------------------------

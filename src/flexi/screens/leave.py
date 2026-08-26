@@ -22,6 +22,7 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from flexi import wallclock
+from flexi.components.allowance import paint_allowance
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import Gauge, Tone, mark_width
 from flexi.components.yearcalendar import YearCalendar, legend
@@ -41,11 +42,17 @@ from flexi.screens.modals import (
 from flexi.services.absence import AbsencePlan
 from flexi.services.registry import Services
 
-TRACKED: tuple[AbsenceType, ...] = (
+SIDEBAR: tuple[AbsenceType, ...] = (
     AbsenceType.ANNUAL,
     AbsenceType.FLEXI,
     AbsenceType.SICK,
 )
+"""The allowances the planner has room for beside a year calendar.
+
+Three of the five the dashboard's wallet shows -- the ones a booking decision
+turns on. Named apart from that module's ``TRACKED`` because two tuples of
+different length under one name is a drift waiting to happen.
+"""
 
 PORTION_CYCLE: tuple[Portion, ...] = (Portion.FULL, Portion.AM, Portion.PM)
 
@@ -99,7 +106,7 @@ class LeaveScreen(Screen[None]):
             with Vertical(id="leave-rail"):
                 yield Static("", id="leave-wallet-line", classes="caption")
                 with Vertical(id="leave-wallet", classes="module"):
-                    for kind in TRACKED:
+                    for kind in SIDEBAR:
                         yield Gauge(kind.short, id=f"leave-gauge-{kind.token}")
                 with Vertical(id="leave-selection", classes="module"):
                     yield Static("", id="leave-selection-label", classes="headline")
@@ -181,37 +188,13 @@ class LeaveScreen(Screen[None]):
             self.period.start, self.period.end, today=self.now.date(), now=self.now
         )
         annual = data.allowance(AbsenceType.ANNUAL)
-        for kind in TRACKED:
+        for kind in SIDEBAR:
             allowance = data.allowance(kind)
-            gauge = self.query_one(f"#leave-gauge-{allowance.token}", Gauge)
-            if kind is AbsenceType.FLEXI:
-                gauge.show(
-                    max(0.0, min(data.balance_days, 5.0)),
-                    readout=delta(data.balance.delta),
-                    total=5.0,
-                    tone=Tone.OK if data.balance_days >= 0 else Tone.ERR,
-                )
-            elif allowance.is_capped and allowance.remaining is not None:
-                gauge.show(
-                    allowance.used,
-                    readout=(
-                        f"{fmt_days(allowance.remaining)} of "
-                        f"{fmt_days(allowance.total or 0)}"
-                    ),
-                    total=allowance.total or 1.0,
-                    target=allowance.pace,
-                    tone=Tone.OK,
-                )
-            else:
-                gauge.show(
-                    None,
-                    readout=f"{fmt_days(allowance.used)}d"
-                    if allowance.used
-                    else "none",
-                    total=1.0,
-                    tone=Tone.NEUTRAL,
-                    compact=True,
-                )
+            paint_allowance(
+                self.query_one(f"#leave-gauge-{allowance.token}", Gauge),
+                allowance,
+                data,
+            )
 
         left = "—" if annual.remaining is None else f"{fmt_days(annual.remaining)} left"
         self.query_one("#leave-wallet-line", Static).update(

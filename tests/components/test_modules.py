@@ -25,6 +25,7 @@ from textual.pilot import Pilot
 from textual.screen import Screen
 from textual.widgets import Button, Digits, Label, Static, Switch
 
+from flexi.components.allowance import pace_tone
 from flexi.components.common import Tone
 from flexi.components.expandable import ExpandableTable, RowKind, row_key
 from flexi.components.modules.balance import BalanceModule, _state_class
@@ -37,7 +38,6 @@ from flexi.components.modules.records import (
     DeleteHere,
     RecordsModule,
 )
-from flexi.components.modules.wallet import _pace_tone
 from flexi.components.punch import PunchStrip
 from flexi.constants import AbsenceType, DayKind, Granularity, Portion
 from flexi.domain.ledger import AbsenceSlice, DayLedger
@@ -327,7 +327,7 @@ def test_only_an_allowance_with_nothing_left_is_red(
     allowance = Allowance(
         type=AbsenceType.ANNUAL, used=used, occurrences=1, total=total, pace=pace
     )
-    assert _pace_tone(allowance) is expected
+    assert pace_tone(allowance) is expected
 
 
 # -- the calendar ------------------------------------------------------------
