@@ -9,14 +9,18 @@ why the keymap can stay small.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 
 from flexi.components.chrome import NAV_ITEMS
-from flexi.constants import AbsenceType
-from flexi.domain.period import Granularity
+from flexi.constants import AbsenceType, Granularity
+from flexi.context import flexi_app
+
+if TYPE_CHECKING:
+    from flexi.app import FlexiApp
 
 
 class FlexiCommands(Provider):
@@ -42,23 +46,21 @@ class FlexiCommands(Provider):
     # -- the catalogue -----------------------------------------------------
 
     def _commands(self) -> Iterable[_Command]:
-        app = self.app
-        screen = getattr(app, "_dashboard", lambda: None)()
+        app = flexi_app(self.app)
+        screen = app.dashboard()
 
         yield _Command(
             "Clock in or out",
             "Toggle the clock. Bound to /",
-            getattr(app, "action_clock_toggle", _noop),
+            app.action_clock_toggle,
         )
-        yield _Command(
-            "Help", "Every binding on this screen", getattr(app, "action_help", _noop)
-        )
+        yield _Command("Help", "Every binding on this screen", app.action_help)
 
         for item in NAV_ITEMS:
             yield _Command(
                 f"Go to {item.label}",
                 item.description,
-                partial(getattr(app, "action_go_to", _noop), item.screen),
+                partial(app.action_go_to, item.screen),
             )
 
         if screen is None:
@@ -80,7 +82,7 @@ class FlexiCommands(Provider):
         yield _Command(
             "Book leave…",
             "Open the leave year and book on it directly",
-            partial(getattr(app, "action_go_to", _noop), "leave"),
+            partial(app.action_go_to, "leave"),
         )
 
         for kind in AbsenceType:
@@ -97,31 +99,20 @@ class FlexiCommands(Provider):
         )
 
 
+@dataclass(frozen=True, slots=True)
 class _Command:
     """One palette entry."""
 
-    __slots__ = ("help", "run", "title")
-
-    def __init__(self, title: str, help_text: str, run: Callable[[], Any]) -> None:
-        self.title = title
-        self.help = help_text
-        self.run = run
+    title: str
+    help: str
+    run: Callable[[], Any]
 
 
-def _noop() -> None:
-    """Do nothing, for a command whose target is not on this screen."""
-
-
-def _refresh_holidays(app: object) -> None:
-    services = getattr(app, "services", None)
-    if services is None:
-        return
-    ok = services.bank_holidays.fetch_and_cache()
-    services.invalidate()
-    notify = getattr(app, "notify", None)
-    if callable(notify):
-        notify(
-            "Bank holidays refreshed" if ok else "Could not reach gov.uk",
-            severity="information" if ok else "warning",
-            timeout=4,
-        )
+def _refresh_holidays(app: FlexiApp) -> None:
+    ok = app.services.bank_holidays.fetch_and_cache()
+    app.holidays_refreshed()
+    app.notify(
+        "Bank holidays refreshed" if ok else "Could not reach gov.uk",
+        severity="information" if ok else "warning",
+        timeout=4,
+    )

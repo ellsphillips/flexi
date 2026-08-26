@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import AbsenceType
+from flexi.domain import leaveyear
 from flexi.domain.wallet import Allowance, WalletData
 from flexi.services.absence import AbsenceService
 from flexi.services.ledger import LedgerService
@@ -53,7 +54,7 @@ class WalletService:
         """The wallet as at ``today``, with ``start``–``end`` as the shown period."""
         today = today or wallclock.today()
         year_start, year_end = self._absence.leave_year_bounds(today)
-        elapsed = _fraction_elapsed(year_start, year_end, today)
+        elapsed = leaveyear.fraction_elapsed(year_start, year_end, today)
         contracted = self._settings.get_contracted()
 
         balance = self._ledger.balance(today, now=now)
@@ -62,10 +63,8 @@ class WalletService:
 
         return WalletData(
             leave_year=(year_start, year_end),
-            elapsed=elapsed,
             balance=balance,
             period=period,
-            today=self._ledger.day(today, now=now),
             contracted=contracted,
             allowances=self._allowances(year_start, year_end, elapsed, balance_days),
         )
@@ -78,26 +77,24 @@ class WalletService:
         balance_days: float,
     ) -> tuple[Allowance, ...]:
         entitlement = self._settings.get_active_entitlement_days(year_start)
-        allowances: list[Allowance] = []
-        for kind in AbsenceType:
-            used = self._absence.count_days(
-                kind, start=year_start, end=year_end, valid_only=True
-            )
-            occurrences = self._absence.count_absences(
-                kind, start=year_start, end=year_end, valid_only=True
-            )
+        # One pass over the year's rows. It used to ask for days and occurrences
+        # separately, per type -- ten scans of the same rows with byte-identical
+        # arguments, each re-validating every row it read with three queries of
+        # its own, so a year of twenty-five bookings cost 162 round trips.
+        counted = self._absence.tally(year_start, year_end)
+
+        def allowance(kind: AbsenceType) -> Allowance:
             total = entitlement if kind.draws_down_entitlement else None
-            allowances.append(
-                Allowance(
-                    type=kind,
-                    used=used,
-                    occurrences=occurrences,
-                    total=total,
-                    pace=None if total is None else total * elapsed,
-                    balance_days=balance_days if kind.draws_down_balance else None,
-                )
+            return Allowance(
+                type=kind,
+                used=counted[kind].days,
+                occurrences=counted[kind].occurrences,
+                total=total,
+                pace=None if total is None else total * elapsed,
+                balance_days=balance_days if kind.draws_down_balance else None,
             )
-        return tuple(allowances)
+
+        return tuple(allowance(kind) for kind in AbsenceType)
 
     # -- convenience for the absence modal ---------------------------------
 
@@ -116,19 +113,6 @@ class WalletService:
         banked = self._ledger.balance(today).delta / contracted
         _, year_end = self._absence.leave_year_bounds(today)
         committed = self._absence.count_days(
-            AbsenceType.FLEXI, start=today + timedelta(days=1), end=year_end
+            AbsenceType.FLEXI, today + timedelta(days=1), year_end
         )
         return banked - committed
-
-
-def _fraction_elapsed(start: date, end: date, today: date) -> float:
-    """How far through a span today is, clamped to 0..1.
-
-    Clamped rather than allowed to run past 1.0 so a pace marker can never leave
-    the track — a marker off the end of a gauge reads as a rendering fault, and
-    the honest statement at that point is "all of it".
-    """
-    span = (end - start).days
-    if span <= 0:
-        return 1.0
-    return min(1.0, max(0.0, (today - start).days / span))

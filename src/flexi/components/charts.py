@@ -7,8 +7,9 @@ the mark, so none of them is the only way to read its own numbers.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, ClassVar, Final
 
 from rich.style import Style
@@ -17,10 +18,12 @@ from textual.app import RenderResult
 from textual.widget import Widget
 
 from flexi.components.punch import PUNCH_CLASSES, render_strip
+from flexi.domain.dates import week_start
 from flexi.domain.format import MINUS, delta, hm
 from flexi.domain.format import days as fmt_days
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window
+from flexi.domain.stitch import weekday_initials
 
 BLOCK: Final = "█"
 BASELINE: Final = "─"
@@ -260,15 +263,25 @@ class WeekRibbon(Widget):
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {*PUNCH_CLASSES, "chart--label"}
 
-    def __init__(self, *, window: Window | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self, *, window: Window | None = None, now: datetime, **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
         self.ledgers: tuple[DayLedger, ...] = ()
         self.window = window or Window()
+        self.now = now
 
-    def show(self, ledgers: list[DayLedger], window: Window | None = None) -> None:
+    def show(
+        self,
+        ledgers: list[DayLedger],
+        window: Window | None = None,
+        *,
+        now: datetime,
+    ) -> None:
         self.ledgers = tuple(ledgers)
         if window is not None:
             self.window = window
+        self.now = now
         self.refresh()
 
     def render(self) -> RenderResult:
@@ -282,7 +295,13 @@ class WeekRibbon(Widget):
         for ledger in self.ledgers:
             row = Text(f"{ledger.date.strftime('%a %d')}".ljust(gutter), style=label)
             row.append(
-                render_strip(ledger, width, self.window, self.get_component_rich_style)
+                render_strip(
+                    ledger,
+                    width,
+                    self.window,
+                    self.get_component_rich_style,
+                    now=self.now,
+                )
             )
             lines.append(row)
         return Text("\n").join(lines)
@@ -309,9 +328,13 @@ class YearHeatmap(Widget):
         super().__init__(**kwargs)
         self.ledgers: dict[date, DayLedger] = {}
         self.scale = timedelta(hours=2)
+        self.first_weekday = 0
+        """Which day the rows start on. Set by `show`; initialised because
+        `render` can run before the first one."""
 
-    def show(self, ledgers: list[DayLedger]) -> None:
+    def show(self, ledgers: list[DayLedger], *, first_weekday: int) -> None:
         self.ledgers = {item.date: item for item in ledgers}
+        self.first_weekday = first_weekday
         worst = max(
             (abs(item.balance_effect) for item in ledgers), default=timedelta(hours=2)
         )
@@ -325,13 +348,17 @@ class YearHeatmap(Widget):
         if not self.ledgers:
             return Text("Nothing recorded yet", style=label)
 
-        start = min(self.ledgers)
-        start -= timedelta(days=start.weekday())
+        # Both the grid and its row labels take the configured first day. They
+        # were a hardcoded Monday and a hardcoded "MTWTFSS" while the bars
+        # above them, on the same screen, honoured the setting -- so a
+        # Sunday-first week put the two charts a day out of step with each
+        # other and with the calendar on the leave screen.
+        start = week_start(min(self.ledgers), first_weekday=self.first_weekday)
         end = max(self.ledgers)
         weeks = ((end - start).days // 7) + 1
 
         lines: list[Text] = []
-        for weekday, initial in enumerate("MTWTFSS"):
+        for weekday, initial in enumerate(weekday_initials(self.first_weekday)):
             row = Text(f"{initial} ", style=label)
             for week in range(weeks):
                 when = start + timedelta(weeks=week, days=weekday)
@@ -367,17 +394,24 @@ class YearHeatmap(Widget):
         return text
 
 
-def week_columns(ledgers: list[DayLedger]) -> list[Column]:
-    """Group a run of days into one bar per week, for :class:`DivergingBars`."""
-    buckets: dict[date, timedelta] = {}
+def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column]:
+    """Group a run of days into one bar per week, for :class:`DivergingBars`.
+
+    ``first_weekday`` because these bars sit on the same screen as a calendar
+    drawn from it. Taking the default, they bucketed on Mondays and labelled
+    each bar with a Monday's date while everything else on the configuration
+    started the week on Sunday.
+    """
+    buckets: defaultdict[date, timedelta] = defaultdict(timedelta)
     for ledger in ledgers:
-        monday = ledger.date - timedelta(days=ledger.date.weekday())
-        buckets[monday] = buckets.get(monday, timedelta()) + ledger.balance_effect
+        buckets[week_start(ledger.date, first_weekday=first_weekday)] += (
+            ledger.balance_effect
+        )
     return [
         Column(
-            label=str(monday.day),
+            label=str(week.day),
             value=total.total_seconds() / 3600,
             readout=delta(total),
         )
-        for monday, total in sorted(buckets.items())
+        for week, total in sorted(buckets.items())
     ]

@@ -10,19 +10,23 @@ ones worth pinning.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 from sqlalchemy import update
+from textual.css.query import NoMatches
 from textual.pilot import Pilot
 from textual.widgets import Input, Select
 
 from flexi.app import FlexiApp
 from flexi.components.chrome import NavBar
 from flexi.components.modules.records import RecordsModule
-from flexi.models.database.app import create_db_engine, get_session
+from flexi.constants import Division
 from flexi.models.database.db import BankHolidayCache, Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
@@ -31,6 +35,7 @@ from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import CACHE_MAX_AGE
 from flexi.services.registry import Services
 from flexi.services.samples import NOW
+from tests.conftest import sessions_on
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
 
 TODAY = date(2026, 6, 11)
@@ -80,7 +85,7 @@ async def test_setup_can_hand_straight_over_to_the_settings_screen(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         showing(app, SettingsScreen)
-        assert app._dashboard() is not None, "settings should open over the dashboard"
+        assert app.dashboard() is not None, "settings should open over the dashboard"
 
 
 async def test_declining_setup_closes_the_application(unconfigured: Path) -> None:
@@ -152,6 +157,129 @@ async def test_a_calendar_fetched_this_week_is_left_alone(seeded_db: Path) -> No
         assert not [
             line for line in await said(app, pilot) if "bank holiday" in line.lower()
         ]
+
+
+MOUNT_TICKS = 20
+"""Event loop turns to redraw across. The window this is about opens four or
+five turns in, so this clears it with room to spare and costs a second."""
+
+
+async def test_a_redraw_arriving_while_the_screen_mounts_is_not_a_crash(
+    seeded_db: Path,
+) -> None:
+    """Widgets compose depth by depth, and a redraw can land between two levels.
+
+    `refresh_open_screens` is called from off the message loop when the bank
+    holiday worker finishes, so it can reach a dashboard whose modules are in
+    the tree and whose calendar cells are not yet — `NoMatches`, raised on a
+    worker and reported as the whole application failing. CI hit it on a loaded
+    runner; this laptop never did.
+
+    Redrawing on every turn of the loop while the app starts is what makes the
+    window reachable on demand. There is no flag to assert against instead:
+    `is_mounted` goes true well before a widget's own children arrive, which is
+    why the first fix for this did not take.
+    """
+    app = FlexiApp(db_path=seeded_db)
+    raised: list[NoMatches] = []
+
+    async def redraw_throughout_mounting() -> None:
+        for _ in range(MOUNT_TICKS):
+            try:
+                app.refresh_open_screens()
+            except NoMatches as error:
+                raised.append(error)
+                return
+            await asyncio.sleep(0)
+
+    hammer = asyncio.create_task(redraw_throughout_mounting())
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+    hammer.cancel()
+
+    assert not raised, f"a redraw during mounting raised {raised[0]!r}"
+
+
+async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
+    seeded_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker writes on a session of its own, and asks the loop to redraw.
+
+    It used to run SELECT, DELETE, INSERT and commit on the session the message
+    loop owns, started in the statement after the one that pushes the dashboard
+    — whose modules read that same session to draw. A `Session` is not
+    thread-safe: the interleavings give `database is locked` or a reader
+    finding the session inactive under a rolled-back write, and nothing catches
+    either.
+
+    Redrawing matters as much as fetching. Every figure on the dashboard
+    depends on which days are holidays, so a calendar that lands after the
+    first draw and is not shown leaves the balance wrong by a day per holiday
+    until an unrelated keystroke.
+    """
+    stale = NOW - CACHE_MAX_AGE - timedelta(days=1)
+    with get_session(create_db_engine(seeded_db)) as session:
+        session.execute(update(BankHolidayCache).values(fetched_at=stale))
+        session.commit()
+
+    def answered(_self: object, url: str, **_kwargs: object) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "england-and-wales": {
+                    "division": "england-and-wales",
+                    # Inside the week the dashboard opens on, so the arrival
+                    # has to change what is already drawn.
+                    "events": [{"title": "A new holiday", "date": "2026-06-12"}],
+                }
+            },
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx.Client, "get", answered)
+
+    app = FlexiApp(db_path=seeded_db)
+    async with app.run_test(size=WIDE) as pilot:
+        # Pumped first, so `on_mount` has started the worker: `wait_for_complete`
+        # returns at once if there is nothing to wait for. Then pumped until the
+        # redraw lands rather than a fixed number of times, because the redraw
+        # the worker asks for through `call_from_thread` is a callback the loop
+        # schedules -- and a fixed count is a test measuring the weather.
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        landed = date(2026, 6, 12)
+        for _ in range(20):
+            await pilot.pause()
+            if app.services.ledger.day(landed).is_holiday:
+                break
+
+        assert app.services.bank_holidays.get_dates() == {landed}
+        assert app.services.ledger.day(landed).is_holiday, (
+            "the ledger was built before the calendar landed and never rebuilt"
+        )
+        assert not [
+            line for line in await said(app, pilot) if "bank holiday" in line.lower()
+        ], "a calendar that arrived is not a calendar that is missing"
+
+
+async def test_a_calendar_that_lands_during_setup_has_no_dashboard_to_redraw(
+    unconfigured: Path,
+) -> None:
+    """The worker can finish before the questions are answered.
+
+    Nothing is wrong with that — there is simply no dashboard yet, and asking
+    for one must not be an `AttributeError` on a screen the user is typing
+    into.
+    """
+    app = FlexiApp(db_path=unconfigured)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        showing(app, SetupScreen)
+
+        app.holidays_refreshed()
+        await pilot.pause()
+
+        showing(app, SetupScreen)
 
 
 async def test_a_newer_release_is_announced_with_the_command_that_installs_it(
@@ -247,7 +375,7 @@ async def test_the_clock_key_does_nothing_until_there_is_somewhere_to_clock(
         await pilot.press("slash")
         await pilot.pause()
 
-        assert app.services.clock.get_sessions_for_date(TODAY) == []
+        assert sessions_on(app.services.session, TODAY) == []
         showing(app, SetupScreen)
 
 
@@ -300,12 +428,14 @@ async def test_the_clock_runs_on_the_screen_that_owns_it_from_anywhere(
 async def test_the_dashboard_opens_with_services_built_from_the_setup_answers(
     unconfigured: Path,
 ) -> None:
-    """The service graph is wired before the answers exist, so it is rewired.
+    """The service graph is wired before the answers exist, and still answers.
 
-    The bank-holiday division is read once, when the graph is built, and never
-    again. A dashboard handed the graph that was constructed at launch would ask
+    It used to be rewired instead, because the bank-holiday division was read
+    once at construction: a dashboard handed the graph built at launch would ask
     GOV.UK for the English calendar for the rest of a Scottish user's working
-    life, and quietly count their holidays as days they failed to work.
+    life. Rewiring fixed that and introduced a worse one -- see
+    `test_saving_settings_leaves_every_screen_on_the_same_registry`. The
+    division is a question now, so neither is needed.
     """
     app = FlexiApp(db_path=unconfigured)
     async with app.run_test(size=WIDE) as pilot:
@@ -323,7 +453,7 @@ async def test_the_dashboard_opens_with_services_built_from_the_setup_answers(
         await pilot.pause()
 
         showing(app, DashboardScreen)
-        assert app.services.bank_holidays._division == "scotland"
+        assert app.services.bank_holidays.division is Division.SCOTLAND
 
 
 async def test_the_leave_year_opens_on_the_day_the_dashboard_was_showing(
@@ -421,6 +551,37 @@ async def test_leaving_settings_without_saving_rebuilds_nothing(
 
         showing(app, DashboardScreen)
         assert app.services is before, "nothing was answered, so nothing was rewired"
+
+
+async def test_saving_settings_leaves_every_screen_on_the_same_registry(
+    app_factory: AppFactory,
+) -> None:
+    """One session, one registry, for the life of the application.
+
+    Saving settings used to rebuild it, because `BankHolidayService` captured
+    the division. Every screen already mounted kept the registry it was
+    constructed with, while the modules inside those screens resolved the new
+    one through the app -- so one dashboard drew itself from two graphs, and the
+    half of it that went through the screen was still reading the old division.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        board = showing(app, DashboardScreen)
+        before = app.services
+
+        await pilot.press("f4")
+        await pilot.pause()
+        showing(app, SettingsScreen).query_one(
+            "#select-division", Select
+        ).value = "scotland"
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert app.services is before, "the registry was replaced under the screens"
+        assert board._services is app.services
+        assert app.services.bank_holidays.division is Division.SCOTLAND
 
 
 async def test_a_saved_working_pattern_reaches_the_dashboard_without_a_relaunch(

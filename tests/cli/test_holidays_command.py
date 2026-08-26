@@ -93,7 +93,7 @@ def test_a_refresh_says_how_many_it_cached_and_for_where(
     """
     holidays_cli.run(configured(session))
 
-    assert "2 bank holidays cached for england-and-wales." in capsys.readouterr().out
+    assert "2 bank holidays cached for England & Wales." in capsys.readouterr().out
 
 
 def test_a_division_govuk_publishes_nothing_for_reports_none_rather_than_failing(
@@ -106,7 +106,7 @@ def test_a_division_govuk_publishes_nothing_for_reports_none_rather_than_failing
     command that had already done its job.
     """
     assert holidays_cli.run(configured(session, SCOTLAND)) == 0
-    assert f"0 bank holidays cached for {SCOTLAND}." in capsys.readouterr().out
+    assert "0 bank holidays cached for Scotland." in capsys.readouterr().out
 
 
 def test_a_refresh_that_cannot_reach_govuk_fails_without_hiding_it(
@@ -122,7 +122,7 @@ def test_a_refresh_that_cannot_reach_govuk_fails_without_hiding_it(
     assert holidays_cli.run(services) == 1
 
     reported = capsys.readouterr().err
-    assert "Could not reach GOV.UK for england-and-wales." in reported
+    assert "Could not reach GOV.UK for England & Wales." in reported
     assert "Flexi keeps working" in reported
     assert services.bank_holidays.get_dates() is None
 
@@ -136,4 +136,4 @@ def test_a_machine_with_no_settings_row_is_named_by_the_default_region(
     for " with a blank where the answer should be.
     """
     assert holidays_cli.run(Services.build(session)) == 1
-    assert DEFAULT_DIVISION.value in capsys.readouterr().err
+    assert DEFAULT_DIVISION.label in capsys.readouterr().err

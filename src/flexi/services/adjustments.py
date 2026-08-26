@@ -12,11 +12,12 @@ a reason, counted like any other term in the sum, and removable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.domain.format import stamp
 from flexi.models.database.db import BalanceAdjustment
 
@@ -41,21 +42,6 @@ class AdjustmentService:
         self._session = session
 
     # -- reading -----------------------------------------------------------
-
-    def up_to(self, as_of: date) -> timedelta:
-        """Every correction effective on or before ``as_of``, totalled."""
-        stmt = select(BalanceAdjustment).where(BalanceAdjustment.date <= as_of)
-        rows = self._session.execute(stmt).scalars()
-        return timedelta(minutes=sum(row.minutes for row in rows))
-
-    def in_range(self, start: date, end: date) -> list[BalanceAdjustment]:
-        """Corrections effective within a span, in date order."""
-        stmt = (
-            select(BalanceAdjustment)
-            .where(BalanceAdjustment.date >= start, BalanceAdjustment.date <= end)
-            .order_by(BalanceAdjustment.date, BalanceAdjustment.id)
-        )
-        return list(self._session.execute(stmt).scalars())
 
     def all(self) -> list[BalanceAdjustment]:
         """Every correction ever recorded, newest first."""
@@ -84,7 +70,7 @@ class AdjustmentService:
             date=when,
             minutes=minutes,
             reason=reason.strip(),
-            created_at=datetime.now(tz=UTC).replace(tzinfo=None),
+            created_at=wallclock.utc_now().replace(tzinfo=None),
         )
         self._session.add(row)
         self._session.commit()

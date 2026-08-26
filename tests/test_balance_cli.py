@@ -12,9 +12,10 @@ from click.testing import CliRunner
 
 from flexi.__main__ import cli
 from flexi.locations import database_file
-from flexi.models.database.app import create_db_engine, get_session
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import Services
+from tests.conftest import sessions_on
 
 NOON = datetime(2026, 6, 10, 12, 0)
 """The clock these tests run against.
@@ -156,6 +157,29 @@ def test_the_work_records_are_untouched(home: Path) -> None:
     CliRunner().invoke(cli, ["balance", "zero", "--yes"])
     session = get_session(create_db_engine(home))
     try:
-        assert len(Services.build(session).clock.get_sessions_for_date(YESTERDAY)) == 1
+        assert len(sessions_on(session, YESTERDAY)) == 1
     finally:
         session.close()
+
+
+def test_as_of_reads_the_dates_the_rest_of_the_command_line_reads(home: Path) -> None:
+    """One grammar across one command line.
+
+    `--as-of` was a `click.DateTime` accepting only `%Y-%m-%d`, so
+    `flexi leave annual friday` worked and `flexi balance show --as-of friday`
+    was a usage error — and the refusal named `%Y-%m-%d` rather than the forms
+    Flexi actually understands.
+    """
+    runner = CliRunner()
+
+    assert balance_of(runner, YESTERDAY) == _balance_on(runner, "yesterday")
+
+    refused = runner.invoke(cli, ["balance", "show", "--as-of", "whenever"])
+    assert refused.exit_code != 0
+    assert "12 Jun" in refused.output, "the refusal should name what it accepts"
+
+
+def _balance_on(runner: CliRunner, typed: str) -> str:
+    output = runner.invoke(cli, ["balance", "show", "--as-of", typed]).output
+    line = next(row for row in output.splitlines() if row.startswith("balance"))
+    return line.removeprefix("balance").strip()

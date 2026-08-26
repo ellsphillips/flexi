@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+from textual.widgets import Input
 
 from flexi.components.charts import (
     Burndown,
@@ -14,11 +15,11 @@ from flexi.components.charts import (
     week_columns,
 )
 from flexi.components.chrome import AppHeader
-from flexi.constants import DayKind
+from flexi.constants import DayKind, Granularity
 from flexi.domain.ledger import DayLedger
-from flexi.domain.period import Granularity
-from flexi.screens.insights import InsightsScreen
-from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
+from flexi.screens.insights import BalanceHistory, InsightsScreen
+from flexi.screens.settings import SettingsScreen
+from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
 CONTRACTED = timedelta(minutes=444)
 
@@ -46,7 +47,7 @@ def test_week_columns_group_days_into_weeks() -> None:
         ledger(date(2026, 6, 9), CONTRACTED),
         ledger(date(2026, 6, 15), CONTRACTED - timedelta(hours=2)),
     ]
-    columns = week_columns(days)
+    columns = week_columns(days, first_weekday=0)
     assert [column.label for column in columns] == ["8", "15"]
     assert columns[0].value == pytest.approx(1.0)
     assert columns[1].readout == "−2:00"
@@ -54,7 +55,7 @@ def test_week_columns_group_days_into_weeks() -> None:
 
 def test_week_columns_of_nothing_is_empty() -> None:
     """It has no opinion about an empty period."""
-    assert week_columns([]) == []
+    assert week_columns([], first_weekday=0) == []
 
 
 # -- the screen ------------------------------------------------------------
@@ -237,21 +238,30 @@ async def test_cycling_the_period_re_labels_the_header_as_well_as_the_charts(
         assert insights.query_one(AppHeader).context.endswith(insights.period.label)
 
 
-async def test_the_insights_screen_reports_through_the_shared_footer(
+async def test_saving_settings_redraws_insights_under_the_dialog(
     app_factory: AppFactory,
 ) -> None:
-    """Every screen says things in the same place, so nobody has to look twice.
+    """The third screen the application can be showing when settings are saved.
 
-    Insights has its own footer instance, and a screen that kept its messages
-    to itself would leave the status bar showing whatever the dashboard last
-    said.
+    It had no `refresh_modules` at all, and the app looked for the dashboard
+    and redrew only that — so a new working pattern left every chart on this
+    screen measured against the one it replaced.
     """
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
         await pilot.pause()
+        charts = showing(app, InsightsScreen).query_one(BalanceHistory)
+        before = str(charts.border_subtitle)
 
-        showing(app, InsightsScreen).status("Charted to today")
+        await pilot.press("f4")
+        await pilot.pause()
+        showing(app, SettingsScreen).query_one(
+            "#input-working-days", Input
+        ).value = "Tue-Thu"
+        await pilot.click("#btn-save")
         await pilot.pause()
 
-        assert status_text(app) == "Charted to today"
+        charts = showing(app, InsightsScreen).query_one(BalanceHistory)
+        after = str(charts.border_subtitle)
+        assert after != before, f"the charts still say {before}"

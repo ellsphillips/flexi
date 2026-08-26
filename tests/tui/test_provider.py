@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any
 
 import pytest
 from textual.command import DiscoveryHit, Hit
@@ -19,11 +18,10 @@ from textual.notifications import Notification
 from textual.widgets import Input, RadioSet
 
 from flexi.app import FlexiApp
-from flexi.constants import AbsenceType
-from flexi.domain.period import Granularity
-from flexi.models.database.app import create_db_engine
+from flexi.constants import AbsenceType, Granularity
 from flexi.models.database.db import Base
-from flexi.provider import FlexiCommands, _refresh_holidays
+from flexi.models.database.engine import create_db_engine
+from flexi.provider import FlexiCommands
 from flexi.screens.modals import AbsenceModal
 from flexi.screens.setup import SetupScreen
 from tests.conftest import settled
@@ -208,11 +206,11 @@ async def test_choosing_go_to_today_comes_home(app_factory: AppFactory) -> None:
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("right_square_bracket", "right_square_bracket")
         await pilot.pause()
-        assert not dashboard(app).period.is_current(TODAY)
+        assert not dashboard(app).period.contains(TODAY)
 
         await run_command(app, "Go to today")
         await pilot.pause()
-        assert dashboard(app).period.is_current(TODAY)
+        assert dashboard(app).period.contains(TODAY)
 
 
 async def test_choosing_go_to_date_opens_the_same_prompt_the_key_does(
@@ -318,52 +316,3 @@ async def test_a_successful_refresh_says_so_and_redraws_from_the_new_calendar(
         assert ledger._cache.get(yesterday) is not derived, (
             "the day derived from the old calendar is still cached"
         )
-
-
-def test_the_refresh_command_asks_nothing_of_an_application_without_services() -> None:
-    """The commands are built with `getattr` and run long after they were made.
-
-    A palette entry outlives the screen it was built on: the catalogue captures
-    the application, the user types, and the callable runs later. Reaching for a
-    collaborator that is not there has to be a no-op rather than a traceback
-    over the palette — and it must not claim a refresh it never made.
-    """
-    said: list[str] = []
-
-    class Serviceless:
-        """An application that can talk, but has nothing to fetch with."""
-
-        services = None
-
-        def notify(self, message: str, **_: Any) -> None:
-            said.append(message)
-
-    _refresh_holidays(Serviceless())
-
-    assert said == [], "it reported on a calendar it never went near"
-
-
-def test_the_refresh_command_works_without_anywhere_to_put_the_answer() -> None:
-    """Fetching is the job; the notification is the courtesy."""
-
-    class Holidays:
-        def __init__(self) -> None:
-            self.fetched = False
-
-        def fetch_and_cache(self) -> bool:
-            self.fetched = True
-            return True
-
-    class Silent:
-        """An application that can refresh, but cannot show a notification."""
-
-        def __init__(self) -> None:
-            self.bank_holidays = Holidays()
-            self.services: Any = self
-
-        def invalidate(self) -> None:
-            return
-
-    app = Silent()
-    _refresh_holidays(app)
-    assert app.bank_holidays.fetched

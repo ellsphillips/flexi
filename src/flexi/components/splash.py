@@ -39,7 +39,7 @@ INK: Final = "#"
 
 # Seven rows apiece. Lowercase with real ascenders, because "flexi" in capitals
 # is a different word about a different kind of company.
-GLYPHS: Final[dict[str, tuple[str, ...]]] = {
+LETTER_GLYPHS: Final[dict[str, tuple[str, ...]]] = {
     "f": (".###", ".#..", "###.", ".#..", ".#..", ".#..", ".#.."),
     "l": ("##.", ".#.", ".#.", ".#.", ".#.", ".#.", ".##"),
     "e": (".....", ".....", ".###.", "#...#", "#####", "#....", ".###."),
@@ -135,7 +135,7 @@ def cells() -> list[tuple[int, int]]:
     inked: list[tuple[int, int]] = []
     column = 0
     for character in WORD:
-        glyph = GLYPHS[character]
+        glyph = LETTER_GLYPHS[character]
         for row, line in enumerate(glyph):
             inked.extend(
                 (column + offset, row)
@@ -314,14 +314,6 @@ def settled_rows() -> tuple[int, int]:
     canvas = luminance(DURATION)
     inked = [at for at, row in enumerate(canvas) if any(level >= 0 for level in row)]
     return inked[0], inked[-1]
-
-
-def frame(elapsed: float) -> list[str]:
-    """The canvas as text, one character per cell."""
-    return [
-        "".join(RAMP[level] if level >= 0 else " " for level in row)
-        for row in luminance(elapsed)
-    ]
 
 
 def should_play(*, interactive: bool, animations: bool) -> bool:

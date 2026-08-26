@@ -15,9 +15,9 @@ import pytest
 
 from flexi.cli import init as init_cli
 from flexi.cli import ui
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.backup import snapshot, verify
 from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.registry import Services
 
 
@@ -127,7 +127,7 @@ def test_a_torn_snapshot_stops_the_reset(
 def test_a_pipe_is_not_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     """`yes | flexi init` must never answer for a person."""
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
-    assert init_cli.interactive() is False
+    assert ui.interactive() is False
 
 
 def test_a_database_that_cannot_be_read_is_not_reported_as_empty(

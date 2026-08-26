@@ -10,16 +10,19 @@ will not parse.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from textual.pilot import Pilot
 from textual.widgets import Button, Input, Select
 
 from flexi.app import FlexiApp
+from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import Division
-from flexi.models.database.app import create_db_engine
 from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
+from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from tests.tui.conftest import WIDE, AppFactory, showing
 
@@ -172,18 +175,23 @@ async def test_a_changed_entitlement_is_written(app_factory: AppFactory) -> None
 async def test_an_entitlement_that_is_not_a_number_is_refused(
     app_factory: AppFactory,
 ) -> None:
-    """The branch that drops a year's leave without changing it.
+    """A year somebody could not type stops the whole save.
 
-    `_save` skips an unparseable entitlement, carries on with the rest, and
-    names the year it could not read rather than guessing at a number.
+    `_save` used to commit the four settings fields first and parse the
+    entitlements after, so a rejection left the working pattern and the region
+    written, the screen open, and the ledger cache holding figures built
+    against the settings that had just been replaced — the application hangs
+    `invalidate()` off `dismiss(True)`, and a rejection does not dismiss.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         year = app.services.settings.active_leave_year()
         app.services.settings.save_entitlement(year, 25.0)
+        was = stored_start(app)
 
         await open_settings(pilot)
         screen = showing(app, SettingsScreen)
+        screen.query_one("#input-leave-start", Input).value = "07-07"
         screen.query_one(f"#ent-{year}", Input).value = "loads"
 
         await pilot.click("#btn-save")
@@ -193,6 +201,7 @@ async def test_an_entitlement_that_is_not_a_number_is_refused(
         kept = app.services.settings.get_entitlement(year)
         assert kept is not None
         assert kept.days == 25.0, "the year somebody could not type is left alone"
+        assert stored_start(app) == was, "and neither is anything else"
 
 
 async def test_adding_next_year_carries_this_year_forward(
@@ -230,6 +239,64 @@ async def test_adding_a_year_with_none_on_record_uses_the_default(
         added = app.services.settings.get_entitlement(year)
         assert added is not None
         assert added.days == 25.0
+
+
+async def test_adding_a_year_keeps_the_screen_and_everything_typed_into_it(
+    app_factory: AppFactory,
+) -> None:
+    """The button adds a row. It used to leave, taking the form with it.
+
+    `# Refresh screen` described a recompose the code did not perform: it
+    dismissed instead, so every field edited above the button was discarded
+    unsaved and unmentioned, and dismissing with `True` told the application
+    that settings had been changed when only an entitlement had.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        screen = showing(app, SettingsScreen)
+        screen.query_one("#input-working-days", Input).value = "Mon-Wed"
+        await pilot.pause()
+
+        await pilot.click("#btn-add-year")
+        await pilot.pause()
+
+        screen = showing(app, SettingsScreen)
+        assert screen.query_one("#input-working-days", Input).value == "Mon-Wed"
+        year = app.services.settings.active_leave_year() + 1
+        assert screen.query_one(f"#ent-{year}", Input), "the new row should be mounted"
+
+
+async def test_saving_settings_redraws_the_leave_screen_under_the_dialog(
+    app_factory: AppFactory,
+) -> None:
+    """Settings is reachable from anywhere, so anything can be underneath it.
+
+    The application used to find the dashboard and redraw only that, so saving
+    a new working pattern while the leave year was on screen left it measured
+    against the pattern that had just been replaced -- until the user left the
+    screen and came back.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f2")
+        await pilot.pause()
+        monday = date(2026, 6, 22)
+        leave = showing(app, LeaveScreen)
+        assert leave.query_one(YearCalendar).ledgers[monday].is_working_day
+
+        await pilot.press("f4")
+        await pilot.pause()
+        showing(app, SettingsScreen).query_one(
+            "#input-working-days", Input
+        ).value = "Tue-Thu"
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        drawn = showing(app, LeaveScreen).query_one(YearCalendar).ledgers[monday]
+        assert not drawn.is_working_day, (
+            "the year is still measured against the working pattern that was replaced"
+        )
 
 
 # -- leaving ---------------------------------------------------------------

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import PurePath
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 
 from textual import events, log
 from textual import work as textual_work
@@ -29,9 +29,16 @@ from textual.widgets import Input, TextArea
 import flexi
 from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, NavBar
 from flexi.components.jump_overlay import JumpOverlay
-from flexi.components.jumper import Jumper
+from flexi.components.jumper import (
+    HasFocusTarget,
+    HasJumpOverlays,
+    HasJumpTargets,
+    Jumper,
+    Refreshable,
+)
 from flexi.config import CONFIG
-from flexi.models.database.app import create_db_engine, get_session
+from flexi.messages import Scope
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.provider import FlexiCommands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings
@@ -39,8 +46,9 @@ from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
+from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.registry import Services
-from flexi.services.startup import run_startup_cleanup
+from flexi.services.settings import SettingsService
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import available_update
 
@@ -51,6 +59,8 @@ class FlexiApp(TextualApp[None]):
     """Flexi."""
 
     TITLE = "flexi"
+
+    HELP_LABEL = "Anywhere"
 
     CSS_PATH: ClassVar[list[str | PurePath]] = [
         "theme/flexi.tcss",
@@ -79,9 +89,6 @@ class FlexiApp(TextualApp[None]):
 
     nav: Reactive[str] = reactive("dashboard", init=False)
     """Which destination is current, read by the nav bar when it composes."""
-
-    context_label: Reactive[str] = reactive("", init=False)
-    """The right-hand slot of the header: today's date and the shown period."""
 
     _jumping: Reactive[bool] = reactive(False, init=False, bindings=True)
     """True while the jump overlay is open."""
@@ -118,11 +125,7 @@ class FlexiApp(TextualApp[None]):
             # The CLI sweeps when it opens the database and the application did
             # not, so a session left open overnight was still drawn as running
             # since yesterday morning until something wrote to it.
-            run_startup_cleanup(
-                self._session,
-                self.services.clock,
-                self.services.settings.get_auto_close_time(),
-            )
+            self.services.clock.sweep()
             self.push_screen(DashboardScreen(self.services, id="dashboard"))
             if self.open_settings:
                 self.push_screen(
@@ -148,9 +151,6 @@ class FlexiApp(TextualApp[None]):
         if not completed:
             self.exit()
             return
-        # Rebuild: the division and the working pattern are chosen during setup,
-        # and the services were wired before either existed.
-        self.services = Services.build(self._session)
         self.push_screen(DashboardScreen(self.services, id="dashboard"))
 
     def on_unmount(self) -> None:
@@ -165,14 +165,55 @@ class FlexiApp(TextualApp[None]):
         trip, and the dashboard should not wait on GOV.UK to draw. Nothing in
         the application refreshed it at all before -- the only route was a
         command-palette entry somebody had to know about.
+
+        On its own session, on the shared engine. A SQLAlchemy ``Session`` is
+        not thread-safe, and this ran ``SELECT``, ``DELETE``, ``INSERT`` and
+        ``commit`` on the one the message loop owns -- started, in ``on_mount``,
+        in the statement after the one that pushes the dashboard, whose modules
+        then read the same session to draw. Two interleavings show up: SQLite
+        answers ``database is locked``, or the reader finds the session
+        ``inactive`` because the writer's transaction was rolled back under it.
+        Neither is caught anywhere, and both surface as a dead application on
+        the first launch of the week -- the only launch that refetches.
         """
-        if self.services.bank_holidays.ensure_cache():
+        with get_session(self._engine) as scratch:
+            settings = SettingsService(scratch)
+            holidays = BankHolidayService(scratch, settings.get_division)
+            if holidays.is_fresh():
+                # Nothing changed, so nothing needs redrawing -- and refetching
+                # would put a GOV.UK timeout in front of the dashboard once a
+                # week for a calendar that already answers every question
+                # correctly for the year it holds.
+                return
+            fetched = holidays.fetch_and_cache()
+        if fetched:
+            self.call_from_thread(self.holidays_refreshed)
             return
         self.notify(
             "No bank holiday calendar. Days off will count as working days.",
             severity="warning",
             timeout=UPDATE_NOTICE_SECONDS,
         )
+
+    def holidays_refreshed(self) -> None:
+        """The calendar changed under the application. Show the new one.
+
+        Every figure on the dashboard depends on which days are holidays -- a
+        bank holiday expects nothing, and without one it is a working day
+        nobody worked, worth a day of deficit each. Both routes that rewrite
+        the cache used to leave the screen showing the old answer: the worker
+        did nothing at all, and the command-palette entry invalidated the
+        ledger cache without asking anything to redraw, so the correction
+        appeared on the next unrelated keystroke.
+
+        The rollback is what lets this session see the worker's rows. It reads
+        on the message loop and every write it makes is committed by the
+        service that made it, so there is never anything pending to lose --
+        but its read transaction is open, and a transaction that began before
+        the fetch cannot see what the fetch committed.
+        """
+        self._session.rollback()
+        self.refresh_open_screens()
 
     @textual_work(thread=True)
     def _check_for_updates(self) -> None:
@@ -198,9 +239,9 @@ class FlexiApp(TextualApp[None]):
                 SettingsScreen(self.services), callback=self._on_settings_saved
             )
             return
-        board = self._dashboard()
+        board = self.dashboard()
         if name == "insights" and board is not None:
-            self._open(name, InsightsScreen(self.services, board.period))
+            self._open(name, InsightsScreen(board.period))
             return
         if name == "leave" and board is not None:
             self._open(name, LeaveScreen(self.services, board.period.anchor))
@@ -269,15 +310,42 @@ class FlexiApp(TextualApp[None]):
     def _on_settings_saved(self, saved: bool | None) -> None:
         if not saved:
             return
-        self.services = Services.build(self._session)
+        self.refresh_open_screens()
+
+    def refresh_open_screens(self, scope: Scope = Scope.ALL) -> None:
+        """Something was written behind the screens. Redraw whichever are up.
+
+        Every screen on the stack that can redraw, not the dashboard alone.
+        Both callers singled the dashboard out, so saving settings while the
+        leave screen was open left it showing a year measured against the
+        working pattern that had just been replaced -- and `LeaveScreen`
+        carried a `refresh_modules` written "so the app can treat every screen
+        alike" that the app never called.
+        """
         self.services.invalidate()
-        screen = self._dashboard()
-        if screen is not None:
-            from flexi.messages import Scope
+        for screen in self.screen_stack:
+            if isinstance(screen, Refreshable):
+                try:
+                    screen.refresh_modules(scope)
+                except NoMatches:
+                    # Still being built. Widgets compose depth by depth, so a
+                    # redraw arriving from off the message loop -- the bank
+                    # holiday worker's -- can land on a module whose own cells
+                    # are not in the tree yet.
+                    #
+                    # Caught here rather than guarded at each widget: there is
+                    # no flag that means "my whole subtree is composed"
+                    # (`is_mounted` is true well before it), and a screen that
+                    # is still mounting draws itself from `on_mount` a moment
+                    # later, with the data this call had already committed.
+                    #
+                    # This cannot hide a mistyped selector. Every module calls
+                    # `rebuild` directly from its own `on_mount`, which is not
+                    # this path, so a bad id still fails loudly on the first
+                    # draw.
+                    continue
 
-            screen.refresh_modules(Scope.ALL)
-
-    def _dashboard(self) -> DashboardScreen | None:
+    def dashboard(self) -> DashboardScreen | None:
         for screen in self.screen_stack:
             if isinstance(screen, DashboardScreen):
                 return screen
@@ -298,7 +366,7 @@ class FlexiApp(TextualApp[None]):
 
     def action_clock_toggle(self) -> None:
         """One key, from anywhere. The dashboard owns the confirmation."""
-        screen = self._dashboard()
+        screen = self.dashboard()
         if screen is None:
             return
         screen.toggle_clock()
@@ -318,10 +386,18 @@ class FlexiApp(TextualApp[None]):
         if focused_before is not None:
             self.set_focus(None, scroll_visible=False)
 
+        # `isinstance` against a runtime-checkable Protocol rather than three
+        # `getattr` lookups by string. A renamed hook was valid Python, clean
+        # under `--strict`, and a jump mode that silently offered nothing --
+        # which is the failure `context.py` was written to abolish, one level
+        # up.
+        screen = self.screen
         self.jumper = Jumper(
-            self._jump_targets(),
-            screen=self.screen,
-            extra=getattr(self.screen, "jump_overlays", None),
+            screen.jump_targets() if isinstance(screen, HasJumpTargets) else {},
+            screen=screen,
+            extra=(
+                screen.jump_overlays if isinstance(screen, HasJumpOverlays) else None
+            ),
         )
 
         def handle(target: str | Widget | None) -> None:
@@ -337,19 +413,15 @@ class FlexiApp(TextualApp[None]):
         self.clear_notifications()
         self.push_screen(JumpOverlay(self.jumper), callback=handle)
 
-    def _jump_targets(self) -> dict[str, str]:
-        getter = getattr(self.screen, "jump_targets", None)
-        return dict(getter()) if callable(getter) else {}
-
     def _jump_to_id(self, target: str) -> None:
         """Focus the target, or click it if it cannot take focus.
 
         A row key lands here too: the records table owns the cursor rather than
         the focus, so a `d-` key moves the cursor and focuses the table.
         """
-        from flexi.components.expandable import DAY, ExpandableTable
+        from flexi.components.expandable import ExpandableTable, RowKind
 
-        if target.startswith(DAY):
+        if target.startswith(RowKind.DAY):
             for table in self.screen.query(ExpandableTable):
                 table.focus_key(target)
                 self.set_focus(table)
@@ -361,10 +433,9 @@ class FlexiApp(TextualApp[None]):
         except NoMatches:
             log.warning(f"jump target #{target} is not on {self.screen!r}")
             return
-        focus_on: Widget = widget
-        chooser = getattr(widget, "focus_target", None)
-        if callable(chooser):
-            focus_on = cast("Widget", chooser())
+        focus_on = (
+            widget.focus_target() if isinstance(widget, HasFocusTarget) else widget
+        )
         if focus_on.focusable:
             self.set_focus(focus_on)
         else:
@@ -373,7 +444,3 @@ class FlexiApp(TextualApp[None]):
             widget.post_message(
                 events.Click(widget, 0, 0, 0, 0, 0, False, False, False)
             )
-
-
-App = FlexiApp
-"""The v1 name, kept so ``flexi.__main__`` and older tests keep importing."""

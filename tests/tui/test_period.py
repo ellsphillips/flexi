@@ -7,9 +7,9 @@ from datetime import date, timedelta
 import pytest
 
 from flexi.app import FlexiApp
-from flexi.components.expandable import DAY, ExpandableTable
+from flexi.components.expandable import ExpandableTable, RowKind
 from flexi.components.modules.monthview import MonthView
-from flexi.domain.period import Granularity
+from flexi.constants import Granularity
 from tests.tui.conftest import WIDE, AppFactory, dashboard
 
 TODAY = date(2026, 6, 11)
@@ -17,7 +17,7 @@ TODAY = date(2026, 6, 11)
 
 def day_rows(app: FlexiApp) -> int:
     table = app.screen.query_one("#records-table", ExpandableTable)
-    return len([row for row in table.visible_rows() if row.kind == DAY])
+    return len([row for row in table.visible_rows() if row.kind == RowKind.DAY])
 
 
 @pytest.mark.parametrize(
@@ -61,12 +61,12 @@ async def test_brackets_step_and_t_returns(app_factory: AppFactory) -> None:
         await pilot.pause()
         moved = dashboard(app).period
         assert moved.start == date(2026, 6, 22)
-        assert not moved.is_current(TODAY)
+        assert not moved.contains(TODAY)
 
         await pilot.press("t")
         await pilot.pause()
         home = dashboard(app).period
-        assert home.is_current(TODAY)
+        assert home.contains(TODAY)
         assert home.granularity is Granularity.WEEK
 
 
@@ -155,7 +155,9 @@ async def test_the_calendar_moves_the_period_by_posting_the_day_it_landed_on(
         first = app.screen.query_one("#records-table", ExpandableTable).visible_rows()[
             0
         ]
-        assert first.key == f"{DAY}2026-06-15", "the table stayed on the old week"
+        assert first.key == f"{RowKind.DAY}2026-06-15", (
+            "the table stayed on the old week"
+        )
         assert "Week of 15 Jun" in str(app.screen.query_one("#header-context").render())
 
 

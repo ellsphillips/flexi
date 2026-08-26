@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from flexi.config import CONFIG
 from flexi.constants import DEFAULT_DIVISION, AbsenceType, Division
-from flexi.models.database.app import get_session
 from flexi.models.database.db import DEFAULT_WINDOW_END, DEFAULT_WINDOW_START
+from flexi.models.database.engine import get_session
 from flexi.services.settings import (
     SettingsService,
     parse_clock_time,
@@ -103,11 +103,6 @@ class TestHelpers:
     def test_working_day_indices(self, svc: SettingsService) -> None:
         _do_setup(svc)
         assert svc.get_working_day_indices() == [0, 1, 2, 3, 4]
-
-    def test_is_working_day(self, svc: SettingsService) -> None:
-        _do_setup(svc)
-        assert svc.is_working_day(0) is True  # Monday
-        assert svc.is_working_day(5) is False  # Saturday
 
     def test_auto_close_time(self, svc: SettingsService) -> None:
         svc.save_settings(
@@ -334,7 +329,59 @@ def test_a_stored_working_week_that_cannot_be_read_falls_back(
     session.commit()
 
     assert svc.get_working_day_indices() == [0, 1, 2, 3, 4]
-    assert svc.is_working_day(5) is False
+
+
+def test_a_leave_year_start_that_cannot_be_read_falls_back(
+    svc: SettingsService, session: Session
+) -> None:
+    """It raised, where the four accessors beside it fall back.
+
+    A settings problem is not a reason to refuse to open somebody's records --
+    there would be no way in to correct the setting.
+    """
+    _do_setup(svc)
+    session.execute(text("UPDATE settings SET leave_year_start = 'April the 1st'"))
+    session.commit()
+
+    assert svc.get_leave_year_start() == (1, 1)
+
+
+def test_a_day_window_that_cannot_be_read_falls_back(
+    svc: SettingsService, session: Session
+) -> None:
+    """It handed its strings straight on to `Window.parse`, which raises.
+
+    Inside a widget's `render`, where Textual logs the traceback and swallows
+    it — so the symptom is a blank panel and no message. `save_settings`
+    normalises the leave year and the auto-close time and does not normalise
+    these two, so an unreadable pair is reachable.
+    """
+    _do_setup(svc)
+    session.execute(text("UPDATE settings SET day_window_start = 'sunrise'"))
+    session.commit()
+
+    assert svc.get_day_window() == (DEFAULT_WINDOW_START, DEFAULT_WINDOW_END)
+
+
+def test_the_division_falls_back_before_setup(svc: SettingsService) -> None:
+    """Something has to be asked of GOV.UK before anybody has chosen a region."""
+    assert svc.get_division() is DEFAULT_DIVISION
+
+
+def test_a_stored_division_this_build_does_not_know_falls_back(
+    svc: SettingsService, session: Session
+) -> None:
+    """A region GOV.UK has stopped publishing must not close the application.
+
+    The column is a free-text slug, and the three members are what this build
+    understands. Raising here would refuse to open the records of anybody whose
+    row was written by a version that knew a fourth.
+    """
+    _do_setup(svc)
+    session.execute(text("UPDATE settings SET bank_holiday_division = 'mercia'"))
+    session.commit()
+
+    assert svc.get_division() is DEFAULT_DIVISION
 
 
 # ---- the optional fields ----

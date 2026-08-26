@@ -10,6 +10,7 @@ import time_machine
 from flexi import wallclock
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services
+from tests.conftest import sessions_on
 from tests.services.conftest import CONTRACTED, Configured, work
 
 MONDAY = date(2026, 6, 8)
@@ -100,36 +101,6 @@ def test_removing_one_puts_the_balance_back(services: Services) -> None:
 
 
 # -- reading them back -----------------------------------------------------
-
-
-def test_a_running_total_stops_at_the_date_it_is_asked_for(
-    services: Services,
-) -> None:
-    """Inclusive of the date itself.
-
-    A correction dated the day the balance is drawn to is part of that balance;
-    an off-by-one here settles somebody's opening balance a day late and leaves
-    the figure they were trying to zero still showing.
-    """
-    services.adjustments.record(MONDAY, timedelta(hours=2), "carried over")
-    services.adjustments.record(FRIDAY, timedelta(hours=-1), "and back again")
-
-    assert services.adjustments.up_to(MONDAY - timedelta(days=1)) == timedelta()
-    assert services.adjustments.up_to(MONDAY) == timedelta(hours=2)
-    assert services.adjustments.up_to(FRIDAY) == timedelta(hours=1)
-
-
-def test_a_span_lists_the_corrections_inside_it_in_date_order(
-    services: Services,
-) -> None:
-    """The log is read top to bottom, so the order is part of the answer."""
-    services.adjustments.record(FRIDAY, timedelta(hours=-1), "and back again")
-    services.adjustments.record(MONDAY, timedelta(hours=2), "carried over")
-
-    inside = services.adjustments.in_range(MONDAY, FRIDAY)
-
-    assert [row.date for row in inside] == [MONDAY, FRIDAY]
-    assert services.adjustments.in_range(MONDAY, MONDAY) == inside[:1]
 
 
 def test_every_correction_ever_made_is_listed_newest_first(
@@ -236,5 +207,5 @@ def test_the_records_survive_it(services: Services) -> None:
     work(services, MONDAY, hours=2)
     services.zero_balance(MONDAY)
     services.invalidate()
-    assert len(services.clock.get_sessions_for_date(MONDAY)) == 1
+    assert len(sessions_on(services.session, MONDAY)) == 1
     assert services.ledger.day(MONDAY).worked == timedelta(hours=2)

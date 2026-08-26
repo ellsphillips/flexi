@@ -12,7 +12,8 @@ from datetime import timedelta
 
 from textual.app import App, ComposeResult
 
-from flexi.components.progress import FILL, TRACK, ProgressRail
+from flexi.components.common import TRACK
+from flexi.components.progress import ProgressRail
 
 NARROW = (20, 6)
 """Room for the label and the figures and nothing else."""
@@ -77,7 +78,7 @@ async def test_a_compact_rail_gives_up_its_figures_before_its_bar() -> None:
 
         drawn = str(rail.render())
         assert drawn.endswith("50%")
-        assert FILL in drawn
+        assert TRACK in drawn
 
 
 async def test_a_rail_too_narrow_for_a_bar_keeps_the_figures() -> None:

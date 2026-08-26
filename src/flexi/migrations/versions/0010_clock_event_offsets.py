@@ -6,7 +6,7 @@ Create Date: 2026-08-09
 """
 
 import os
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta, timezone
 from typing import Sequence, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -53,9 +53,11 @@ def _zone():
 def _localise(naive, zone):
     if zone is None:
         return naive.astimezone()
-    return naive.replace(tzinfo=zone).astimezone(
-        __import__("datetime").timezone(naive.replace(tzinfo=zone).utcoffset())
-    )
+    # Pinned to the offset that was in force at that wall time, rather than
+    # left carrying the zone: the instant is the same either way, and a fixed
+    # offset is what the column stores.
+    attached = naive.replace(tzinfo=zone)
+    return attached.astimezone(timezone(attached.utcoffset()))
 
 
 def _from_instant(naive_utc, zone):
@@ -98,7 +100,7 @@ def upgrade() -> None:
     _repair_auto_closes(zone)
 
 
-def _repair_auto_closes(zone) -> int:
+def _repair_auto_closes(zone) -> None:
     started = events.alias("started")
     ended = events.alias("ended")
     query = (
@@ -131,7 +133,6 @@ def _repair_auto_closes(zone) -> int:
                 utc_offset_minutes=_offset_minutes(aware),
             )
         )
-    return len(inverted)
 
 
 def downgrade() -> None:
@@ -142,13 +143,12 @@ def downgrade() -> None:
         sa.select(events.c.id, events.c.timestamp, events.c.source,
                   events.c.utc_offset_minutes)
     ).all()
-    import datetime as _dt
     for row in rows:
         if row.source == SYSTEM or row.timestamp is None:
             continue
         offset = row.utc_offset_minutes
         aware = (
-            row.timestamp.replace(tzinfo=_dt.timezone(_dt.timedelta(minutes=offset)))
+            row.timestamp.replace(tzinfo=timezone(timedelta(minutes=offset)))
             if offset is not None
             else _localise(row.timestamp, _zone())
         )

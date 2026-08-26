@@ -20,17 +20,8 @@ from textual.app import RenderResult
 from textual.widget import Widget
 
 from flexi.domain.ledger import DayLedger
-from flexi.domain.punch import Cell, Window, edges, strip
-
-GLYPHS: Final[dict[Cell, str]] = {
-    Cell.OFF: "─",
-    Cell.BREAK: "·",
-    Cell.TARGET: "┊",
-    Cell.ABSENCE: "▓",
-    Cell.HOLIDAY: "░",
-    Cell.ON: "█",
-    Cell.LIVE: "▌",
-}
+from flexi.domain.punch import Cell, Window, covering_slices, edges, strip
+from flexi.theme import CELL_GLYPHS
 
 BASE_STYLES: Final[dict[Cell, str]] = {
     Cell.OFF: "punch--off",
@@ -62,22 +53,19 @@ StyleLookup = Callable[[str], Style]
 
 
 def absence_tokens(ledger: DayLedger, count: int, window: Window) -> list[str | None]:
-    """Which absence type, if any, covers each cell.
+    """The colour token, if any, each cell should wear.
 
-    Fast path first: most days have no absence at all, and walking the cell
-    boundaries for every row of a month view to discover that would be the
-    table's slowest loop for no result.
+    The rule about which booking covers which cell belongs to the domain and is
+    asked of it. This had its own copy, which also recomputed the cell
+    boundaries `strip` had just worked out.
     """
     if not ledger.absences:
         return [None] * count
     bounds = edges(ledger.date, count, window)
-    tokens: list[str | None] = [None] * count
-    for slice_ in ledger.absences:
-        for index in range(count):
-            middle = bounds[index] + (bounds[index + 1] - bounds[index]) / 2
-            if slice_.covers(middle):
-                tokens[index] = slice_.type.token
-    return tokens
+    return [
+        None if slice_ is None else slice_.type.token
+        for slice_ in covering_slices(ledger, bounds)
+    ]
 
 
 def render_strip(
@@ -85,10 +73,11 @@ def render_strip(
     width: int,
     window: Window,
     style_of: StyleLookup,
-    now: datetime | None = None,
+    *,
+    now: datetime,
 ) -> Text:
     """One day as styled text, ready to be put in a cell or rendered by a widget."""
-    cells = strip(ledger, width, window, now)
+    cells = strip(ledger, width, window, now=now)
     tokens = absence_tokens(ledger, len(cells), window)
     text = Text(no_wrap=True, end="")
     for index, cell in enumerate(cells):
@@ -96,7 +85,7 @@ def render_strip(
         token = tokens[index]
         if cell is Cell.ABSENCE and token is not None:
             style_name = f"punch--{token}"
-        text.append(GLYPHS[cell], style_of(style_name))
+        text.append(CELL_GLYPHS[cell], style_of(style_name))
     return text
 
 
@@ -115,7 +104,7 @@ class PunchStrip(Widget):
         ledger: DayLedger | None = None,
         *,
         window: Window | None = None,
-        now: datetime | None = None,
+        now: datetime,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -128,7 +117,7 @@ class PunchStrip(Widget):
         ledger: DayLedger | None,
         *,
         window: Window | None = None,
-        now: datetime | None = None,
+        now: datetime,
     ) -> None:
         """Draw a different day."""
         self.ledger = ledger
@@ -145,5 +134,5 @@ class PunchStrip(Widget):
             self.content_size.width,
             self.window,
             self.get_component_rich_style,
-            self.now,
+            now=self.now,
         )

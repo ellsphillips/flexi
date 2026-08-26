@@ -19,8 +19,8 @@ from textual.screen import Screen
 
 from flexi.app import FlexiApp
 from flexi.components.chrome import AppFooter
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
 from flexi.services.samples import NOW, seed_demo
 
@@ -65,7 +65,7 @@ def app_factory(seeded_db: Path) -> AppFactory:
 
 def dashboard(app: FlexiApp) -> DashboardScreen:
     """The dashboard, wherever it is on the stack."""
-    found = app._dashboard()
+    found = app.dashboard()
     assert found is not None, "the dashboard should be mounted"
     return found
 

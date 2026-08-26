@@ -24,14 +24,13 @@ from flexi.components.charts import (
     week_columns,
 )
 from flexi.components.chrome import AppFooter, AppHeader
-from flexi.components.common import Tone, mark_width
+from flexi.components.common import mark_width
 from flexi.components.modules.base import Module
 from flexi.config import CONFIG
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Granularity
 from flexi.domain.format import day_month, delta, hm, short_date
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from flexi.messages import Scope
-from flexi.services.registry import Services
 
 RIBBON_DAYS = 21
 """Three weeks of strips. Enough to see a pattern, few enough to fit above the
@@ -63,7 +62,9 @@ class BalanceHistory(Module):
             self.set_subtitle("not started")
             return
         ledgers = self.services.ledger.days(period.start, end, now=self.now)
-        self.query_one("#balance-bars", DivergingBars).show(week_columns(ledgers))
+        self.query_one("#balance-bars", DivergingBars).show(
+            week_columns(ledgers, first_weekday=period.first_weekday)
+        )
         total = self.services.ledger.summary(period.start, end, now=self.now)
         self.set_subtitle(f"{delta(total.delta)} to {day_month(end)}")
 
@@ -104,7 +105,7 @@ class ShapeOfTheWeeks(Module):
         super().__init__(id="week-ribbon", title="Shape of the days", **kwargs)
 
     def compose(self) -> ComposeResult:
-        yield WeekRibbon(id="ribbon")
+        yield WeekRibbon(id="ribbon", now=self.now)
 
     def on_mount(self) -> None:
         self.rebuild()
@@ -118,7 +119,7 @@ class ShapeOfTheWeeks(Module):
             if item.is_working_day or item.segments
         ]
         self.query_one("#ribbon", WeekRibbon).show(
-            ledgers[-RIBBON_DAYS:], self.services.ledger.window
+            ledgers[-RIBBON_DAYS:], self.services.ledger.window, now=self.now
         )
         self.set_subtitle(f"to {day_month(end)}")
 
@@ -141,13 +142,17 @@ class YearAtAGlance(Module):
         today = self.now.date()
         start, _ = self.services.absence.leave_year_bounds(today)
         ledgers = self.services.ledger.days(start, today, now=self.now)
-        self.query_one("#heatmap", YearHeatmap).show(ledgers)
+        self.query_one("#heatmap", YearHeatmap).show(
+            ledgers, first_weekday=self.period.first_weekday
+        )
         worked = sum((item.worked for item in ledgers), start=timedelta())
         self.set_subtitle(f"{hm(worked)} worked")
 
 
 class InsightsScreen(Screen[None]):
     """The four questions the dashboard does not answer."""
+
+    HELP_LABEL = "Insights"
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.today, "today", "Today", show=True),
@@ -157,9 +162,8 @@ class InsightsScreen(Screen[None]):
         Binding("escape", "back", "Back", show=True),
     ]
 
-    def __init__(self, services: Services, period: Period, **kwargs: Any) -> None:
+    def __init__(self, period: Period, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._services = services
         # Opens on the leave year rather than inheriting a week: a chart of one
         # week's four bars is a worse answer than the table it came from.
         self.period = period.zoom(Granularity.YEAR)
@@ -194,13 +198,26 @@ class InsightsScreen(Screen[None]):
 
     # -- period ------------------------------------------------------------
 
+    def refresh_modules(self, scope: Scope) -> None:
+        """Redraw on an external change, so the app can treat every screen alike.
+
+        `LeaveScreen` said that and the app called it on neither, singling the
+        dashboard out instead; this screen did not have the method at all.
+        """
+        for module in self.query(Module):
+            module.rebuild_if(scope)
+
     def set_period(self, period: Period) -> None:
         self.period = period
         for header in self.query(AppHeader):
             header.context = f"{short_date(wallclock.today())} · {period.label}"
-        self._services.invalidate()
+        # No `invalidate()`: moving the view changes no rows, and the ledger
+        # cache is what stops a leave year being re-derived from scratch on
+        # every keypress. `DashboardScreen.refresh_modules` states the same rule
+        # -- `Scope.PERIOD` is "the temporal view moved" -- and this screen was
+        # dropping 371 day ledgers to redraw with the same numbers.
         for module in self.query(Module):
-            module.rebuild()
+            module.rebuild_if(Scope.PERIOD)
 
     def action_today(self) -> None:
         self.set_period(self.period.go_to(wallclock.today()))
@@ -219,7 +236,3 @@ class InsightsScreen(Screen[None]):
         after the user had left it.
         """
         self.dismiss(None)
-
-    def status(self, message: str, tone: Tone = Tone.NEUTRAL) -> None:
-        for footer in self.query(AppFooter):
-            footer.set_status(message, tone)

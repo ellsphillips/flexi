@@ -14,10 +14,10 @@ import pytest
 import time_machine
 from sqlalchemy.orm import Session
 
-from flexi.constants import AbsenceType, Portion
-from flexi.models.database.app import create_db_engine, get_session
+from flexi.constants import AbsenceType, Division, Portion
 from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base
-from flexi.services.absence import AbsenceService
+from flexi.models.database.engine import create_db_engine, get_session
+from flexi.services.absence import AbsenceService, covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.registry import Services
 from flexi.services.settings import SettingsService
@@ -76,7 +76,7 @@ def bank_holidays(session: Session) -> BankHolidayService:
         )
     )
     session.commit()
-    return BankHolidayService(session, "england-and-wales")
+    return BankHolidayService(session, lambda: Division.ENGLAND_AND_WALES)
 
 
 @pytest.fixture
@@ -129,7 +129,7 @@ class TestRejections:
         """It refuses rather than guess when it cannot tell if a date is a holiday.
 
         A fresh database, so the bank-holiday cache is genuinely empty:
-        `is_bank_holiday` answers None, which is not the same as False, and
+        `titles_between` answers None, which is not the same as an empty mapping, and
         booking leave over a bank holiday it could not see would be worse than
         refusing.
         """
@@ -145,7 +145,9 @@ class TestRejections:
                 auto_close_time="18:00",
             )
             svc = AbsenceService(
-                session, settings, BankHolidayService(session, "england-and-wales")
+                session,
+                settings,
+                BankHolidayService(session, lambda: Division.ENGLAND_AND_WALES),
             )
             result = svc.book(_next_weekday(date(2026, 6, 8), 0), AbsenceType.ANNUAL)
         finally:
@@ -251,30 +253,31 @@ class TestReadingADay:
     """What a surface drawing one date is told about it.
 
     A half day that reads as a whole one takes the date out of the calendar
-    entirely: `is_fully_absent` is the answer to "may anything be worked here",
-    and a morning off is not a day off.
+    entirely: `covers_the_whole_day` is the answer to "may anything be worked
+    here", and a morning off is not a day off. It is asked from both sides --
+    the clock refuses a day that is fully booked, and `verdict_for` refuses a
+    booking over a day that is fully worked.
     """
 
     def test_an_empty_day_is_spoken_for_by_nothing(
         self, absence: AbsenceService
     ) -> None:
-        d = _next_weekday(date(2026, 6, 8), 0)
+        when = _next_weekday(date(2026, 6, 8), 0)
 
-        assert absence.get_absence(d) is None
-        assert absence.booked_days(d) == 0.0
-        assert absence.is_fully_absent(d) is False
+        assert absence.for_date(when) == []
+        assert covers_the_whole_day(row.portion for row in absence.for_date(when)) is (
+            False
+        )
 
     def test_a_booked_morning_leaves_the_afternoon_workable(
         self, absence: AbsenceService
     ) -> None:
-        d = _next_weekday(date(2026, 6, 8), 0)
-        absence.book(d, AbsenceType.SICK, portion=Portion.AM)
+        when = _next_weekday(date(2026, 6, 8), 0)
+        absence.book(when, AbsenceType.SICK, portion=Portion.AM)
 
-        booked = absence.get_absence(d)
-        assert booked is not None
-        assert booked.portion is Portion.AM
-        assert absence.booked_days(d) == 0.5
-        assert absence.is_fully_absent(d) is False
+        booked = absence.for_date(when)
+        assert [row.portion for row in booked] == [Portion.AM]
+        assert covers_the_whole_day(row.portion for row in booked) is False
 
     def test_two_halves_of_different_types_add_up_to_a_whole_day(
         self, absence: AbsenceService
@@ -284,22 +287,20 @@ class TestReadingADay:
         Nothing else on the date is available to be worked, even though no row
         on it says "full day".
         """
-        d = _next_weekday(date(2026, 6, 8), 0)
-        absence.book(d, AbsenceType.SICK, portion=Portion.AM)
-        absence.book(d, AbsenceType.ANNUAL, portion=Portion.PM)
+        when = _next_weekday(date(2026, 6, 8), 0)
+        absence.book(when, AbsenceType.SICK, portion=Portion.AM)
+        absence.book(when, AbsenceType.ANNUAL, portion=Portion.PM)
 
-        assert absence.booked_days(d) == 1.0
-        assert absence.is_fully_absent(d) is True
+        booked = absence.for_date(when)
+        assert covers_the_whole_day(row.portion for row in booked) is True
 
     def test_a_full_day_is_reported_as_one_day(self, absence: AbsenceService) -> None:
-        d = _next_weekday(date(2026, 6, 8), 0)
-        absence.book(d, AbsenceType.ANNUAL)
+        when = _next_weekday(date(2026, 6, 8), 0)
+        absence.book(when, AbsenceType.ANNUAL)
 
-        booked = absence.get_absence(d)
-        assert booked is not None
-        assert booked.absence_type is AbsenceType.ANNUAL
-        assert absence.booked_days(d) == 1.0
-        assert absence.is_fully_absent(d) is True
+        booked = absence.for_date(when)
+        assert [row.absence_type for row in booked] == [AbsenceType.ANNUAL]
+        assert covers_the_whole_day(row.portion for row in booked) is True
 
 
 # ---------- removal ----------
@@ -311,7 +312,7 @@ class TestRemoval:
         absence.book(d, AbsenceType.SICK)
         result = absence.remove(d)
         assert result.success is True
-        assert absence.has_absence(d) is False
+        assert absence.for_date(d) == []
 
     def test_remove_nonexistent(self, absence: AbsenceService) -> None:
         result = absence.remove(date(2026, 1, 2))
@@ -319,125 +320,6 @@ class TestRemoval:
 
 
 # ---------- type change ----------
-
-
-class TestTypeChange:
-    def test_change_sick_to_annual(self, absence: AbsenceService) -> None:
-        d = _next_weekday(date(2026, 6, 8), 0)
-        absence.book(d, AbsenceType.SICK)
-        result = absence.change_type(d, AbsenceType.ANNUAL)
-        assert result.success is True
-        assert result.absence is not None
-        assert result.absence.absence_type is AbsenceType.ANNUAL
-
-    def test_change_nonexistent_fails(self, absence: AbsenceService) -> None:
-        result = absence.change_type(date(2026, 1, 2), AbsenceType.ANNUAL)
-        assert result.success is False
-
-    def test_changing_to_other_without_a_reason_is_refused(
-        self, absence: AbsenceService
-    ) -> None:
-        """The note rule applies to the day as it ends up, not as it started.
-
-        Relabelling annual leave as "Other" and leaving the reason behind is the
-        same undocumented day off as booking one that way.
-        """
-        d = _next_weekday(date(2026, 6, 8), 0)
-        absence.book(d, AbsenceType.ANNUAL)
-
-        result = absence.change_type(d, AbsenceType.OTHER)
-
-        assert result.success is False
-        assert result.message == "Other absence needs a note saying what it is"
-        booked = absence.get_absence(d)
-        assert booked is not None
-        assert booked.absence_type is AbsenceType.ANNUAL, "nothing was relabelled"
-
-    def test_a_note_already_on_the_booking_is_reason_enough(
-        self, absence: AbsenceService
-    ) -> None:
-        """Somebody who wrote the reason once is not asked for it again."""
-        d = _next_weekday(date(2026, 6, 8), 0)
-        absence.book(d, AbsenceType.SICK, note="Hospital appointment")
-
-        result = absence.change_type(d, AbsenceType.OTHER)
-
-        assert result.success is True, result.message
-        assert result.absence is not None
-        assert result.absence.note == "Hospital appointment"
-
-    def test_a_new_note_replaces_the_old_one(self, absence: AbsenceService) -> None:
-        """The reason has to follow the type it is the reason for."""
-        d = _next_weekday(date(2026, 6, 8), 0)
-        absence.book(d, AbsenceType.SICK, note="Flu")
-
-        result = absence.change_type(d, AbsenceType.OTHER, note="Jury service")
-
-        assert result.success is True, result.message
-        booked = absence.get_absence(d)
-        assert booked is not None
-        assert booked.note == "Jury service"
-
-    def test_changing_away_from_annual_never_asks_about_entitlement(
-        self, session: Session, bank_holidays: BankHolidayService
-    ) -> None:
-        """Sickness does not come out of the allowance, so it cannot be short of it.
-
-        With the year spent to the last day, relabelling the annual leave as
-        sickness has to succeed — it gives a day back rather than taking one.
-        """
-        settings = SettingsService(session)
-        settings.save_settings(
-            leave_year_start="01-01",
-            working_days="0,1,2,3,4",
-            bank_holiday_division="england-and-wales",
-            auto_close_time="18:00",
-        )
-        settings.save_entitlement(2026, 1.0)
-        svc = AbsenceService(session, settings, bank_holidays)
-        d = _next_weekday(date(2026, 6, 8), 0)
-        svc.book(d, AbsenceType.ANNUAL)
-        assert svc.get_remaining_annual_leave(d) == 0.0
-
-        result = svc.change_type(d, AbsenceType.SICK)
-
-        assert result.success is True, result.message
-        assert svc.get_remaining_annual_leave(d) == 1.0
-
-    def test_relabelling_sickness_as_annual_is_refused_when_the_year_is_spent(
-        self, session: Session, bank_holidays: BankHolidayService
-    ) -> None:
-        """A relabelling spends a day of the allowance as surely as a booking does.
-
-        Without this, the entitlement check on `book` is a formality: book the
-        day as sick, change it to annual, and the allowance goes negative with
-        nothing having refused it.
-        """
-        settings = SettingsService(session)
-        settings.save_settings(
-            leave_year_start="01-01",
-            working_days="0,1,2,3,4",
-            bank_holiday_division="england-and-wales",
-            auto_close_time="18:00",
-        )
-        settings.save_entitlement(2026, 1.0)
-        svc = AbsenceService(session, settings, bank_holidays)
-        spent = _next_weekday(date(2026, 6, 8), 0)
-        svc.book(spent, AbsenceType.ANNUAL)
-        sick = _next_weekday(date(2026, 6, 8), 1)
-        svc.book(sick, AbsenceType.SICK)
-
-        result = svc.change_type(sick, AbsenceType.ANNUAL)
-
-        assert result.success is False
-        assert result.message == "Not enough annual leave for that change"
-        booked = svc.get_absence(sick)
-        assert booked is not None
-        assert booked.absence_type is AbsenceType.SICK
-        assert svc.get_remaining_annual_leave(sick) == 0.0
-
-
-# ---------- balance checks ----------
 
 
 class TestBalance:
@@ -477,5 +359,6 @@ class TestCounts:
         d2 = _next_weekday(date(2026, 6, 8), 1)
         absence.book(d1, AbsenceType.SICK)
         absence.book(d2, AbsenceType.SICK)
-        assert absence.count_absences(AbsenceType.SICK) == 2
-        assert absence.count_absences(AbsenceType.ANNUAL) == 0
+        counted = absence.tally(d1, d2)
+        assert counted[AbsenceType.SICK] == (2.0, 2)
+        assert counted[AbsenceType.ANNUAL] == (0.0, 0)

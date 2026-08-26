@@ -1,20 +1,23 @@
-"""Startup routines that run before any clock action or app launch."""
+"""Closing the sessions nobody closed.
+
+One half of the sweep `ClockService.sweep` runs; the other half, voiding
+sessions too short to have been real, is the clock's own. This module used to
+hold the pair, which meant importing `ClockService` for a type annotation --
+and `ClockService` importing this back, inside a method, purely to make the
+cycle importable.
+"""
 
 from __future__ import annotations
 
 from datetime import date, datetime, time
-from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-if TYPE_CHECKING:
-    from flexi.services.clock import ClockService
-
 from flexi import wallclock
-from flexi.constants import ClockAction
-from flexi.models.database.db import ClockEvent, WorkSession
-from flexi.models.database.moment import columns, moment_of
+from flexi.constants import ClockAction, EventSource
+from flexi.models.database.db import WorkSession
+from flexi.models.database.moment import moment_of, punched
 
 
 def close_stale_sessions(
@@ -48,13 +51,7 @@ def close_stale_sessions(
             effective_close = time(23, 59)
 
         closed_at = wallclock.local(datetime.combine(ws.work_date, effective_close))
-        wall, offset = columns(closed_at)
-        event = ClockEvent(
-            action=ClockAction.OUT,
-            timestamp=wall,
-            utc_offset_minutes=offset,
-            source="system",
-        )
+        event = punched(ClockAction.OUT, closed_at, source=EventSource.SYSTEM)
         session.add(event)
         session.flush()
         ws.clock_out_id = event.id
@@ -64,23 +61,4 @@ def close_stale_sessions(
     if closed:
         session.commit()
 
-    return closed
-
-
-def run_startup_cleanup(
-    session: Session, clock: ClockService, auto_close: time
-) -> list[WorkSession]:
-    """Run all startup-time cleanup. Called before app launch and clock actions.
-
-    Two sweeps. Sessions left running overnight are closed at the configured
-    time, and sessions so short they can only have been a slip of the finger are
-    voided — which also cleans up databases that predate the threshold.
-
-    The clock service is passed in rather than built here. Building one meant a
-    deferred import purely to make a cycle importable, and it meant this swept
-    with the configured threshold while the caller that asked for the sweep held
-    a different one. Now there is one edge, clock to startup, and one threshold.
-    """
-    closed = close_stale_sessions(session, auto_close)
-    clock.discard_short_sessions()
     return closed

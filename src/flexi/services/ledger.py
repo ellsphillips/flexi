@@ -2,14 +2,14 @@
 
 A period loads in three queries regardless of its length, and the results are
 memoised until something writes. The dashboard calls ``invalidate()`` when a
-:class:`~flexi.services.registry.DataChanged` scope says the rows moved; nothing
-else clears the cache, so a redraw provoked by a resize costs nothing.
+:class:`~flexi.messages.Scope` says the rows moved; nothing else clears the
+cache, so a redraw provoked by a resize costs nothing.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -24,6 +24,7 @@ from flexi.domain.balance import (
     toil_taken_for,
     worked_from,
 )
+from flexi.domain.dates import days_between
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.punch import Window
 from flexi.models.database.db import (
@@ -61,13 +62,7 @@ class LedgerService:
     @property
     def window(self) -> Window:
         """The span of the day the punch strip should draw."""
-        start, end = self._settings.get_day_window()
-        return Window.parse(start, end)
-
-    @property
-    def contracted(self) -> timedelta:
-        """How long a standard working day is."""
-        return self._settings.get_contracted()
+        return Window.parse(*self._settings.get_day_window())
 
     def day(self, when: date, *, now: datetime | None = None) -> DayLedger:
         """One day's ledger."""
@@ -85,7 +80,7 @@ class LedgerService:
         moment = wallclock.local(now) if now is not None else wallclock.now()
         today = moment.date()
 
-        wanted = _date_range(start, end)
+        wanted = days_between(start, end)
         missing = [day for day in wanted if day not in self._cache or day == today]
         if missing:
             self._build(min(missing), max(missing), moment, today)
@@ -115,15 +110,20 @@ class LedgerService:
     def _build(self, start: date, end: date, moment: datetime, today: date) -> None:
         sessions = self._sessions(start, end)
         absences = self._absences(start, end)
-        holidays = self._holidays(start, end)
+        # `or {}`: "none in this span" and "no calendar at all" are the
+        # service's distinction to make and to report. The ledger cannot
+        # invent holidays it has not been told about either way, and what it
+        # must not do is read the cache table itself.
+        holidays = self._holidays_service.titles_between(start, end) or {}
         corrections = self._adjustments(start, end)
-        working_days = set(self._settings.get_working_day_indices())
-        contracted = self.contracted
+        settings = self._settings.resolved()
+        working_days = set(settings.working_days)
+        contracted = settings.contracted
 
-        for when in _date_range(start, end):
+        for when in days_between(start, end):
             segments = tuple(
                 sorted(
-                    (_segment(row) for row in sessions[when]),
+                    (segment_of(row) for row in sessions[when]),
                     key=lambda item: item.start,
                 )
             )
@@ -135,7 +135,7 @@ class LedgerService:
             is_working = when.weekday() in working_days
 
             worked = worked_from(
-                segments, now=moment if when >= today else _end_of(when)
+                segments, now=moment if when >= today else end_of_day(when)
             )
             expected = expected_for(
                 contracted,
@@ -146,7 +146,7 @@ class LedgerService:
 
             self._cache[when] = DayLedger(
                 date=when,
-                kind=_kind(title, slices, segments, is_working=is_working),
+                kind=day_kind(title, slices, segments, is_working=is_working),
                 is_working_day=is_working,
                 contracted=contracted,
                 worked=worked,
@@ -204,25 +204,17 @@ class LedgerService:
         stmt = select(BalanceAdjustment.date, BalanceAdjustment.minutes).where(
             BalanceAdjustment.date >= start, BalanceAdjustment.date <= end
         )
-        totals: dict[date, timedelta] = {}
+        # Declared as a plain mapping, though it is built as a `defaultdict`.
+        # The consumer reads it with `.get(when, timedelta())` on purpose:
+        # advertising a defaultdict would invite a caller to index it and grow
+        # the mapping silently while iterating a span.
+        totals: defaultdict[date, timedelta] = defaultdict(timedelta)
         for row in self._session.execute(stmt):
-            totals[row.date] = totals.get(row.date, timedelta()) + timedelta(
-                minutes=row.minutes
-            )
+            totals[row.date] += timedelta(minutes=row.minutes)
         return totals
 
-    def _holidays(self, start: date, end: date) -> dict[date, str]:
-        """Bank holidays in the span, empty when there is no calendar.
 
-        The distinction between "none in this span" and "no calendar at all" is
-        the service's to make and to report; the ledger cannot invent holidays
-        it has not been told about either way. What it must not do is query the
-        cache table directly, which is how the two came to look identical.
-        """
-        return self._holidays_service.titles_between(start, end) or {}
-
-
-def _end_of(day: date) -> datetime:
+def end_of_day(day: date) -> datetime:
     """The last moment of a date.
 
     A session nobody closed is worth the rest of its own day, not every hour
@@ -233,7 +225,7 @@ def _end_of(day: date) -> datetime:
     return wallclock.local(datetime.combine(day, time.max))
 
 
-def _segment(row: WorkSession) -> Segment:
+def segment_of(row: WorkSession) -> Segment:
     start = moment_of(row.clock_in_event)
     end = moment_of(row.clock_out_event) if row.clock_out_event is not None else None
     return Segment(
@@ -245,13 +237,19 @@ def _segment(row: WorkSession) -> Segment:
     )
 
 
-def _kind(
+def day_kind(
     holiday: str | None,
     slices: tuple[AbsenceSlice, ...],
     segments: tuple[Segment, ...],
     *,
     is_working: bool,
 ) -> DayKind:
+    """What a date is, from what is recorded against it.
+
+    The one place the five kinds are decided. `PARTIAL` is the case a
+    one-status-per-day table gets wrong: a half-day absence with work in the
+    other half.
+    """
     if holiday is not None:
         return DayKind.HOLIDAY
     if not is_working:
@@ -264,13 +262,3 @@ def _kind(
     if slices:
         return DayKind.PARTIAL
     return DayKind.WORKING
-
-
-def _date_range(start: date, end: date) -> list[date]:
-    span = (end - start).days
-    return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
-
-
-def utc_now() -> datetime:
-    """The current moment, aware, for anything being written to the database."""
-    return datetime.now(tz=UTC)

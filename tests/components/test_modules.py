@@ -25,26 +25,26 @@ from textual.pilot import Pilot
 from textual.screen import Screen
 from textual.widgets import Button, Digits, Label, Static, Switch
 
+from flexi.components.allowance import pace_tone
 from flexi.components.common import Tone
-from flexi.components.expandable import SESSION, TOTAL, day_key
-from flexi.components.modules.balance import BalanceModule, _state_class
+from flexi.components.expandable import ExpandableTable, RowKind, row_key
+from flexi.components.modules.balance import BalanceModule, lean_class
 from flexi.components.modules.base import Module
 from flexi.components.modules.clock import ClockModule
-from flexi.components.modules.monthview import MonthView
+from flexi.components.modules.monthview import MonthView, month_grid
 from flexi.components.modules.records import (
     MAX_JUMP_ROWS,
     BookHere,
     DeleteHere,
     RecordsModule,
 )
-from flexi.components.modules.wallet import _pace_tone
 from flexi.components.punch import PunchStrip
-from flexi.constants import AbsenceType, DayKind, Portion
+from flexi.constants import AbsenceType, DayKind, Granularity, Portion
 from flexi.domain.ledger import AbsenceSlice, DayLedger
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from flexi.domain.punch import Window
 from flexi.domain.wallet import Allowance
-from flexi.messages import DataChanged, DateSelected, Scope
+from flexi.messages import DateSelected
 from flexi.services.registry import Services
 from tests.conftest import settled
 from tests.services.conftest import (  # noqa: F401 - `configure` is used as a fixture
@@ -79,9 +79,6 @@ class Panel(Screen[None]):
         yield self.module
 
     def on_date_selected(self, message: DateSelected) -> None:
-        self.posted.append(message)
-
-    def on_data_changed(self, message: DataChanged) -> None:
         self.posted.append(message)
 
     def on_book_here(self, message: BookHere) -> None:
@@ -239,25 +236,30 @@ async def test_a_module_takes_its_period_and_its_moment_from_the_screen(
     module = ClockModule()
     async with showing(module, flexi) as (_pilot, panel):
         assert module.period is panel.period
-        assert module.selected == THURSDAY
+        assert module.period.anchor == THURSDAY
         assert module.now == NOW
 
 
-async def test_a_module_announces_a_change_rather_than_redrawing_its_neighbours(
+async def test_a_redraw_before_the_table_has_columns_draws_nothing(
     flexi: Services,
 ) -> None:
-    """One rule: a module never calls another module's rebuild.
+    """`compose` yields the table; `on_mount` gives it its columns.
 
-    It says what changed, the screen invalidates once and redraws whoever
-    declared an interest — so a sixth module is a declaration rather than an
-    edit to somebody else's method.
+    A redraw asked for from outside can land between the two — the launch
+    worker's bank-holiday calendar arriving is the real case — and adding rows
+    to a table with no columns raises `ValueError: More values provided than
+    there are columns`. On a worker thread Textual reports that as the whole
+    application failing.
     """
-    module = ClockModule()
-    async with showing(module, flexi) as (pilot, panel):
-        module.announce(Scope.CLOCK)
+    module = RecordsModule()
+    async with showing(module, flexi) as (pilot, _panel):
+        table = module.query_one("#records-table", ExpandableTable)
+        table.clear(columns=True)
+
+        module.rebuild()
         await pilot.pause()
 
-        assert only(panel, DataChanged).scope is Scope.CLOCK
+        assert not table.columns, "nothing to draw into, so nothing drawn"
 
 
 # -- the balance -------------------------------------------------------------
@@ -297,7 +299,7 @@ def test_a_balance_with_no_contract_behind_it_is_left_in_hours() -> None:
 
 def test_a_level_balance_is_muted_rather_than_coloured() -> None:
     """Green is earned by a surplus; nil is not a very small one."""
-    assert _state_class(timedelta()) == "muted"
+    assert lean_class(timedelta()) == "muted"
 
 
 # -- the wallet --------------------------------------------------------------
@@ -325,7 +327,7 @@ def test_only_an_allowance_with_nothing_left_is_red(
     allowance = Allowance(
         type=AbsenceType.ANNUAL, used=used, occurrences=1, total=total, pace=pace
     )
-    assert _pace_tone(allowance) is expected
+    assert pace_tone(allowance) is expected
 
 
 # -- the calendar ------------------------------------------------------------
@@ -372,6 +374,22 @@ async def test_the_arrows_beside_the_month_page_it_either_way(
         assert str(label.render()) == "May 2026"
 
 
+def test_the_month_grid_starts_on_the_day_the_week_is_configured_to_start() -> None:
+    """It started on Monday whatever the period beside it was doing.
+
+    `Period` honours `first_day_of_week`; the grid did not. Set the week to
+    start on Sunday and the row tint -- which marks every row the period touches
+    -- lit two rows for one week, fourteen days presented as this week, under
+    headings that still read M T W T F S S.
+    """
+    monday_first = month_grid(date(2026, 6, 1), first_weekday=0)
+    sunday_first = month_grid(date(2026, 6, 1), first_weekday=6)
+
+    assert monday_first[0] == date(2026, 6, 1), "June 2026 opens on a Monday"
+    assert sunday_first[0] == date(2026, 5, 31)
+    assert {when.weekday() for when in sunday_first[::7]} == {6}
+
+
 async def test_an_arrow_key_asks_for_the_neighbouring_day(flexi: Services) -> None:
     """The grid holds no selection of its own: it asks, and redraws when told.
 
@@ -415,7 +433,7 @@ async def test_a_day_that_met_its_hours_exactly_is_drawn_without_a_sign(
         row = next(
             item
             for item in module.table.visible_rows()
-            if item.key == day_key(MONDAY.isoformat())
+            if item.key == row_key(RowKind.DAY, MONDAY)
         )
         delta = cell(row.cells[3])
 
@@ -476,20 +494,20 @@ async def test_the_cursor_names_its_day_from_anywhere_inside_the_group(
     module = RecordsModule()
     async with showing(module, flexi) as (pilot, _panel):
         table = module.table
-        table.focus_key(day_key(MONDAY.isoformat()))
+        table.focus_key(row_key(RowKind.DAY, MONDAY))
         await pilot.pause()
         assert module.selected_date() == MONDAY.isoformat()
 
-        table.toggle(day_key(MONDAY.isoformat()))
+        table.toggle(row_key(RowKind.DAY, MONDAY))
         await pilot.pause()
         session = next(
-            row for row in table.visible_rows() if row.key.startswith(SESSION)
+            row for row in table.visible_rows() if row.key.startswith(RowKind.SESSION)
         )
         table.focus_key(session.key)
         await pilot.pause()
         assert module.selected_date() == MONDAY.isoformat()
 
-        table.focus_key(f"{TOTAL}period")
+        table.focus_key(f"{RowKind.TOTAL}period")
         await pilot.pause()
         assert module.selected_date() is None, "the period line is not a day"
 
@@ -506,7 +524,7 @@ async def test_booking_and_deleting_carry_whatever_the_cursor_is_on(
     module = RecordsModule()
     async with showing(module, flexi) as (pilot, panel):
         table = module.table
-        tuesday = day_key((MONDAY + timedelta(days=1)).isoformat())
+        tuesday = row_key(RowKind.DAY, MONDAY + timedelta(days=1))
         table.focus_key(tuesday)
         await pilot.pause()
 
@@ -517,7 +535,7 @@ async def test_booking_and_deleting_carry_whatever_the_cursor_is_on(
         table.toggle(tuesday)
         await pilot.pause()
         session = next(
-            row for row in table.visible_rows() if row.key.startswith(SESSION)
+            row for row in table.visible_rows() if row.key.startswith(RowKind.SESSION)
         )
         table.focus_key(session.key)
         await pilot.pause()
@@ -552,7 +570,7 @@ async def test_with_nothing_under_the_cursor_the_screen_is_told_so(
 
 def test_a_strip_with_no_day_to_draw_is_blank() -> None:
     """The clock module composes its strip before it has read the database."""
-    assert str(PunchStrip().render()) == ""
+    assert str(PunchStrip(now=NOW).render()) == ""
 
 
 def test_a_strip_told_only_a_new_day_keeps_the_window_it_draws_in() -> None:
@@ -563,9 +581,9 @@ def test_a_strip_told_only_a_new_day_keeps_the_window_it_draws_in() -> None:
     one redraw would rescale every strip on the screen.
     """
     window = Window.parse("06:00", "22:00")
-    strip = PunchStrip(window=window)
+    strip = PunchStrip(window=window, now=NOW)
 
-    strip.set_ledger(holiday("Summer bank holiday"))
+    strip.set_ledger(holiday("Summer bank holiday"), now=NOW)
 
     assert strip.window is window
 

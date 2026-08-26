@@ -16,16 +16,19 @@ The rules SQLite cannot express, so this service does:
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections import Counter, defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
+from typing import NamedTuple
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain import leaveyear
+from flexi.domain.dates import days_between
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural, short_date
 from flexi.domain.ledger import MIDDAY_HOUR
@@ -34,19 +37,16 @@ from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 
-
-def _walk(start: date, end: date) -> list[date]:
-    """Every date from start to end, inclusive."""
-    span = (end - start).days
-    return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
+type Span = tuple[datetime, datetime]
+"""A stretch of recorded work, resolved: an open session ends at midnight."""
 
 
 def covers_the_whole_day(booked: Iterable[Portion]) -> bool:
     """True when what is booked leaves no half of the day left to work.
 
-    One rule, asked from both sides. `_has_work_in` already lets a half day be
-    booked over work in the other half; without this, the clock refused the
-    mirror image — you could book a sick morning after working it, and then not
+    One rule, asked from both sides. `DayFacts.has_work_in` already lets a half
+    day be booked over work in the other half; without this, the clock refused
+    the mirror image — you could book a sick morning after working it, and then not
     work the afternoon after booking the morning.
 
     Examples:
@@ -77,6 +77,33 @@ def deficit(shortfall: float) -> str:
     """
     short = f"{fmt_days(shortfall)} {plural(shortfall, 'day')}"
     return f"the flexi balance {short} into deficit"
+
+
+def overdraw(after: float | None, *, opening: str = "This") -> str | None:
+    """The sentence for a balance this would leave under zero, or ``None``.
+
+    ``after`` is what the flexi balance would read once the booking is made,
+    and ``None`` means the booking does not touch it -- annual leave does not,
+    so a balance already in deficit is not this booking's news, and saying so
+    on every annual booking teaches people to ignore the line.
+
+    One rule, asked by the single booking and by the plan. They had their own
+    arithmetic and their own sentence, so a day and a fortnight could disagree
+    about whether the same request was worth mentioning.
+
+    Examples:
+        >>> overdraw(None) is None
+        True
+        >>> overdraw(1.5) is None
+        True
+        >>> overdraw(-2.5)
+        'This takes the flexi balance 2.5 days into deficit'
+        >>> overdraw(-1, opening="Booked, but this")
+        'Booked, but this takes the flexi balance 1 day into deficit'
+    """
+    if after is None or after >= 0:
+        return None
+    return f"{opening} takes {deficit(-after)}"
 
 
 @dataclass(frozen=True)
@@ -110,11 +137,7 @@ class RangeResult:
     @property
     def reasons(self) -> tuple[str, ...]:
         """The distinct refusals, in the order they were first hit."""
-        seen: list[str] = []
-        for _when, reason in self.skipped:
-            if reason not in seen:
-                seen.append(reason)
-        return tuple(seen)
+        return tuple(dict.fromkeys(reason for _when, reason in self.skipped))
 
     def message(self, what: str) -> str:
         """One sentence a status bar can show unedited."""
@@ -141,6 +164,166 @@ class PlannedDay:
     verdict: Verdict
     reason: str
     detail: str | None = None
+
+
+class Tally(NamedTuple):
+    """How much of a kind of absence a span holds, counted both ways.
+
+    Two half-days are two occurrences and one day. Sickness is worth reporting
+    both ways: "five occasions" and "two and a half days" say very different
+    things about a year.
+    """
+
+    days: float
+    occurrences: int
+
+
+@dataclass(frozen=True, slots=True)
+class DayFacts:
+    """Everything deciding one date needs, and nothing that needs a database.
+
+    The rules used to read for themselves, one date at a time: a settings row,
+    two bank-holiday rows, an absence row and a session row per day. Planning a
+    year of leave was 1,417 round trips to answer a question about 365 dates,
+    where `LedgerService` -- which loads a period in three queries however long
+    it is -- had already shown what that should cost.
+
+    Plain values rather than the rows they were read from, so
+    :func:`verdict_for` is a function of its arguments and can be exercised
+    without a session.
+    """
+
+    date: date
+    is_working_day: bool
+    has_calendar: bool
+    """False only when there is no bank holiday calendar at all, which is not
+    the same as a date with no holiday on it."""
+    holiday_title: str | None
+    booked: tuple[Portion, ...]
+    worked: tuple[Span, ...]
+
+    @property
+    def midday(self) -> datetime:
+        """The boundary between the two halves of this date.
+
+        Localised, because the spans in ``worked`` are: a manufactured wall time
+        compared against a stored one has to be given the same offset or the
+        comparison is a `TypeError` rather than an answer.
+        """
+        return wallclock.local(datetime.combine(self.date, time(MIDDAY_HOUR, 0)))
+
+    def has_work_in(self, portion: Portion) -> bool:
+        """True when recorded work overlaps the half of the day being booked."""
+        if not self.worked:
+            return False
+        if portion is Portion.FULL:
+            return True
+        midday = self.midday
+        return any(
+            start < midday if portion is Portion.AM else end > midday
+            for start, end in self.worked
+        )
+
+
+def clash_reason(facts: DayFacts, portion: Portion) -> str | None:
+    """Why this part of the day is already spoken for, or ``None``.
+
+    Ordered cheapest first, and only the first is reported: a dialog listing
+    four objections at once tells nobody what to do next.
+    """
+    if Portion.FULL in facts.booked:
+        return "That day is already booked in full"
+    if facts.booked and portion is Portion.FULL:
+        return "Half of that day is already booked; remove it first"
+    if portion in facts.booked:
+        return f"That {portion.label.lower()} is already booked"
+    if facts.has_work_in(portion):
+        return "There is recorded work in that part of the day"
+    return None
+
+
+def verdict_for(
+    facts: DayFacts,
+    absence_type: AbsenceType,
+    portion: Portion,
+    note: str | None = None,
+    *,
+    remaining_annual: float | None = None,
+) -> PlannedDay:
+    """What booking this date would do, typed, with the sentence to show.
+
+    Order matters: cheapest first, and only the first objection is reported.
+
+    ``remaining_annual`` is passed in rather than read, so a plan can carry a
+    drawdown the database has not seen -- booking ten days against five left has
+    to refuse the sixth, and the rows for the first five are not written yet.
+    ``None`` means no entitlement has been recorded, which is not the same as
+    none remaining and must not refuse anything.
+    """
+    if absence_type.requires_note and not (note or "").strip():
+        return PlannedDay(
+            facts.date,
+            Verdict.NEEDS_NOTE,
+            "Other absence needs a note saying what it is",
+        )
+    if not facts.is_working_day:
+        return PlannedDay(facts.date, Verdict.NON_WORKING, "Not a working day")
+    if not facts.has_calendar:
+        return PlannedDay(
+            facts.date,
+            Verdict.NO_CALENDAR,
+            "Bank holiday data unavailable; cannot book absence",
+        )
+    if facts.holiday_title is not None:
+        return PlannedDay(
+            facts.date,
+            Verdict.BANK_HOLIDAY,
+            "That day is already a bank holiday",
+            facts.holiday_title,
+        )
+    clash = clash_reason(facts, portion)
+    if clash is not None:
+        return PlannedDay(facts.date, Verdict.CLASH, clash)
+    if (
+        absence_type.draws_down_entitlement
+        and remaining_annual is not None
+        and remaining_annual < portion.days
+    ):
+        short = portion.days - remaining_annual
+        return PlannedDay(
+            facts.date,
+            Verdict.NO_ENTITLEMENT,
+            f"Not enough annual leave — {short:g} day short of the request",
+        )
+    return PlannedDay(facts.date, Verdict.BOOK, "")
+
+
+def still_bookable(
+    when: date, working_days: Iterable[int], holidays: frozenset[date] | None
+) -> bool:
+    """True when a marker still sits on a day it could legally be booked on.
+
+    A working pattern that later drops Fridays leaves last year's Friday
+    bookings in place. They stop counting against the allowance rather than
+    being deleted behind the user's back.
+
+    ``holidays`` is ``None`` when there is no calendar, in which case nothing
+    can be ruled out for being one.
+
+    Examples:
+        >>> friday, saturday = date(2026, 6, 12), date(2026, 6, 13)
+        >>> still_bookable(friday, [0, 1, 2, 3, 4], frozenset())
+        True
+        >>> still_bookable(saturday, [0, 1, 2, 3, 4], frozenset())
+        False
+        >>> still_bookable(friday, range(7), frozenset({friday}))
+        False
+        >>> still_bookable(friday, range(7), None)
+        True
+    """
+    return when.weekday() in set(working_days) and (
+        holidays is None or when not in holidays
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,11 +369,7 @@ class AbsencePlan:
     @property
     def reasons(self) -> tuple[str, ...]:
         """The distinct refusals, in the order they were first hit."""
-        seen: list[str] = []
-        for day in self.refused:
-            if day.reason not in seen:
-                seen.append(day.reason)
-        return tuple(seen)
+        return tuple(dict.fromkeys(day.reason for day in self.refused))
 
     @property
     def headline(self) -> str:
@@ -229,10 +408,7 @@ class AbsencePlan:
         """
         if not self.absence_type.draws_down_balance:
             return None
-        after = self.toil_after
-        if after is None or after >= 0:
-            return None
-        return f"This takes {deficit(abs(after))}"
+        return overdraw(self.toil_after)
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,27 +464,14 @@ class AbsenceService:
         stmt = select(AbsenceDay).where(AbsenceDay.date == day).order_by(AbsenceDay.id)
         return list(self._session.execute(stmt).scalars())
 
-    def get_absence(self, day: date) -> AbsenceDay | None:
-        """The first absence on a date, or ``None``.
+    def by_id(self, absence_id: int) -> AbsenceDay | None:
+        """One booking, by the key a table row carries.
 
-        Kept for callers that only need to know whether the day is spoken for.
-        Anything drawing the day should use :meth:`for_date`, which can see both
-        halves.
+        The records table hands a row key back as a primary key, and the screen
+        turned it into a row by fetching every booking in the visible period and
+        scanning for it -- a year of them, when the period was zoomed to a year.
         """
-        found = self.for_date(day)
-        return found[0] if found else None
-
-    def has_absence(self, day: date) -> bool:
-        """True when anything at all is booked on the date."""
-        return bool(self.for_date(day))
-
-    def booked_days(self, day: date) -> float:
-        """How much of the date is booked, as a fraction of a working day."""
-        return sum(absence.portion.days for absence in self.for_date(day))
-
-    def is_fully_absent(self, day: date) -> bool:
-        """True when no part of the date is available to work."""
-        return self.booked_days(day) >= 1.0
+        return self._session.get(AbsenceDay, absence_id)
 
     def in_range(self, start: date, end: date) -> list[AbsenceDay]:
         """Every absence between two dates, inclusive, in date order."""
@@ -324,48 +487,64 @@ class AbsenceService:
     def count_days(
         self,
         absence_type: AbsenceType,
-        start: date | None = None,
-        end: date | None = None,
+        start: date,
+        end: date,
         *,
         valid_only: bool = False,
     ) -> float:
-        """How many *days* of a type were booked, counting a half as a half."""
-        rows = self._rows_of_type(absence_type, start, end, valid_only=valid_only)
-        return sum(row.portion.days for row in rows)
+        """How many *days* of a type were booked in a span, a half counting half.
 
-    def count_absences(
-        self,
-        absence_type: AbsenceType,
-        start: date | None = None,
-        end: date | None = None,
-        *,
-        valid_only: bool = False,
-    ) -> int:
-        """How many absence *rows* of a type exist in the range.
-
-        Distinct from :meth:`count_days`: two half-days are two occurrences and
-        one day. Sickness is worth reporting both ways, because "five occasions"
-        and "two and a half days" say very different things about a year.
+        ``valid_only`` drops markers on days the working pattern no longer
+        covers: an allowance is drawn against days that could be booked, while
+        the balance is drawn against days that were.
         """
-        return len(self._rows_of_type(absence_type, start, end, valid_only=valid_only))
-
-    def _rows_of_type(
-        self,
-        absence_type: AbsenceType,
-        start: date | None,
-        end: date | None,
-        *,
-        valid_only: bool,
-    ) -> list[AbsenceDay]:
-        stmt = select(AbsenceDay).where(AbsenceDay.absence_type == absence_type)
-        if start is not None:
-            stmt = stmt.where(AbsenceDay.date >= start)
-        if end is not None:
-            stmt = stmt.where(AbsenceDay.date <= end)
+        stmt = select(AbsenceDay).where(
+            AbsenceDay.absence_type == absence_type,
+            AbsenceDay.date >= start,
+            AbsenceDay.date <= end,
+        )
         rows = list(self._session.execute(stmt).scalars())
         if valid_only:
-            rows = [row for row in rows if self._is_valid_marker(row)]
-        return rows
+            rows = self._only_still_bookable(rows)
+        return sum(row.portion.days for row in rows)
+
+    def tally(self, start: date, end: date) -> dict[AbsenceType, Tally]:
+        """Days and occurrences of every type in a span, in one pass.
+
+        Counting only markers that still sit on a day leave could be booked on,
+        because the wallet is the only thing that asks and an allowance is what
+        it is drawing. Every type appears, including the ones with nothing
+        against them: a gauge that vanishes when it reaches zero is a gauge
+        somebody has to remember existed.
+
+        The wallet used to ask for days and occurrences separately, per type:
+        ten scans of the same rows with byte-identical arguments, each
+        re-validating every row it read with three queries of its own. A year
+        of twenty-five bookings cost 162 round trips to produce ten pairs of
+        numbers.
+        """
+        rows = self._only_still_bookable(self.in_range(start, end))
+        # `Counter` counts rows; days are halves, and a Counter is typed to
+        # integers.
+        days: defaultdict[AbsenceType, float] = defaultdict(float)
+        for row in rows:
+            days[row.absence_type] += row.portion.days
+        occurrences = Counter(row.absence_type for row in rows)
+        return {kind: Tally(days[kind], occurrences[kind]) for kind in AbsenceType}
+
+    def _only_still_bookable(self, rows: list[AbsenceDay]) -> list[AbsenceDay]:
+        """Drop markers whose date is no longer one leave could be booked on.
+
+        The two questions are asked once for the whole list rather than once per
+        row. Asked per row they were three queries each, so validating a leave
+        year cost more than reading it did.
+        """
+        if not rows:
+            return rows
+        working = self._settings.get_working_day_indices()
+        holidays = self._bank_holidays.get_dates()
+        known = None if holidays is None else frozenset(holidays)
+        return [row for row in rows if still_bookable(row.date, working, known)]
 
     def leave_year_bounds(self, ref: date | None = None) -> tuple[date, date]:
         """The first and last date of the leave year containing ``ref``."""
@@ -382,9 +561,7 @@ class AbsenceService:
         if entitlement is None:
             return None
         start, end = self.leave_year_bounds(ref)
-        booked = self.count_days(
-            AbsenceType.ANNUAL, start=start, end=end, valid_only=True
-        )
+        booked = self.count_days(AbsenceType.ANNUAL, start, end, valid_only=True)
         return entitlement - booked
 
     # -- writing -----------------------------------------------------------
@@ -403,10 +580,25 @@ class AbsenceService:
         ``available_toil_days`` only warns on a TOIL booking that would overdraw; it
         never refuses one.
         """
-        refusal = self._refusal(day, absence_type, portion, note)
-        if refusal is not None:
-            return refusal
+        decided = verdict_for(
+            self.facts_between(day, day)[0],
+            absence_type,
+            portion,
+            note,
+            remaining_annual=(
+                self.get_remaining_annual_leave(day)
+                if absence_type.draws_down_entitlement
+                else None
+            ),
+        )
+        if decided.verdict is not Verdict.BOOK:
+            return AbsenceResult(False, decided.reason)
 
+        after = (
+            available_toil_days - portion.days
+            if absence_type.draws_down_balance and available_toil_days is not None
+            else None
+        )
         absence = AbsenceDay(
             date=day,
             absence_type=absence_type,
@@ -420,113 +612,63 @@ class AbsenceService:
             success=True,
             message=f"{absence_type.label} booked for {short_date(day)}",
             absence=absence,
-            warning=self._toil_warning(absence_type, portion, available_toil_days),
+            warning=overdraw(after, opening="Booked, but this"),
         )
 
-    def _refusal(
-        self,
-        day: date,
-        absence_type: AbsenceType,
-        portion: Portion,
-        note: str | None,
-    ) -> AbsenceResult | None:
-        """The first reason this booking cannot happen, or ``None``."""
-        verdict, reason, _ = self._verdict(
-            day, absence_type, portion, note, remaining_annual=None
-        )
-        if verdict is Verdict.BOOK:
-            return None
-        return AbsenceResult(False, reason)
+    # -- what deciding a date needs -----------------------------------------
 
-    def _verdict(
-        self,
-        day: date,
-        absence_type: AbsenceType,
-        portion: Portion,
-        note: str | None,
-        *,
-        remaining_annual: float | None,
-    ) -> tuple[Verdict, str, str | None]:
-        """What booking this date would do, typed, with the sentence to show.
+    def facts_between(self, start: date, end: date) -> list[DayFacts]:
+        """Everything :func:`verdict_for` reads, for a whole span, in one pass.
 
-        Order matters: cheapest first, and only the first is reported, because
-        a dialog listing four objections at once tells nobody what to do next.
+        Four reads however long the span is, against six per day: a settings
+        row, two bank-holiday rows, an absence row and a session row each. It is
+        the shape `LedgerService` uses, and for the same reason.
 
-        ``remaining_annual`` is passed in rather than read, so a plan can carry a
-        drawdown the database has not seen. ``None`` means read it fresh.
+        Not asked of `LedgerService` itself, close as the two are. It memoises
+        until something writes, and a verdict read through a stale cache would
+        book over a day that had just been taken.
         """
-        if absence_type.requires_note and not (note or "").strip():
-            return (
-                Verdict.NEEDS_NOTE,
-                "Other absence needs a note saying what it is",
-                None,
+        working = set(self._settings.resolved().working_days)
+        titles = self._bank_holidays.titles_between(start, end)
+        booked: defaultdict[date, list[Portion]] = defaultdict(list)
+        for row in self.in_range(start, end):
+            booked[row.date].append(row.portion)
+        worked: defaultdict[date, list[Span]] = defaultdict(list)
+        for session in self._sessions_between(start, end):
+            worked[session.work_date].append(_span_of(session))
+
+        return [
+            DayFacts(
+                date=when,
+                is_working_day=when.weekday() in working,
+                has_calendar=titles is not None,
+                holiday_title=None if titles is None else titles.get(when),
+                booked=tuple(booked[when]),
+                worked=tuple(worked[when]),
             )
+            for when in days_between(start, end)
+        ]
 
-        if not self._settings.is_working_day(day.weekday()):
-            return (Verdict.NON_WORKING, "Not a working day", None)
+    def _sessions_between(self, start: date, end: date) -> list[WorkSession]:
+        """Live sessions in a span, with both their clock events loaded.
 
-        holiday = self._bank_holidays.is_bank_holiday(day)
-        if holiday is None:
-            return (
-                Verdict.NO_CALENDAR,
-                "Bank holiday data unavailable; cannot book absence",
-                None,
+        Eagerly, because a span is resolved into moments the instant it is read
+        and a lazy relationship would put two queries back on every one of them.
+        """
+        stmt = (
+            select(WorkSession)
+            .options(
+                selectinload(WorkSession.clock_in_event),
+                selectinload(WorkSession.clock_out_event),
             )
-        if holiday:
-            title = self._bank_holidays.get_title(day)
-            return (Verdict.BANK_HOLIDAY, "That day is already a bank holiday", title)
-
-        clash = self._clash_refusal(day, portion)
-        if clash is not None:
-            return (Verdict.CLASH, clash.message, None)
-
-        if absence_type.draws_down_entitlement:
-            remaining = (
-                self.get_remaining_annual_leave(day)
-                if remaining_annual is None
-                else remaining_annual
+            .where(
+                WorkSession.work_date >= start,
+                WorkSession.work_date <= end,
+                WorkSession.voided.is_(False),
             )
-            if remaining is not None and remaining < portion.days:
-                short = portion.days - remaining
-                return (
-                    Verdict.NO_ENTITLEMENT,
-                    f"Not enough annual leave — {short:g} day short of the request",
-                    None,
-                )
-
-        return (Verdict.BOOK, "", None)
-
-    def _clash_refusal(self, day: date, portion: Portion) -> AbsenceResult | None:
-        """Whether something already occupies the part of the day being booked."""
-        existing = self.for_date(day)
-        if any(booked.portion is Portion.FULL for booked in existing):
-            return AbsenceResult(False, "That day is already booked in full")
-        if existing and portion is Portion.FULL:
-            return AbsenceResult(
-                False, "Half of that day is already booked; remove it first"
-            )
-        if any(booked.portion is portion for booked in existing):
-            return AbsenceResult(
-                False, f"That {portion.label.lower()} is already booked"
-            )
-        if self._has_work_in(day, portion):
-            return AbsenceResult(
-                False, "There is recorded work in that part of the day"
-            )
-        return None
-
-    def _toil_warning(
-        self,
-        absence_type: AbsenceType,
-        portion: Portion,
-        available_toil_days: float | None,
-    ) -> str | None:
-        """A note about overdrawing the flexi balance, which is allowed."""
-        if not absence_type.draws_down_balance or available_toil_days is None:
-            return None
-        if available_toil_days >= portion.days:
-            return None
-        return f"Booked, but this takes {deficit(portion.days - available_toil_days)}"
+            .order_by(WorkSession.work_date, WorkSession.id)
+        )
+        return list(self._session.execute(stmt).scalars())
 
     # -- planning -----------------------------------------------------------
 
@@ -546,18 +688,20 @@ class AbsenceService:
         each day: booking ten days against five left has to refuse the sixth,
         and the database has not seen the first five yet.
         """
-        remaining = self.get_remaining_annual_leave(start)
+        entitlement = self.get_remaining_annual_leave(start)
+        remaining = entitlement
         days: list[PlannedDay] = []
 
-        for when in _walk(start, end):
-            verdict, reason, detail = self._verdict(
-                when, absence_type, portion, note, remaining_annual=remaining
+        for facts in self.facts_between(start, end):
+            decided = verdict_for(
+                facts, absence_type, portion, note, remaining_annual=remaining
             )
-            days.append(PlannedDay(when, verdict, reason, detail))
-            drawing_down = verdict is Verdict.BOOK and (
-                absence_type.draws_down_entitlement
-            )
-            if drawing_down and remaining is not None:
+            days.append(decided)
+            if (
+                decided.verdict is Verdict.BOOK
+                and absence_type.draws_down_entitlement
+                and remaining is not None
+            ):
                 remaining -= portion.days
 
         return AbsencePlan(
@@ -567,7 +711,7 @@ class AbsenceService:
             start=start,
             end=end,
             days=tuple(days),
-            annual_remaining=self.get_remaining_annual_leave(start),
+            annual_remaining=entitlement,
             toil_available=available_toil_days,
         )
 
@@ -624,12 +768,12 @@ class AbsenceService:
 
     def removal_plan(self, start: date, end: date) -> RemovalPlan:
         """What clearing a span would take back, without taking any of it back."""
-        tally: dict[tuple[AbsenceType, Portion], int] = {}
-        for row in self.in_range(start, end):
-            tally[row.absence_type, row.portion] = (
-                tally.get((row.absence_type, row.portion), 0) + 1
-            )
-        lots = tuple((kind, portion, count) for (kind, portion), count in tally.items())
+        counted = Counter(
+            (row.absence_type, row.portion) for row in self.in_range(start, end)
+        )
+        lots = tuple(
+            (kind, portion, count) for (kind, portion), count in counted.items()
+        )
         return RemovalPlan(start, end, lots)
 
     def clear_range(self, start: date, end: date) -> RangeResult:
@@ -638,42 +782,21 @@ class AbsenceService:
         A day with nothing on it is not a failure — clearing a fortnight that
         happens to be half empty should report what it removed, not five
         complaints about the days that were already free.
+
+        One read and one commit for the whole span. Walking the dates and
+        calling `remove` per date read every date twice -- `remove` opens by
+        re-reading what the guard had just read -- and committed once per
+        booking: 415 queries and 25 commits to clear a year.
         """
-        cleared = [
-            when
-            for when in _walk(start, end)
-            if self.for_date(when) and self.remove(when).success
-        ]
-        return RangeResult(tuple(cleared))
-
-    def change_type(
-        self,
-        day: date,
-        new_type: AbsenceType,
-        portion: Portion = Portion.FULL,
-        *,
-        note: str | None = None,
-    ) -> AbsenceResult:
-        """Change what an existing booking is recorded as."""
-        absence = next(
-            (booked for booked in self.for_date(day) if booked.portion is portion), None
-        )
-        if absence is None:
-            return AbsenceResult(False, "Nothing is booked for that part of the day")
-
-        if new_type.requires_note and not (note or absence.note or "").strip():
-            return AbsenceResult(False, "Other absence needs a note saying what it is")
-
-        if new_type.draws_down_entitlement and absence.absence_type is not new_type:
-            remaining = self.get_remaining_annual_leave(day)
-            if remaining is not None and remaining < portion.days:
-                return AbsenceResult(False, "Not enough annual leave for that change")
-
-        absence.absence_type = new_type
-        if note is not None:
-            absence.note = note
+        rows = self.in_range(start, end)
+        if not rows:
+            return RangeResult()
+        for row in rows:
+            self._session.delete(row)
         self._session.commit()
-        return AbsenceResult(True, f"Changed to {new_type.label}", absence)
+        # Distinct dates, in order: `in_range` orders by date, and a date
+        # holding both halves is one date cleared, not two.
+        return RangeResult(tuple(dict.fromkeys(row.date for row in rows)))
 
     def remove(self, day: date, portion: Portion | None = None) -> AbsenceResult:
         """Remove one portion's booking, or everything booked on the date."""
@@ -689,46 +812,15 @@ class AbsenceService:
         self._session.commit()
         return AbsenceResult(True, f"{removed} removed from {short_date(day)}")
 
-    # -- internals ---------------------------------------------------------
 
-    def _has_work_in(self, day: date, portion: Portion) -> bool:
-        """True when recorded work overlaps the half of the day being booked."""
-        sessions = self._sessions_on(day)
-        if not sessions:
-            return False
-        if portion is Portion.FULL:
-            return True
-        # Both boundaries are localised, because the ones they are compared
-        # against come from `moment_of` and are aware. A manufactured wall time
-        # sitting next to a stored one has to be given the same offset or the
-        # comparison is a TypeError rather than an answer.
-        midday = wallclock.local(datetime.combine(day, time(MIDDAY_HOUR, 0)))
-        for work in sessions:
-            start = moment_of(work.clock_in_event)
-            end = (
-                moment_of(work.clock_out_event)
-                if work.clock_out_event is not None
-                else wallclock.local(datetime.combine(day, time.max))
-            )
-            if portion is Portion.AM and start < midday:
-                return True
-            if portion is Portion.PM and end > midday:
-                return True
-        return False
+def _span_of(session: WorkSession) -> Span:
+    """When a session ran, resolved.
 
-    def _sessions_on(self, day: date) -> Sequence[WorkSession]:
-        stmt = select(WorkSession).where(
-            WorkSession.work_date == day, WorkSession.voided.is_(False)
-        )
-        return list(self._session.execute(stmt).scalars())
-
-    def _is_valid_marker(self, absence: AbsenceDay) -> bool:
-        """True when the marker still sits on a day it could legally be booked on.
-
-        A working pattern that later drops Fridays leaves last year's Friday
-        bookings in place. They stop counting against the allowance rather than
-        being deleted behind the user's back.
-        """
-        if not self._settings.is_working_day(absence.date.weekday()):
-            return False
-        return self._bank_holidays.is_bank_holiday(absence.date) is not True
+    A session nobody closed is worth the rest of its own day: `LedgerService`
+    reaches the same conclusion by the same route, and a clock-out that never
+    came must not make the whole evening look worked.
+    """
+    start = moment_of(session.clock_in_event)
+    if session.clock_out_event is None:
+        return start, wallclock.local(datetime.combine(session.work_date, time.max))
+    return start, moment_of(session.clock_out_event)

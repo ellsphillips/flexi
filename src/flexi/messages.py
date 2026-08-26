@@ -1,9 +1,17 @@
-"""Messages that travel between widgets.
+"""What travels between widgets, and the flags that decide who redraws.
 
-One rule: a module never calls another module's ``rebuild()``. It posts
-:class:`DataChanged` with a scope, the screen invalidates the ledger cache once,
-and every module that declared an interest in that scope redraws -- so adding a
-module is a declaration rather than an edit to somebody else's method.
+One rule: a module never calls another module's ``rebuild()``. A module that
+wants something written posts a message the *screen* handles -- `BookHere`,
+`DeleteHere`, `BookRequested` -- and the screen reports the result, invalidates
+the ledger cache once, and calls ``refresh_modules(scope)``. Each module
+declares in ``WATCHES`` which scopes it cares about, so clocking in does not
+rebuild the calendar's bank-holiday markers, and adding a module is a
+declaration rather than an edit to somebody else's method.
+
+There was a generic `DataChanged` message for the same job, and nothing in the
+application ever posted one: every write in Flexi goes through a screen, which
+is a better rule than the one it was there to allow. Its handler and the
+`Module.announce` that would have fed it went with it.
 """
 
 from __future__ import annotations
@@ -12,8 +20,6 @@ from datetime import date
 from enum import Flag, auto
 
 from textual.message import Message
-
-from flexi.domain.period import Period
 
 
 class Scope(Flag):
@@ -32,35 +38,9 @@ class Scope(Flag):
     ALL = CLOCK | ABSENCE | SETTINGS | PERIOD
 
 
-class DataChanged(Message):
-    """Something was written. Bubbles to the screen, which decides who redraws."""
-
-    def __init__(self, scope: Scope = Scope.ALL) -> None:
-        super().__init__()
-        self.scope = scope
-
-
-class PeriodChanged(Message):
-    """The temporal view moved to a different span."""
-
-    def __init__(self, period: Period) -> None:
-        super().__init__()
-        self.period = period
-
-
 class DateSelected(Message):
     """A single date was picked — from the calendar, or from a table row."""
 
     def __init__(self, when: date) -> None:
         super().__init__()
         self.date = when
-
-
-class StatusUpdate(Message):
-    """A service said something worth putting in the status bar."""
-
-    def __init__(self, text: str, *, tone: str = "neutral", pill: str = "") -> None:
-        super().__init__()
-        self.text = text
-        self.tone = tone
-        self.pill = pill

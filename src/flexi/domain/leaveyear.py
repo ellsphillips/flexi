@@ -83,3 +83,24 @@ def step(ref: date, month: int, day: int, count: int) -> date:
     # February. Keep the distance into the year instead, held inside it --
     # consecutive leave years differ in length by a day.
     return min(first + (ref - start), last)
+
+
+def fraction_elapsed(start: date, end: date, today: date) -> float:
+    """How far through a span today is, clamped to 0..1.
+
+    Clamped rather than allowed to run past 1.0 so a pace marker can never
+    leave the track -- a marker off the end of a gauge reads as a rendering
+    fault, and the honest statement at that point is "all of it".
+
+    Examples:
+        >>> fraction_elapsed(date(2026, 1, 1), date(2026, 12, 31), date(2026, 7, 2))
+        0.5
+        >>> fraction_elapsed(date(2026, 1, 1), date(2026, 12, 31), date(2025, 6, 1))
+        0.0
+        >>> fraction_elapsed(date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 1))
+        1.0
+    """
+    span = (end - start).days
+    if span <= 0:
+        return 1.0
+    return min(1.0, max(0.0, (today - start).days / span))

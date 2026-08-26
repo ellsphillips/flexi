@@ -17,7 +17,15 @@ from textual.app import ComposeResult
 from textual.widgets import Digits, Static
 
 from flexi.components.modules.base import Module
-from flexi.domain.format import delta, digits, hm, plural, signed_days, stamp
+from flexi.domain.format import (
+    delta,
+    digits,
+    hm,
+    is_level,
+    plural,
+    signed_days,
+    stamp,
+)
 from flexi.messages import Scope
 
 STATE_CLASSES = ("surplus", "deficit", "muted")
@@ -48,7 +56,7 @@ class BalanceModule(Module):
         readout = self.query_one("#balance-digits", Digits)
         readout.update(digits(summary.delta))
         readout.remove_class(*STATE_CLASSES)
-        readout.add_class(_state_class(summary.delta))
+        readout.add_class(lean_class(summary.delta))
 
         self.query_one("#balance-detail", Static).update(
             self._detail(summary.delta, contracted)
@@ -63,7 +71,7 @@ class BalanceModule(Module):
         Showing both removes the arithmetic a reader would otherwise do in their
         head before deciding whether they can take Friday off.
         """
-        if not value:
+        if is_level(value):
             return "Level with contracted hours"
         if not contracted:
             return delta(value)
@@ -72,9 +80,13 @@ class BalanceModule(Module):
         return f"{hm(value)} {word} · {signed_days(days)} {plural(abs(days), 'day')}"
 
 
-def _state_class(value: timedelta) -> str:
-    if value > timedelta():
-        return "surplus"
-    if value < timedelta():
-        return "deficit"
-    return "muted"
+def lean_class(value: timedelta) -> str:
+    """Which way the figure beside it leans, by the same rule that draws it.
+
+    Through `is_level` rather than against zero, so the colour cannot claim a
+    direction the digits do not show: forty seconds of deficit drew `0:00` in
+    red before the two agreed on what counts as level.
+    """
+    if is_level(value):
+        return "muted"
+    return "surplus" if value > timedelta() else "deficit"

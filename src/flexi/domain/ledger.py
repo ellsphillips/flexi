@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 from itertools import pairwise
 
 from flexi.constants import AbsenceType, DayKind, Portion
+from flexi.domain.format import plural
 
 MIDDAY_HOUR = 12
 
@@ -132,6 +133,7 @@ class DayLedger:
             return None
         return max(segment.finish(now) for segment in self.segments)
 
+    @property
     def breaks(self) -> tuple[tuple[datetime, datetime], ...]:
         """The gaps between consecutive closed sessions.
 
@@ -145,13 +147,15 @@ class DayLedger:
                 gaps.append((earlier.end, later.start))
         return tuple(gaps)
 
+    @property
     def break_total(self) -> timedelta:
         """How long this day's breaks lasted in total."""
         return sum(
-            (end - start for start, end in self.breaks()),
+            (end - start for start, end in self.breaks),
             start=timedelta(),
         )
 
+    @property
     def leave_at(self) -> datetime | None:
         """When contracted hours will have been met, given today's breaks.
 
@@ -161,7 +165,7 @@ class DayLedger:
         first = self.first_in
         if first is None or self.expected <= timedelta():
             return first
-        return first + self.expected + self.break_total()
+        return first + self.expected + self.break_total
 
     @property
     def summary(self) -> str:
@@ -175,7 +179,7 @@ class DayLedger:
             return f"{booked} · worked"
         if self.segments:
             count = len(self.segments)
-            return "1 session" if count == 1 else f"{count} sessions"
+            return f"{count} {plural(count, 'session')}"
         if not self.is_working_day:
             return ""
         return "—"

@@ -14,6 +14,7 @@ lands, and stays exactly where it is while the questions arrive underneath it.
 from __future__ import annotations
 
 import sys
+from itertools import groupby
 from typing import Any, Final
 
 from rich.text import Text
@@ -28,8 +29,11 @@ FRAME_SECONDS: Final = 1 / 30
 """Thirty frames a second. Sixty buys nothing over a terminal and costs a lot
 over SSH."""
 
-BACKGROUND: Final = "#0F0E0D"
-"""The ground the strapline fades up out of. A fade needs both ends."""
+BACKGROUND: Final = colour("c-ink")
+"""The ground the strapline fades up out of. A fade needs both ends.
+
+Read rather than restated: this file already takes two other colours through
+`colour`, and the third was the same hex as `$c-ink` typed out again."""
 
 
 def _blend(start: str, end: str, amount: float) -> str:
@@ -164,18 +168,15 @@ class Wordmark(Static):
                 art.append("\n")
                 continue
             art.append(margin)
-            at = 0
-            while at < len(row):
-                level = row[at]
-                run = at
-                while run < len(row) and row[run] == level:
-                    run += 1
+            # One span per run of equal levels, so a row of a thousand cells is
+            # a handful of styled appends rather than a thousand.
+            for level, run in groupby(row):
+                length = len(list(run))
                 if level < 0:
-                    art.append(" " * (run - at))
+                    art.append(" " * length)
                 else:
                     art.append(
-                        splash.RAMP[level] * (run - at), style=f"bold {_shade(level)}"
+                        splash.RAMP[level] * length, style=f"bold {_shade(level)}"
                     )
-                at = run
             art.append("\n")
         self.update(art)

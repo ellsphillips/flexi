@@ -1,22 +1,48 @@
+"""Bringing the database up to head, and getting out of the way when it is.
+
+Alembic costs a hundred and thirty milliseconds to import and knows how to
+answer one question: what does this database still need? On a database that
+needs nothing -- every run but the one after an upgrade -- that is the whole
+cost of the command. So the question is asked twice: once cheaply, against
+:data:`HEAD`, with nothing but the SQLAlchemy already loaded; and only if that
+says there is work to do, expensively, by Alembic itself.
+
+:data:`HEAD` is the duplicate that buys it, and `tests/test_migrations.py` is
+what stops it drifting from the real head.
+"""
+
 from __future__ import annotations
 
 import logging
-import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from alembic import command
-from alembic.config import Config
-from alembic.runtime.migration import MigrationContext
-from alembic.script import ScriptDirectory
+from sqlalchemy import text
+from sqlalchemy.exc import DatabaseError
 
 import flexi
 from flexi.locations import backups_directory, database_file, ensure
-from flexi.models.database.app import create_db_engine
+from flexi.models.database.backup import (
+    PROTECTED_PREFIX,
+    ROUTINE_PREFIX,
+    snapshot,
+)
+from flexi.models.database.engine import create_db_engine
+
+if TYPE_CHECKING:
+    from alembic.config import Config
 
 MAX_BACKUPS = 10
+
+HEAD = "0010"
+"""The revision a fully migrated database is stamped with.
+
+Written down so the common case -- already at head -- can be settled without
+importing Alembic to ask. Kept honest by a test that reads the real head off
+the script directory and compares.
+"""
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +62,8 @@ def alembic_config(db_path: Path) -> Iterator[Config]:
     Disposed rather than left to the collector, because an undisposed engine
     leaves the SQLite file open, and Windows will not delete a file that is.
     """
+    from alembic.config import Config
+
     engine = create_db_engine(db_path)
     cfg = Config()
     migrations_dir = Path(flexi.__file__).resolve().parent / "migrations"
@@ -47,34 +75,48 @@ def alembic_config(db_path: Path) -> Iterator[Config]:
         engine.dispose()
 
 
-def _current_revision(db_path: Path) -> str | None:
-    """The revision the database is stamped with, or ``None`` for an empty one."""
+def current_revision(db_path: Path) -> str | None:
+    """The revision the database is stamped with, or ``None`` for an empty one.
+
+    Read straight out of ``alembic_version`` rather than through
+    ``MigrationContext``, which is the same single-column query with Alembic's
+    import in front of it. A database with no such table has never been
+    migrated, which is the ``None`` this answers.
+    """
     engine = create_db_engine(db_path)
     try:
         with engine.connect() as connection:
-            return MigrationContext.configure(connection).get_current_revision()
+            row = connection.execute(
+                text("select version_num from alembic_version")
+            ).first()
+    except DatabaseError:
+        return None
+    else:
+        return None if row is None else str(row[0])
     finally:
         engine.dispose()
 
 
 def backup_database(db_path: Path | None = None) -> Path | None:
-    """Create a timestamped backup under XDG data flexi/backups/.
+    """A snapshot taken before a migration, or ``None`` if there is nothing yet.
 
-    Returns the backup path, or None if the database does not exist.
+    Through `backup.snapshot`, which is the module that knows how to copy a
+    database that might be open. This used `shutil.copy2` -- the exact call
+    `backup.py`'s docstring names as the thing it exists to avoid -- so the copy
+    taken immediately before a schema change was the one copy in the
+    application that could be torn.
+
+    An empty prefix, so these age out under `_cleanup_old_backups`. The
+    prefixed ones are the reset snapshots, which never do.
     """
     if db_path is None:
         db_path = database_file()
     if not db_path.exists():
         return None
-
-    backup_dir = ensure(backups_directory())
-    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
-    backup_path = backup_dir / f"{db_path.stem}_{timestamp}.bak"
-    shutil.copy2(db_path, backup_path)
-    return backup_path
+    return snapshot(db_path, prefix=ROUTINE_PREFIX)
 
 
-def _cleanup_old_backups() -> None:
+def prune_backups(directory: Path) -> None:
     """Keep only the latest MAX_BACKUPS files, and every protected one.
 
     Housekeeping runs after a backup has already been taken, so a full disk or
@@ -85,14 +127,11 @@ def _cleanup_old_backups() -> None:
     and ten routine migration backups would otherwise age one out inside a
     fortnight of ordinary upgrades.
     """
-    from flexi.models.database.backup import PROTECTED_PREFIX
-
     try:
-        backup_dir = backups_directory()
         backups = sorted(
             (
                 path
-                for path in backup_dir.glob("*.bak")
+                for path in directory.glob("*.bak")
                 if not path.name.startswith(PROTECTED_PREFIX)
             ),
             key=lambda p: p.stat().st_mtime,
@@ -104,25 +143,30 @@ def _cleanup_old_backups() -> None:
 
 
 def run_migrations(db_path: Path | None = None) -> None:
-    """Backup the database (if needed) and apply all pending migrations."""
+    """Backup the database (if needed) and apply all pending migrations.
+
+    The already-at-head case returns before Alembic is imported at all. It used
+    to build a config, parse every script in the versions directory to work out
+    the head, and open a second connection to read the stamp -- a hundred and
+    forty milliseconds, on every command, to conclude there was nothing to do.
+    """
     if db_path is None:
         db_path = database_file()
 
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure(db_path.parent)
+
+    if db_path.exists():
+        if current_revision(db_path) == HEAD:
+            return
+
+        backup = backup_database(db_path)
+        if backup is None:
+            msg = "Database file exists but backup failed"
+            raise RuntimeError(msg)
+
+        prune_backups(backups_directory())
+
+    from alembic import command
 
     with alembic_config(db_path) as cfg:
-        script_dir = ScriptDirectory.from_config(cfg)
-        head = script_dir.get_current_head()
-
-        if db_path.exists():
-            if _current_revision(db_path) == head:
-                return  # Already up to date
-
-            backup = backup_database(db_path)
-            if backup is None:
-                msg = "Database file exists but backup failed"
-                raise RuntimeError(msg)
-
-            _cleanup_old_backups()
-
         command.upgrade(cfg, "head")

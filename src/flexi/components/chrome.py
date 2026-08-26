@@ -49,8 +49,14 @@ NAV_ITEMS: Final[tuple[NavItem, ...]] = (
 NAV_BY_SCREEN: Final[dict[str, NavItem]] = {item.screen: item for item in NAV_ITEMS}
 
 
-class Wordmark(Horizontal):
-    """`flexi` plus a teal full stop. The only fixed point in the interface."""
+class Lockup(Horizontal):
+    """`flexi` plus a teal full stop. The only fixed point in the interface.
+
+    Not `Wordmark`, which is what `components/wordmark.py` calls the ray-traced
+    animation on the setup screen. Two classes with one name in one package,
+    sharing nothing but the word, is one import line away from a screen drawing
+    the other one.
+    """
 
     def compose(self) -> ComposeResult:
         yield Static("flexi", classes="wordmark-name")
@@ -103,19 +109,17 @@ class NavBar(Horizontal):
 class AppHeader(Horizontal):
     """Wordmark, navigation, and the date and period in play.
 
-    Reads its context on mount and is pushed to afterwards -- both, because
-    Textual's ``ScreenResume`` does not bubble to the app, so a header on a newly
-    raised screen has to ask. The app is reached with ``getattr`` to keep this
-    module out of an import cycle.
+    The context is pushed to it. It used to try to *ask* as well, on mount,
+    through `getattr(self.app, "context_label", "")` -- and no such attribute
+    has ever existed on the application, so the fallback was the only answer
+    that branch ever gave. Every screen that has a context writes it in its own
+    `on_mount` or `rebuild`, which is the half that works.
     """
 
     context: reactive[str] = reactive("", init=False)
 
     def compose(self) -> ComposeResult:
-        self.set_reactive(
-            AppHeader.context, str(getattr(self.app, "context_label", ""))
-        )
-        yield Wordmark()
+        yield Lockup()
         yield NavBar()
         yield Static(self.context, classes="header-context", id="header-context")
 

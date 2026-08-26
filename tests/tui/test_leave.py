@@ -9,10 +9,9 @@ from textual.pilot import Pilot
 from textual.widgets import Input
 
 from flexi.app import FlexiApp
-from flexi.components.common import Gauge
+from flexi.components.common import Gauge, Tone
 from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion, Verdict
-from flexi.messages import Scope
 from flexi.screens.leave import LeaveScreen, preview
 from flexi.screens.modals import AbsenceModal, ConfirmModal, GoToDateModal
 from flexi.services.absence import AbsencePlan, PlannedDay
@@ -397,6 +396,32 @@ async def test_the_wallet_moves_with_the_booking(app_factory: AppFactory) -> Non
         assert after.value == before + 1
 
 
+async def test_the_planner_says_when_an_allowance_has_run_out(
+    app_factory: AppFactory,
+) -> None:
+    """The sidebar passed a hardcoded tone, so it never went amber or red.
+
+    On the one screen where the question is whether you can afford the booking,
+    an exhausted entitlement was drawn in the same green as an untouched one --
+    the dashboard's wallet, painting the same allowance, got this right.
+    """
+
+    def annual_tone() -> Tone:
+        return app.screen.query_one("#leave-gauge-annual", Gauge).tone
+
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        assert annual_tone() is Tone.OK
+
+        screen = showing(app, LeaveScreen)
+        app.services.settings.save_entitlement(screen.period.start.year, 0.0)
+        screen.rebuild()
+        await pilot.pause()
+
+        assert annual_tone() is Tone.ERR
+
+
 # -- removing --------------------------------------------------------------
 
 
@@ -578,13 +603,14 @@ async def test_the_grid_never_outgrows_its_panel(app_factory: AppFactory) -> Non
 async def test_a_booking_made_elsewhere_shows_up_when_the_screen_is_told(
     app_factory: AppFactory,
 ) -> None:
-    """Every screen takes the same instruction, so the app need not special-case.
+    """Every screen takes the same instruction, and the app gives it to all of them.
 
     The dashboard is not the only thing that can go stale: a booking written by
     the command palette while the leave year is on screen has to reach the grid
-    without the user leaving and coming back. The application invalidates once
-    and then tells the screen — which is why the screen reloads the year rather
-    than trusting the ledgers it drew with.
+    without the user leaving and coming back. `refresh_open_screens` invalidates
+    once and tells every screen on the stack that can redraw — it used to find
+    the dashboard and tell only that, so this screen's own `refresh_modules`,
+    written "so the app can treat every screen alike", had no caller but a test.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -593,8 +619,7 @@ async def test_a_booking_made_elsewhere_shows_up_when_the_screen_is_told(
         before = str(calendar(app).border_subtitle)
 
         app.services.absence.book(FREE_MONDAY, AbsenceType.ANNUAL)
-        app.services.invalidate()
-        showing(app, LeaveScreen).refresh_modules(Scope.ALL)
+        app.refresh_open_screens()
         await pilot.pause()
 
         assert calendar(app).ledgers[FREE_MONDAY].absences

@@ -7,7 +7,7 @@ from textual import events
 from textual.message import Message
 from textual.widgets import Static
 
-from flexi.components.expandable import DAY, ExpandableTable
+from flexi.components.expandable import ExpandableTable, RowKind
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.monthview import MonthView
@@ -80,7 +80,7 @@ async def test_a_number_jumps_to_a_day_row(app_factory: AppFactory) -> None:
         await pilot.pause()
 
         table = app.screen.query_one("#records-table", ExpandableTable)
-        assert table.cursor_key == f"{DAY}2026-06-11"
+        assert table.cursor_key == f"{RowKind.DAY}2026-06-11"
         assert app.focused is table
 
 
@@ -113,7 +113,7 @@ async def test_targets_come_from_the_live_screen(app_factory: AppFactory) -> Non
         await pilot.pause()
         targets = dashboard(app).jump_targets()
         for widget_id in targets:
-            if widget_id.startswith(DAY):
+            if widget_id.startswith(RowKind.DAY):
                 continue
             assert app.screen.query(f"#{widget_id}"), f"{widget_id} is not mounted"
 

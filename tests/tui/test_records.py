@@ -9,14 +9,19 @@ from textual.pilot import Pilot
 from textual.widgets import Input, RadioSet
 
 from flexi.app import FlexiApp
-from flexi.components.expandable import ABSENCE, DAY, SESSION, ExpandableTable
+from flexi.components.expandable import (
+    ExpandableTable,
+    RowKind,
+)
 from flexi.components.modules.records import DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import ProgressRail, TimeProgress
 from flexi.constants import AbsenceType
+from flexi.domain.format import delta
+from flexi.messages import Scope
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
-from tests.conftest import settled
+from tests.conftest import sessions_on, settled
 from tests.tui.conftest import (
     WIDE,
     AppFactory,
@@ -41,7 +46,7 @@ def absence_key(app: FlexiApp, when: date) -> str:
     """
     booked = app.services.absence.in_range(when, when)
     assert booked, f"the seed has nothing booked on {when}"
-    return f"{ABSENCE}{booked[0].id}"
+    return f"{RowKind.ABSENCE}{booked[0].id}"
 
 
 async def prefilled(app: FlexiApp, pilot: Pilot[None]) -> tuple[date, AbsenceType]:
@@ -70,7 +75,7 @@ async def test_a_week_is_seven_rows_and_a_total(app_factory: AppFactory) -> None
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         rows = table(app).visible_rows()
-        assert len([row for row in rows if row.kind == DAY]) == 7
+        assert len([row for row in rows if row.kind == RowKind.DAY]) == 7
         assert rows[-1].key == "t-period"
 
 
@@ -81,7 +86,7 @@ async def test_space_opens_the_day_under_the_cursor(app_factory: AppFactory) -> 
         await pilot.pause()
         widget = table(app)
         widget.focus()
-        widget.focus_key(f"{DAY}2026-06-08")
+        widget.focus_key(f"{RowKind.DAY}2026-06-08")
         await pilot.pause()
 
         before = len(widget.visible_rows())
@@ -89,7 +94,7 @@ async def test_space_opens_the_day_under_the_cursor(app_factory: AppFactory) -> 
         await pilot.pause()
 
         assert len(widget.visible_rows()) > before
-        assert any(row.key.startswith(SESSION) for row in widget.visible_rows())
+        assert any(row.key.startswith(RowKind.SESSION) for row in widget.visible_rows())
 
 
 async def test_expanding_does_not_move_the_cursor(app_factory: AppFactory) -> None:
@@ -99,12 +104,12 @@ async def test_expanding_does_not_move_the_cursor(app_factory: AppFactory) -> No
         await pilot.pause()
         widget = table(app)
         widget.focus()
-        target = f"{DAY}2026-06-10"
+        target = f"{RowKind.DAY}2026-06-10"
         widget.focus_key(target)
         await pilot.pause()
         assert widget.cursor_key == target
 
-        widget.toggle(f"{DAY}2026-06-08")  # a row above the cursor
+        widget.toggle(f"{RowKind.DAY}2026-06-08")  # a row above the cursor
         await pilot.pause()
         assert widget.cursor_key == target
 
@@ -117,7 +122,7 @@ async def test_a_day_with_nothing_recorded_does_not_open(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         widget = table(app)
-        saturday = f"{DAY}2026-06-13"
+        saturday = f"{RowKind.DAY}2026-06-13"
         assert widget.toggle(saturday) is False
         assert saturday not in widget.expanded
 
@@ -221,6 +226,34 @@ async def test_the_period_total_is_in_the_border_subtitle(
         assert " of " in subtitle
 
 
+async def test_the_period_total_counts_a_correction_as_the_wallet_does(
+    app_factory: AppFactory,
+) -> None:
+    """Two panels on one screen, showing one span, must agree about it.
+
+    The total row summed `worked - expected - toil` by hand and dropped the
+    adjustment term `BalanceSummary.delta` carries, so a recorded correction
+    moved the wallet's figure and left the table's alone. Both accumulate the
+    same ledgers through the domain now.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        board = showing(app, DashboardScreen)
+        before = str(table(app).get_row(f"{RowKind.TOTAL}period")[3])
+
+        app.services.adjustments.record(
+            board.period.anchor, timedelta(hours=3), "carried over"
+        )
+        board.refresh_modules(Scope.ALL)
+        await pilot.pause()
+
+        after = str(table(app).get_row(f"{RowKind.TOTAL}period")[3])
+        assert after != before, f"the correction never reached the total ({before})"
+        summary = app.services.ledger.summary(board.period.start, board.period.end)
+        assert after.strip() == delta(summary.delta)
+
+
 # -- booking from a row ----------------------------------------------------
 
 
@@ -239,7 +272,7 @@ async def test_a_books_an_absence_on_the_day_under_the_cursor(
         await pilot.pause()
         widget = table(app)
         widget.focus()
-        widget.focus_key(f"{DAY}2026-06-10")
+        widget.focus_key(f"{RowKind.DAY}2026-06-10")
         await pilot.pause()
 
         await pilot.press("a")
@@ -313,7 +346,7 @@ async def test_x_on_a_booking_asks_before_it_removes_it(
         widget = table(app)
         widget.focus()
         toil = date(2026, 6, 12)  # the seed's TOIL day
-        widget.toggle(f"{DAY}{toil}")
+        widget.toggle(f"{RowKind.DAY}{toil}")
         await pilot.pause()
         widget.focus_key(absence_key(app, toil))
         await pilot.pause()
@@ -347,7 +380,7 @@ async def test_declining_the_question_leaves_the_booking_alone(
         widget = table(app)
         widget.focus()
         toil = date(2026, 6, 12)
-        widget.toggle(f"{DAY}{toil}")
+        widget.toggle(f"{RowKind.DAY}{toil}")
         await pilot.pause()
         widget.focus_key(absence_key(app, toil))
         await pilot.pause()
@@ -375,14 +408,14 @@ async def test_x_on_a_worked_day_says_sessions_cannot_be_deleted_yet(
         await pilot.pause()
         widget = table(app)
         widget.focus()
-        widget.focus_key(f"{DAY}2026-06-10")
+        widget.focus_key(f"{RowKind.DAY}2026-06-10")
         await pilot.pause()
 
         await pilot.press("x")
         await pilot.pause()
 
         assert status_text(app) == "Deleting sessions is not implemented yet"
-        assert app.services.clock.get_sessions_for_date(date(2026, 6, 10))
+        assert sessions_on(app.services.session, date(2026, 6, 10))
 
 
 async def test_x_where_there_is_nothing_to_delete_says_nothing(
@@ -428,7 +461,9 @@ async def test_x_on_a_booking_that_has_already_gone_says_so(
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-        app.screen.query_one(RecordsModule).post_message(DeleteHere(f"{ABSENCE}9999"))
+        app.screen.query_one(RecordsModule).post_message(
+            DeleteHere(f"{RowKind.ABSENCE}9999")
+        )
         await pilot.pause()
 
         assert status_text(app) == "That booking has already gone"

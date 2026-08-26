@@ -40,14 +40,14 @@ def test_a_closed_segment_ignores_now() -> None:
 def test_breaks_are_only_between_sessions() -> None:
     """It does not call the morning before you arrived a break."""
     day = ledger(segments=(Segment(1, at(9), at(12)), Segment(2, at(13), at(17))))
-    assert day.breaks() == ((at(12), at(13)),)
-    assert day.break_total() == timedelta(hours=1)
+    assert day.breaks == ((at(12), at(13)),)
+    assert day.break_total == timedelta(hours=1)
 
 
 def test_breaks_are_found_whatever_order_the_sessions_arrive_in() -> None:
     """It sorts before pairing, so query order cannot change the answer."""
     day = ledger(segments=(Segment(2, at(13), at(17)), Segment(1, at(9), at(12))))
-    assert day.breaks() == ((at(12), at(13)),)
+    assert day.breaks == ((at(12), at(13)),)
 
 
 def test_two_sessions_that_meet_are_not_a_break() -> None:
@@ -58,8 +58,8 @@ def test_two_sessions_that_meet_are_not_a_break() -> None:
     added to the go-home time, pushing it later for a lunch nobody took.
     """
     day = ledger(segments=(Segment(1, at(9), at(12)), Segment(2, at(12), at(17))))
-    assert day.breaks() == ()
-    assert day.break_total() == timedelta()
+    assert day.breaks == ()
+    assert day.break_total == timedelta()
 
 
 def test_a_session_still_running_opens_no_break_behind_it() -> None:
@@ -71,23 +71,23 @@ def test_a_session_still_running_opens_no_break_behind_it() -> None:
     subtraction that draws the strip.
     """
     day = ledger(segments=(Segment(1, at(9), None), Segment(2, at(13), at(17))))
-    assert day.breaks() == ()
+    assert day.breaks == ()
 
 
 def test_a_single_session_has_no_breaks() -> None:
     """It finds no gap where there is only one session."""
-    assert ledger(segments=(Segment(1, at(9), at(17)),)).break_total() == timedelta()
+    assert ledger(segments=(Segment(1, at(9), at(17)),)).break_total == timedelta()
 
 
 def test_leave_at_allows_for_breaks() -> None:
     """It answers when you can go home, pushed out by the lunch you took."""
     day = ledger(segments=(Segment(1, at(9), at(12)), Segment(2, at(13), at(17))))
-    assert day.leave_at() == at(17, 24)
+    assert day.leave_at == at(17, 24)
 
 
 def test_leave_at_is_unknown_before_arriving() -> None:
     """It has no answer before the first clock-in."""
-    assert ledger().leave_at() is None
+    assert ledger().leave_at is None
 
 
 def test_first_in_and_last_out() -> None:

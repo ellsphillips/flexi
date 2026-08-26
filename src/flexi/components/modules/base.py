@@ -7,15 +7,15 @@ kinds of change are worth redrawing for. It never calls another module's
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from textual.widget import Widget
 from textual.widgets import Static
 
-from flexi import wallclock
-from flexi.domain.period import Granularity, Period
-from flexi.messages import DataChanged, Scope
+from flexi.context import flexi_app, module_host
+from flexi.domain.period import Period
+from flexi.messages import Scope
 
 if TYPE_CHECKING:
     from flexi.services.registry import Services
@@ -52,23 +52,17 @@ class Module(Static):
     @property
     def services(self) -> Services:
         """The application's service registry."""
-        return cast("Services", self.app.services)  # type: ignore[attr-defined]
+        return flexi_app(self.app).services
 
     @property
     def period(self) -> Period:
-        """The span the dashboard is currently showing."""
-        fallback = Period.containing(wallclock.today(), Granularity.WEEK)
-        return cast(Period, getattr(self.screen, "period", fallback))
-
-    @property
-    def selected(self) -> date:
-        """The date the dashboard is anchored on."""
-        return self.period.anchor
+        """The span the screen below is currently showing."""
+        return module_host(self.screen).period
 
     @property
     def now(self) -> datetime:
         """The moment this redraw is drawing, in one place so tests can fix it."""
-        return cast(datetime, getattr(self.screen, "now", wallclock.now()))
+        return module_host(self.screen).now
 
     # -- redrawing ---------------------------------------------------------
 
@@ -79,10 +73,6 @@ class Module(Static):
         """Redraw only when the change was one this module cares about."""
         if scope & self.WATCHES:
             self.rebuild()
-
-    def announce(self, scope: Scope) -> None:
-        """Tell the screen that something was written."""
-        self.post_message(DataChanged(scope))
 
     def focus_target(self) -> Widget:
         """The widget a jump to this module should focus.

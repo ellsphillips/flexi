@@ -26,8 +26,8 @@ import pytest
 import time_machine
 
 from flexi.app import FlexiApp
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.samples import NOW, seed_demo
 from tests.conftest import settled
 from tests.tui.conftest import screen_text

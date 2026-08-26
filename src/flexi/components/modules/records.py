@@ -20,24 +20,24 @@ from textual.geometry import Offset
 from textual.message import Message
 from textual.widgets import Static
 
+from flexi.components.common import EmptyIndicator
 from flexi.components.expandable import (
-    ABSENCE,
-    DAY,
-    SESSION,
-    TOTAL,
     ExpandableTable,
     Row,
     RowGroup,
+    RowKind,
+    row_ident,
+    row_key,
 )
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.base import Module
 from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.config import CONFIG
-from flexi.constants import DayKind
+from flexi.constants import DayKind, Granularity
+from flexi.domain.balance import BalanceSummary, accumulate
 from flexi.domain.format import clock, delta, hm
 from flexi.domain.ledger import DayLedger
-from flexi.domain.period import Granularity
-from flexi.domain.punch import cell_count
+from flexi.domain.punch import Window, cell_count
 from flexi.messages import Scope
 
 COLUMNS: tuple[tuple[str, int] | str, ...] = (
@@ -82,6 +82,8 @@ class DeleteHere(Message):
 class RecordsModule(Module):
     """Every day in the period, expandable."""
 
+    HELP_LABEL = "Records"
+
     WATCHES: ClassVar[Scope] = Scope.ALL
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -106,9 +108,7 @@ class RecordsModule(Module):
 
     def compose(self) -> ComposeResult:
         yield ExpandableTable(id="records-table", zebra_stripes=False)
-        yield Static(
-            "No days in this period", id="records-empty", classes="empty-indicator"
-        )
+        yield EmptyIndicator("No days in this period", id="records-empty")
 
     def on_mount(self) -> None:
         self.query_one("#records-table", ExpandableTable).set_columns(*COLUMNS)
@@ -146,31 +146,48 @@ class RecordsModule(Module):
     # -- drawing -----------------------------------------------------------
 
     def rebuild(self) -> None:
+        table = self.query_one("#records-table", ExpandableTable)
+        if not table.columns:
+            # Composed, not yet mounted. `on_mount` sets the columns and
+            # rebuilds on the next line, so there is nothing to draw into and
+            # nothing lost by waiting -- but a redraw asked for from outside
+            # can land in that window, and adding rows to a table with no
+            # columns is `ValueError: More values provided than there are
+            # columns` on a worker thread, which Textual reports as the
+            # application failing.
+            return
+
         period = self.period
         ledgers = self.services.ledger.days(period.start, period.end, now=self.now)
         window = self.services.ledger.window
-        table = self.query_one("#records-table", ExpandableTable)
 
+        # Accumulated once, by the domain, and handed to both places that draw
+        # it. The total row summed `worked - expected - toil` by hand, dropping
+        # the adjustment term `BalanceSummary.delta` carries -- so the figure
+        # under the table and the wallet's figure for the same span disagreed
+        # by every correction ever recorded in it. The subtitle then summed two
+        # of the same three columns a third time.
+        total = accumulate(ledgers)
         groups = [self._group(ledger, window) for ledger in ledgers]
-        groups.append(self._total_group(ledgers))
+        groups.append(self._total_group(total))
         table.set_groups(groups)
 
         empty = self.query_one("#records-empty", Static)
         empty.display = not ledgers
         table.display = bool(ledgers)
-        self.set_subtitle(_totals_subtitle(ledgers))
+        self.set_subtitle(_totals_subtitle(total))
 
-    def _group(self, ledger: DayLedger, window: object) -> RowGroup:
+    def _group(self, ledger: DayLedger, window: Window) -> RowGroup:
         parent = Row(
-            key=f"{DAY}{ledger.date.isoformat()}",
+            key=row_key(RowKind.DAY, ledger.date),
             cells=(
                 self._day_cell(ledger),
                 render_strip(
                     ledger,
                     self._strip_width,
-                    window,  # type: ignore[arg-type]
+                    window,
                     self.get_component_rich_style,
-                    self.now,
+                    now=self.now,
                 ),
                 self._worked_cell(ledger),
                 self._delta_cell(ledger),
@@ -191,7 +208,7 @@ class RecordsModule(Module):
             detail = f"{slice_.label} — {slice_.note}" if slice_.note else slice_.label
             rows.append(
                 Row(
-                    key=f"{ABSENCE}{slice_.absence_id}",
+                    key=row_key(RowKind.ABSENCE, slice_.absence_id),
                     cells=(
                         Text("", style=sub),
                         Text(f"  {BRANCH} {detail}", style=sub),
@@ -207,7 +224,7 @@ class RecordsModule(Module):
             note = segment.note or ("auto-closed" if segment.auto_closed else "worked")
             rows.append(
                 Row(
-                    key=f"{SESSION}{segment.session_id}",
+                    key=row_key(RowKind.SESSION, segment.session_id),
                     cells=(
                         Text("", style=sub),
                         Text(
@@ -226,7 +243,7 @@ class RecordsModule(Module):
                 if gap > timedelta():
                     rows.append(
                         Row(
-                            key=f"{SESSION}{segment.session_id}-break",
+                            key=row_key(RowKind.SESSION, f"{segment.session_id}-break"),
                             cells=(
                                 Text("", style=sub),
                                 Text(f"  {BRANCH} break", style=sub),
@@ -240,7 +257,7 @@ class RecordsModule(Module):
             total = self.get_component_rich_style("record--total")
             rows.append(
                 Row(
-                    key=f"{TOTAL}{ledger.date.isoformat()}",
+                    key=row_key(RowKind.TOTAL, ledger.date),
                     cells=(
                         Text("", style=total),
                         Text(f"  {LAST} expected", style=total),
@@ -251,12 +268,9 @@ class RecordsModule(Module):
             )
         return tuple(rows)
 
-    def _total_group(self, ledgers: list[DayLedger]) -> RowGroup:
+    def _total_group(self, total: BalanceSummary) -> RowGroup:
         """The period's own line, under a rule."""
         style = self.get_component_rich_style("record--total")
-        worked = sum((item.worked for item in ledgers), start=timedelta())
-        expected = sum((item.expected for item in ledgers), start=timedelta())
-        toil = sum((item.toil_taken for item in ledgers), start=timedelta())
         label = (
             "Day"
             if self.period.granularity is Granularity.DAY
@@ -264,12 +278,12 @@ class RecordsModule(Module):
         )
         return RowGroup(
             Row(
-                key=f"{TOTAL}period",
+                key=row_key(RowKind.TOTAL, "period"),
                 cells=(
                     Text(label, style=style),
                     Text("", style=style),
-                    Text(hm(worked), style=style, justify="right"),
-                    self._signed(worked - expected - toil),
+                    Text(hm(total.worked), style=style, justify="right"),
+                    self._signed(total.delta),
                 ),
             )
         )
@@ -343,7 +357,7 @@ class RecordsModule(Module):
         targets: dict[Offset, JumpInfo] = {}
         numbered = 0
         for index, row in enumerate(table.visible_rows()):
-            if row.kind != DAY:
+            if row.kind != RowKind.DAY:
                 continue
             numbered += 1
             if numbered > MAX_JUMP_ROWS:
@@ -368,7 +382,7 @@ class RecordsModule(Module):
         if group is None:  # pragma: no cover
             return None
         parent = group.parent.key
-        return parent[len(DAY) :] if parent.startswith(DAY) else None
+        return row_ident(RowKind.DAY, parent)
 
     def action_book_here(self) -> None:
         self.post_message(BookHere(self.selected_date()))
@@ -377,8 +391,6 @@ class RecordsModule(Module):
         self.post_message(DeleteHere(self.table.cursor_key))
 
 
-def _totals_subtitle(ledgers: list[DayLedger]) -> str:
+def _totals_subtitle(total: BalanceSummary) -> str:
     """Worked against expected for the whole period, in the module's live slot."""
-    worked = sum((item.worked for item in ledgers), start=timedelta())
-    expected = sum((item.expected for item in ledgers), start=timedelta())
-    return f"{hm(worked)} of {hm(expected)}"
+    return f"{hm(total.worked)} of {hm(total.expected)}"

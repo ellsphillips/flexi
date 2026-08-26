@@ -30,6 +30,15 @@ def at(hour: int, minute: int = 0) -> datetime:
     return wallclock.local(datetime.combine(DAY, time(hour, minute)))
 
 
+EVENING = at(23, 59)
+"""When these strips are drawn, unless a test is about the moment itself.
+
+`strip` takes `now` rather than guessing at it, so a test has to say. The
+evening is the reading that draws a closed day the same however often it is
+redrawn -- which is what the old `None` default was trying, and failing, to
+mean."""
+
+
 def ledger(
     *,
     segments: tuple[Segment, ...] = (),
@@ -78,7 +87,7 @@ def test_it_never_draws_wider_than_it_was_given() -> None:
     """It fits any width from 12 upward."""
     window = Window()
     for width in range(12, 200):
-        assert len(strip(ledger(), width, window)) <= width
+        assert len(strip(ledger(), width, window, now=EVENING)) <= width
 
 
 def test_the_ladder_of_bucket_sizes_stops_at_an_hour() -> None:
@@ -95,8 +104,8 @@ def test_the_ladder_of_bucket_sizes_stops_at_an_hour() -> None:
 
 def test_below_twelve_columns_it_summarises() -> None:
     """It falls back to morning, afternoon and evening rather than lying."""
-    assert len(strip(ledger(), 8)) == 3
-    assert len(strip(ledger(), 1)) == 3
+    assert len(strip(ledger(), 8, now=EVENING)) == 3
+    assert len(strip(ledger(), 1, now=EVENING)) == 3
 
 
 # -- states ----------------------------------------------------------------
@@ -104,19 +113,22 @@ def test_below_twelve_columns_it_summarises() -> None:
 
 def test_an_empty_working_day_is_all_window() -> None:
     """It draws nothing but the window when nobody clocked in."""
-    assert render(strip(ledger(), 12)) == "------------"
+    assert render(strip(ledger(), 12, now=EVENING)) == "------------"
 
 
 def test_a_bank_holiday_covers_the_whole_strip() -> None:
     """It says bank holiday and nothing else."""
-    assert render(strip(ledger(holiday="Spring bank holiday"), 12)) == "============"
+    assert (
+        render(strip(ledger(holiday="Spring bank holiday"), 12, now=EVENING))
+        == "============"
+    )
 
 
 def test_a_full_day_absence_covers_the_whole_strip() -> None:
     """It fills every cell an absence covers."""
     booked = (AbsenceSlice(1, AbsenceType.ANNUAL, Portion.FULL),)
     assert (
-        render(strip(ledger(absences=booked, expected=timedelta()), 12))
+        render(strip(ledger(absences=booked, expected=timedelta()), 12, now=EVENING))
         == "############"
     )
 
@@ -125,13 +137,13 @@ def test_a_morning_absence_covers_only_the_morning() -> None:
     """It splits the day at midday."""
     booked = (AbsenceSlice(1, AbsenceType.SICK, Portion.AM),)
     #  07:00 .. 19:00 in 12 one-hour cells; midday is the sixth boundary
-    assert render(strip(ledger(absences=booked), 12)) == "#####-------"
+    assert render(strip(ledger(absences=booked), 12, now=EVENING)) == "#####-------"
 
 
 def test_an_afternoon_absence_covers_only_the_afternoon() -> None:
     """It splits the day at midday, the other way."""
     booked = (AbsenceSlice(1, AbsenceType.FLEXI, Portion.PM),)
-    assert render(strip(ledger(absences=booked), 12)) == "-----#######"
+    assert render(strip(ledger(absences=booked), 12, now=EVENING)) == "-----#######"
 
 
 def test_work_overrides_a_booked_half_day() -> None:
@@ -142,7 +154,9 @@ def test_work_overrides_a_booked_half_day() -> None:
     booked = (AbsenceSlice(1, AbsenceType.ANNUAL, Portion.AM),)
     worked = (Segment(1, at(9), at(11)),)
     strip_ = strip(
-        ledger(absences=booked, segments=worked, expected=CONTRACTED / 2), 12
+        ledger(absences=booked, segments=worked, expected=CONTRACTED / 2),
+        12,
+        now=EVENING,
     )
     assert render(strip_) == "##XX#|------"
 
@@ -153,13 +167,13 @@ def test_a_break_between_two_sessions() -> None:
     An hour of break pushes the go-home tick out to 17:24.
     """
     worked = (Segment(1, at(9), at(12)), Segment(2, at(13), at(17)))
-    assert render(strip(ledger(segments=worked), 12)) == "--XXX.XXXX|-"
+    assert render(strip(ledger(segments=worked), 12, now=EVENING)) == "--XXX.XXXX|-"
 
 
 def test_time_before_arriving_is_not_a_break() -> None:
     """It only calls a gap a break when it sits between two sessions."""
     worked = (Segment(1, at(9), at(11)),)
-    assert Cell.BREAK not in strip(ledger(segments=worked), 12)
+    assert Cell.BREAK not in strip(ledger(segments=worked), 12, now=EVENING)
 
 
 def test_an_open_session_marks_the_live_edge() -> None:
@@ -187,14 +201,14 @@ def test_a_session_running_past_the_window_lights_no_cell_as_live() -> None:
 def test_a_short_session_lights_a_whole_cell() -> None:
     """It shows presence rather than proportion, so nothing vanishes."""
     worked = (Segment(1, at(9, 5), at(9, 10)),)
-    assert render(strip(ledger(segments=worked), 12)) == "--X------|--"
+    assert render(strip(ledger(segments=worked), 12, now=EVENING)) == "--X------|--"
 
 
 def test_the_target_tick_marks_when_hours_are_met() -> None:
     """It says when you can go home, allowing for the breaks you took."""
     worked = (Segment(1, at(9), at(12)), Segment(2, at(13), at(15)))
     # 09:00 + 7h24 contracted + 1h break = 17:24, inside the 17:00 cell
-    cells = strip(ledger(segments=worked), 12)
+    cells = strip(ledger(segments=worked), 12, now=EVENING)
     assert cells[10] is Cell.TARGET
 
 
@@ -206,7 +220,7 @@ def test_the_target_tick_never_paints_over_the_work_it_lands_in() -> None:
     stopped being compulsory, and the strip would read as an hour short.
     """
     worked = (Segment(1, at(9), at(17)),)  # contracted hours met at 16:24
-    cells = strip(ledger(segments=worked), 12)
+    cells = strip(ledger(segments=worked), 12, now=EVENING)
 
     assert render(cells) == "--XXXXXXXX--"
     assert Cell.TARGET not in cells
@@ -214,13 +228,14 @@ def test_the_target_tick_never_paints_over_the_work_it_lands_in() -> None:
 
 def test_no_target_tick_before_arriving() -> None:
     """It has no answer to when you can leave before you have arrived."""
-    assert Cell.TARGET not in strip(ledger(), 12)
+    assert Cell.TARGET not in strip(ledger(), 12, now=EVENING)
 
 
 def test_no_target_tick_on_a_day_that_expects_nothing() -> None:
     """It draws no go-home tick on a day with no hours to meet."""
     worked = (Segment(1, at(9), at(11)),)
-    assert Cell.TARGET not in strip(ledger(segments=worked, expected=timedelta()), 12)
+    nothing_expected = ledger(segments=worked, expected=timedelta())
+    assert Cell.TARGET not in strip(nothing_expected, 12, now=EVENING)
 
 
 def test_no_target_tick_when_the_hours_run_past_the_window() -> None:
@@ -232,7 +247,7 @@ def test_no_target_tick_when_the_hours_run_past_the_window() -> None:
     one answer that is both plausible and wrong.
     """
     late = (Segment(1, at(16), at(18)),)
-    assert Cell.TARGET not in strip(ledger(segments=late), 12)
+    assert Cell.TARGET not in strip(ledger(segments=late), 12, now=EVENING)
 
 
 def test_a_window_can_be_parsed_and_measured() -> None:

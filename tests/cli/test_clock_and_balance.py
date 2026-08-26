@@ -20,8 +20,8 @@ import time_machine
 from flexi.cli import balance as balance_cli
 from flexi.cli import clock as clock_cli
 from flexi.constants import AbsenceType
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import BankHolidayCache, Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.registry import Services
 
 NOON = date(2026, 6, 10)
@@ -50,6 +50,40 @@ def test_clocking_in_twice_is_a_failure(services: Services) -> None:
     """The exit code is what a script reads, and it was never checked."""
     assert clock_cli.clock_in(services) == 0
     assert clock_cli.clock_in(services) == 1
+
+
+def test_clocking_in_twice_says_what_the_running_session_is_doing(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A bare refusal answers a question nobody asked.
+
+    The one behind the keystroke is *since when*, and the session was in hand
+    when the refusal was written -- it just was not carried out of the service.
+    """
+    with time_machine.travel(datetime(2026, 6, 10, 9, 0), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 10, 11, 30), tick=False):
+        clock_cli.clock_in(services)
+
+    printed = capsys.readouterr().out
+    assert "Already on the clock" in printed
+    assert "in at 09:00" in printed
+    assert "2:30 on this session" in printed
+    assert "hours met at" in printed, "the finish time is the useful half of it"
+
+
+def test_a_day_already_past_its_hours_says_so_rather_than_counting_down(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Past the contracted day there is no "to go" left to report."""
+    with time_machine.travel(datetime(2026, 6, 10, 8, 0), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 10, 18, 0), tick=False):
+        clock_cli.clock_in(services)
+
+    printed = capsys.readouterr().out
+    assert "hours met" in printed
+    assert "hours met at" not in printed
 
 
 def test_clocking_out_without_clocking_in_is_a_failure(
@@ -111,7 +145,7 @@ BANK_HOLIDAY = date(2026, 8, 31)
 def stocked(services: Services) -> Services:
     """The same machine, with a bank holiday calendar on it.
 
-    `AbsenceService` refuses every booking while `is_bank_holiday` answers
+    `AbsenceService` refuses every booking while the calendar answers
     `None`, so a test that books anything needs at least one cached row.
     """
     services.session.add(

@@ -12,7 +12,7 @@ of somebody's records, and the fork between "already set up" and "ask the five
 questions" all live in the wiring, and the reset arm of that fork is the one
 thing in Flexi that loses data.
 
-The application is stood in for throughout. `App.__init__` builds an engine and
+The application is stood in for throughout. `FlexiApp.__init__` builds an engine and
 `run` wants a terminal, and neither is what is under test here: what matters is
 *which* database it was pointed at, whether the splash was earned, and whether
 it was opened at all.
@@ -34,8 +34,8 @@ from flexi.__main__ import cli
 from flexi.cli import init as init_cli
 from flexi.cli import ui
 from flexi.locations import backups_directory, database_file
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import AbsenceDay, BankHolidayCache
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import Services
 
@@ -135,7 +135,7 @@ def instead_of_the_application(
 ) -> list[_Opened]:
     """Record every application `__main__` builds, and draw none of them.
 
-    Patched at `flexi.app.App`, not on `__main__`: the name is imported inside
+    Patched at `flexi.app.FlexiApp`, not on `__main__`: the name is imported inside
     `_launch` and `_run_demo` so that `flexi --version` does not load six
     Textual screens, which means there is nothing bound here to replace.
     """
@@ -146,7 +146,7 @@ def instead_of_the_application(
         opened.append(app)
         return app
 
-    monkeypatch.setattr("flexi.app.App", building)
+    monkeypatch.setattr("flexi.app.FlexiApp", building)
     return opened
 
 
@@ -161,7 +161,7 @@ def answering_the_questions(app: _Opened) -> None:
 
 def choosing(monkeypatch: pytest.MonkeyPatch, choice: init_cli.Choice | None) -> None:
     """Stand at the `flexi init` menu and pick something, or escape."""
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
     def picking(question: str, options: Sequence[ui.Option]) -> ui.Option | None:
         if choice is None:
@@ -279,7 +279,7 @@ def test_bare_flexi_carries_straight_on_once_the_questions_are_answered(
     and reports, because setting up is all it was asked to do.
     """
     instead_of_the_application(monkeypatch, answering_the_questions)
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
     result = CliRunner().invoke(cli, [])
 
@@ -289,7 +289,7 @@ def test_bare_flexi_carries_straight_on_once_the_questions_are_answered(
 
 def test_the_first_run_earns_the_splash(monkeypatch: pytest.MonkeyPatch) -> None:
     opened = instead_of_the_application(monkeypatch, answering_the_questions)
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
     CliRunner().invoke(cli, [])
 
@@ -306,7 +306,7 @@ def test_closing_the_setup_form_without_answering_is_not_treated_as_setup(
     `flexi balance show` on one reports a deficit of a thousand hours against a
     leave year nobody chose.
     """
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
     instead_of_the_application(monkeypatch)
 
     result = CliRunner().invoke(cli, [])
@@ -474,7 +474,7 @@ def test_init_finishes_and_says_where_the_records_are(
     person asked to set Flexi up, not to use it.
     """
     opened = instead_of_the_application(monkeypatch, answering_the_questions)
-    monkeypatch.setattr("flexi.cli.init.interactive", lambda: True)
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
     result = CliRunner().invoke(cli, ["init"])
 

@@ -224,7 +224,7 @@ stylesheet.
 | `TimeProgress` | `.show(...)` | The two rails under the header: today, and the shown period. |
 
 `flexi/components/chrome.py` — the frame:
-`Wordmark`, `NavBar` (+`NavItem` table, the single place a screen is registered),
+`Lockup`, `NavBar` (+`NavItem` table, the single place a screen is registered),
 `AppHeader`, `StatusBar`, `KeyStrip`, `AppFooter`.
 
 **`KeyStrip` is not optional.** Textual's stock `Footer` lays out every binding

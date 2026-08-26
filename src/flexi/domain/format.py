@@ -9,6 +9,29 @@ MINUS = "−"
 
 ZERO = "0:00"
 
+SECONDS_PER_MINUTE = 60
+
+LEVEL = timedelta(minutes=1)
+"""Below this, a balance is neither a surplus nor a deficit.
+
+Every figure here is drawn in whole minutes, so anything smaller has no digit
+to appear in -- and a sign on a figure that reads `0:00` claims a direction the
+number does not show."""
+
+
+def is_level(value: timedelta) -> bool:
+    """True when a duration is too small for the minute these figures show.
+
+    Examples:
+        >>> is_level(timedelta(seconds=-30))
+        True
+        >>> is_level(timedelta())
+        True
+        >>> is_level(timedelta(minutes=-1))
+        False
+    """
+    return abs(value) < LEVEL
+
 
 def hm(value: timedelta) -> str:
     """A duration as ``h:mm``, unsigned, rounding toward zero.
@@ -35,7 +58,12 @@ def hms(value: timedelta) -> str:
 
 
 def delta(value: timedelta) -> str:
-    """A signed duration. Zero carries no sign, because it is not a small surplus.
+    """A signed duration. Level carries no sign, because it is not a small surplus.
+
+    Anything under a minute counts as level. It used to be tested for exact
+    zero and rendered through `hm`, which truncates, so forty seconds of
+    deficit drew as `−0:00` -- a minus sign in front of a figure showing
+    nothing, and a red one, since the colour is chosen from the same value.
 
     Examples:
         >>> delta(timedelta(minutes=48))
@@ -44,11 +72,12 @@ def delta(value: timedelta) -> str:
         '−4:14'
         >>> delta(timedelta())
         '0:00'
+        >>> delta(timedelta(seconds=-30))
+        '0:00'
     """
-    total = int(value.total_seconds())
-    if total == 0:
+    if is_level(value):
         return ZERO
-    return f"{'+' if total > 0 else MINUS}{hm(value)}"
+    return f"{'+' if value > timedelta() else MINUS}{hm(value)}"
 
 
 def digits(value: timedelta) -> str:
@@ -59,11 +88,12 @@ def digits(value: timedelta) -> str:
         '-10:50'
         >>> digits(timedelta(hours=12, minutes=40))
         '+12:40'
+        >>> digits(timedelta(seconds=-30))
+        '0:00'
     """
-    total = int(value.total_seconds())
-    if total == 0:
+    if is_level(value):
         return ZERO
-    return f"{'+' if total > 0 else '-'}{hm(value)}"
+    return f"{'+' if value > timedelta() else '-'}{hm(value)}"
 
 
 def stamp(when: date, pattern: str) -> str:
@@ -109,6 +139,21 @@ def day_month(when: date) -> str:
     return stamp(when, "%-d %b")
 
 
+def month_title(year: int, month: int) -> str:
+    """A month named in full, with its year.
+
+    Through ``strftime`` like every other date here, rather than off a tuple of
+    the twelve names -- which was declared in two domain modules and indexed in
+    three, so a heading, a block title and a period label were the same sentence
+    assembled three times.
+
+    Examples:
+        >>> month_title(2026, 6)
+        'June 2026'
+    """
+    return f"{date(year, month, 1):%B %Y}"
+
+
 def clock(moment: datetime) -> str:
     """A wall-clock time.
 
@@ -117,6 +162,29 @@ def clock(moment: datetime) -> str:
         '09:12'
     """
     return moment.strftime("%H:%M")
+
+
+def spoken(span: timedelta) -> str:
+    """A short duration as somebody would say it out loud.
+
+    Whole minutes where it divides, seconds otherwise, so a threshold reads as
+    "a minute" rather than as "60 seconds".
+
+    Examples:
+        >>> spoken(timedelta(minutes=1))
+        '1 minute'
+        >>> spoken(timedelta(minutes=5))
+        '5 minutes'
+        >>> spoken(timedelta(seconds=90))
+        '90 seconds'
+        >>> spoken(timedelta(seconds=1))
+        '1 second'
+    """
+    seconds = int(span.total_seconds())
+    minutes, remainder = divmod(seconds, SECONDS_PER_MINUTE)
+    if minutes and not remainder:
+        return f"{minutes} {plural(minutes, 'minute')}"
+    return f"{seconds} {plural(seconds, 'second')}"
 
 
 def days(value: float) -> str:

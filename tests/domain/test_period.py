@@ -5,8 +5,9 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from flexi.constants import Granularity
 from flexi.domain import leaveyear
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from tests import strategies
 
 THURSDAY = date(2026, 6, 11)  # week 24, a Thursday
@@ -116,7 +117,7 @@ def test_shift_forward_reaches_the_future() -> None:
     """It can express next month, which an offset-from-today model cannot."""
     ahead = Period(Granularity.MONTH, THURSDAY).shift(3)
     assert ahead.start == date(2026, 9, 1)
-    assert not ahead.is_current(THURSDAY)
+    assert not ahead.contains(THURSDAY)
 
 
 LEAP_START = (2, 29)
@@ -175,42 +176,13 @@ def test_label(granularity: Granularity, label: str) -> None:
     assert Period(granularity, THURSDAY).label == label
 
 
-@pytest.mark.parametrize(
-    ("granularity", "short"),
-    [
-        (Granularity.DAY, "11 Jun"),
-        (Granularity.WEEK, "8 Jun"),
-        (Granularity.MONTH, "Jun 2026"),
-        (Granularity.YEAR, "2026"),
-    ],
-)
-def test_short_label(granularity: Granularity, short: str) -> None:
-    """It says the same thing again for a subtitle with no room for the title.
-
-    The weekday, the word "Week of" and the spelt-out month are all context the
-    border title already carries; a subtitle repeats none of them.
-    """
-    assert Period(granularity, THURSDAY).short_label == short
-
-
-def test_a_short_leave_year_still_names_both_years() -> None:
-    """The one thing a leave year cannot afford to drop.
-
-    Every other granularity shortens by removing something. "2026" for a year
-    running April to April is not shorter, it is wrong, so the year keeps its
-    full title however narrow the space is.
-    """
-    period = Period(Granularity.YEAR, THURSDAY, year_start=(4, 6))
-    assert period.short_label == "2026/27"
-
-
-def test_contains_and_is_current() -> None:
+def test_contains() -> None:
     """It knows which dates it covers."""
     period = week()
     assert period.contains(date(2026, 6, 8))
     assert period.contains(date(2026, 6, 14))
     assert not period.contains(date(2026, 6, 15))
-    assert period.is_current(THURSDAY)
+    assert period.contains(THURSDAY)
 
 
 @pytest.mark.parametrize(
@@ -239,8 +211,7 @@ def test_a_granularity_names_itself_apart_from_the_value_it_is_stored_as(
 def test_granularity_cycles() -> None:
     """It cycles day to week to month to year and back."""
     assert Granularity.DAY.next() is Granularity.WEEK
-    assert Granularity.YEAR.next() is Granularity.DAY
-    assert Granularity.DAY.previous() is Granularity.YEAR
+    assert Granularity.YEAR.next() is Granularity.DAY, "and wraps"
 
 
 def test_first_weekday_moves_the_week_boundary() -> None:
@@ -346,52 +317,6 @@ def test_a_year_period_is_the_leave_year_the_services_use(period: Period) -> Non
         return
     assert (period.start, period.end) == leaveyear.bounds(
         period.anchor, *period.year_start
-    )
-
-
-@given(period=periods())
-def test_the_short_label_never_asks_for_more_room_than_the_full_one(
-    period: Period,
-) -> None:
-    """A subtitle is chosen when the title will not fit, so it has to be shorter.
-
-    "September" shortening to "Sep" is obvious; the one that is not is the leave
-    year, whose short form is the full label. That is allowed to be equal and is
-    not allowed to be longer, or the narrow layout would overflow in exactly the
-    case the short form was introduced to rescue.
-    """
-    assert period.short_label
-    assert len(period.short_label) <= len(period.label)
-
-
-@given(period=periods())
-def test_the_short_label_tells_this_period_from_the_next(period: Period) -> None:
-    """Paging has to be visible in the subtitle, or nothing confirms it happened.
-
-    Dropping the year from a day and the month name from a week is safe only
-    because neighbours still differ. A subtitle that read the same before and
-    after `→` would leave a user unable to tell a period that moved from one
-    that refused to.
-    """
-    assert period.short_label != period.shift(1).short_label
-    assert period.short_label != period.shift(-1).short_label
-
-
-@given(granularity=strategies.granularities)
-def test_the_two_directions_of_the_cycle_are_opposites(
-    granularity: Granularity,
-) -> None:
-    """`p` forward then back is where you started, and forward is not back.
-
-    Nothing distinguished `previous` from `next`: changing the minus to a plus
-    left the whole suite green, because every test that walked the cycle walked
-    it in one direction.
-    """
-    assert granularity.next().previous() == granularity
-    assert granularity.previous().next() == granularity
-    assert granularity.next() != granularity.previous()
-    assert granularity.next().next() == granularity.previous().previous(), (
-        "four granularities, so two steps either way meet in the middle"
     )
 
 

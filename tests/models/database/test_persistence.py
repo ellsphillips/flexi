@@ -16,8 +16,8 @@ import pytest
 from sqlalchemy import Engine, text
 
 from flexi.locations import backups_directory, database_file
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.backup import verify
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import backup_database, run_migrations
 
 
@@ -50,7 +50,7 @@ class TestTheDefaultDatabase:
 
     def test_a_session_opened_with_no_engine_reaches_the_real_database(self) -> None:
         bound = None
-        with get_session() as session:
+        with get_session(create_db_engine()) as session:
             bound = session.get_bind()
         assert isinstance(bound, Engine)
         assert bound.url.database == str(database_file())
@@ -68,7 +68,15 @@ class TestTheDefaultDatabase:
         assert verify(database_file()), "the real database was not migrated"
 
     def test_a_backup_asked_for_no_path_copies_the_real_database(self) -> None:
-        """Byte for byte, so nothing but the live database can have produced it."""
+        """The real database, and a copy that opens and is stamped.
+
+        Not byte for byte. `sqlite3.Connection.backup` writes a fresh file
+        through the engine rather than copying the bytes -- which is the whole
+        reason to use it, since it cannot tear -- so the header's change
+        counter differs while every page of content is the same. What has to
+        hold is that the artefact somebody is told to fall back on passes an
+        integrity check and carries a revision.
+        """
         live = database_file()
         run_migrations(live)
 
@@ -76,7 +84,7 @@ class TestTheDefaultDatabase:
 
         assert backup is not None
         assert backup.parent == backups_directory()
-        assert backup.read_bytes() == live.read_bytes()
+        assert verify(backup), "the copy is not one somebody could fall back on"
 
 
 # ---------- migration success ----------
@@ -119,7 +127,7 @@ class TestBackupCreation:
         backup_dir = tmp_path / "backups"
         backup_dir.mkdir()
         monkeypatch.setattr(
-            "flexi.models.database.migrate.backups_directory", lambda: backup_dir
+            "flexi.models.database.backup.backups_directory", lambda: backup_dir
         )
         backup = backup_database(db_path)
         assert backup is not None
@@ -134,7 +142,7 @@ class TestBackupCreation:
         backup_dir = tmp_path / "backups"
         backup_dir.mkdir()
         monkeypatch.setattr(
-            "flexi.models.database.migrate.backups_directory", lambda: backup_dir
+            "flexi.models.database.backup.backups_directory", lambda: backup_dir
         )
         run_migrations(db_path)
         backups = list(backup_dir.glob("*.bak"))
@@ -151,14 +159,17 @@ class TestBackupFailure:
         # Patch backup to return None (simulate failure)
         with (
             patch("flexi.models.database.migrate.backup_database", return_value=None),
-            # Force current != head so backup path is taken
-            patch("flexi.models.database.migrate.MigrationContext") as mock_ctx_cls,
+            # Force current != head so the backup path is taken. Through
+            # `current_revision`, which is what `run_migrations` now asks --
+            # it settles the common case against a written-down revision
+            # rather than starting Alembic up to find out.
+            patch(
+                "flexi.models.database.migrate.current_revision",
+                return_value="fake_old",
+            ),
+            pytest.raises(RuntimeError, match="backup failed"),
         ):
-            mock_ctx_cls.configure.return_value.get_current_revision.return_value = (
-                "fake_old"
-            )
-            with pytest.raises(RuntimeError, match="backup failed"):
-                run_migrations(db_path)
+            run_migrations(db_path)
 
 
 # ---------- verifying a copy ----------
@@ -320,7 +331,7 @@ class TestMigrationFailure:
         """If alembic upgrade fails, the error propagates."""
         with (
             patch(
-                "flexi.models.database.migrate.command.upgrade",
+                "alembic.command.upgrade",
                 side_effect=RuntimeError("migration exploded"),
             ),
             pytest.raises(RuntimeError, match="migration exploded"),

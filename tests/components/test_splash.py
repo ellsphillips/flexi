@@ -71,17 +71,17 @@ class Turning(App[None]):
 
 
 def test_every_letter_is_the_same_height() -> None:
-    for character, rows in splash.GLYPHS.items():
+    for character, rows in splash.LETTER_GLYPHS.items():
         assert len(rows) == splash.ROWS, character
 
 
 def test_every_letter_is_rectangular() -> None:
-    for character, rows in splash.GLYPHS.items():
+    for character, rows in splash.LETTER_GLYPHS.items():
         assert len({len(row) for row in rows}) == 1, character
 
 
 def test_the_word_is_spelled_with_letters_that_exist() -> None:
-    assert set(splash.WORD) <= set(splash.GLYPHS)
+    assert set(splash.WORD) <= set(splash.LETTER_GLYPHS)
     assert splash.WORD.startswith("flexi")
 
 
@@ -226,13 +226,6 @@ def test_a_word_wider_than_the_canvas_is_cropped_rather_than_wrapped(
 
     assert {len(row) for row in cropped} == {NARROW_CANVAS}
     assert cropped == [row[margin : margin + NARROW_CANVAS] for row in full]
-
-
-def test_a_frame_is_text_the_width_of_the_canvas() -> None:
-    rows = splash.frame(splash.DURATION)
-    assert len(rows) == splash.CANVAS_HEIGHT
-    assert {len(row) for row in rows} == {splash.CANVAS_WIDTH}
-    assert set("".join(rows)) <= set(splash.RAMP) | {" "}
 
 
 # -- the strapline -----------------------------------------------------------

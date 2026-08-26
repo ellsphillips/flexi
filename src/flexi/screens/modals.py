@@ -9,6 +9,7 @@ written rather than the day somebody remembers to add a test.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, ClassVar
 
@@ -26,6 +27,8 @@ from flexi.domain.format import plural
 
 class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     """A dialog with a title, a body, and the two keys every dialog has."""
+
+    HELP_LABEL = "Dialog"
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "cancel", "Cancel", show=True),
@@ -131,25 +134,17 @@ class ConfirmModal(FlexiModal[bool]):
         self.dismiss(False)
 
 
+@dataclass(frozen=True, slots=True)
 class AbsenceBooking:
     """What the absence modal collected."""
 
-    __slots__ = ("kind", "note", "portion", "until", "when")
-
-    def __init__(
-        self,
-        when: date,
-        kind: AbsenceType,
-        portion: Portion,
-        note: str | None,
-        until: date | None = None,
-    ) -> None:
-        self.when = when
-        self.kind = kind
-        self.portion = portion
-        self.note = note
-        self.until = until or when
-        """The last day, inclusive. One day booked is one day, not None."""
+    when: date
+    kind: AbsenceType
+    portion: Portion
+    note: str | None
+    until: date
+    """The last day, inclusive. One day booked is one day, not ``None`` -- the
+    modal defaults it to ``when``, so nothing downstream has to."""
 
 
 class AbsenceModal(FlexiModal[AbsenceBooking]):
@@ -218,14 +213,16 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
     def result(self) -> AbsenceBooking:
         raw = self.query_one("#absence-date", Input).value.strip()
         try:
-            when = parse_date(raw, today=self._when)
+            when = parse_date(raw, reference=self._when)
         except ValueError as error:
             raise ValueError(str(error)) from error
 
         kind = AbsenceType(
-            _selected_name(self, "#absence-type", AbsenceType.ANNUAL.value)
+            selected_name(self, "#absence-type", fallback=AbsenceType.ANNUAL.value)
         )
-        portion = Portion(_selected_name(self, "#absence-portion", Portion.FULL.value))
+        portion = Portion(
+            selected_name(self, "#absence-portion", fallback=Portion.FULL.value)
+        )
         note = self.query_one("#absence-note", Input).value.strip() or None
 
         if kind.requires_note and not note:
@@ -236,7 +233,7 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         if self._until:
             raw_until = self.query_one("#absence-until", Input).value.strip()
             try:
-                until = parse_date(raw_until, today=self._until)
+                until = parse_date(raw_until, reference=self._until)
             except ValueError as error:
                 raise ValueError(str(error)) from error
             if until < when:
@@ -246,14 +243,19 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
 
 
 class GoToDateModal(FlexiModal[date]):
-    """Jump the period anchor to a date, typed however is quickest."""
+    """Jump the period anchor to a date, typed however is quickest.
+
+    Everything typed here is read relative to the day already on screen, not to
+    today. Somebody browsing last March and typing `12` means the 12th of March,
+    and the parameter was called `today` while being handed the anchor.
+    """
 
     title_text: ClassVar[str] = "Go to date"
     confirm_label: ClassVar[str] = "Go"
 
-    def __init__(self, today: date) -> None:
+    def __init__(self, anchor: date) -> None:
         super().__init__()
-        self._today = today
+        self._anchor = anchor
 
     def compose_body(self) -> ComposeResult:
         yield Input(
@@ -262,8 +264,8 @@ class GoToDateModal(FlexiModal[date]):
             placeholder="12 · 12 Jun · 2026-06-12 · +3d · -2w",
         )
         yield Static(
-            "A bare number is a day of the current month. "
-            "An offset moves from today: d, w, m, y.",
+            "A bare number is a day of the month on screen. "
+            "An offset moves from the day on screen: d, w, m, y.",
             classes="caption",
         )
 
@@ -271,10 +273,12 @@ class GoToDateModal(FlexiModal[date]):
         self.query_one("#goto-input", Input).focus()
 
     def result(self) -> date:
-        return parse_date(self.query_one("#goto-input", Input).value, today=self._today)
+        return parse_date(
+            self.query_one("#goto-input", Input).value, reference=self._anchor
+        )
 
 
-def _selected_name(screen: ModalScreen[Any], selector: str, fallback: str) -> str:
+def selected_name(screen: ModalScreen[Any], selector: str, *, fallback: str) -> str:
     """The ``name`` of the pressed radio button, or a fallback.
 
     Radio sets report the pressed *button*, and Flexi puts the enum value in its

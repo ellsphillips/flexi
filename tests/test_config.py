@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from flexi.config import CONFIG, Config, Hotkeys, load_config, write_config
+from flexi.config import CONFIG, Config, Defaults, Hotkeys, load_config
 from flexi.constants import AbsenceType
 
 
@@ -80,10 +80,11 @@ def test_a_key_the_file_invents_falls_back_whole_rather_than_in_part(
 ) -> None:
     """One misspelling must not leave a half-applied keymap.
 
-    `extra="forbid"` rejects the document, and the fallback is the *whole*
-    default config -- so the good line beside the bad one is discarded too.
+    `extra="forbid"` rejects the section, and the fallback is the whole of that
+    section -- so the good line beside the bad one is discarded with it.
     Applying it would give a keymap that exists in no file and cannot be
-    reproduced by fixing the typo.
+    reproduced by fixing the typo. The *other* section still reads; that is
+    what `test_a_bad_section_does_not_take_the_good_one_with_it` pins.
     """
     path = written(
         tmp_path / "config.yaml",
@@ -100,6 +101,45 @@ def test_a_value_of_the_wrong_shape_gets_the_defaults(tmp_path: Path) -> None:
     assert load_config(path) == Config()
 
 
+@pytest.mark.parametrize(
+    "line",
+    ["  period: fortnight\n", "  first_day_of_week: 9\n"],
+)
+def test_a_default_outside_its_vocabulary_gets_the_defaults(
+    tmp_path: Path, line: str
+) -> None:
+    """Both were bare enough to reach the screens and fail there instead.
+
+    `period` was a `str`, so `fortnight` sailed through validation and became a
+    `ValueError` inside `DashboardScreen.__init__` -- a preference typo taking
+    the application down while it built its first screen. `first_day_of_week`
+    was an unbounded `int`, and a 9 rotated the calendar grid by `9 % 7` while
+    the column headings, sliced rather than rotated, silently stayed on Monday.
+    """
+    path = written(tmp_path / "config.yaml", f"defaults:\n{line}")
+
+    assert load_config(path) == Config()
+
+
+def test_a_bad_section_does_not_take_the_good_one_with_it(tmp_path: Path) -> None:
+    """`extra="forbid"` makes an unknown key an error, and the file was one unit.
+
+    So a single unknown key under `defaults` threw the hotkeys away too, with
+    nothing said — and the example in `docs/ARCHITECTURE.md` contained two of
+    them, so somebody who copied the documented config got every default back
+    and no way to tell why.
+    """
+    path = written(
+        tmp_path / "config.yaml",
+        "hotkeys:\n  clock_toggle: x\ndefaults:\n  round_to_minutes: 1\n",
+    )
+
+    config = load_config(path)
+
+    assert config.hotkeys.clock_toggle == "x", "the section that read was discarded"
+    assert config.defaults == Defaults(), "and the one that did not falls back"
+
+
 def test_what_the_file_says_is_what_is_used(tmp_path: Path) -> None:
     """The other half of the bargain: a valid file is honoured, field by field."""
     path = written(
@@ -114,55 +154,7 @@ def test_what_the_file_says_is_what_is_used(tmp_path: Path) -> None:
     assert config.hotkeys.help == Hotkeys().help, "unstated keys keep their defaults"
 
 
-# -- writing it back ---------------------------------------------------------
-
-
-def test_the_config_directory_is_created_at_the_moment_it_is_written_to(
-    tmp_path: Path,
-) -> None:
-    """Nothing in `flexi.locations` creates a directory, by design.
-
-    `flexi --version` used to leave a config directory behind on a machine that
-    had never run the application, so the writer is the one that makes it.
-    """
-    path = tmp_path / "config" / "flexi" / "config.yaml"
-
-    write_config(Config(), path)
-
-    assert path.is_file()
-
-
-def test_a_written_config_reads_back_as_the_one_that_was_written(
-    tmp_path: Path,
-) -> None:
-    """A round trip, because the writer's output is the reader's input.
-
-    Writing a document `load_config` then rejects would silently reset
-    somebody's preferences the next time they started Flexi.
-    """
-    config = Config()
-    config.hotkeys.clock_toggle = "c"
-    config.defaults.period = "month"
-    path = tmp_path / "config.yaml"
-
-    write_config(config, path)
-
-    assert load_config(path) == config
-
-
-def test_with_no_path_given_both_ends_use_the_configured_location() -> None:
-    """The default argument is the whole point of the pair.
-
-    Every caller in the application omits the path, so a writer and a reader
-    that disagreed about where the file lives would look correct in every test
-    that passed one.
-    """
-    config = Config()
-    config.defaults.period = "year"
-
-    write_config(config)
-
-    assert load_config().defaults.period == "year"
+# -- the loaded config -------------------------------------------------------
 
 
 def test_the_module_level_config_is_the_one_the_bindings_read() -> None:

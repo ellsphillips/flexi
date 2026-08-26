@@ -22,8 +22,9 @@ from alembic.script import ScriptDirectory
 
 from flexi.constants import AbsenceType, Portion
 from flexi.locations import backups_directory, ensure
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import AbsenceDay, Base, Settings
+from flexi.models.database.engine import create_db_engine, get_session
+from flexi.models.database.migrate import HEAD as RECORDED_HEAD
 from flexi.models.database.migrate import (
     MAX_BACKUPS,
     alembic_config,
@@ -32,6 +33,34 @@ from flexi.models.database.migrate import (
 
 BEFORE_HALF_DAYS = "0006"
 HEAD = "head"
+
+
+def test_the_recorded_head_is_the_head_alembic_would_find(db: Path) -> None:
+    """`run_migrations` compares against a written-down revision to stay fast.
+
+    Asking Alembic costs the import this exists to avoid, so the number is
+    duplicated -- and a duplicate nobody checks is a duplicate that drifts. Add
+    a migration without touching `HEAD` and every database silently reports
+    itself up to date, which is a schema change that never runs.
+    """
+    with alembic_config(db) as cfg:
+        assert ScriptDirectory.from_config(cfg).get_current_head() == RECORDED_HEAD
+
+
+def test_a_file_that_was_never_migrated_is_migrated_rather_than_refused(
+    db: Path,
+) -> None:
+    """An interrupted first run leaves a database with no `alembic_version`.
+
+    The cheap revision check queries that table directly, so the case has to
+    read as "never migrated" rather than raise -- otherwise the one file that
+    needs the migration most is the one that cannot get it.
+    """
+    db.touch()
+
+    run_migrations(db)
+
+    assert revision_of(db) == RECORDED_HEAD
 
 
 @pytest.fixture
@@ -314,15 +343,20 @@ def test_the_migrations_build_the_schema_the_models_describe(db: Path) -> None:
     migration would pass the whole suite and fail on the first real launch --
     and a migration that drifted from the models would do the reverse.
 
-    There is no drift today. That is exactly why this is cheap to add now: it
-    fails the moment somebody edits `db.py` and forgets the revision.
+    Server defaults are compared too. Alembic leaves that off by default, and
+    with it off the guard was blind to the one axis the two schemas disagreed
+    on: `clock_events.source` and `work_sessions.auto_closed` are `DEFAULT`ed by
+    migration 0004 and were not by the models, so `--demo` and all ten fixture
+    databases ran against a schema no real install has.
     """
     upgrade(db, HEAD)
 
     engine = create_db_engine(db)
     try:
         with engine.connect() as connection:
-            context = MigrationContext.configure(connection)
+            context = MigrationContext.configure(
+                connection, opts={"compare_server_default": True}
+            )
             differences = compare_metadata(context, Base.metadata)
     finally:
         engine.dispose()

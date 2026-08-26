@@ -18,7 +18,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Granularity
 from flexi.locations import config_file
 
 
@@ -75,8 +75,19 @@ class Defaults(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    period: str = "week"
-    first_day_of_week: int = 0
+    period: Granularity = Granularity.WEEK
+    """Which span the dashboard opens on.
+
+    Typed, so a misspelling in the file is a validation error `load_config`
+    turns into the defaults. As a bare `str` it reached `Granularity(...)` in
+    the dashboard's constructor and raised there instead -- a `ValueError`
+    thrown while building the first screen, which is a preference typo taking
+    the application down."""
+
+    first_day_of_week: int = Field(default=0, ge=0, le=6)
+    """Monday is 0. Bounded, because nothing downstream rejects a 9: the grid
+    would rotate by `9 % 7` while the column headings, sliced rather than
+    rotated, would silently stay on Monday."""
     minimum_session_seconds: int = 60
     """A session shorter than this never happened.
 
@@ -100,12 +111,16 @@ class Config(BaseModel):
 
 
 def load_config(path: Path | None = None) -> Config:
-    """Read the config file, falling back to defaults.
+    """Read the config file, falling back to defaults section by section.
 
-    A malformed file yields the defaults rather than refusing to start: a typo in
-    a keybinding should not lock somebody out of their own time records. The
-    application reports it on the status bar once it has a status bar to report
-    it on.
+    A malformed file yields the defaults rather than refusing to start: a typo
+    in a keybinding should not lock somebody out of their own time records.
+
+    Section by section, though, and not wholesale. Validated as one document, a
+    single unknown key under `defaults` -- and `extra="forbid"` makes an unknown
+    key an error -- threw away the hotkeys too, silently. The documented example
+    contained two such keys, so somebody who copied it from `ARCHITECTURE.md`
+    got every default back and no way to tell why.
     """
     path = path or config_file()
     try:
@@ -114,19 +129,20 @@ def load_config(path: Path | None = None) -> Config:
         return Config()
     if not isinstance(raw, dict):
         return Config()
-    try:
-        return Config.model_validate(raw)
-    except Exception:  # noqa: BLE001 - pydantic raises a family of errors
-        return Config()
-
-
-def write_config(config: Config, path: Path | None = None) -> None:
-    """Write the config back, creating the directory if it is missing."""
-    path = path or config_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump(config.model_dump(), sort_keys=False), encoding="utf-8"
+    return Config(
+        hotkeys=_section(Hotkeys, raw.get("hotkeys")),
+        defaults=_section(Defaults, raw.get("defaults")),
     )
+
+
+def _section[T: BaseModel](model: type[T], raw: Any) -> T:
+    """One section of the file, or that section's defaults."""
+    if not isinstance(raw, dict):
+        return model()
+    try:
+        return model.model_validate(raw)
+    except Exception:  # noqa: BLE001 - pydantic raises a family of errors
+        return model()
 
 
 CONFIG: Config = load_config()

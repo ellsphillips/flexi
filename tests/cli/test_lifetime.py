@@ -15,13 +15,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import click
 import pytest
 from click.testing import CliRunner
 
 import flexi.__main__ as main
 from flexi.__main__ import cli
 from flexi.locations import database_file
-from flexi.models.database.app import create_db_engine, get_session
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import Services
 
@@ -98,22 +99,24 @@ def test_the_database_is_closed_when_a_command_raises(
 
 
 def test_a_command_uses_one_registry_rather_than_building_a_second(
-    home: Path,
+    home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Two graphs means two memo caches, and `invalidate` only clears one."""
-    seen: list[Services] = []
-    original = main.handles_of
+    """Two graphs means two memo caches, and `invalidate` only clears one.
 
-    def watching(ctx: object) -> main.Handles:
-        handles = original(ctx)  # type: ignore[arg-type]
+    Watched at the seam that opens the database, which is also the one that
+    hands the registry to the command: `requires_setup` passes it, so there is
+    no second lookup that could reach a different one.
+    """
+    seen: list[Services] = []
+    original = main._open_database
+
+    def watching(ctx: click.Context) -> main.Handles:
+        handles = original(ctx)
         seen.append(handles.services)
         return handles
 
-    main.handles_of = watching
-    try:
-        CliRunner().invoke(cli, ["balance", "show"])
-    finally:
-        main.handles_of = original
+    monkeypatch.setattr(main, "_open_database", watching)
+    CliRunner().invoke(cli, ["balance", "show"])
 
-    assert seen, "the command should reach for the open database"
+    assert seen, "the command should open the database"
     assert len({id(services) for services in seen}) == 1

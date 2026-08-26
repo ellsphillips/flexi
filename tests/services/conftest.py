@@ -3,8 +3,8 @@
 Fifteen files in this directory built that phrase by hand, two of them byte for
 byte, and the invariant that makes them work was re-explained in three different
 comments: there has to be at least one row in the bank holiday cache, because
-`BankHolidayService.is_bank_holiday` answers `None` — not `False` — when the
-calendar is absent, and `AbsenceService` refuses to book against `None` rather
+`BankHolidayService.titles_between` answers `None` — not an empty mapping —
+when the calendar is absent, and `AbsenceService` refuses to book against `None` rather
 than silently treating an unknown day as workable.
 
 A test that forgets the cache row does not fail loudly. It gets "Bank holiday
@@ -36,11 +36,7 @@ type Configured = Callable[..., Services]
 
 @pytest.fixture
 def configure(session: Session) -> Configured:
-    """Set Flexi up and hand back a registry built against it.
-
-    Rebuilt after saving, because `Services.build` reads the division once and
-    a registry made before the settings row exists holds the default.
-    """
+    """Set Flexi up and hand back a registry built against it."""
 
     def build(
         *,
@@ -72,10 +68,9 @@ def configure(session: Session) -> Configured:
                 )
             )
         session.commit()
-        rebuilt = Services.build(session)
         if entitlement is not None:
-            rebuilt.settings.save_entitlement(*entitlement)
-        return rebuilt
+            built.settings.save_entitlement(*entitlement)
+        return built
 
     return build
 

@@ -24,7 +24,7 @@ from textual.timer import Timer
 from flexi import wallclock
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import TINY_COLUMNS, Tone, mark_width
-from flexi.components.expandable import ABSENCE, DAY, SESSION
+from flexi.components.expandable import RowKind, row_ident
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.balance import BalanceModule
 from flexi.components.modules.base import Module
@@ -34,26 +34,20 @@ from flexi.components.modules.records import BookHere, DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Granularity
 from flexi.domain.format import clock as clock_time
 from flexi.domain.format import short_date
-from flexi.domain.period import Granularity, Period
-from flexi.messages import DataChanged, DateSelected, Scope
+from flexi.domain.period import Period
+from flexi.messages import DateSelected, Scope
 from flexi.screens.modals import (
     AbsenceBooking,
     AbsenceModal,
     ConfirmModal,
     GoToDateModal,
 )
+from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
 from flexi.services.registry import Services
-
-GRANULARITY_KEYS = {
-    CONFIG.hotkeys.period_day: Granularity.DAY,
-    CONFIG.hotkeys.period_week: Granularity.WEEK,
-    CONFIG.hotkeys.period_month: Granularity.MONTH,
-    CONFIG.hotkeys.period_year: Granularity.YEAR,
-}
 
 JUMP_TARGETS = {
     "clock-module": "c",
@@ -66,6 +60,8 @@ JUMP_TARGETS = {
 
 class DashboardScreen(Screen[None]):
     """Everything you need twice a day, on one screen."""
+
+    HELP_LABEL = "Dashboard"
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.today, "today", "Today", show=True),
@@ -102,7 +98,7 @@ class DashboardScreen(Screen[None]):
         self._services = services
         self.period = Period.containing(
             wallclock.today(),
-            Granularity(CONFIG.defaults.period),
+            CONFIG.defaults.period,
             year_start=services.settings.get_leave_year_start(),
             first_weekday=CONFIG.defaults.first_day_of_week,
         )
@@ -208,11 +204,6 @@ class DashboardScreen(Screen[None]):
                 compact=self.size.width < TINY_COLUMNS,
             )
 
-    def on_data_changed(self, event: DataChanged) -> None:
-        event.stop()
-        self.refresh_modules(event.scope)
-        self._start_tick_if_open()
-
     def _sync_header(self) -> None:
         for header in self.query(AppHeader):
             header.context = f"{short_date(wallclock.today())} · {self.period.label}"
@@ -234,8 +225,16 @@ class DashboardScreen(Screen[None]):
             self._tick = None
 
     def _on_tick(self) -> None:
+        """A second passed. Redraw the two readouts that measure elapsed time.
+
+        No `invalidate()`: nothing was written, and `LedgerService.days`
+        already rebuilds *today* on every call for exactly this reason -- an
+        open session's length changes every second, so caching it would freeze
+        the live readout. Clearing the whole memo threw away every other day in
+        the period as well, so a month view re-derived thirty-one day ledgers a
+        second to refresh the one the memo was never keeping.
+        """
         self.now = wallclock.now()
-        self._services.ledger.invalidate()
         for module in (ClockModule, BalanceModule):
             for widget in self.query(module):
                 widget.rebuild()
@@ -305,22 +304,14 @@ class DashboardScreen(Screen[None]):
         event.stop()
         if event.key is None:
             return
-        if event.key.startswith(ABSENCE):
-            self._delete_absence(int(event.key[len(ABSENCE) :]))
-        elif event.key.startswith((DAY, SESSION)):
+        absence = row_ident(RowKind.ABSENCE, event.key)
+        if absence is not None:
+            self._delete_absence(int(absence))
+        elif event.key.startswith((RowKind.DAY, RowKind.SESSION)):
             self.status("Deleting sessions is not implemented yet", Tone.WARN)
 
     def _delete_absence(self, absence_id: int) -> None:
-        found = next(
-            (
-                row
-                for row in self._services.absence.in_range(
-                    self.period.start, self.period.end
-                )
-                if row.id == absence_id
-            ),
-            None,
-        )
+        found = self._services.absence.by_id(absence_id)
         if found is None:
             self.status("That booking has already gone", Tone.WARN)
             return
@@ -361,16 +352,18 @@ class DashboardScreen(Screen[None]):
 
 
 def _with_time(message: str, result: Outcome) -> str:
-    """Stamp a clock result with the time it recorded.
+    """Stamp a clock result with the moment it recorded.
 
     "Clocked out" is a fact about the past tense; "Clocked out at 12:04" is a
     fact somebody can check against the clock on their wall, which is what makes
     a mistaken keystroke visible the moment it happens.
+
+    The result says whether it recorded one. It used to be inferred, by reaching
+    past the `Outcome` protocol with two `getattr`s for a `ClockEvent` and then
+    asking whether the message began with the word "Clocked" -- so the sentence
+    a service wrote for a status bar was load-bearing, and rewording it would
+    have dropped the time with nothing to say so.
     """
-    # Only a clock result carries an event; the protocol does not promise one,
-    # and asking for it is cheaper than a second protocol for one field.
-    event = getattr(result, "event", None)
-    stamp = getattr(event, "timestamp", None)
-    if stamp is None or not message.startswith("Clocked"):
+    if not isinstance(result, ClockResult) or result.at is None:
         return message
-    return f"{message} at {clock_time(stamp)}"
+    return f"{message} at {clock_time(result.at)}"

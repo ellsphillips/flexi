@@ -1,11 +1,12 @@
 """The redraw protocol, tested as arithmetic rather than through a screen.
 
-A module never calls another module's ``rebuild()``. It posts a message with a
-scope, and every module whose ``WATCHES`` intersects that scope redraws --
-``rebuild_if`` is one line, ``if scope & self.WATCHES``. So the whole protocol
-rests on what the flags in this module mean, and that is a question about
-values: it needs no application, and answering it here is what makes a failure
-point at the scope rather than at whichever widget noticed first.
+A module never calls another module's ``rebuild()``. The screen reports what a
+write did, invalidates the ledger once, and calls ``refresh_modules(scope)``;
+every module whose ``WATCHES`` intersects that scope redraws -- ``rebuild_if``
+is one line, ``if scope & self.WATCHES``. So the whole protocol rests on what
+the flags in this module mean, and that is a question about values: it needs no
+application, and answering it here is what makes a failure point at the scope
+rather than at whichever widget noticed first.
 """
 
 from __future__ import annotations
@@ -14,14 +15,7 @@ from datetime import date
 
 import pytest
 
-from flexi.domain.period import Granularity, Period
-from flexi.messages import (
-    DataChanged,
-    DateSelected,
-    PeriodChanged,
-    Scope,
-    StatusUpdate,
-)
+from flexi.messages import DateSelected, Scope
 
 # The two real subscriptions in the application, quoted rather than imported so
 # that a change to either has to be made deliberately in both places.
@@ -56,20 +50,9 @@ def test_a_module_redraws_only_for_the_changes_it_asked_about() -> None:
     The whole point of the scope is that a week's worth of arrow presses does
     not rebuild every module on the dashboard.
     """
-    assert DataChanged(Scope.CLOCK).scope & CLOCK_MODULE
-    assert not DataChanged(Scope.PERIOD).scope & CLOCK_MODULE
-    assert DataChanged(Scope.PERIOD).scope & EVERYTHING
-
-
-def test_a_write_that_does_not_say_what_it_touched_redraws_everything() -> None:
-    """The safe default.
-
-    A service that forgets to name a scope costs a redraw; one that defaulted to
-    `NONE` would leave a stale balance on screen, and nothing on screen would
-    say it was stale.
-    """
-    assert DataChanged().scope is Scope.ALL
-    assert DataChanged().scope & CLOCK_MODULE
+    assert Scope.CLOCK & CLOCK_MODULE
+    assert not Scope.PERIOD & CLOCK_MODULE
+    assert Scope.PERIOD & EVERYTHING
 
 
 def test_nothing_watches_the_empty_scope() -> None:
@@ -84,17 +67,6 @@ def test_nothing_watches_the_empty_scope() -> None:
 # -- what each message carries -----------------------------------------------
 
 
-def test_a_scoped_change_carries_the_scope_it_was_given() -> None:
-    assert DataChanged(Scope.ABSENCE).scope is Scope.ABSENCE
-
-
-def test_a_period_change_carries_the_span_that_was_moved_to() -> None:
-    """The screen redraws from the message, not by asking the sender back."""
-    period = Period(Granularity.WEEK, date(2025, 6, 2))
-
-    assert PeriodChanged(period).period == period
-
-
 def test_a_picked_date_arrives_under_a_name_that_is_not_the_argument() -> None:
     """`when` reads at the call site, `date` reads at the handler.
 
@@ -102,24 +74,3 @@ def test_a_picked_date_arrives_under_a_name_that_is_not_the_argument() -> None:
     Textual logs and swallows, so the calendar simply stops responding.
     """
     assert DateSelected(date(2025, 6, 2)).date == date(2025, 6, 2)
-
-
-def test_a_status_line_is_neutral_and_unpilled_unless_it_says_otherwise() -> None:
-    """Most of what a service says is ordinary.
-
-    Defaulting the tone means a caller has to reach for the alarming one on
-    purpose.
-    """
-    plain = StatusUpdate("Clocked in")
-
-    assert (plain.text, plain.tone, plain.pill) == ("Clocked in", "neutral", "")
-
-
-def test_a_status_line_carries_its_tone_and_its_pill() -> None:
-    spoken = StatusUpdate("Nothing to clock out of", tone="warning", pill="−1h 30m")
-
-    assert (spoken.text, spoken.tone, spoken.pill) == (
-        "Nothing to clock out of",
-        "warning",
-        "−1h 30m",
-    )

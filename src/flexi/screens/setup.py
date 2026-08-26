@@ -32,7 +32,9 @@ from textual.widgets import Input, Label, Select, Static
 
 from flexi.components.wordmark import Wordmark
 from flexi.constants import DEFAULT_DIVISION, Division
+from flexi.screens.settings import ALL_REQUIRED, save_answers
 from flexi.services.registry import Services
+from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
 from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
 
 GUTTER = "  "
@@ -183,6 +185,8 @@ class Question(Horizontal):
 class SetupScreen(Screen[bool]):
     """First launch. Returns True when the answers are saved."""
 
+    HELP_LABEL = "Setup"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "cancel", "Cancel"),
         Binding("ctrl+s", "save", "Save"),
@@ -214,7 +218,6 @@ class SetupScreen(Screen[bool]):
         self, services: Services, *, animate: bool = False, **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
-        self._services = services
         self._settings_svc = services.settings
         self._plays = animate
 
@@ -229,7 +232,11 @@ class SetupScreen(Screen[bool]):
             ),
             Question(
                 "Annual entitlement",
-                Input("25.0", id="input-entitlement", placeholder="25.0"),
+                Input(
+                    str(DEFAULT_ENTITLEMENT_DAYS),
+                    id="input-entitlement",
+                    placeholder=str(DEFAULT_ENTITLEMENT_DAYS),
+                ),
                 f"days for {year}, halves allowed",
                 id="ask-entitlement",
             ),
@@ -339,35 +346,24 @@ class SetupScreen(Screen[bool]):
         self.action_save()
 
     def action_save(self) -> None:
-        leave_start = self.query_one("#input-leave-start", Input).value.strip()
+        """Write the answers, or say which one is not an answer yet.
+
+        The entitlement is parsed before anything is written, so a number
+        somebody cannot type does not leave the working pattern committed and
+        the form still open -- the same ordering `SettingsScreen._save` keeps.
+        """
         entitlement_str = self.query_one("#input-entitlement", Input).value.strip()
-        working_days = self.query_one("#input-working-days", Input).value.strip()
-        division = self.query_one("#select-division", Select).value
-        auto_close = self.query_one("#input-auto-close", Input).value.strip()
-
-        if not all([leave_start, entitlement_str, working_days, auto_close]):
-            self.notify("All fields are required", severity="error")
+        if not entitlement_str:
+            self.notify(ALL_REQUIRED, severity="error")
             return
-
         try:
             entitlement = float(entitlement_str)
         except ValueError:
-            self.notify("Invalid entitlement value", severity="error")
+            self.notify("Entitlement must be a number of days", severity="error")
             return
 
-        if not isinstance(division, str):
-            self.notify("Please select a bank holiday region", severity="error")
-            return
-
-        try:
-            self._settings_svc.save_settings(
-                leave_year_start=leave_start,
-                working_days=working_days,
-                bank_holiday_division=division,
-                auto_close_time=auto_close,
-            )
-        except ValueError as error:
-            self.notify(str(error), severity="error")
+        if refusal := save_answers(self, self._settings_svc):
+            self.notify(refusal, severity="error")
             return
 
         # The leave year, not the calendar year. Setting Flexi up in February

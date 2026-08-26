@@ -11,62 +11,13 @@ today resets the anchor and not the granularity.
 from __future__ import annotations
 
 import calendar
-from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
-from enum import StrEnum
 
+from flexi.constants import Granularity
 from flexi.domain import leaveyear
-from flexi.domain.format import day_month, long_date
-
-MONTH_NAMES = (
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-)
-
-
-class Granularity(StrEnum):
-    """The span a period covers."""
-
-    DAY = "day"
-    WEEK = "week"
-    MONTH = "month"
-    YEAR = "year"
-
-    @property
-    def label(self) -> str:
-        """The name shown to a reader."""
-        return self.value.capitalize()
-
-    def next(self) -> Granularity:
-        """The next granularity in the cycle ``day → week → month → year → day``."""
-        order: list[Granularity] = list(Granularity)
-        return order[(order.index(self) + 1) % len(order)]
-
-    def previous(self) -> Granularity:
-        """The previous granularity in the cycle."""
-        order: list[Granularity] = list(Granularity)
-        return order[(order.index(self) - 1) % len(order)]
-
-
-def _clamp_day(year: int, month: int, day: int) -> date:
-    """The given day of the given month, or its last day if it is shorter."""
-    return leaveyear.clamp(year, month, day)
-
-
-def _add_months(anchor: date, months: int) -> date:
-    total = (anchor.year * 12 + anchor.month - 1) + months
-    return _clamp_day(total // 12, total % 12 + 1, anchor.day)
+from flexi.domain.dates import add_months, days_between, week_start
+from flexi.domain.format import day_month, long_date, month_title
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,8 +64,7 @@ class Period:
             case Granularity.DAY:
                 return self.anchor
             case Granularity.WEEK:
-                back = (self.anchor.weekday() - self.first_weekday) % 7
-                return self.anchor - timedelta(days=back)
+                return week_start(self.anchor, first_weekday=self.first_weekday)
             case Granularity.MONTH:
                 return self.anchor.replace(day=1)
             case Granularity.YEAR:  # pragma: no branch
@@ -145,12 +95,9 @@ class Period:
         month, day = self.year_start
         return leaveyear.start_of(self.anchor, month, day)
 
-    def days(self) -> Iterator[date]:
+    def days(self) -> list[date]:
         """Every date in the span, in order."""
-        current, last = self.start, self.end
-        while current <= last:
-            yield current
-            current += timedelta(days=1)
+        return days_between(self.start, self.end)
 
     def __len__(self) -> int:
         return (self.end - self.start).days + 1
@@ -158,10 +105,6 @@ class Period:
     def contains(self, moment: date) -> bool:
         """True when ``moment`` falls inside the span."""
         return self.start <= moment <= self.end
-
-    def is_current(self, today: date) -> bool:
-        """True when the span contains ``today``."""
-        return self.contains(today)
 
     # -- movement ----------------------------------------------------------
 
@@ -179,7 +122,7 @@ class Period:
             case Granularity.WEEK:
                 return replace(self, anchor=self.anchor + timedelta(weeks=count))
             case Granularity.MONTH:
-                return replace(self, anchor=_add_months(self.anchor, count))
+                return replace(self, anchor=add_months(self.anchor, count))
             case Granularity.YEAR:  # pragma: no branch
                 # Asked of `leaveyear`, for the reason `end` is: twelve months
                 # from a clamped 29 February is a date inside the year it came
@@ -210,22 +153,9 @@ class Period:
             case Granularity.WEEK:
                 return f"Week of {day_month(self.start)}"
             case Granularity.MONTH:
-                return f"{MONTH_NAMES[self.anchor.month - 1]} {self.anchor.year}"
+                return month_title(self.anchor.year, self.anchor.month)
             case Granularity.YEAR:  # pragma: no branch
                 start = self._year_start()
                 if self.year_start == (1, 1):
                     return str(start.year)
                 return f"{start.year}/{str(start.year + 1)[-2:]}"
-
-    @property
-    def short_label(self) -> str:
-        """A form that fits a narrow subtitle."""
-        match self.granularity:
-            case Granularity.DAY:
-                return day_month(self.anchor)
-            case Granularity.WEEK:
-                return day_month(self.start)
-            case Granularity.MONTH:
-                return self.anchor.strftime("%b %Y")
-            case Granularity.YEAR:  # pragma: no branch
-                return self.label

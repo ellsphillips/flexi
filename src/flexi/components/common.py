@@ -33,6 +33,39 @@ MARKER: Final = "┿"
 MIN_GAUGE_WIDTH: Final = 10
 
 
+def styled_track(
+    width: int,
+    *,
+    track: Style,
+    fill: Style,
+    filled: int = 0,
+    mark: tuple[int, Style] | None = None,
+) -> Text:
+    """A bar: a track, a fill from the left, and one cell picked out.
+
+    Glyphs first, then spans. `Text(plain, spans=...)` drops the *base* style of
+    the text it was rebuilt from, so styling first and swapping a character in
+    afterwards silently left the whole track in the default foreground -- a
+    bright line across a dark panel. That was written twice, in near-identical
+    prose, above two copies of these seven lines.
+
+    How many cells `filled` is remains the caller's arithmetic. A gauge
+    positions a cell so a marker can sit on it; a rail counts cells so an
+    overshoot can take the last one. Those are different questions, and folding
+    them together would move pixels for no reason.
+    """
+    glyphs = [TRACK] * width
+    if mark is not None:
+        glyphs[mark[0]] = MARKER
+    bar = Text("".join(glyphs))
+    bar.stylize(track, 0, width)
+    if filled:
+        bar.stylize(fill, 0, filled)
+    if mark is not None:
+        bar.stylize(mark[1], mark[0], mark[0] + 1)
+    return bar
+
+
 def mark_width(node: DOMNode, width: int) -> None:
     """Put ``-narrow`` and ``-tiny`` on a node whose terminal is short of columns.
 
@@ -242,10 +275,18 @@ class Gauge(Widget):
         "gauge--readout-only",
     }
 
-    def __init__(self, label: str, *, total: float = 1.0, **kwargs: Any) -> None:
+    def __init__(self, label: str, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.label = label
-        self.total = total
+        self.total = 0.0
+        """What the reading is measured against. Set by `show`, and zero until
+        there is one -- which draws an empty track, the same answer a gauge
+        gives when nobody has been given any leave.
+
+        Not a constructor argument. It was one, and no production caller passed
+        it, so the total lived in two places and `show` needed a sentinel to
+        decide which of them won."""
+
         self.value: float | None = None
         self.target: float | None = None
         self.readout = ""
@@ -257,7 +298,7 @@ class Gauge(Widget):
         value: float | None,
         *,
         readout: str = "",
-        total: float | None = None,
+        total: float,
         target: float | None = None,
         tone: Tone = Tone.NEUTRAL,
         compact: bool = False,
@@ -267,14 +308,19 @@ class Gauge(Widget):
         An unmeasured allowance and one measured at zero are not the same thing.
         ``compact`` drops the bar and keeps the line, because an empty track is a row of
         hyphens costing a line of a sidebar with four other things to say.
+
+        ``total`` is required, so ``None`` means one thing in this signature.
+        It was optional, meaning "keep whatever total was set before" while the
+        `None` beside it on `value` meant "no reading" and the one on `target`
+        meant "no marker" -- three meanings in one line, of which every
+        production caller only ever used one.
         """
         self.value = value
         self.readout = readout
         self.target = target
         self.tone = tone
         self.compact = compact
-        if total is not None:
-            self.total = total
+        self.total = total
         self.styles.height = 1 if compact else 2
         self.refresh()
 
@@ -300,27 +346,20 @@ class Gauge(Widget):
         return text
 
     def _bar(self, width: int) -> Text:
-        """The glyphs first, then the styles.
-
-        Building the string before styling it matters: `Text(plain, spans=...)`
-        drops the *base* style of the text it was rebuilt from, so styling first
-        and swapping a character in afterwards silently left the whole track in
-        the default foreground — a bright line across a dark panel.
-        """
-        glyphs = [TRACK] * width
+        """The track, filled to the reading, with the pace marker on it."""
         marker = self._position(self.target, width)
-        if marker is not None:
-            glyphs[marker] = MARKER
-
-        bar = Text("".join(glyphs))
-        bar.stylize(self.get_component_rich_style("gauge--track"), 0, width)
-        if (filled := self._position(self.value, width)) is not None:
-            bar.stylize(self._fill_style(), 0, filled + 1)
-        if marker is not None:
-            bar.stylize(
-                self.get_component_rich_style("gauge--target"), marker, marker + 1
-            )
-        return bar
+        reading = self._position(self.value, width)
+        return styled_track(
+            width,
+            track=self.get_component_rich_style("gauge--track"),
+            fill=self._fill_style(),
+            filled=0 if reading is None else reading + 1,
+            mark=(
+                None
+                if marker is None
+                else (marker, self.get_component_rich_style("gauge--target"))
+            ),
+        )
 
     def _fill_style(self) -> Style:
         return self.get_component_rich_style(GAUGE_TONE_STYLES[self.tone])

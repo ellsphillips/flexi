@@ -8,19 +8,43 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from enum import StrEnum, auto
+from enum import StrEnum
 
 
-class StatusOption(StrEnum):
-    """Actions for clocking in or out."""
+class EventSource(StrEnum):
+    """Who punched the clock.
 
-    ARRIVE = auto()
-    DEPART = auto()
+    Two values, written out as bare strings in six places and typed `str` on
+    the two service methods that take one -- the same closed vocabulary
+    `Division` is an enum for, and for the same reason: migration 0010 tells
+    the two apart to decide whose timestamps it may rewrite, so a typo here is
+    a silent data conversion rather than an error.
+    """
 
-    @classmethod
-    def from_str(cls, action: str) -> StatusOption:
-        """The option named by a word or by its initial."""
-        return cls.ARRIVE if action.lower().startswith("a") else cls.DEPART
+    USER = "user"
+    """Somebody pressed a key."""
+
+    SYSTEM = "system"
+    """Flexi closed a session nobody closed."""
+
+
+class Granularity(StrEnum):
+    """The span a period covers."""
+
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+
+    @property
+    def label(self) -> str:
+        """The name shown to a reader."""
+        return self.value.capitalize()
+
+    def next(self) -> Granularity:
+        """The next granularity in the cycle ``day → week → month → year → day``."""
+        order: list[Granularity] = list(Granularity)
+        return order[(order.index(self) + 1) % len(order)]
 
 
 class Division(StrEnum):
@@ -218,8 +242,6 @@ _SPOKEN: dict[str, AbsenceType] = {
     "al": AbsenceType.ANNUAL,
     "leave": AbsenceType.ANNUAL,
 }
-
-LEAVE_WORDS: frozenset[str] = frozenset({*_SPOKEN, CANCEL_WORD})
 
 
 class Portion(enum.Enum):

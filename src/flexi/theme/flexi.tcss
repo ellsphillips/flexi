@@ -428,7 +428,7 @@ AppHeader {
     border-bottom: solid $c-line;
 }
 
-Wordmark {
+Lockup {
     width: auto;
     height: 1;
 }

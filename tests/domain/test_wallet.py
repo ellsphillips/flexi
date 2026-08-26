@@ -13,9 +13,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from flexi.constants import AbsenceType, DayKind
+from flexi.constants import AbsenceType
 from flexi.domain.balance import BalanceSummary
-from flexi.domain.ledger import DayLedger
 from flexi.domain.wallet import PACE_TOLERANCE, Allowance, Pace, WalletData
 
 CONTRACTED = timedelta(hours=7, minutes=24)
@@ -33,17 +32,8 @@ def wallet(*, contracted: timedelta, surplus: timedelta) -> WalletData:
     balance = BalanceSummary(worked=surplus)
     return WalletData(
         leave_year=(date(2026, 1, 1), date(2026, 12, 31)),
-        elapsed=0.5,
         balance=balance,
         period=BalanceSummary(),
-        today=DayLedger(
-            date=TODAY,
-            kind=DayKind.WORKING,
-            is_working_day=True,
-            contracted=contracted,
-            worked=timedelta(),
-            expected=contracted,
-        ),
         contracted=contracted,
         allowances=(annual(used=5.0, pace=5.0),),
     )

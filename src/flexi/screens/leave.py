@@ -11,6 +11,7 @@ a note explaining it" is a real case and does not deserve a key of its own.
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from datetime import date
 from typing import ClassVar
 
@@ -21,14 +22,15 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from flexi import wallclock
+from flexi.components.allowance import paint_allowance
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import Gauge, Tone, mark_width
 from flexi.components.yearcalendar import YearCalendar, legend
 from flexi.config import CONFIG
-from flexi.constants import AbsenceType, Portion, Verdict
+from flexi.constants import AbsenceType, Granularity, Portion, Verdict
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import delta, plural, short_date
-from flexi.domain.period import Granularity, Period
+from flexi.domain.period import Period
 from flexi.domain.stitch import Selection
 from flexi.messages import Scope
 from flexi.screens.modals import (
@@ -40,11 +42,17 @@ from flexi.screens.modals import (
 from flexi.services.absence import AbsencePlan
 from flexi.services.registry import Services
 
-TRACKED: tuple[AbsenceType, ...] = (
+SIDEBAR: tuple[AbsenceType, ...] = (
     AbsenceType.ANNUAL,
     AbsenceType.FLEXI,
     AbsenceType.SICK,
 )
+"""The allowances the planner has room for beside a year calendar.
+
+Three of the five the dashboard's wallet shows -- the ones a booking decision
+turns on. Named apart from that module's ``TRACKED`` because two tuples of
+different length under one name is a drift waiting to happen.
+"""
 
 PORTION_CYCLE: tuple[Portion, ...] = (Portion.FULL, Portion.AM, Portion.PM)
 
@@ -58,6 +66,8 @@ Below the threshold it is faster to undo than to confirm.
 
 class LeaveScreen(Screen[None]):
     """Book, change and remove leave across a whole year."""
+
+    HELP_LABEL = "Leave"
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.book_annual, "book('annual')", "Annual", show=True),
@@ -96,7 +106,7 @@ class LeaveScreen(Screen[None]):
             with Vertical(id="leave-rail"):
                 yield Static("", id="leave-wallet-line", classes="caption")
                 with Vertical(id="leave-wallet", classes="module"):
-                    for kind in TRACKED:
+                    for kind in SIDEBAR:
                         yield Gauge(kind.short, id=f"leave-gauge-{kind.token}")
                 with Vertical(id="leave-selection", classes="module"):
                     yield Static("", id="leave-selection-label", classes="headline")
@@ -178,37 +188,13 @@ class LeaveScreen(Screen[None]):
             self.period.start, self.period.end, today=self.now.date(), now=self.now
         )
         annual = data.allowance(AbsenceType.ANNUAL)
-        for kind in TRACKED:
+        for kind in SIDEBAR:
             allowance = data.allowance(kind)
-            gauge = self.query_one(f"#leave-gauge-{allowance.token}", Gauge)
-            if kind is AbsenceType.FLEXI:
-                gauge.show(
-                    max(0.0, min(data.balance_days, 5.0)),
-                    readout=delta(data.balance.delta),
-                    total=5.0,
-                    tone=Tone.OK if data.balance_days >= 0 else Tone.ERR,
-                )
-            elif allowance.is_capped and allowance.remaining is not None:
-                gauge.show(
-                    allowance.used,
-                    readout=(
-                        f"{fmt_days(allowance.remaining)} of "
-                        f"{fmt_days(allowance.total or 0)}"
-                    ),
-                    total=allowance.total or 1.0,
-                    target=allowance.pace,
-                    tone=Tone.OK,
-                )
-            else:
-                gauge.show(
-                    None,
-                    readout=f"{fmt_days(allowance.used)}d"
-                    if allowance.used
-                    else "none",
-                    total=1.0,
-                    tone=Tone.NEUTRAL,
-                    compact=True,
-                )
+            paint_allowance(
+                self.query_one(f"#leave-gauge-{allowance.token}", Gauge),
+                allowance,
+                data,
+            )
 
         left = "—" if annual.remaining is None else f"{fmt_days(annual.remaining)} left"
         self.query_one("#leave-wallet-line", Static).update(
@@ -220,15 +206,15 @@ class LeaveScreen(Screen[None]):
 
     def _draw_selection(self) -> None:
         selection = self.selection
-        working = [
-            when
-            for when in selection.days()
-            if self._services.settings.is_working_day(when.weekday())
-        ]
+        # The pattern once, not once per selected day: `is_working_day` reads
+        # the settings row, so extending the selection to a month cost 31
+        # queries on every cursor move and every resize.
+        pattern = set(self._services.settings.get_working_day_indices())
+        working = sum(1 for when in selection.days() if when.weekday() in pattern)
         booked = self._services.absence.in_range(selection.start, selection.end)
 
         self.query_one("#leave-selection-label", Static).update(selection.label())
-        count = f"{len(working)} working day" + ("" if len(working) == 1 else "s")
+        count = f"{working} {plural(working, 'working day')}"
         portion = (
             "" if self.portion is Portion.FULL else f" · {self.portion.label.lower()}s"
         )
@@ -243,12 +229,12 @@ class LeaveScreen(Screen[None]):
                 else f" ({booked[0].portion.label.lower()})"
             )
         else:
-            kinds: dict[str, float] = {}
+            kinds: defaultdict[str, float] = defaultdict(float)
             for row in booked:
-                kinds[row.absence_type.label] = (
-                    kinds.get(row.absence_type.label, 0.0) + row.portion.days
-                )
-            body = " · ".join(f"{fmt_days(v)}d {k.lower()}" for k, v in kinds.items())
+                kinds[row.absence_type.label] += row.portion.days
+            body = " · ".join(
+                f"{fmt_days(days)}d {label.lower()}" for label, days in kinds.items()
+            )
         narrow = self.has_class("-narrow")
         if narrow:
             # One line instead of three: on a narrow terminal every row the rail
@@ -449,8 +435,9 @@ def preview(plan: AbsencePlan) -> str:
     # Weekends and bank holidays are both passed over, and they are not the
     # same news: one is the shape of the week and the other is a day off that
     # somebody would otherwise have spent leave on.
-    weekends = sum(1 for day in plan.skipped if day.verdict is Verdict.NON_WORKING)
-    holidays = sum(1 for day in plan.skipped if day.verdict is Verdict.BANK_HOLIDAY)
+    passed_over = Counter(day.verdict for day in plan.skipped)
+    weekends = passed_over[Verdict.NON_WORKING]
+    holidays = passed_over[Verdict.BANK_HOLIDAY]
     if weekends:
         lines.append(f"  — {weekends} non-working {plural(weekends, 'day')}")
     if holidays:

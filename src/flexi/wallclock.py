@@ -1,5 +1,12 @@
 """The only place Flexi reads the system clock.
 
+Two readings, and the difference between them is what they are for.
+:func:`now` is the wall time somebody lives in -- shown, written to a timesheet,
+and pinned to a chosen zone by :func:`pinned`. :func:`utc_now` is an instant
+that is only ever stored or compared: a backup's stamp, a cache's age, the row
+a correction was written at. Nobody reads one off a screen, so it carries no
+zone and takes no pin.
+
 A moment here is *aware*, and its ``tzinfo`` is always a fixed
 :class:`datetime.timezone` -- never a :class:`zoneinfo.ZoneInfo`. That is the
 whole design. Two datetimes sharing a ``ZoneInfo`` object subtract as wall
@@ -58,6 +65,20 @@ def now() -> datetime:
     it actually was. ``datetime.now()`` alone cannot tell them apart.
     """
     return local(datetime.now(tz=UTC))
+
+
+def utc_now() -> datetime:
+    """The current instant, in UTC, for anything stored or compared.
+
+    Separate from :func:`now` because it is never shown. A backup's filename,
+    a cache's age and the moment a correction was recorded are all facts about
+    when, not about the working day somebody was having, so none of them takes
+    the zone the rest of the module exists to pin.
+
+    Here rather than at the four call sites that had it, so that this module's
+    first sentence is true.
+    """
+    return datetime.now(tz=UTC)
 
 
 def today() -> date:

@@ -28,6 +28,8 @@ from flexi.messages import Scope
 class ClockModule(Module):
     """Clock in, clock out, and see today at a glance."""
 
+    HELP_LABEL = "Clock"
+
     WATCHES: ClassVar[Scope] = Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS
 
     def __init__(self, **kwargs: Any) -> None:
@@ -38,7 +40,7 @@ class ClockModule(Module):
         with Horizontal(id="clock-state"):
             yield Pill("off the clock", id="clock-pill")
             yield Switch(value=False, id="clock-switch")
-        yield PunchStrip(id="clock-strip")
+        yield PunchStrip(id="clock-strip", now=self.now)
         yield Static("", id="clock-detail", classes="caption")
         yield Button("Arrive", id="clock-button", classes="-primary")
 
@@ -91,7 +93,7 @@ class ClockModule(Module):
         if first is None:
             return "Not arrived" if ledger.is_working_day else "Not a working day"
         parts = [f"since {clock(first)}"]
-        leave_at = ledger.leave_at()
+        leave_at = ledger.leave_at
         if leave_at is not None and ledger.is_open:
             parts.append(f"go home {clock(leave_at)}")
         else:

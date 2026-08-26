@@ -134,15 +134,15 @@ async def test_the_elapsed_time_is_in_the_border_subtitle(
         assert str(app.screen.query_one(ClockModule).border_subtitle) == "/"
 
 
-async def test_a_module_that_writes_tells_the_screen_and_the_live_tick_follows(
+async def test_a_write_through_the_screen_carries_the_live_tick_with_it(
     app_factory: AppFactory,
 ) -> None:
-    """A module never redraws its neighbours; it announces, and the screen does.
+    """The screen owns the write, and the redraw, and the timer.
 
-    The announcement is the whole contract between the panels and the screen:
-    the ledger is invalidated once, the interested modules rebuild, and the
-    one-second tick is started or stopped. Without that last part a session
-    closed from a panel leaves a timer redrawing a clock that has stopped.
+    A module never redraws its neighbours: it asks the screen, which reports
+    the result, invalidates the ledger once, rebuilds whoever declared an
+    interest, and starts or stops the one-second tick. Without that last part a
+    session closed from a panel leaves a timer redrawing a clock that stopped.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -150,9 +150,33 @@ async def test_a_module_that_writes_tells_the_screen_and_the_live_tick_follows(
         screen = dashboard(app)
         assert screen._tick is not None, "the seed's open session should be ticking"
 
-        app.services.clock.clock_out()  # written behind the screen's back
-        app.screen.query_one(ClockModule).announce(Scope.CLOCK)
+        screen.toggle_clock()
         await pilot.pause()
 
         assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
         assert screen._tick is None, "a closed session left the timer running"
+
+
+async def test_a_tick_keeps_every_day_but_today(app_factory: AppFactory) -> None:
+    """The second that passes is only news about today.
+
+    `_on_tick` cleared the whole ledger memo to refresh the live readout, and
+    `LedgerService.days` already rebuilds today unconditionally for exactly
+    that reason — an open session's length changes every second, so caching it
+    would freeze the clock. Clearing the memo threw away every other day in the
+    period too, so a month view re-derived thirty-one day ledgers a second to
+    refresh the one the memo was never keeping.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        screen = dashboard(app)
+        yesterday = screen.period.start
+        kept = app.services.ledger.day(yesterday)
+
+        screen._on_tick()
+        await pilot.pause()
+
+        assert app.services.ledger.day(yesterday) is kept, (
+            "a day nobody wrote to was rebuilt because a second passed"
+        )

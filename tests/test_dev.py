@@ -1,7 +1,7 @@
 """The development entry point, which nothing else imports.
 
-``src/flexi/dev.py`` is run by path -- ``textual run --dev ./src/flexi/dev.py``
--- so it is the one module in Flexi that no other module will notice has stopped
+``scripts/dev.py`` is run by path -- ``textual run --dev scripts/dev.py`` --
+so it is the one module here that no other module will notice has stopped
 working. It names two things it does not own, and a rename on either side breaks
 it silently: the first anybody hears is that the developer tools do not start,
 at the moment somebody reached for them to debug something else.
@@ -9,7 +9,7 @@ at the moment somebody reached for them to debug something else.
 So it is loaded here the way ``textual run`` loads it, by path, rather than
 imported. Both of the things it calls are replaced first: a real
 ``run_migrations`` would touch the developer's own database, and a real
-``App().run()`` would take the terminal the suite is running in.
+``FlexiApp().run()`` would take the terminal the suite is running in.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import flexi
 import flexi.app
 import flexi.models.database.migrate
 
-DEV_SCRIPT = Path(flexi.__file__).with_name("dev.py")
+DEV_SCRIPT = Path(flexi.__file__).resolve().parent.parent.parent / "scripts" / "dev.py"
 """Named by path, never imported -- the same way the runner is reached for."""
 
 
@@ -50,7 +50,7 @@ def watched(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         "run_migrations",
         lambda: happened.append("migrated"),
     )
-    monkeypatch.setattr(flexi.app, "App", Fake)
+    monkeypatch.setattr(flexi.app, "FlexiApp", Fake)
     return happened
 
 

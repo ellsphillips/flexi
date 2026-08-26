@@ -13,10 +13,11 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from flexi.constants import AbsenceType, ClockAction, Portion
+from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
 
 DEFAULT_CONTRACTED_MINUTES = 444
 """7h24 — the standard day these figures are all measured against.
@@ -51,7 +52,9 @@ class Settings(Base):
     bank_holiday_division: Mapped[str] = mapped_column(String(30))
     auto_close_time: Mapped[str] = mapped_column(String(5))  # "HH:MM"
     contracted_minutes: Mapped[int] = mapped_column(
-        Integer(), default=DEFAULT_CONTRACTED_MINUTES, server_default="444"
+        Integer(),
+        default=DEFAULT_CONTRACTED_MINUTES,
+        server_default=str(DEFAULT_CONTRACTED_MINUTES),
     )
     day_window_start: Mapped[str] = mapped_column(
         String(5), default=DEFAULT_WINDOW_START, server_default=DEFAULT_WINDOW_START
@@ -106,7 +109,24 @@ class ClockEvent(Base):
     utc_offset_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     """Minutes east of UTC when the clock was read; the instant is ``timestamp``
     minus this. ``None`` only on rows Flexi wrote before it recorded one."""
-    source: Mapped[str] = mapped_column(String(20), default="user")
+    source: Mapped[EventSource] = mapped_column(
+        Enum(
+            EventSource,
+            native_enum=False,
+            create_constraint=False,
+            values_callable=lambda members: [member.value for member in members],
+            length=20,
+        ),
+        default=EventSource.USER,
+        server_default=EventSource.USER.value,
+    )
+    """Whether a person punched this or the auto-close sweep did.
+
+    Stored as its value rather than its name, and without a CHECK constraint,
+    because migration 0004 wrote a plain `VARCHAR(20)` and 0010 reads the
+    column back to decide whose timestamps it may rewrite. `create_constraint`
+    is already False by default; it is written down because the default is what
+    keeps `create_all` from building a schema the migrations never did."""
 
 
 class WorkSession(Base):
@@ -125,7 +145,9 @@ class WorkSession(Base):
         ForeignKey("clock_events.id"), nullable=True
     )
     work_date: Mapped[date_type] = mapped_column(Date())
-    auto_closed: Mapped[bool] = mapped_column(Boolean(), default=False)
+    auto_closed: Mapped[bool] = mapped_column(
+        Boolean(), default=False, server_default=text("0")
+    )
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     voided: Mapped[bool] = mapped_column(Boolean(), default=False, server_default="0")
     """A corrected session. Clock events are immutable, so a correction inserts

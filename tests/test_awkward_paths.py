@@ -24,8 +24,8 @@ from pathlib import Path
 
 import pytest
 
-from flexi.models.database.app import create_db_engine, get_session
 from flexi.models.database.db import Settings
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services import setup
 

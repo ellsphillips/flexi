@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, date, timedelta
 
-import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
+from flexi.constants import Division
 from flexi.models.database.db import BankHolidayCache
 
 GOVUK_URL = "https://www.gov.uk/bank-holidays.json"
@@ -16,35 +18,61 @@ REQUEST_TIMEOUT = 5.0
 class BankHolidayService:
     """Fetch, cache (in DB), and validate GOV.UK bank holidays."""
 
-    def __init__(self, session: Session, division: str) -> None:
-        """The division is required.
+    def __init__(self, session: Session, division: Callable[[], Division]) -> None:
+        """Takes a way to find the division out, rather than the division.
 
-        It defaulted to England & Wales, and every caller that forgot to pass
-        one got the English calendar silently. `ClockService` was one of them,
-        so the bank-holiday guard was inverted for Scotland and Northern
-        Ireland: blocked on an English holiday, allowed on their own.
+        Required either way: it once defaulted to England & Wales, and every
+        caller that forgot to pass one got the English calendar silently.
+        `ClockService` was one of them, so the bank-holiday guard was inverted
+        for Scotland and Northern Ireland: blocked on an English holiday,
+        allowed on their own.
+
+        A *question* rather than an answer because the answer changes. Held as
+        a value, it went stale the moment somebody chose a different division in
+        settings, and the application worked around that by rebuilding the whole
+        registry -- which left every screen already on screen reading the
+        registry it had replaced.
         """
         self._session = session
         self._division = division
 
+    @property
+    def division(self) -> Division:
+        """Whose calendar this reads, asked afresh each time."""
+        return self._division()
+
     # ---- cache freshness ----
 
-    def _cache_is_fresh(self) -> bool:
+    def is_fresh(self) -> bool:
+        """True when the cache was fetched recently enough to trust.
+
+        A stale cache still answers every question correctly for the year it
+        holds, so this is what keeps a GOV.UK timeout off the launch path six
+        days out of seven.
+        """
         stmt = (
             select(BankHolidayCache.fetched_at)
-            .where(BankHolidayCache.division == self._division)
+            .where(BankHolidayCache.division == self.division)
             .limit(1)
         )
         row = self._session.execute(stmt).scalar_one_or_none()
         if row is None:
             return False
-        age = datetime.now(tz=UTC) - row.replace(tzinfo=UTC)
+        age = wallclock.utc_now() - row.replace(tzinfo=UTC)
         return age < CACHE_MAX_AGE
 
     # ---- fetch ----
 
     def fetch_and_cache(self) -> bool:
-        """Fetch from GOV.UK and replace the DB cache. Returns True on success."""
+        """Fetch from GOV.UK and replace the DB cache. Returns True on success.
+
+        `httpx` is imported here rather than at module scope. It costs sixty
+        milliseconds to import and this is the only method that needs it, so
+        every `flexi clock in` -- which opens this service to *read* the cache
+        and never touches the network -- was paying for an HTTP client.
+        """
+        import httpx
+
         try:
             with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
                 response = client.get(GOVUK_URL)
@@ -53,44 +81,31 @@ class BankHolidayService:
         except (httpx.HTTPError, ValueError, OSError):
             return False
 
-        division_data = data.get(self._division, {})
-        events = division_data.get("events", [])
-        now = datetime.now(tz=UTC).replace(tzinfo=None)
+        division = self.division
+        events = data.get(division, {}).get("events", [])
+        now = wallclock.utc_now().replace(tzinfo=None)
 
         # Clear old cache for this division
         self._session.execute(
-            delete(BankHolidayCache).where(BankHolidayCache.division == self._division)
+            delete(BankHolidayCache).where(BankHolidayCache.division == division)
         )
 
-        for ev in events:
+        for event in events:
             try:
-                d = date.fromisoformat(ev["date"])
-                title = ev.get("title", "")
+                when = date.fromisoformat(event["date"])
+                title = event.get("title", "")
             except (KeyError, ValueError):
                 continue
             self._session.add(
                 BankHolidayCache(
-                    division=self._division,
-                    date=d,
+                    division=division,
+                    date=when,
                     title=title,
                     fetched_at=now,
                 )
             )
         self._session.commit()
         return True
-
-    def ensure_cache(self) -> bool:
-        """Refresh the cache if stale. True if there is data to read afterwards.
-
-        Nothing in the application called this. The only route to a populated
-        cache was a command-palette entry, so a person who only ever used the
-        command line could not reach one -- and an empty cache is not a quiet
-        state. `book_range` refuses every day of it, and the ledger counts every
-        bank holiday as a working day nobody worked.
-        """
-        if self._cache_is_fresh():
-            return True
-        return self.fetch_and_cache()
 
     def fill_if_empty(self) -> bool:
         """Fetch only when there is nothing at all. True if data is available.
@@ -110,10 +125,11 @@ class BankHolidayService:
         Returning an empty mapping for both cases is what let a fresh install
         book a full day's deficit against every bank holiday without saying so.
         """
-        if not self.is_available():
+        division = self.division
+        if not self._has_any(division):
             return None
         stmt = select(BankHolidayCache.date, BankHolidayCache.title).where(
-            BankHolidayCache.division == self._division,
+            BankHolidayCache.division == division,
             BankHolidayCache.date >= start,
             BankHolidayCache.date <= end,
         )
@@ -123,36 +139,38 @@ class BankHolidayService:
 
     def is_available(self) -> bool:
         """Return True if any cached data exists for this division."""
+        return self._has_any(self.division)
+
+    def _has_any(self, division: Division) -> bool:
         stmt = (
             select(BankHolidayCache.id)
-            .where(BankHolidayCache.division == self._division)
+            .where(BankHolidayCache.division == division)
             .limit(1)
         )
         return self._session.execute(stmt).scalar_one_or_none() is not None
 
-    def is_bank_holiday(self, d: date) -> bool | None:
-        """Check if a date is a bank holiday. Returns None if data unavailable."""
-        if not self.is_available():
-            return None
-        stmt = select(BankHolidayCache).where(
-            BankHolidayCache.division == self._division,
-            BankHolidayCache.date == d,
-        )
-        return self._session.execute(stmt).scalar_one_or_none() is not None
+    def holiday_on(self, day: date) -> str | None:
+        """What this date is a bank holiday for, or ``None``.
 
-    def get_title(self, d: date) -> str | None:
-        """Return bank holiday title for a date, or None."""
-        stmt = select(BankHolidayCache.title).where(
-            BankHolidayCache.division == self._division,
-            BankHolidayCache.date == d,
-        )
-        return self._session.execute(stmt).scalar_one_or_none()
+        One name where there were three for the same question at one date:
+        `is_bank_holiday` answered `bool | None`, so its one caller had to write
+        `is True`; `get_title` answered the same thing without the calendar
+        check; and `titles_between(day, day)` answered it correctly.
+
+        "No calendar" and "not a holiday" are both `None` here, deliberately.
+        The caller that needs to tell them apart is `AbsenceService`, which
+        refuses to book against an unknown calendar rather than guessing, and it
+        asks `titles_between` for a whole span and reads `has_calendar` off the
+        result -- which is the shape that keeps the distinction.
+        """
+        return (self.titles_between(day, day) or {}).get(day)
 
     def get_dates(self) -> set[date] | None:
-        """Return all cached bank holiday dates, or None if unavailable."""
-        if not self.is_available():
+        """Every cached bank holiday, or None when there is no calendar at all."""
+        division = self.division
+        if not self._has_any(division):
             return None
         stmt = select(BankHolidayCache.date).where(
-            BankHolidayCache.division == self._division
+            BankHolidayCache.division == division
         )
         return set(self._session.execute(stmt).scalars())

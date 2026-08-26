@@ -171,6 +171,38 @@ def test_no_variable_the_theme_publishes_fell_through_to_magenta() -> None:
     assert fallen == []
 
 
+def test_no_variable_falls_through_when_the_stylesheet_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mirror of the test above, on the machine where the file is missing.
+
+    `_FALLBACK` is not an arbitrary subset of the palette: it is exactly the
+    names Python asks for by name, because everything else is read as `$c-...`
+    from a stylesheet that could not have parsed if it could not be read. That
+    rule held for thirteen of the fourteen entries -- `c-accent-deep` was
+    missing, so a machine with an unreadable stylesheet drew six magenta
+    backgrounds. Nothing said so, because the containment check above only
+    looks one way.
+    """
+    monkeypatch.setattr(theme, "palette", lambda: dict(theme._FALLBACK))
+
+    fallen = [
+        name for name, value in theme.theme_variables().items() if value == MAGENTA
+    ]
+
+    assert fallen == []
+
+
+def test_the_palette_cannot_be_rewritten_by_one_of_its_readers() -> None:
+    """It is cached, so every caller holds the same object.
+
+    Handed back as a plain dict, one assignment would repaint the application
+    for the rest of the process.
+    """
+    with pytest.raises(TypeError):
+        theme.palette()["c-ink"] = "#FFFFFF"  # type: ignore[index]
+
+
 @pytest.mark.parametrize(
     "attribute",
     ["primary", "secondary", "accent", "warning", "error", "success"],

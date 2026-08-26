@@ -17,12 +17,47 @@ from textual.geometry import Offset
 from textual.screen import Screen
 from textual.widget import Widget
 
+from flexi.messages import Scope
+
 
 @runtime_checkable
 class Jumpable(Protocol):
     """A widget that names its own jump key rather than being registered."""
 
     jump_key: str
+
+
+@runtime_checkable
+class Refreshable(Protocol):
+    """A screen that can redraw itself when the data underneath it moves."""
+
+    def refresh_modules(self, scope: Scope) -> None: ...
+
+
+@runtime_checkable
+class HasJumpTargets(Protocol):
+    """A screen that says which of its regions a key can reach."""
+
+    def jump_targets(self) -> Mapping[str, str]: ...
+
+
+@runtime_checkable
+class HasJumpOverlays(Protocol):
+    """A screen with targets that are not widgets -- table rows, say."""
+
+    def jump_overlays(self) -> dict[Offset, JumpInfo]: ...
+
+
+@runtime_checkable
+class HasFocusTarget(Protocol):
+    """A widget that would rather the jump landed somewhere inside it.
+
+    A module whose content is a table wants the table: landing on the panel and
+    needing a second key to get into the rows is the friction jump mode exists
+    to remove.
+    """
+
+    def focus_target(self) -> Widget: ...
 
 
 class JumpInfo(NamedTuple):
@@ -45,7 +80,6 @@ class Jumper:
         extra: Callable[[], dict[Offset, JumpInfo]] | None = None,
     ) -> None:
         self.ids_to_keys = dict(ids_to_keys)
-        self.keys_to_ids = {key: widget_id for widget_id, key in ids_to_keys.items()}
         self.screen = screen
         self.extra = extra
         """Targets that are not widgets.

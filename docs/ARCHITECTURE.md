@@ -11,14 +11,16 @@
       │
       ▼
   domain/          Pure Python. Dates, durations, periods, ledgers. No I/O.
-  models/          SQLAlchemy tables. No behaviour.
+  models/          Tables, the engine, migrations, backups. Reaches nothing above.
 ```
 
-The rule that keeps this honest: **`flexi/domain/` may not import `textual` or
-`sqlalchemy`, and `flexi/components/` may not import `sqlalchemy`.** Both are
-enforced by a test (`tests/test_layering.py`) that walks the AST of every module
-and asserts the import sets. It costs twenty lines and it is the reason the
-arithmetic stays testable.
+The rules that keep this honest: **`flexi/domain/` may not import `textual` or
+`sqlalchemy`; `flexi/components/` may not import `sqlalchemy`; and `flexi/models/`
+may not import anything above it.** All three are enforced by a test
+(`tests/test_layering.py`) that walks the AST of every module and asserts the
+import sets. It costs twenty lines and it is the reason the arithmetic stays
+testable — and `models/` is the layer every other one sits on, so a single
+upward import there makes the whole graph a cycle.
 
 ## 2. Package layout
 
@@ -46,29 +48,30 @@ src/flexi/
     format.py            timedelta -> "7:24", "+0:48", "−4:14"
 
   models/database/
-    db.py  app.py  migrate.py
+    db.py  engine.py  migrate.py  backup.py  moment.py
 
   services/
     registry.py          Services: one object holding every service, on the app
-    clock.py  absence.py  wallet.py  ledger.py  calendar.py
-    settings.py  bank_holidays.py  startup.py  export.py
+    clock.py  absence.py  wallet.py  ledger.py  adjustments.py
+    settings.py  bank_holidays.py  startup.py  setup.py  samples.py  outcome.py
 
   components/
     common.py            Tone, Pill, StatCard, KeyHint, Rule, Gauge
-    chrome.py            Wordmark, NavBar, AppHeader, StatusBar, KeyStrip, AppFooter
+    chrome.py            Lockup, NavBar, AppHeader, StatusBar, KeyStrip, AppFooter
     punch.py             PunchStrip
     jumper.py            Jumper
     jump_overlay.py      JumpOverlay
     expandable.py        ExpandableTable   (wraps DataTable — see §6)
     yearcalendar.py      YearCalendar      (the scrolling leave year)
     progress.py          ProgressRail, TimeProgress
-    charts/              sparkline.py, bars.py, calendar_heat.py
+    charts.py            DivergingBars, Burndown, WeekRibbon, YearHeatmap
+    splash.py  wordmark.py
     modules/
-      clock.py  balance.py  wallet.py  records.py  calendar.py  insights.py
+      base.py  clock.py  balance.py  wallet.py  records.py  monthview.py
 
   screens/
     dashboard.py  leave.py  insights.py  settings.py  setup.py  help.py
-    modals/  absence.py  session.py  goto.py  confirm.py
+    modals.py            FlexiModal, AbsenceModal, GoToDateModal, ConfirmModal
 ```
 
 `pages/` and the per-component `style.scss` files go away. Stylesheets are
@@ -124,23 +127,27 @@ There is one direction and one refresh path.
   Screen action or widget message
         │
         ▼
-  service call  ──►  returns a Result(success, message, payload)
+  Screen calls the service  ──►  a Result(success, message)
         │
         ├──►  status bar shows result.message
         │
         ▼
-  post DataChanged(scope)   ── a Textual Message bubbling to the screen
-        │
-        ▼
-  DashboardScreen.on_data_changed  ──►  ledger.invalidate()
-        │                              └─►  module.rebuild() for each module
-        ▼                                   in the scope
+  DashboardScreen.refresh_modules(scope)  ──►  ledger.invalidate()
+        │                                     └─►  module.rebuild_if(scope)
+        ▼                                          for each module
   redraw
 ```
 
-`DataChanged.scope` is a flag set (`CLOCK | ABSENCE | SETTINGS | PERIOD`) so
-clocking in does not rebuild the calendar's bank-holiday markers. Modules declare
-what they care about:
+A module never writes. It posts a message the screen handles — `BookHere`,
+`DeleteHere`, `BookRequested` — and the screen does the writing, the reporting
+and the redraw. There was a generic `DataChanged` message for a module to
+announce a write of its own, and nothing ever posted one; the rule that every
+write goes through a screen turned out to be the better one, so the message and
+its handler are gone.
+
+`Scope` is a flag set (`CLOCK | ABSENCE | SETTINGS | PERIOD`) so clocking in
+does not rebuild the calendar's bank-holiday markers. Modules declare what they
+care about:
 
 ```python
 class WalletModule(Module):
@@ -270,8 +277,6 @@ hotkeys:            # every binding, see KEYMAP.md
 defaults:
   period: week
   first_day_of_week: 0
-  round_to_minutes: 1
-  confirm_clock_out_before: "16:00"   # ask if departing unusually early
 ```
 
 Bindings read from `CONFIG.hotkeys` at class-definition time,
@@ -291,7 +296,10 @@ records they explain. Config is preference; settings are domain.
 | `+ pyyaml` | Config file. |
 | `+ pytest-textual-snapshot`, `+ time-machine` | See `TESTING.md`. |
 
-`rich`, `sqlalchemy`, `alembic`, `httpx`, `click`, `xdg-base-dirs` unchanged.
+`rich`, `sqlalchemy`, `alembic`, `httpx` and `click` unchanged. `xdg-base-dirs`
+was dropped: `flexi/locations.py` resolves the paths itself, because the two
+variables it reads are two lines of `os.environ` and the package added a
+dependency for them.
 
 ## 10. Migration path from v1
 

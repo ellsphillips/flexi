@@ -228,9 +228,9 @@ async def test_an_unmeasured_allowance_reads_as_a_dash_rather_than_zero() -> Non
     Drawing the first as a full-looking track at zero would tell somebody with
     no entitlement configured that they had used everything.
     """
-    gauge = Gauge("Annual", total=25.0)
+    gauge = Gauge("Annual")
     async with mounted(gauge):
-        gauge.show(None, tone=Tone.OK)
+        gauge.show(None, tone=Tone.OK, total=25.0)
         assert "—" in str(gauge._headline(20))
         painted = set(colours(gauge._bar(20)))
         fill = gauge.get_component_rich_style("gauge--good").color
@@ -239,14 +239,14 @@ async def test_an_unmeasured_allowance_reads_as_a_dash_rather_than_zero() -> Non
 
 
 async def test_a_reading_fills_the_track_from_the_left() -> None:
-    gauge = Gauge("Annual", total=25.0)
+    gauge = Gauge("Annual")
     async with mounted(gauge):
-        gauge.show(25.0, tone=Tone.OK)
+        gauge.show(25.0, tone=Tone.OK, total=25.0)
         fill = gauge.get_component_rich_style("gauge--good").color
         assert fill is not None
         assert set(colours(gauge._bar(20))) == {fill.name}
 
-        gauge.show(5.0, tone=Tone.OK)
+        gauge.show(5.0, tone=Tone.OK, total=25.0)
         painted = colours(gauge._bar(20))
         assert painted[0] == fill.name
         assert painted[-1] != fill.name
@@ -254,9 +254,9 @@ async def test_a_reading_fills_the_track_from_the_left() -> None:
 
 async def test_a_gauge_with_nothing_to_measure_against_draws_an_empty_track() -> None:
     """Zero is a real total to arrive at: nobody has been given any leave."""
-    gauge = Gauge("Annual", total=0.0)
+    gauge = Gauge("Annual")
     async with mounted(gauge):
-        gauge.show(5.0, target=2.0, tone=Tone.OK)
+        gauge.show(5.0, target=2.0, tone=Tone.OK, total=0.0)
         bar = gauge._bar(20)
         assert MARKER not in str(bar)
         assert len(set(colours(bar))) == 1
@@ -264,9 +264,9 @@ async def test_a_gauge_with_nothing_to_measure_against_draws_an_empty_track() ->
 
 async def test_the_pace_marker_is_drawn_where_you_should_be() -> None:
     """18.5 days left is comfortable or alarming depending on the date."""
-    gauge = Gauge("Annual", total=20.0)
+    gauge = Gauge("Annual")
     async with mounted(gauge):
-        gauge.show(10.0, target=10.0, tone=Tone.OK)
+        gauge.show(10.0, target=10.0, tone=Tone.OK, total=20.0)
         bar = gauge._bar(21)
         assert str(bar).index(MARKER) == 10
         target = gauge.get_component_rich_style("gauge--target").color
@@ -274,11 +274,18 @@ async def test_the_pace_marker_is_drawn_where_you_should_be() -> None:
         assert colours(bar)[10] == target.name
 
 
-async def test_a_total_left_unsaid_is_the_total_the_gauge_already_had() -> None:
-    """Most callers redraw a reading without restating the entitlement."""
-    gauge = Gauge("Annual", total=25.0)
+async def test_a_gauge_has_no_total_until_it_is_given_a_reading() -> None:
+    """One place for the total, and one meaning for `None` in `show`.
+
+    It was a constructor argument as well, which no production caller passed,
+    so `show` carried a sentinel to decide which of the two won -- a third
+    meaning for `None` in a signature where it already meant "no reading" and
+    "no marker".
+    """
+    gauge = Gauge("Annual")
     async with mounted(gauge):
-        gauge.show(10.0)
+        assert gauge.total == 0.0
+        gauge.show(10.0, total=25.0)
         assert gauge.total == 25.0
         gauge.show(10.0, total=30.0)
         assert gauge.total == 30.0
@@ -290,28 +297,28 @@ async def test_the_label_gives_way_before_the_figure_does() -> None:
     So a narrow wallet loses its words rather than its gauges, and the figure --
     the only part that cannot be guessed from context -- is the last to go.
     """
-    gauge = Gauge("Annual leave remaining", total=25.0)
+    gauge = Gauge("Annual leave remaining")
     async with mounted(gauge):
-        gauge.show(18.5, readout="18.5 days")
+        gauge.show(18.5, readout="18.5 days", total=25.0)
         headline = str(gauge._headline(14))
         assert headline.endswith("18.5 days")
         assert len(headline) == 14
 
-        gauge.show(18.5, readout="18.5 days remaining of 25")
+        gauge.show(18.5, readout="18.5 days remaining of 25", total=25.0)
         assert str(gauge._headline(12)).lstrip() == "18.5 days remaining of 25"
 
 
 async def test_a_compact_gauge_keeps_the_line_and_drops_the_bar() -> None:
     """An empty track is a row of hyphens costing a line of a crowded sidebar."""
-    gauge = Gauge("TOIL", total=5.0)
+    gauge = Gauge("TOIL")
     async with mounted(gauge) as pilot:
-        gauge.show(2.0, readout="2 days", compact=True)
+        gauge.show(2.0, readout="2 days", compact=True, total=5.0)
         await pilot.pause()
         assert "\n" not in str(gauge.render())
         assert gauge.styles.height is not None
         assert gauge.styles.height.value == 1
 
-        gauge.show(2.0, readout="2 days")
+        gauge.show(2.0, readout="2 days", total=5.0)
         await pilot.pause()
         assert "\n" in str(gauge.render())
         assert gauge.styles.height is not None
@@ -319,7 +326,7 @@ async def test_a_compact_gauge_keeps_the_line_and_drops_the_bar() -> None:
 
 
 async def test_a_gauge_reads_its_own_value_out_when_it_is_given_no_words() -> None:
-    gauge = Gauge("Days", total=10.0)
+    gauge = Gauge("Days")
     async with mounted(gauge):
-        gauge.show(2.5)
+        gauge.show(2.5, total=10.0)
         assert str(gauge._headline(20)).endswith("2.5")

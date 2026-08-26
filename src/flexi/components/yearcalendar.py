@@ -10,7 +10,9 @@ so nothing here is colour alone.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from bisect import bisect_right
+from datetime import date
+from itertools import accumulate
 from typing import ClassVar, Final
 
 from rich.segment import Segment
@@ -25,9 +27,9 @@ from textual.strip import Strip
 from flexi import wallclock
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Portion
+from flexi.domain.dates import DAYS_IN_WEEK, add_months
 from flexi.domain.ledger import DayLedger
 from flexi.domain.stitch import (
-    DAYS_IN_WEEK,
     MonthBlock,
     Selection,
     stitch,
@@ -90,6 +92,8 @@ PORTION_GLYPH: Final[dict[Portion, str]] = {
 
 class YearCalendar(ScrollView, can_focus=True):
     """Months stitched into one scrolling grid, with a movable selection."""
+
+    HELP_LABEL = "Leave calendar"
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
         "cal--month",
@@ -161,11 +165,6 @@ class YearCalendar(ScrollView, can_focus=True):
         )
 
     @property
-    def cell(self) -> int:
-        """The narrowest column, for anything that has to fit in all of them."""
-        return min(self.columns)
-
-    @property
     def grid_width(self) -> int:
         return sum(self.columns)
 
@@ -203,12 +202,12 @@ class YearCalendar(ScrollView, can_focus=True):
 
     # -- the selection -----------------------------------------------------
 
-    def set_selection(self, selection: Selection, *, notify: bool = True) -> None:
+    def set_selection(self, selection: Selection) -> None:
+        """Move the cursor, keep it on screen, and say so."""
         self.selection = selection
         self.scroll_to_day(selection.head)
         self.refresh()
-        if notify:
-            self.post_message(self.SelectionChanged(selection))
+        self.post_message(self.SelectionChanged(selection))
 
     def action_move(self, days: int) -> None:
         self.set_selection(self.selection.move(days))
@@ -237,13 +236,9 @@ class YearCalendar(ScrollView, can_focus=True):
         Clamped to the length of the target month, so stepping from the 31st
         lands on the 30th rather than refusing to move.
         """
-        head = self.selection.head
-        total = head.year * 12 + head.month - 1 + offset
-        year, month = total // 12, total % 12 + 1
-        import calendar
-
-        day = min(head.day, calendar.monthrange(year, month)[1])
-        self.set_selection(self.selection.go_to(date(year, month, day)))
+        self.set_selection(
+            self.selection.go_to(add_months(self.selection.head, offset))
+        )
 
     def action_first(self) -> None:
         if self.blocks:
@@ -266,24 +261,6 @@ class YearCalendar(ScrollView, can_focus=True):
             if any(cell.date == when for cell in block.rows[row]):
                 return index
         return None
-
-    def month_rows(self) -> list[tuple[MonthBlock, int]]:
-        """Every month title on the drawn surface, with its line."""
-        return [
-            (block, index)
-            for index, (block, row) in enumerate(self._rows)
-            if block is not None and row == TITLE_ROW
-        ]
-
-    def visible_months(self) -> list[tuple[MonthBlock, int]]:
-        """The month titles currently on screen, for jump targets."""
-        top = int(self.scroll_offset.y)
-        bottom = top + self.size.height
-        return [
-            (block, line - top)
-            for block, line in self.month_rows()
-            if top <= line < bottom
-        ]
 
     def scroll_to_day(self, when: date) -> None:
         """Keep the cursor on screen, with a row of context either side."""
@@ -442,14 +419,12 @@ class YearCalendar(ScrollView, can_focus=True):
         if offset is None:
             return
         line = int(offset.y) + int(self.scroll_offset.y)
-        column, edge = 0, 0
-        for index, width in enumerate(self.columns):
-            edge += width
-            if int(offset.x) < edge:
-                column = index
-                break
-        else:
-            column = DAYS_IN_WEEK - 1
+        # The columns are uneven -- the remainder is spread over the first few
+        # -- so the edges are their running total, and the column somebody hit
+        # is where the click falls in it. Clamped rather than allowed to run
+        # off the end, because a click past the grid is a click on Sunday.
+        edges = list(accumulate(self.columns))
+        column = min(bisect_right(edges, int(offset.x)), DAYS_IN_WEEK - 1)
         if not (0 <= line < len(self._rows)) or not (0 <= column < DAYS_IN_WEEK):
             return
         block, row = self._rows[line]
@@ -482,8 +457,3 @@ def legend() -> Text:
         text.append("\n")
     text.append(f"{MORNING}{AFTERNOON} half day   {SPLIT} split")
     return text
-
-
-def days_between(start: date, end: date) -> list[date]:
-    """Every date in a span, inclusive."""
-    return [start + timedelta(days=n) for n in range((end - start).days + 1)]

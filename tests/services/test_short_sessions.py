@@ -15,7 +15,7 @@ from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.services.clock import ClockService
 from flexi.services.registry import Services
-from flexi.services.startup import run_startup_cleanup
+from tests.conftest import sessions_on
 from tests.services.conftest import Configured
 
 DAY = date(2026, 8, 10)
@@ -52,7 +52,7 @@ def test_a_double_press_is_discarded(services: Services, session: Session) -> No
 
     assert result.success
     assert "Discarded" in result.message
-    assert services.clock.get_sessions_for_date(DAY) == []
+    assert sessions_on(services.session, DAY) == []
 
 
 def test_the_events_are_kept(services: Services, session: Session) -> None:
@@ -82,7 +82,7 @@ def test_a_real_session_is_untouched(services: Services) -> None:
     result = services.clock.clock_out(now=NINE + timedelta(minutes=3))
 
     assert result.message == "Clocked out"
-    assert len(services.clock.get_sessions_for_date(DAY)) == 1
+    assert len(sessions_on(services.session, DAY)) == 1
 
 
 def test_the_boundary_counts(services: Services) -> None:
@@ -149,11 +149,11 @@ def test_old_short_sessions_are_swept_on_startup(
         add_session(session, at, at + timedelta(seconds=1))
     add_session(session, NINE + timedelta(hours=2), NINE + timedelta(hours=4))
 
-    assert len(services.clock.get_sessions_for_date(DAY)) == 6
+    assert len(sessions_on(services.session, DAY)) == 6
 
     built = Services.build(session)
-    run_startup_cleanup(session, built.clock, built.settings.get_auto_close_time())
-    assert len(services.clock.get_sessions_for_date(DAY)) == 1
+    built.clock.sweep()
+    assert len(sessions_on(services.session, DAY)) == 1
     assert len(rows(session)) == 6, "voided, not deleted"
 
 
@@ -161,7 +161,7 @@ def test_an_open_session_is_never_swept(services: Services, session: Session) ->
     """It has no length yet, so it cannot be too short."""
     services.clock.clock_in(now=NINE)
     built = Services.build(session)
-    run_startup_cleanup(session, built.clock, built.settings.get_auto_close_time())
+    built.clock.sweep()
     assert services.clock.is_clocked_in()
 
 

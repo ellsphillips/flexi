@@ -8,8 +8,9 @@ by index, because expanding a row above it would otherwise move it.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, ClassVar
 
 from rich.console import RenderableType
@@ -18,10 +19,36 @@ from textual.message import Message
 from textual.widgets import DataTable
 from textual.widgets.data_table import RowDoesNotExist
 
-DAY = "d-"
-SESSION = "s-"
-ABSENCE = "a-"
-TOTAL = "t-"
+
+class RowKind(StrEnum):
+    """What a row is, carried in its own key.
+
+    A key says what it is, so no parallel bookkeeping can fall out of step with
+    the table. The four prefixes were four bare strings, one of which had a
+    constructor and three of which were f-strung at their call sites, while
+    three other modules each half-wrote the splitter -- `int(key[len(ABSENCE):])`
+    in one, `key[len(DAY):] if key.startswith(DAY)` in another,
+    `target.startswith(DAY)` in a third.
+    """
+
+    DAY = "d-"
+    SESSION = "s-"
+    ABSENCE = "a-"
+    TOTAL = "t-"
+
+
+def row_key(kind: RowKind, ident: object) -> str:
+    """A row key: what the row is, and which one -- `d-2026-06-11`, `a-7`."""
+    return f"{kind.value}{ident}"
+
+
+def row_ident(kind: RowKind, key: str) -> str | None:
+    """What a key of that kind names, or ``None`` when it is another kind.
+
+    `row_ident(RowKind.ABSENCE, "a-7")` is `"7"`; asked for a `DAY`, the same
+    key is `None`.
+    """
+    return key[len(kind.value) :] if key.startswith(kind.value) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +80,8 @@ class RowGroup:
 class ExpandableTable(DataTable[RenderableType]):
     """A ``DataTable`` with openable rows."""
 
+    HELP_LABEL = "Records table"
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("space", "toggle_row", "Expand", show=True),
         Binding("shift+space", "toggle_all", "Expand all", show=False),
@@ -81,7 +110,7 @@ class ExpandableTable(DataTable[RenderableType]):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.cursor_type = "row"
-        self.expanded: set[str] = set()
+        self._expanded: set[str] = set()
         self._groups: tuple[RowGroup, ...] = ()
 
     # -- content -----------------------------------------------------------
@@ -107,8 +136,17 @@ class ExpandableTable(DataTable[RenderableType]):
                 self.add_column(spec, key=spec or None)
 
     def set_groups(self, groups: Iterable[RowGroup]) -> None:
-        """Replace every row, keeping the cursor on whatever it was on."""
+        """Replace every row, keeping the cursor on whatever it was on.
+
+        Expansions are kept for the rows that survived and dropped for the rest.
+        Keeping all of them meant `expanded` answered "has any row ever been
+        open" rather than "is any row open": the widget outlives its rows -- the
+        records table is rebuilt on every redraw -- so one expansion in June
+        left `expand_all` closing an already-closed July for the rest of the
+        session.
+        """
         self._groups = tuple(groups)
+        self._expanded &= {group.parent.key for group in self._groups}
         self._redraw()
 
     @property
@@ -116,12 +154,23 @@ class ExpandableTable(DataTable[RenderableType]):
         """The groups currently loaded, expanded or not."""
         return self._groups
 
+    @property
+    def expanded(self) -> frozenset[str]:
+        """The keys of the rows currently open.
+
+        Read-only, like `groups` beside it. It was a public `set` that `toggle`
+        mutated in place and `expand_all` rebound in one branch and mutated in
+        the other -- three treatments of one attribute inside one class, and a
+        caller could have opened a row the table did not hold.
+        """
+        return frozenset(self._expanded)
+
     def visible_rows(self) -> list[Row]:
         """Every row that would be drawn, parents and opened children, in order."""
         rows: list[Row] = []
         for group in self._groups:
             rows.append(group.parent)
-            if group.parent.key in self.expanded:
+            if group.parent.key in self._expanded:
                 rows.extend(group.children)
         return rows
 
@@ -170,11 +219,6 @@ class ExpandableTable(DataTable[RenderableType]):
             return None
         return None if key.value is None else str(key.value)
 
-    def key_at(self, index: int) -> str | None:
-        """The key of the row at an index, for jump targets."""
-        rows = self.visible_rows()
-        return rows[index].key if 0 <= index < len(rows) else None
-
     def focus_key(self, key: str) -> None:
         """Put the cursor on a row by key, if it is visible."""
         try:
@@ -208,8 +252,8 @@ class ExpandableTable(DataTable[RenderableType]):
         # to the parent — collapsing a group the cursor is in has nowhere else to
         # put it, but toggling some *other* row must leave the cursor alone.
         cursor_inside = self._group_at_cursor() is group
-        expanded = parent not in self.expanded
-        self.expanded.symmetric_difference_update({parent})
+        expanded = parent not in self._expanded
+        self._expanded.symmetric_difference_update({parent})
         self._redraw()
         if cursor_inside:
             self.focus_key(parent)
@@ -224,13 +268,13 @@ class ExpandableTable(DataTable[RenderableType]):
         visible thing beats two keys nobody remembers.
         """
         if expanded is None:
-            expanded = not self.expanded
+            expanded = not self._expanded
         if expanded:
-            self.expanded = {
+            self._expanded = {
                 group.parent.key for group in self._groups if group.expandable
             }
         else:
-            self.expanded.clear()
+            self._expanded.clear()
         self._redraw()
 
     def _group_at_cursor(self) -> RowGroup | None:
@@ -250,16 +294,6 @@ class ExpandableTable(DataTable[RenderableType]):
         if key is None:
             return
         group = self.group_for(key)
-        if group is not None and group.expandable and key not in self.expanded:
+        if group is not None and group.expandable and key not in self._expanded:
             self.toggle(key)
         self.post_message(self.RowSelected(key))
-
-
-def day_key(iso: str) -> str:
-    """The row key for a day."""
-    return f"{DAY}{iso}"
-
-
-def keys_of(rows: Sequence[Row]) -> list[str]:
-    """The keys of a run of rows, for tests and jump targets."""
-    return [row.key for row in rows]

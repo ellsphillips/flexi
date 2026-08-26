@@ -1,29 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import ClockAction
-from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
-from flexi.models.database.moment import columns, moment_of
+from flexi.constants import ClockAction, EventSource
+from flexi.domain.format import spoken
+from flexi.models.database.db import AbsenceDay, WorkSession
+from flexi.models.database.moment import moment_of, punched
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
-
-SECONDS_PER_MINUTE = 60
-
-
-def _readable(span: timedelta) -> str:
-    """A threshold as somebody would say it out loud."""
-    seconds = int(span.total_seconds())
-    if seconds % SECONDS_PER_MINUTE == 0 and seconds >= SECONDS_PER_MINUTE:
-        minutes = seconds // SECONDS_PER_MINUTE
-        return f"{minutes} minute" + ("" if minutes == 1 else "s")
-    return f"{seconds} second" + ("" if seconds == 1 else "s")
+from flexi.services.startup import close_stale_sessions
 
 
 @dataclass(frozen=True)
@@ -32,13 +23,17 @@ class ClockResult:
 
     success: bool
     message: str
-    event: ClockEvent | None = None
     warning: str | None = None
     session: WorkSession | None = None
+    at: datetime | None = None
+    """The moment recorded, on the two returns that record one.
 
-
-DEFAULT_MINIMUM_SESSION = timedelta(seconds=60)
-"""Below this, a session is a slip of the finger rather than a minute of work."""
+    The status bar stamps a clock message with it -- "Clocked out at 12:04" is
+    a fact somebody can check against the wall, which is what makes a mistaken
+    keystroke visible the moment it happens. It carried the whole `ClockEvent`
+    before, so the screen reached past the `Outcome` protocol with two
+    `getattr`s and then decided *whether* to stamp by asking whether the
+    message began with the word "Clocked"."""
 
 
 class ClockService:
@@ -72,28 +67,45 @@ class ClockService:
     def is_clocked_in(self) -> bool:
         return self.get_open_session() is not None
 
-    def _run_stale_cleanup(self) -> None:
-        """Run stale-session cleanup before clock actions."""
-        from flexi.services.startup import run_startup_cleanup
+    def sweep(self) -> None:
+        """Tidy what an interrupted run left behind, before doing anything else.
 
-        run_startup_cleanup(self._session, self, self._settings.get_auto_close_time())
+        Two halves. A session left running overnight is closed at the
+        configured time, and a session so short it can only have been a slip of
+        the finger is voided -- which also cleans up databases written before
+        there was a threshold.
+
+        Here rather than in `startup`, taking nothing, because both halves are
+        already this service's: the session it writes through, and the
+        auto-close time its own settings service holds. Passed in, they were
+        three arguments of which two were attributes of the third, and the two
+        modules imported each other -- one of them from inside a method, to
+        make the cycle importable.
+        """
+        close_stale_sessions(self._session, self._settings.get_auto_close_time())
+        self.discard_short_sessions()
 
     def clock_in(
         self,
         *,
         now: datetime | None = None,
-        source: str = "user",
+        source: EventSource = EventSource.USER,
     ) -> ClockResult:
         """Clock in. Rejects duplicate clock-in without creating audit rows."""
-        self._run_stale_cleanup()
-        if self.is_clocked_in():
-            return ClockResult(success=False, message="Already clocked in")
+        self.sweep()
+        # The refusal carries the session, so a caller does not have to go back
+        # and ask what is already in hand.
+        running = self.get_open_session()
+        if running is not None:
+            return ClockResult(
+                success=False, message="Already clocked in", session=running
+            )
 
         moment = wallclock.local(now) if now is not None else wallclock.now()
         work_date = moment.date()
 
         # Block clocking on bank holidays (if data available)
-        if self._holidays.is_bank_holiday(work_date) is True:
+        if self._holidays.holiday_on(work_date) is not None:
             return ClockResult(
                 success=False, message="Cannot clock in on a bank holiday"
             )
@@ -109,13 +121,7 @@ class ClockService:
                 success=False, message="Cannot clock in on an absence day"
             )
 
-        wall, offset = columns(moment)
-        event = ClockEvent(
-            action=ClockAction.IN,
-            timestamp=wall,
-            utc_offset_minutes=offset,
-            source=source,
-        )
+        event = punched(ClockAction.IN, moment, source=source)
         self._session.add(event)
         self._session.flush()
 
@@ -129,15 +135,15 @@ class ClockService:
         return ClockResult(
             success=True,
             message="Clocked in",
-            event=event,
             session=work_session,
+            at=moment,
         )
 
     def clock_out(
         self,
         *,
         now: datetime | None = None,
-        source: str = "user",
+        source: EventSource = EventSource.USER,
     ) -> ClockResult:
         """Clock out. Rejects clock-out without an open session."""
         open_session = self.get_open_session()
@@ -145,13 +151,7 @@ class ClockService:
             return ClockResult(success=False, message="Not clocked in")
 
         moment = wallclock.local(now) if now is not None else wallclock.now()
-        wall, offset = columns(moment)
-        event = ClockEvent(
-            action=ClockAction.OUT,
-            timestamp=wall,
-            utc_offset_minutes=offset,
-            source=source,
-        )
+        event = punched(ClockAction.OUT, moment, source=source)
         self._session.add(event)
         self._session.flush()
 
@@ -172,7 +172,6 @@ class ClockService:
             return ClockResult(
                 success=False,
                 message="That clock-out is earlier than the clock-in",
-                event=event,
                 session=open_session,
             )
 
@@ -181,8 +180,7 @@ class ClockService:
             self._session.commit()
             return ClockResult(
                 success=True,
-                message=f"Discarded — under {_readable(self._minimum)} on the clock",
-                event=event,
+                message=f"Discarded — under {spoken(self._minimum)} on the clock",
                 session=open_session,
             )
 
@@ -190,16 +188,9 @@ class ClockService:
         return ClockResult(
             success=True,
             message="Clocked out",
-            event=event,
             session=open_session,
+            at=moment,
         )
-
-    def get_sessions_for_date(self, work_date: date) -> list[WorkSession]:
-        """Every session that counts on a date. Voided ones are not sessions."""
-        stmt = select(WorkSession).where(
-            WorkSession.work_date == work_date, WorkSession.voided.is_(False)
-        )
-        return list(self._session.execute(stmt).scalars())
 
     def discard_short_sessions(self) -> list[WorkSession]:
         """Void every closed session already on record that is too short.
