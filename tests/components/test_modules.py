@@ -13,7 +13,7 @@ does the work itself, and what is worth asserting is that it asked.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 
@@ -38,13 +38,14 @@ from flexi.components.modules.records import (
     DeleteHere,
     RecordsModule,
 )
+from flexi.components.modules.wallet import WalletModule
 from flexi.components.punch import PunchStrip
 from flexi.constants import AbsenceType, DayKind, Granularity, Portion
 from flexi.domain.ledger import AbsenceSlice, DayLedger
 from flexi.domain.period import Period
 from flexi.domain.punch import Window
 from flexi.domain.wallet import Allowance
-from flexi.messages import DateSelected
+from flexi.messages import DateSelected, Scope
 from flexi.services.registry import Services
 from tests.conftest import settled
 from tests.services.conftest import (  # noqa: F401 - `configure` is used as a fixture
@@ -260,6 +261,27 @@ async def test_a_redraw_before_the_table_has_columns_draws_nothing(
         await pilot.pause()
 
         assert not table.columns, "nothing to draw into, so nothing drawn"
+
+
+@pytest.mark.parametrize(
+    "build", [MonthView, RecordsModule, ClockModule, BalanceModule, WalletModule]
+)
+def test_a_redraw_before_a_module_composes_is_not_a_redraw(
+    build: Callable[[], Module],
+) -> None:
+    """A screen's children exist before its grandchildren do.
+
+    `refresh_open_screens` walks the stack and asks every module to redraw, and
+    every `rebuild` here reaches its own children by id. The bank holiday worker
+    calls it from off the message loop, so it can land between the dashboard
+    being pushed and its modules composing — which took the whole application
+    down with `NoMatches` on a cell the calendar had not mounted yet.
+
+    Unmounted is the state under test, so there is no app here on purpose: a
+    module that has composed nothing cannot reach a screen either, and without
+    the guard this raises before it gets as far as a query.
+    """
+    build().rebuild_if(Scope.ALL)
 
 
 # -- the balance -------------------------------------------------------------

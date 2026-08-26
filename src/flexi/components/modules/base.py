@@ -70,8 +70,17 @@ class Module(Static):
         """Redraw from the current data. Overridden by every module."""
 
     def rebuild_if(self, scope: Scope) -> None:
-        """Redraw only when the change was one this module cares about."""
-        if scope & self.WATCHES:
+        """Redraw only when the change was one this module cares about.
+
+        A module that has not composed yet is skipped: every `rebuild` here
+        reaches its own children by id, and `on_mount` draws them anyway.
+
+        A screen's children exist before its grandchildren do, so a redraw
+        arriving from off the message loop -- the bank holiday worker's, landing
+        between the dashboard being pushed and its modules composing -- found
+        the modules in the tree and their cells not yet in it.
+        """
+        if self.children and scope & self.WATCHES:
             self.rebuild()
 
     def focus_target(self) -> Widget:
