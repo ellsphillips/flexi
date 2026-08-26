@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, TypeVar
 
 import click
 
-import flexi
 from flexi import wallclock
 from flexi.cli import TypedDate
 from flexi.locations import database_file
@@ -41,7 +40,12 @@ T = TypeVar("T")
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(None, "-v", "--version", message=flexi.__version__)
+# `message=flexi.__version__` read the version at decoration time, which is to
+# say at import, on every command. Click resolves `package_name` inside the
+# flag's own callback instead, so the metadata is only read when asked for.
+@click.version_option(
+    None, "-v", "--version", package_name="flexi", message="%(version)s"
+)
 @click.option(
     "--demo",
     is_flag=True,

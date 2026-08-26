@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, date, timedelta
 
-import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -65,7 +64,15 @@ class BankHolidayService:
     # ---- fetch ----
 
     def fetch_and_cache(self) -> bool:
-        """Fetch from GOV.UK and replace the DB cache. Returns True on success."""
+        """Fetch from GOV.UK and replace the DB cache. Returns True on success.
+
+        `httpx` is imported here rather than at module scope. It costs sixty
+        milliseconds to import and this is the only method that needs it, so
+        every `flexi clock in` -- which opens this service to *read* the cache
+        and never touches the network -- was paying for an HTTP client.
+        """
+        import httpx
+
         try:
             with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
                 response = client.get(GOVUK_URL)

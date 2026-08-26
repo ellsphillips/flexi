@@ -159,14 +159,17 @@ class TestBackupFailure:
         # Patch backup to return None (simulate failure)
         with (
             patch("flexi.models.database.migrate.backup_database", return_value=None),
-            # Force current != head so backup path is taken
-            patch("flexi.models.database.migrate.MigrationContext") as mock_ctx_cls,
+            # Force current != head so the backup path is taken. Through
+            # `current_revision`, which is what `run_migrations` now asks --
+            # it settles the common case against a written-down revision
+            # rather than starting Alembic up to find out.
+            patch(
+                "flexi.models.database.migrate.current_revision",
+                return_value="fake_old",
+            ),
+            pytest.raises(RuntimeError, match="backup failed"),
         ):
-            mock_ctx_cls.configure.return_value.get_current_revision.return_value = (
-                "fake_old"
-            )
-            with pytest.raises(RuntimeError, match="backup failed"):
-                run_migrations(db_path)
+            run_migrations(db_path)
 
 
 # ---------- verifying a copy ----------
@@ -328,7 +331,7 @@ class TestMigrationFailure:
         """If alembic upgrade fails, the error propagates."""
         with (
             patch(
-                "flexi.models.database.migrate.command.upgrade",
+                "alembic.command.upgrade",
                 side_effect=RuntimeError("migration exploded"),
             ),
             pytest.raises(RuntimeError, match="migration exploded"),

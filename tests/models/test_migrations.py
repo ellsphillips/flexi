@@ -24,6 +24,7 @@ from flexi.constants import AbsenceType, Portion
 from flexi.locations import backups_directory, ensure
 from flexi.models.database.db import AbsenceDay, Base, Settings
 from flexi.models.database.engine import create_db_engine, get_session
+from flexi.models.database.migrate import HEAD as RECORDED_HEAD
 from flexi.models.database.migrate import (
     MAX_BACKUPS,
     alembic_config,
@@ -32,6 +33,18 @@ from flexi.models.database.migrate import (
 
 BEFORE_HALF_DAYS = "0006"
 HEAD = "head"
+
+
+def test_the_recorded_head_is_the_head_alembic_would_find(db: Path) -> None:
+    """`run_migrations` compares against a written-down revision to stay fast.
+
+    Asking Alembic costs the import this exists to avoid, so the number is
+    duplicated -- and a duplicate nobody checks is a duplicate that drifts. Add
+    a migration without touching `HEAD` and every database silently reports
+    itself up to date, which is a schema change that never runs.
+    """
+    with alembic_config(db) as cfg:
+        assert ScriptDirectory.from_config(cfg).get_current_head() == RECORDED_HEAD
 
 
 @pytest.fixture

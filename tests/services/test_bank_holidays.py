@@ -139,7 +139,7 @@ class TestFetchFailure:
     def test_fetch_failure_returns_false(self, session: Session) -> None:
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         with patch(
-            "flexi.services.bank_holidays.httpx.Client",
+            "httpx.Client",
             side_effect=httpx.ConnectError("network"),
         ):
             assert svc.fetch_and_cache() is False
