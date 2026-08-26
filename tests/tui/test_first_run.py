@@ -17,6 +17,7 @@ from flexi.components.wordmark import Wordmark
 from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
+from flexi.screens.settings import NO_DIVISION
 from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
 from flexi.services.settings import SettingsService
 from flexi.theme import MARK_LIVE, TAIL, colour
@@ -156,7 +157,7 @@ async def test_an_entitlement_that_is_not_a_number_is_refused(fresh_db: Path) ->
         screen.action_save()
         await pilot.pause()
 
-        assert "Invalid entitlement value" in notices(app)
+        assert "Entitlement must be a number of days" in notices(app)
         showing(app, SetupScreen)
 
     with get_session(create_db_engine(fresh_db)) as session:
@@ -168,6 +169,9 @@ async def test_a_cleared_region_is_asked_for_again(fresh_db: Path) -> None:
 
     Absence cannot be booked at all until the division is known, so an empty
     select has to come back as a question rather than be filed as "nowhere".
+
+    The wording is the settings screen's, imported rather than repeated: the two
+    forms asked the same question and refused it in two different sentences.
     """
     app = FlexiApp(db_path=fresh_db)
     async with app.run_test(size=WIDE) as pilot:
@@ -180,7 +184,7 @@ async def test_a_cleared_region_is_asked_for_again(fresh_db: Path) -> None:
         screen.action_save()
         await pilot.pause()
 
-        assert "Please select a bank holiday region" in notices(app)
+        assert NO_DIVISION in notices(app)
         showing(app, SetupScreen)
 
     with get_session(create_db_engine(fresh_db)) as session:

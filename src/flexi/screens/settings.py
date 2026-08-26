@@ -1,3 +1,11 @@
+"""Changing the four answers given at setup, and the leave for each year.
+
+The four shared questions are asked here and again on the first-run form, of the
+same four widget ids -- so reading and writing them lives in :func:`save_answers`
+rather than in each screen, which is where the two wordings of the same refusal
+came from.
+"""
+
 from __future__ import annotations
 
 from typing import Any, ClassVar
@@ -6,13 +14,50 @@ from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
+from textual.widget import Widget
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
 from flexi.constants import Division
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural
 from flexi.services.registry import Services
-from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
+from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS, SettingsService
+
+ALL_REQUIRED = "All fields are required"
+NO_DIVISION = "Select a bank holiday region"
+
+
+def save_answers(node: Widget, settings: SettingsService) -> str | None:
+    """Read the four questions both forms ask, and write them.
+
+    Answers the refusal to show, or ``None`` once written -- so a caller reads
+    ``if refusal := save_answers(...)``. The two screens put the same questions
+    to the same widget ids and had drifted into two wordings of the same
+    refusal, only one of which any test ever looked at.
+
+    A ``Select`` with nothing chosen answers ``NoSelection`` rather than a
+    string, which is why the division is checked by type where the rest are
+    checked for emptiness.
+    """
+    leave_start = node.query_one("#input-leave-start", Input).value.strip()
+    working_days = node.query_one("#input-working-days", Input).value.strip()
+    division = node.query_one("#select-division", Select).value
+    auto_close = node.query_one("#input-auto-close", Input).value.strip()
+
+    if not all([leave_start, working_days, auto_close]):
+        return ALL_REQUIRED
+    if not isinstance(division, str):
+        return NO_DIVISION
+    try:
+        settings.save_settings(
+            leave_year_start=leave_start,
+            working_days=working_days,
+            bank_holiday_division=division,
+            auto_close_time=auto_close,
+        )
+    except ValueError as error:
+        return str(error)
+    return None
 
 
 class SettingsScreen(Screen[bool]):
@@ -154,18 +199,6 @@ class SettingsScreen(Screen[bool]):
         replaced. Nothing invalidates it on this path: the application hangs
         that off `dismiss(True)`, and a rejection does not dismiss.
         """
-        leave_start = self.query_one("#input-leave-start", Input).value.strip()
-        working_days = self.query_one("#input-working-days", Input).value.strip()
-        division = self.query_one("#select-division", Select).value
-        auto_close = self.query_one("#input-auto-close", Input).value.strip()
-
-        if not all([leave_start, working_days, auto_close]):
-            self.notify("All fields are required", severity="error")
-            return
-        if not isinstance(division, str):
-            self.notify("Select a bank holiday region", severity="error")
-            return
-
         allowances: dict[int, float] = {}
         rejected: list[str] = []
         for entitlement in self._svc.all_entitlements():
@@ -182,15 +215,8 @@ class SettingsScreen(Screen[bool]):
             )
             return
 
-        try:
-            self._svc.save_settings(
-                leave_year_start=leave_start,
-                working_days=working_days,
-                bank_holiday_division=division,
-                auto_close_time=auto_close,
-            )
-        except ValueError as error:
-            self.notify(str(error), severity="error")
+        if refusal := save_answers(self, self._svc):
+            self.notify(refusal, severity="error")
             return
 
         for year, days in allowances.items():
