@@ -16,9 +16,12 @@ from collections.abc import Mapping
 from functools import cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
-from textual.theme import Theme
+from flexi.domain.punch import Cell
+
+if TYPE_CHECKING:
+    from textual.theme import Theme
 
 # The rail. Flexi's structural vocabulary, kept beside the palette because it
 # is part of the same design system: a line down the left margin, heavy through
@@ -32,6 +35,26 @@ MARK_DONE: Final = "●"
 MARK_GRAVE: Final = "▲"
 CURSOR: Final = "▸"
 TAIL: Final = "╰"
+
+CELL_GLYPHS: Final[Mapping[Cell, str]] = MappingProxyType(
+    {
+        Cell.OFF: "─",
+        Cell.BREAK: "·",
+        Cell.TARGET: "┊",
+        Cell.ABSENCE: "▓",
+        Cell.HOLIDAY: "░",
+        Cell.ON: "█",
+        Cell.LIVE: "▌",
+    }
+)
+"""One cell of a punch strip, as a character.
+
+Beside the rail for the same reason the rail is here: the strip is Flexi's
+other structural idea, and `flexi clock` draws it on the terminal while the
+dashboard draws it in a widget. It lived in `components/punch.py`, which
+imports Textual, so the command line could not read it without loading a
+widget toolkit to print seven characters.
+"""
 
 THEME_NAME: Final = "flexi"
 THEME_PATH: Final[Path] = Path(__file__).with_name("flexi.tcss")
@@ -151,12 +174,20 @@ def theme_variables() -> dict[str, str]:
 def flexi_theme() -> Theme:
     """The Flexi palette as a Textual theme.
 
+    ``textual.theme`` is imported here rather than at module scope. This module
+    is the design system -- the glyphs and the palette parsed out of
+    `flexi.tcss` -- and the command line reads both without ever drawing a
+    Textual widget. Importing Textual to hand a prompt a colour cost the
+    ``flexi init`` rail a hundred and fifty milliseconds.
+
     ``primary`` is the teal accent because Textual paints focus, selection and
     the primary button with it, and those are exactly the moments that should
     carry the accent. ``error`` is the deficit red and ``success`` the surplus
     green, so a Textual-native widget reporting state lands on the same two
     colours the balance uses.
     """
+    from textual.theme import Theme
+
     return Theme(
         name=THEME_NAME,
         primary=colour("c-accent"),
@@ -177,6 +208,7 @@ def flexi_theme() -> Theme:
 
 
 __all__ = [
+    "CELL_GLYPHS",
     "CURSOR",
     "MARK_DONE",
     "MARK_GRAVE",

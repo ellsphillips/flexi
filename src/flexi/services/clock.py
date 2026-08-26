@@ -93,8 +93,13 @@ class ClockService:
     ) -> ClockResult:
         """Clock in. Rejects duplicate clock-in without creating audit rows."""
         self.sweep()
-        if self.is_clocked_in():
-            return ClockResult(success=False, message="Already clocked in")
+        # The refusal carries the session, so a caller does not have to go back
+        # and ask what is already in hand.
+        running = self.get_open_session()
+        if running is not None:
+            return ClockResult(
+                success=False, message="Already clocked in", session=running
+            )
 
         moment = wallclock.local(now) if now is not None else wallclock.now()
         work_date = moment.date()

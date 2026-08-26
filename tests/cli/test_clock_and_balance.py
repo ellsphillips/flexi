@@ -52,6 +52,40 @@ def test_clocking_in_twice_is_a_failure(services: Services) -> None:
     assert clock_cli.clock_in(services) == 1
 
 
+def test_clocking_in_twice_says_what_the_running_session_is_doing(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A bare refusal answers a question nobody asked.
+
+    The one behind the keystroke is *since when*, and the session was in hand
+    when the refusal was written -- it just was not carried out of the service.
+    """
+    with time_machine.travel(datetime(2026, 6, 10, 9, 0), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 10, 11, 30), tick=False):
+        clock_cli.clock_in(services)
+
+    printed = capsys.readouterr().out
+    assert "Already on the clock" in printed
+    assert "in at 09:00" in printed
+    assert "2:30 on this session" in printed
+    assert "hours met at" in printed, "the finish time is the useful half of it"
+
+
+def test_a_day_already_past_its_hours_says_so_rather_than_counting_down(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Past the contracted day there is no "to go" left to report."""
+    with time_machine.travel(datetime(2026, 6, 10, 8, 0), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 10, 18, 0), tick=False):
+        clock_cli.clock_in(services)
+
+    printed = capsys.readouterr().out
+    assert "hours met" in printed
+    assert "hours met at" not in printed
+
+
 def test_clocking_out_without_clocking_in_is_a_failure(
     services: Services,
 ) -> None:

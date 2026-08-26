@@ -47,6 +47,22 @@ def test_the_recorded_head_is_the_head_alembic_would_find(db: Path) -> None:
         assert ScriptDirectory.from_config(cfg).get_current_head() == RECORDED_HEAD
 
 
+def test_a_file_that_was_never_migrated_is_migrated_rather_than_refused(
+    db: Path,
+) -> None:
+    """An interrupted first run leaves a database with no `alembic_version`.
+
+    The cheap revision check queries that table directly, so the case has to
+    read as "never migrated" rather than raise -- otherwise the one file that
+    needs the migration most is the one that cannot get it.
+    """
+    db.touch()
+
+    run_migrations(db)
+
+    assert revision_of(db) == RECORDED_HEAD
+
+
 @pytest.fixture
 def db(tmp_path: Path) -> Path:
     return tmp_path / "flexi.db"

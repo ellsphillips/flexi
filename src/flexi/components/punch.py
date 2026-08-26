@@ -21,16 +21,7 @@ from textual.widget import Widget
 
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Cell, Window, covering_slices, edges, strip
-
-CELL_GLYPHS: Final[dict[Cell, str]] = {
-    Cell.OFF: "─",
-    Cell.BREAK: "·",
-    Cell.TARGET: "┊",
-    Cell.ABSENCE: "▓",
-    Cell.HOLIDAY: "░",
-    Cell.ON: "█",
-    Cell.LIVE: "▌",
-}
+from flexi.theme import CELL_GLYPHS
 
 BASE_STYLES: Final[dict[Cell, str]] = {
     Cell.OFF: "punch--off",
