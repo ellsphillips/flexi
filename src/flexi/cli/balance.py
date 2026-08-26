@@ -38,6 +38,12 @@ def show(services: Services, as_of: date | None = None) -> int:
     click.echo(
         f"leave year   {stamp(start, '%-d %b %Y')} → {stamp(today, '%-d %b %Y')}"
     )
+    # Said only when it falls inside the leave year, which is the case it
+    # explains: four months of leave year and seven hours expected is a figure
+    # nobody can check without being told which days were counted.
+    since = services.settings.get_tracking_since()
+    if since is not None and since > start:
+        click.echo(f"tracking     {stamp(since, '%-d %b %Y')} onwards")
     click.echo(f"worked       {hm(summary.worked)}")
     click.echo(f"expected     {hm(summary.expected)}")
     if summary.toil_taken:

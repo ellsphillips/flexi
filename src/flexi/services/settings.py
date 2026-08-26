@@ -74,6 +74,10 @@ class SettingsService:
         settings = self.get_settings()
         if settings is None:
             settings = Settings(
+                # Stamped on creation only. This is the answer to "when did
+                # Flexi start watching", and editing the settings later does not
+                # change it -- the `else` branch below deliberately leaves it.
+                tracking_since=wallclock.today(),
                 leave_year_start=normalised_start,
                 working_days=working_days,
                 bank_holiday_division=bank_holiday_division,
@@ -96,6 +100,16 @@ class SettingsService:
                 settings.day_window_end = day_window_end
         self._session.commit()
         return settings
+
+    def get_tracking_since(self) -> date | None:
+        """The first day Flexi was there to record anything, if it is known.
+
+        ``None`` on a database migrated from before the column existed and with
+        nothing recorded to date it by, and it means the same as it did then:
+        every day in the leave year counts.
+        """
+        settings = self.get_settings()
+        return settings.tracking_since if settings else None
 
     # ---- helpers ----
 

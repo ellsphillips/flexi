@@ -282,7 +282,7 @@ class RecordsModule(Module):
             return Text(name, style=self.get_component_rich_style("record--holiday"))
         if ledger.kind is DayKind.ABSENT:
             return Text(name, style=self.get_component_rich_style("record--absent"))
-        if not ledger.is_working_day:
+        if ledger.kind is DayKind.UNTRACKED or not ledger.is_working_day:
             return Text(name, style=self.get_component_rich_style("record--muted"))
         return Text(name)
 

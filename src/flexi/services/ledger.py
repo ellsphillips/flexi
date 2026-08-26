@@ -119,6 +119,7 @@ class LedgerService:
         corrections = self._adjustments(start, end)
         working_days = set(self._settings.get_working_day_indices())
         contracted = self.contracted
+        tracking_since = self._settings.get_tracking_since()
 
         for when in _date_range(start, end):
             segments = tuple(
@@ -133,12 +134,20 @@ class LedgerService:
             )
             title = holidays.get(when)
             is_working = when.weekday() in working_days
+            # Work recorded on a day is proof Flexi was there for it,
+            # whatever the stamp says, and it outranks the stamp in `_kind`
+            # too. Letting the two disagree would draw the day as worked and
+            # then expect nothing of it, so the session read as pure surplus.
+            is_tracked = (
+                tracking_since is None or when >= tracking_since or bool(segments)
+            )
 
             worked = worked_from(
                 segments, now=moment if when >= today else _end_of(when)
             )
             expected = expected_for(
                 contracted,
+                is_tracked=is_tracked,
                 is_working_day=is_working,
                 is_holiday=title is not None,
                 absences=slices,
@@ -146,7 +155,13 @@ class LedgerService:
 
             self._cache[when] = DayLedger(
                 date=when,
-                kind=_kind(title, slices, segments, is_working=is_working),
+                kind=_kind(
+                    title,
+                    slices,
+                    segments,
+                    is_working=is_working,
+                    is_tracked=is_tracked,
+                ),
                 is_working_day=is_working,
                 contracted=contracted,
                 worked=worked,
@@ -251,7 +266,17 @@ def _kind(
     segments: tuple[Segment, ...],
     *,
     is_working: bool,
+    is_tracked: bool,
 ) -> DayKind:
+    """What a date is, in one word, in precedence order.
+
+    Untracked comes first. A day before setup is not a day somebody failed to
+    work, so labelling it a weekend or a bank holiday would be answering a
+    question nobody asked. A day with a session on it is never untracked --
+    `_build` settles that before this is called.
+    """
+    if not is_tracked:
+        return DayKind.UNTRACKED
     if holiday is not None:
         return DayKind.HOLIDAY
     if not is_working:

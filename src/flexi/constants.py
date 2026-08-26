@@ -275,3 +275,10 @@ class DayKind(StrEnum):
     HOLIDAY = "holiday"
     ABSENT = "absent"
     PARTIAL = "partial"
+    UNTRACKED = "untracked"
+    """Before Flexi was set up, so it asked nothing of the day.
+
+    A leave year usually starts months before somebody installs Flexi, and every
+    working day in between has no sessions on it. Counted as ordinary days they
+    read as a deficit of a full contracted day each -- 762 hours for an April
+    leave year set up in August, which is the balance the first user saw."""

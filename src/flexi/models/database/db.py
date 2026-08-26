@@ -59,6 +59,17 @@ class Settings(Base):
     day_window_end: Mapped[str] = mapped_column(
         String(5), default=DEFAULT_WINDOW_END, server_default=DEFAULT_WINDOW_END
     )
+    tracking_since: Mapped[date_type | None] = mapped_column(Date(), nullable=True)
+    """The day setup was answered. Days before it expect no work.
+
+    Stamped once, when the row is first written, and left alone by every later
+    save: changing the leave year start moves which days are in the year, not
+    which of them Flexi was there for.
+
+    Nullable because a database migrated from before this column may have no
+    honest answer -- see ``0011``. ``None`` means every day counts, which is
+    what Flexi did before.
+    """
 
 
 class LeaveEntitlement(Base):

@@ -113,7 +113,7 @@ def seed_demo(session: Session, *, anchor: date = ANCHOR) -> None:
     start = leaveyear.start_of(anchor, *LEAVE_YEAR)
     holidays = {when for when, _ in holidays_in(start.year)}
     _wipe(session)
-    _settings(session, anchor)
+    _settings(session, anchor, start)
     _holidays(session, start.year, anchor)
     booked, half_day = _absences(session, anchor, holidays)
     _work(session, start, anchor, booked | holidays, half_day)
@@ -133,10 +133,14 @@ def _wipe(session: Session) -> None:
     session.commit()
 
 
-def _settings(session: Session, anchor: date) -> None:
+def _settings(session: Session, anchor: date, start: date) -> None:
     month, day = LEAVE_YEAR
     session.add(
         Settings(
+            # The demo has been keeping records since the leave year opened, so
+            # that is when it started tracking. Left unset, every seeded day
+            # would draw as one Flexi was not there for.
+            tracking_since=start,
             leave_year_start=f"{month:02d}-{day:02d}",
             working_days="0,1,2,3,4",
             bank_holiday_division="england-and-wales",

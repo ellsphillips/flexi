@@ -49,6 +49,7 @@ def configure(session: Session) -> Configured:
         division: str = "england-and-wales",
         auto_close_time: str = "18:00",
         entitlement: tuple[int, float] | None = None,
+        tracking_since: date | None = None,
         holidays: tuple[tuple[date, str], ...] = (
             (DEFAULT_HOLIDAY, "Summer bank holiday"),
         ),
@@ -60,6 +61,13 @@ def configure(session: Session) -> Configured:
             bank_holiday_division=division,
             auto_close_time=auto_close_time,
         )
+        # Set after saving, which stamps it with today. `None` is the migrated
+        # database's answer -- every day in the leave year counts -- and it is
+        # what every test here assumed before there was a column to say
+        # otherwise. A test about the gap before setup passes a date.
+        stored = built.settings.get_settings()
+        assert stored is not None
+        stored.tracking_since = tracking_since
         for when, title in holidays:
             session.add(
                 BankHolidayCache(

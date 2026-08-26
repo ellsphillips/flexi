@@ -39,6 +39,13 @@ def services(tmp_path: Path) -> Services:
         bank_holiday_division="england-and-wales",
         auto_close_time="18:00",
     )
+    # These tests are about a June the balance is measured across, and setup
+    # stamps today. `None` is what a database migrated from before that column
+    # says, and it means what this file always assumed: every day counts.
+    stored = built.settings.get_settings()
+    assert stored is not None
+    stored.tracking_since = None
+    session.commit()
     return Services.build(session)
 
 

@@ -40,6 +40,7 @@ KIND_CLASSES: dict[DayKind, str] = {
     DayKind.PARTIAL: "day-partial",
     DayKind.WEEKEND: "day-weekend",
     DayKind.WORKING: "day-working",
+    DayKind.UNTRACKED: "day-untracked",
 }
 
 

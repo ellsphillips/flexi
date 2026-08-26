@@ -36,17 +36,22 @@ def worked_from(segments: Iterable[Segment], now: datetime) -> timedelta:
 def expected_for(
     contracted: timedelta,
     *,
+    is_tracked: bool,
     is_working_day: bool,
     is_holiday: bool,
     absences: Iterable[AbsenceSlice] = (),
 ) -> timedelta:
     """How much work a date asked for.
 
-    Zero on a non-working day, a bank holiday, or a full day of absence of any
-    type. Half the contract for one half-day; zero for two, even of different
-    types.
+    Zero on a day before Flexi was tracking, a non-working day, a bank holiday,
+    or a full day of absence of any type. Half the contract for one half-day;
+    zero for two, even of different types.
+
+    ``is_tracked`` is required rather than defaulting to true. The default would
+    be the behaviour this argument exists to correct, which is the one value a
+    caller must not be able to arrive at by forgetting.
     """
-    if not is_working_day or is_holiday:
+    if not is_tracked or not is_working_day or is_holiday:
         return ZERO
     booked = sum(slice_.portion.days for slice_ in absences)
     remaining = max(0.0, 1.0 - booked)
