@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain import leaveyear
+from flexi.domain.dates import date_range
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural, short_date
 from flexi.domain.ledger import MIDDAY_HOUR
@@ -33,12 +34,6 @@ from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
-
-
-def _walk(start: date, end: date) -> list[date]:
-    """Every date from start to end, inclusive."""
-    span = (end - start).days
-    return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
 
 
 def covers_the_whole_day(booked: Iterable[Portion]) -> bool:
@@ -549,7 +544,7 @@ class AbsenceService:
         remaining = self.get_remaining_annual_leave(start)
         days: list[PlannedDay] = []
 
-        for when in _walk(start, end):
+        for when in date_range(start, end):
             verdict, reason, detail = self._verdict(
                 when, absence_type, portion, note, remaining_annual=remaining
             )
@@ -641,7 +636,7 @@ class AbsenceService:
         """
         cleared = [
             when
-            for when in _walk(start, end)
+            for when in date_range(start, end)
             if self.for_date(when) and self.remove(when).success
         ]
         return RangeResult(tuple(cleared))

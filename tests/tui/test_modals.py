@@ -16,7 +16,7 @@ from textual.widgets import Button, Input, RadioSet, Static
 from flexi.components.common import Rule
 from flexi.constants import AbsenceType
 from flexi.screens.help import HelpScreen
-from flexi.screens.modals import AbsenceModal, FlexiModal, _selected_name
+from flexi.screens.modals import AbsenceModal, FlexiModal, selected_name
 from tests.tui.conftest import WIDE, AppFactory, showing
 
 FREE_MONDAY = date(2026, 6, 22)  # nothing booked on it in the seed
@@ -158,7 +158,7 @@ class Unanswered(FlexiModal[str]):
         yield RadioSet(id="pick-one")
 
     def result(self) -> str:
-        return _selected_name(self, "#pick-one", AbsenceType.ANNUAL.value)
+        return selected_name(self, "#pick-one", AbsenceType.ANNUAL.value)
 
 
 async def test_nothing_pressed_in_a_radio_set_answers_with_the_fallback(

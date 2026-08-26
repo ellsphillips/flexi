@@ -158,7 +158,7 @@ class RecordsModule(Module):
         empty = self.query_one("#records-empty", Static)
         empty.display = not ledgers
         table.display = bool(ledgers)
-        self.set_subtitle(_totals_subtitle(ledgers))
+        self.set_subtitle(totals_subtitle(ledgers))
 
     def _group(self, ledger: DayLedger, window: object) -> RowGroup:
         parent = Row(
@@ -377,7 +377,7 @@ class RecordsModule(Module):
         self.post_message(DeleteHere(self.table.cursor_key))
 
 
-def _totals_subtitle(ledgers: list[DayLedger]) -> str:
+def totals_subtitle(ledgers: list[DayLedger]) -> str:
     """Worked against expected for the whole period, in the module's live slot."""
     worked = sum((item.worked for item in ledgers), start=timedelta())
     expected = sum((item.expected for item in ledgers), start=timedelta())

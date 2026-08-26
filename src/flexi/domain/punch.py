@@ -14,10 +14,12 @@ lets one implementation draw a table cell, an expanded row and a week ribbon.
 
 from __future__ import annotations
 
+import bisect
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import StrEnum
+from itertools import pairwise
 
 from flexi import wallclock
 from flexi.domain.ledger import DayLedger
@@ -142,43 +144,53 @@ def strip(
 
     # Layers, painted in order. Each may overwrite the one before it, which is
     # what puts a session on top of an absence and the live cell on top of both.
-    _mark_absences(cells, ledger, bounds)
-    _mark_sessions(cells, ledger, bounds, moment)
-    _mark_breaks(cells, ledger, bounds)
-    _mark_target(cells, ledger, bounds)
-    _mark_live(cells, ledger, bounds, moment)
+    paint_absences(cells, ledger, bounds)
+    paint_sessions(cells, ledger, bounds, moment)
+    paint_breaks(cells, ledger, bounds)
+    paint_target(cells, ledger, bounds)
+    paint_live(cells, ledger, bounds, moment)
     return tuple(cells)
 
 
-def _overlaps(
+def overlaps(
     start: datetime, end: datetime, bounds: list[datetime], index: int
 ) -> bool:
     """Whether a span touches the cell at ``index``."""
     return start < bounds[index + 1] and end > bounds[index]
 
 
-def _mark_absences(
+def cell_holding(moment: datetime, bounds: list[datetime]) -> int | None:
+    """Which cell a moment falls in, or ``None`` if it falls outside the strip.
+
+    Through `bisect`, because the two callers each walked every cell to find
+    the one -- and the bounds are sorted, which is the whole precondition the
+    module already relies on.
+    """
+    index = bisect.bisect_right(bounds, moment) - 1
+    return index if 0 <= index < len(bounds) - 1 else None
+
+
+def paint_absences(
     cells: list[Cell], ledger: DayLedger, bounds: list[datetime]
 ) -> None:
     """A cell is absent when its midpoint falls inside a booked portion."""
     for slice_ in ledger.absences:
-        for index in range(len(cells)):
-            middle = bounds[index] + (bounds[index + 1] - bounds[index]) / 2
-            if slice_.covers(middle):
+        for index, (opens, closes) in enumerate(pairwise(bounds)):
+            if slice_.covers(opens + (closes - opens) / 2):
                 cells[index] = Cell.ABSENCE
 
 
-def _mark_sessions(
+def paint_sessions(
     cells: list[Cell], ledger: DayLedger, bounds: list[datetime], moment: datetime
 ) -> None:
     for segment in ledger.segments:
         finish = segment.finish(moment)
         for index in range(len(cells)):
-            if _overlaps(segment.start, finish, bounds, index):
+            if overlaps(segment.start, finish, bounds, index):
                 cells[index] = Cell.ON
 
 
-def _mark_breaks(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
+def paint_breaks(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
     """A break is only a break *between* two sessions.
 
     Time before arriving and after leaving is not being away, it is not being
@@ -186,23 +198,21 @@ def _mark_breaks(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -
     """
     for start, end in ledger.breaks():
         for index in range(len(cells)):
-            if cells[index] is Cell.OFF and _overlaps(start, end, bounds, index):
+            if cells[index] is Cell.OFF and overlaps(start, end, bounds, index):
                 cells[index] = Cell.BREAK
 
 
-def _mark_target(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
+def paint_target(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
     """Put the go-home tick on the first cell that is free to carry it."""
     leave_at = ledger.leave_at()
     if leave_at is None or ledger.expected <= timedelta():
         return
-    for index in range(len(cells)):
-        if bounds[index] <= leave_at < bounds[index + 1]:
-            if cells[index] in {Cell.OFF, Cell.BREAK}:
-                cells[index] = Cell.TARGET
-            return
+    index = cell_holding(leave_at, bounds)
+    if index is not None and cells[index] in {Cell.OFF, Cell.BREAK}:
+        cells[index] = Cell.TARGET
 
 
-def _mark_live(
+def paint_live(
     cells: list[Cell],
     ledger: DayLedger,
     bounds: list[datetime],
@@ -211,7 +221,6 @@ def _mark_live(
     """Highlight the cell an open session is currently in."""
     if not ledger.is_open:
         return
-    for index in range(len(cells)):
-        if bounds[index] <= moment < bounds[index + 1] and cells[index] is Cell.ON:
-            cells[index] = Cell.LIVE
-            return
+    index = cell_holding(moment, bounds)
+    if index is not None and cells[index] is Cell.ON:
+        cells[index] = Cell.LIVE

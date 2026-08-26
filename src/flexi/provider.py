@@ -9,14 +9,22 @@ why the keymap can stay small.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 
 from flexi.components.chrome import NAV_ITEMS
 from flexi.constants import AbsenceType
+from flexi.context import flexi_app
 from flexi.domain.period import Granularity
+
+if TYPE_CHECKING:
+    from flexi.app import FlexiApp
+
+NOTICE_SECONDS = 4
+"""How long the refresh notice stays up."""
 
 
 class FlexiCommands(Provider):
@@ -41,87 +49,75 @@ class FlexiCommands(Provider):
 
     # -- the catalogue -----------------------------------------------------
 
-    def _commands(self) -> Iterable[_Command]:
-        app = self.app
-        screen = getattr(app, "_dashboard", lambda: None)()
+    def _commands(self) -> Iterable[Command]:
+        app = flexi_app(self.app)
+        screen = app.dashboard()
 
-        yield _Command(
+        yield Command(
             "Clock in or out",
             "Toggle the clock. Bound to /",
-            getattr(app, "action_clock_toggle", _noop),
+            app.action_clock_toggle,
         )
-        yield _Command(
-            "Help", "Every binding on this screen", getattr(app, "action_help", _noop)
-        )
+        yield Command("Help", "Every binding on this screen", app.action_help)
 
         for item in NAV_ITEMS:
-            yield _Command(
+            yield Command(
                 f"Go to {item.label}",
                 item.description,
-                partial(getattr(app, "action_go_to", _noop), item.screen),
+                partial(app.action_go_to, item.screen),
             )
 
         if screen is None:
             return
 
         for granularity in Granularity:
-            yield _Command(
+            yield Command(
                 f"Period: {granularity.label.lower()}",
                 f"Show one {granularity.value} at a time",
                 partial(screen.action_zoom, granularity.value),
             )
-        yield _Command(
+        yield Command(
             "Go to today", "Return to the current period", screen.action_today
         )
-        yield _Command(
+        yield Command(
             "Go to date…", "Jump the view to a date", screen.action_go_to_date
         )
 
-        yield _Command(
+        yield Command(
             "Book leave…",
             "Open the leave year and book on it directly",
-            partial(getattr(app, "action_go_to", _noop), "leave"),
+            partial(app.action_go_to, "leave"),
         )
 
         for kind in AbsenceType:
-            yield _Command(
+            yield Command(
                 f"Book {kind.phrase}…",
                 f"Record {kind.phrase} on the selected day",
                 partial(screen.open_absence_modal, screen.period.anchor, kind),
             )
 
-        yield _Command(
+        yield Command(
             "Refresh bank holidays",
             "Re-fetch the GOV.UK calendar for the configured division",
-            partial(_refresh_holidays, app),
+            partial(refresh_holidays, app),
         )
 
 
-class _Command:
-    """One palette entry."""
+@dataclass(frozen=True, slots=True)
+class Command:
+    """One palette entry: what it is called, what it says, and what it does."""
 
-    __slots__ = ("help", "run", "title")
-
-    def __init__(self, title: str, help_text: str, run: Callable[[], Any]) -> None:
-        self.title = title
-        self.help = help_text
-        self.run = run
+    title: str
+    help: str
+    run: Callable[[], Any]
 
 
-def _noop() -> None:
-    """Do nothing, for a command whose target is not on this screen."""
-
-
-def _refresh_holidays(app: object) -> None:
-    services = getattr(app, "services", None)
-    if services is None:
-        return
-    ok = services.bank_holidays.fetch_and_cache()
-    services.invalidate()
-    notify = getattr(app, "notify", None)
-    if callable(notify):
-        notify(
-            "Bank holidays refreshed" if ok else "Could not reach gov.uk",
-            severity="information" if ok else "warning",
-            timeout=4,
-        )
+def refresh_holidays(app: FlexiApp) -> None:
+    """Re-fetch the GOV.UK calendar and say whether it arrived."""
+    fetched = app.services.bank_holidays.fetch_and_cache()
+    app.services.invalidate()
+    app.notify(
+        "Bank holidays refreshed" if fetched else "Could not reach gov.uk",
+        severity="information" if fetched else "warning",
+        timeout=NOTICE_SECONDS,
+    )

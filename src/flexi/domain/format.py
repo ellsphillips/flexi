@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+SECONDS_PER_MINUTE = 60
+
 MINUS = "−"
 """U+2212, not a hyphen: drawn at digit width, so a column of deltas aligns."""
 
@@ -161,3 +163,26 @@ def signed_days(value: float) -> str:
     if value == 0:
         return "0"
     return f"{'+' if value > 0 else MINUS}{days(abs(value))}"
+
+
+def spoken(span: timedelta) -> str:
+    """A short duration as somebody would say it out loud.
+
+    For thresholds rather than for readings: `hm` is the shape a balance wears,
+    and "under 0:01 on the clock" is not a sentence. Lived in
+    `services.clock` -- a service writing prose is the wrong module drawing the
+    words.
+
+    Examples:
+        >>> spoken(timedelta(minutes=1))
+        '1 minute'
+        >>> spoken(timedelta(minutes=5))
+        '5 minutes'
+        >>> spoken(timedelta(seconds=30))
+        '30 seconds'
+    """
+    seconds = int(span.total_seconds())
+    if seconds >= SECONDS_PER_MINUTE and seconds % SECONDS_PER_MINUTE == 0:
+        minutes = seconds // SECONDS_PER_MINUTE
+        return f"{minutes} {plural(minutes, 'minute')}"
+    return f"{seconds} {plural(seconds, 'second')}"

@@ -67,7 +67,7 @@ class WalletModule(Module):
         )
         for kind in TRACKED:
             self._draw(data.allowance(kind), data)
-        self.set_subtitle(_period_subtitle(data))
+        self.set_subtitle(period_subtitle(data))
 
     def _draw(self, allowance: Allowance, data: WalletData) -> None:
         gauge = self.query_one(f"#gauge-{allowance.token}", Gauge)
@@ -113,7 +113,7 @@ class WalletModule(Module):
             readout=f"{days(total - allowance.used)} left of {days(total)}",
             total=total,
             target=allowance.pace,
-            tone=_pace_tone(allowance),
+            tone=pace_tone(allowance),
         )
 
     def _draw_counted(self, gauge: Gauge, allowance: Allowance) -> None:
@@ -137,7 +137,7 @@ class WalletModule(Module):
         )
 
 
-def _pace_tone(allowance: Allowance) -> Tone:
+def pace_tone(allowance: Allowance) -> Tone:
     """Amber when an entitlement is being spent faster than the year is passing.
 
     Not red: spending leave early is a plan, not a fault. Red is reserved for
@@ -152,6 +152,6 @@ def _pace_tone(allowance: Allowance) -> Tone:
     }[allowance.pace_state]
 
 
-def _period_subtitle(data: WalletData) -> str:
+def period_subtitle(data: WalletData) -> str:
     """The module's live slot: how the shown period is doing."""
     return f"{delta(data.period.delta)} this period"

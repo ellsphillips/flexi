@@ -22,12 +22,12 @@ from flexi import wallclock
 from flexi.components.modules.base import Module
 from flexi.config import CONFIG
 from flexi.constants import DayKind
+from flexi.domain.dates import add_months
 from flexi.domain.ledger import DayLedger
 from flexi.domain.period import Granularity, Period
 from flexi.domain.stitch import (
     DAYS_IN_WEEK,
     MONTH_NAMES,
-    MONTHS_IN_YEAR,
     weekday_initials,
 )
 from flexi.messages import DateSelected, Scope
@@ -184,7 +184,7 @@ class MonthView(Module):
         Browsing ahead to see where the bank holidays fall should not change what
         the records table is showing; ``enter`` is what commits a move.
         """
-        self._visible = _add_month(self._visible, offset)
+        self._visible = add_months(self._visible, offset).replace(day=1)
         self.rebuild()
 
     def action_select(self) -> None:
@@ -195,9 +195,3 @@ def _month_grid(first_of_month: date) -> list[date]:
     """Six weeks of dates covering the month, Monday first."""
     start = first_of_month - timedelta(days=first_of_month.weekday())
     return [start + timedelta(days=offset) for offset in range(WEEKS * DAYS_IN_WEEK)]
-
-
-def _add_month(when: date, offset: int) -> date:
-    total = when.year * MONTHS_IN_YEAR + when.month - 1 + offset
-    year, month = divmod(total, MONTHS_IN_YEAR)
-    return date(year, month + 1, 1)

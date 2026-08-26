@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.wallet import Pace
 from flexi.services.registry import Services
-from flexi.services.wallet import _fraction_elapsed
+from flexi.services.wallet import fraction_elapsed
 from tests.services.conftest import Configured
 
 MONDAY = date(2026, 6, 8)
@@ -208,7 +208,7 @@ def test_the_elapsed_fraction_never_leaves_the_track(
     the year calendar scrolls — and the honest statement at each end is "none of
     it" and "all of it", not a negative marker or one off the right-hand side.
     """
-    assert _fraction_elapsed(date(2026, 6, 8), date(2027, 6, 7), today) == expected
+    assert fraction_elapsed(date(2026, 6, 8), date(2027, 6, 7), today) == expected
 
 
 def test_a_leave_year_of_one_day_is_wholly_elapsed() -> None:
@@ -218,4 +218,4 @@ def test_a_leave_year_of_one_day_is_wholly_elapsed() -> None:
     future change to it taking the sidebar down with a `ZeroDivisionError`.
     """
     day = date(2026, 6, 8)
-    assert _fraction_elapsed(day, day, day) == 1.0
+    assert fraction_elapsed(day, day, day) == 1.0

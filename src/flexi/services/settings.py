@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.constants import DEFAULT_DIVISION
 from flexi.domain import leaveyear
 from flexi.domain.stitch import MONTHS_IN_YEAR
 from flexi.models.database.db import (
@@ -100,6 +101,18 @@ class SettingsService:
                 settings.day_window_end = day_window_end
         self._session.commit()
         return settings
+
+    def get_division(self) -> str:
+        """The bank holiday division to follow, or the default before setup.
+
+        Here rather than in `services.registry`, which had it as a function
+        taking this service -- every other "what is stored, or what do we assume"
+        answer is a method on this class, and that one had drifted out.
+        """
+        stored = self.get_settings()
+        if stored is None or not stored.bank_holiday_division:
+            return DEFAULT_DIVISION.value
+        return str(stored.bank_holiday_division)
 
     def get_tracking_since(self) -> date | None:
         """The first day Flexi was there to record anything, if it is known.
@@ -221,7 +234,7 @@ SHORTEST_DAY_NAME = 3
 """Mon, Tue, Wed -- shorter than that and Tue and Thu are the same word."""
 
 
-def _weekday(token: str) -> int:
+def weekday_index(token: str) -> int:
     """One weekday, however it was written."""
     token = token.strip().lower()
     if token.isdigit():
@@ -264,13 +277,13 @@ def parse_working_days(raw: str) -> list[int]:
             continue
         start, separator, end = token.partition("-")
         if separator and end.strip():
-            first, last = _weekday(start), _weekday(end)
+            first, last = weekday_index(start), weekday_index(end)
             if first > last:
                 msg = f"'{token}' runs backwards"
                 raise ValueError(msg)
             days.update(range(first, last + 1))
         else:
-            days.add(_weekday(token))
+            days.add(weekday_index(token))
 
     if not days:
         msg = "Choose at least one working day"
@@ -288,7 +301,7 @@ def format_working_days(indices: Sequence[int]) -> str:
     return ", ".join(DAY_NAMES[index][:3].title() for index in sorted(set(indices)))
 
 
-_CLOCK = re.compile(r"^(\d{1,2})(?:[:.](\d{1,2}))?\s*([ap]m?)?$", re.IGNORECASE)
+CLOCK_PATTERN = re.compile(r"^(\d{1,2})(?:[:.](\d{1,2}))?\s*([ap]m?)?$", re.IGNORECASE)
 
 
 def parse_clock_time(raw: str) -> tuple[int, int]:
@@ -310,7 +323,7 @@ def parse_clock_time(raw: str) -> tuple[int, int]:
         >>> parse_clock_time("12am")
         (0, 0)
     """
-    found = _CLOCK.match(raw.strip())
+    found = CLOCK_PATTERN.match(raw.strip())
     if found is None:
         msg = f"'{raw}' is not a time: use HH:MM, like 18:00"
         raise ValueError(msg)

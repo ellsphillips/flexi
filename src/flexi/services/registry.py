@@ -12,7 +12,6 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import DEFAULT_DIVISION
 from flexi.services.absence import AbsenceService
 from flexi.services.adjustments import (
     OPENING_BALANCE,
@@ -43,15 +42,14 @@ class Services:
     def build(cls, session: Session) -> Services:
         """Construct the whole graph in dependency order."""
         settings = SettingsService(session)
-        division = _division(settings)
-        bank_holidays = BankHolidayService(session, division)
+        bank_holidays = BankHolidayService(session, settings.get_division())
         absence = AbsenceService(session, settings, bank_holidays)
         ledger = LedgerService(session, settings, bank_holidays)
         return cls(
             session=session,
             settings=settings,
             bank_holidays=bank_holidays,
-            clock=ClockService(session, settings, bank_holidays, _minimum_session()),
+            clock=ClockService(session, settings, bank_holidays, minimum_session()),
             absence=absence,
             adjustments=AdjustmentService(session),
             ledger=ledger,
@@ -87,7 +85,7 @@ class Services:
         return result
 
 
-def _minimum_session() -> timedelta:
+def minimum_session() -> timedelta:
     """How long a session has to last to count.
 
     A preference, so it comes from the config file rather than the database.
@@ -95,11 +93,3 @@ def _minimum_session() -> timedelta:
     from flexi.config import CONFIG
 
     return timedelta(seconds=CONFIG.defaults.minimum_session_seconds)
-
-
-def _division(settings: SettingsService) -> str:
-    """The configured bank-holiday division, or the default before setup runs."""
-    stored = settings.get_settings()
-    if stored is None or not stored.bank_holiday_division:
-        return DEFAULT_DIVISION.value
-    return stored.bank_holiday_division

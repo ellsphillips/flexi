@@ -1,4 +1,4 @@
-"""Reading the several ways somebody might type a date.
+"""Reading the several ways somebody might type a date, and moving between them.
 
 Lives in the domain rather than beside the modal that used to own it, because a
 command line needs the same vocabulary a dialog does, and the CLI cannot import
@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import enum
 import re
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Final
 
+from flexi.domain import leaveyear
 from flexi.domain.format import stamp
 
 DAYS_IN_WEEK: Final = 7
@@ -47,7 +49,7 @@ OFFSET_UNITS: Final[dict[str, int]] = {"d": 1, "w": 7}
 
 SEPARATORS: Final[tuple[str, ...]] = (" to ", " until ", " through ", "..")
 
-_FORMATS: Final[tuple[str, ...]] = (
+FORMATS: Final[tuple[str, ...]] = (
     "%d %b %Y",
     "%d %B %Y",
     "%d %b",
@@ -61,7 +63,7 @@ _FORMATS: Final[tuple[str, ...]] = (
     "%d-%m-%Y",
 )
 
-_HELP: Final = "Try 2026-06-12, 12 Jun, friday, next monday, tomorrow, 12, or +3d"
+DATE_HELP: Final = "Try 2026-06-12, 12 Jun, friday, next monday, tomorrow, 12, or +3d"
 
 
 class Preference(enum.Enum):
@@ -100,12 +102,12 @@ def parse_date(
         msg = "Type a date, a day of the month, or an offset like +3d"
         raise ValueError(msg)
 
-    for reader in (_relative, _weekday, _offset, _formatted, _day_of_month):
+    for reader in READERS:
         found = reader(text, today, prefer)
         if found is not None:
             return found
 
-    raise ValueError(_HELP)
+    raise ValueError(DATE_HELP)
 
 
 def parse_span(
@@ -149,7 +151,17 @@ def parse_span(
 # -- the readers, tried in order --------------------------------------------
 
 
-def _relative(text: str, today: date, prefer: Preference) -> date | None:
+type Reader = Callable[[str, date, Preference], date | None]
+"""One way of reading a date, answering ``None`` when the text is not its shape.
+
+The three that do not resolve an ambiguous date take ``prefer`` and discard it.
+That is the price of one signature: `parse_date` walks :data:`READERS` in order
+and the first answer wins, so a reader has to be interchangeable with its
+neighbours whether or not it needs everything it is handed.
+"""
+
+
+def parse_relative(text: str, today: date, prefer: Preference) -> date | None:
     del prefer
     if text == "today":
         return today
@@ -164,7 +176,7 @@ def _relative(text: str, today: date, prefer: Preference) -> date | None:
     return None
 
 
-def _weekday(text: str, today: date, prefer: Preference) -> date | None:
+def parse_weekday(text: str, today: date, prefer: Preference) -> date | None:
     """A weekday name, optionally with ``next`` or ``last`` in front of it."""
     del prefer
     word, _, rest = text.partition(" ")
@@ -185,7 +197,7 @@ def _weekday(text: str, today: date, prefer: Preference) -> date | None:
     return None
 
 
-def _offset(text: str, today: date, prefer: Preference) -> date | None:
+def parse_offset(text: str, today: date, prefer: Preference) -> date | None:
     del prefer
     if not re.fullmatch(r"[+-]\d+[dwmy]", text):
         return None
@@ -193,17 +205,17 @@ def _offset(text: str, today: date, prefer: Preference) -> date | None:
     if unit in OFFSET_UNITS:
         return today + timedelta(days=count * OFFSET_UNITS[unit])
     if unit == "m":
-        return _add_months(today, count)
-    return _add_months(today, count * MONTHS_IN_YEAR)
+        return add_months(today, count)
+    return add_months(today, count * MONTHS_IN_YEAR)
 
 
-def _formatted(text: str, today: date, prefer: Preference) -> date | None:
+def parse_written(text: str, today: date, prefer: Preference) -> date | None:
     try:
         return date.fromisoformat(text)
     except ValueError:
         pass
 
-    for pattern in _FORMATS:
+    for pattern in FORMATS:
         dated, dated_pattern = (
             (text, pattern)
             if "%Y" in pattern
@@ -218,11 +230,11 @@ def _formatted(text: str, today: date, prefer: Preference) -> date | None:
             continue
         if "%Y" in pattern:
             return parsed
-        return _forward_if_passed(parsed, today, prefer)
+        return forward_if_passed(parsed, today, prefer)
     return None
 
 
-def _day_of_month(text: str, today: date, prefer: Preference) -> date | None:
+def parse_day_of_month(text: str, today: date, prefer: Preference) -> date | None:
     if not text.isdigit():
         return None
     day = int(text)
@@ -232,29 +244,64 @@ def _day_of_month(text: str, today: date, prefer: Preference) -> date | None:
         msg = f"{today:%B} has no day {day}"
         raise ValueError(msg) from error
     if prefer is Preference.FORWARD and this_month < today:
-        return _add_months(this_month, 1)
+        return add_months(this_month, 1)
     return this_month
 
 
 # -- helpers -----------------------------------------------------------------
 
 
-def _forward_if_passed(parsed: date, today: date, prefer: Preference) -> date:
+def forward_if_passed(parsed: date, today: date, prefer: Preference) -> date:
     """A date already read in this year, moved on if booking has passed it."""
     if prefer is Preference.FORWARD and parsed < today:
-        return _add_months(parsed, MONTHS_IN_YEAR)
+        return add_months(parsed, MONTHS_IN_YEAR)
     return parsed
 
 
-def _add_months(when: date, count: int) -> date:
-    """Move whole months, clamping to the end of a shorter one."""
+def date_range(start: date, end: date) -> list[date]:
+    """Every date from ``start`` to ``end``, inclusive; empty if they cross.
+
+    `services.ledger` and `services.absence` each carried this, byte for byte,
+    under a different name.
+
+    Examples:
+        >>> [f"{day:%d}" for day in date_range(date(2026, 6, 10), date(2026, 6, 12))]
+        ['10', '11', '12']
+        >>> date_range(date(2026, 6, 12), date(2026, 6, 10))
+        []
+    """
+    span = (end - start).days
+    return [start + timedelta(days=offset) for offset in range(max(0, span + 1))]
+
+
+def add_months(when: date, count: int) -> date:
+    """Move whole months, clamping to the end of a shorter one.
+
+    The one implementation. `domain.period` had a second and
+    `components.modules.monthview` a third, and the day-length arithmetic under
+    it was a hand-rolled `_days_in` that `calendar.monthrange` already answers
+    -- which `leaveyear.clamp` was already calling.
+
+    Examples:
+        >>> add_months(date(2026, 1, 31), 1)
+        datetime.date(2026, 2, 28)
+        >>> add_months(date(2026, 3, 15), -2)
+        datetime.date(2026, 1, 15)
+    """
     total = when.year * MONTHS_IN_YEAR + (when.month - 1) + count
     year, month = divmod(total, MONTHS_IN_YEAR)
-    month += 1
-    last = _days_in(year, month)
-    return date(year, month, min(when.day, last))
+    return leaveyear.clamp(year, month + 1, when.day)
 
 
-def _days_in(year: int, month: int) -> int:
-    following = date(year + (month == MONTHS_IN_YEAR), month % MONTHS_IN_YEAR + 1, 1)
-    return (following - timedelta(days=1)).day
+READERS: Final[tuple[Reader, ...]] = (
+    parse_relative,
+    parse_weekday,
+    parse_offset,
+    parse_written,
+    parse_day_of_month,
+)
+"""Every way a date can be read, in the order `parse_date` tries them.
+
+Order is the grammar: a bare ``12`` is a day of the month only because nothing
+before it claimed the text.
+"""

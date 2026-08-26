@@ -24,6 +24,7 @@ from flexi.domain.balance import (
     toil_taken_for,
     worked_from,
 )
+from flexi.domain.dates import date_range
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.punch import Window
 from flexi.models.database.db import (
@@ -85,7 +86,7 @@ class LedgerService:
         moment = wallclock.local(now) if now is not None else wallclock.now()
         today = moment.date()
 
-        wanted = _date_range(start, end)
+        wanted = date_range(start, end)
         missing = [day for day in wanted if day not in self._cache or day == today]
         if missing:
             self._build(min(missing), max(missing), moment, today)
@@ -121,10 +122,10 @@ class LedgerService:
         contracted = self.contracted
         tracking_since = self._settings.get_tracking_since()
 
-        for when in _date_range(start, end):
+        for when in date_range(start, end):
             segments = tuple(
                 sorted(
-                    (_segment(row) for row in sessions[when]),
+                    (segment_of(row) for row in sessions[when]),
                     key=lambda item: item.start,
                 )
             )
@@ -135,7 +136,7 @@ class LedgerService:
             title = holidays.get(when)
             is_working = when.weekday() in working_days
             # Work recorded on a day is proof Flexi was there for it,
-            # whatever the stamp says, and it outranks the stamp in `_kind`
+            # whatever the stamp says, and it outranks the stamp in `day_kind`
             # too. Letting the two disagree would draw the day as worked and
             # then expect nothing of it, so the session read as pure surplus.
             is_tracked = (
@@ -143,7 +144,7 @@ class LedgerService:
             )
 
             worked = worked_from(
-                segments, now=moment if when >= today else _end_of(when)
+                segments, now=moment if when >= today else end_of_day(when)
             )
             expected = expected_for(
                 contracted,
@@ -155,7 +156,7 @@ class LedgerService:
 
             self._cache[when] = DayLedger(
                 date=when,
-                kind=_kind(
+                kind=day_kind(
                     title,
                     slices,
                     segments,
@@ -237,7 +238,7 @@ class LedgerService:
         return self._holidays_service.titles_between(start, end) or {}
 
 
-def _end_of(day: date) -> datetime:
+def end_of_day(day: date) -> datetime:
     """The last moment of a date.
 
     A session nobody closed is worth the rest of its own day, not every hour
@@ -248,7 +249,7 @@ def _end_of(day: date) -> datetime:
     return wallclock.local(datetime.combine(day, time.max))
 
 
-def _segment(row: WorkSession) -> Segment:
+def segment_of(row: WorkSession) -> Segment:
     start = moment_of(row.clock_in_event)
     end = moment_of(row.clock_out_event) if row.clock_out_event is not None else None
     return Segment(
@@ -260,7 +261,7 @@ def _segment(row: WorkSession) -> Segment:
     )
 
 
-def _kind(
+def day_kind(
     holiday: str | None,
     slices: tuple[AbsenceSlice, ...],
     segments: tuple[Segment, ...],
@@ -289,11 +290,6 @@ def _kind(
     if slices:
         return DayKind.PARTIAL
     return DayKind.WORKING
-
-
-def _date_range(start: date, end: date) -> list[date]:
-    span = (end - start).days
-    return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
 
 
 def utc_now() -> datetime:

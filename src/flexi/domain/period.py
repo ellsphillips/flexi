@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from enum import StrEnum
 
 from flexi.domain import leaveyear
+from flexi.domain.dates import add_months
 from flexi.domain.format import day_month, long_date
 
 MONTH_NAMES = (
@@ -57,16 +58,6 @@ class Granularity(StrEnum):
         """The previous granularity in the cycle."""
         order: list[Granularity] = list(Granularity)
         return order[(order.index(self) - 1) % len(order)]
-
-
-def _clamp_day(year: int, month: int, day: int) -> date:
-    """The given day of the given month, or its last day if it is shorter."""
-    return leaveyear.clamp(year, month, day)
-
-
-def _add_months(anchor: date, months: int) -> date:
-    total = (anchor.year * 12 + anchor.month - 1) + months
-    return _clamp_day(total // 12, total % 12 + 1, anchor.day)
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +170,7 @@ class Period:
             case Granularity.WEEK:
                 return replace(self, anchor=self.anchor + timedelta(weeks=count))
             case Granularity.MONTH:
-                return replace(self, anchor=_add_months(self.anchor, count))
+                return replace(self, anchor=add_months(self.anchor, count))
             case Granularity.YEAR:  # pragma: no branch
                 # Asked of `leaveyear`, for the reason `end` is: twelve months
                 # from a clamped 29 February is a date inside the year it came

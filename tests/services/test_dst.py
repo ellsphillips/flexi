@@ -122,7 +122,7 @@ def test_an_open_session_ticks_forward_through_the_fallback_hour(
 ) -> None:
     """It used to read 0:00 for a full real hour, then jump."""
     from flexi.domain.balance import worked_from
-    from flexi.services.ledger import _segment
+    from flexi.services.ledger import segment_of
 
     service = Services.build(session).clock
     service.clock_in(now=_at(f"{FALLBACK}T00:30"))
@@ -130,7 +130,7 @@ def test_an_open_session_ticks_forward_through_the_fallback_hour(
     assert open_session is not None
 
     now = _at(f"{FALLBACK}T00:30") + timedelta(minutes=elapsed)
-    worked = worked_from((_segment(open_session),), wallclock.local(now))
+    worked = worked_from((segment_of(open_session),), wallclock.local(now))
     assert worked == timedelta(minutes=expected)
 
 

@@ -53,7 +53,7 @@ class WalletService:
         """The wallet as at ``today``, with ``start``–``end`` as the shown period."""
         today = today or wallclock.today()
         year_start, year_end = self._absence.leave_year_bounds(today)
-        elapsed = _fraction_elapsed(year_start, year_end, today)
+        elapsed = fraction_elapsed(year_start, year_end, today)
         contracted = self._settings.get_contracted()
 
         balance = self._ledger.balance(today, now=now)
@@ -121,7 +121,7 @@ class WalletService:
         return banked - committed
 
 
-def _fraction_elapsed(start: date, end: date, today: date) -> float:
+def fraction_elapsed(start: date, end: date, today: date) -> float:
     """How far through a span today is, clamped to 0..1.
 
     Clamped rather than allowed to run past 1.0 so a pace marker can never leave

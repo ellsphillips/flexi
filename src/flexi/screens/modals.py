@@ -223,9 +223,9 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
             raise ValueError(str(error)) from error
 
         kind = AbsenceType(
-            _selected_name(self, "#absence-type", AbsenceType.ANNUAL.value)
+            selected_name(self, "#absence-type", AbsenceType.ANNUAL.value)
         )
-        portion = Portion(_selected_name(self, "#absence-portion", Portion.FULL.value))
+        portion = Portion(selected_name(self, "#absence-portion", Portion.FULL.value))
         note = self.query_one("#absence-note", Input).value.strip() or None
 
         if kind.requires_note and not note:
@@ -274,7 +274,7 @@ class GoToDateModal(FlexiModal[date]):
         return parse_date(self.query_one("#goto-input", Input).value, today=self._today)
 
 
-def _selected_name(screen: ModalScreen[Any], selector: str, fallback: str) -> str:
+def selected_name(screen: ModalScreen[Any], selector: str, fallback: str) -> str:
     """The ``name`` of the pressed radio button, or a fallback.
 
     Radio sets report the pressed *button*, and Flexi puts the enum value in its

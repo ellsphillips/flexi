@@ -27,7 +27,7 @@ from textual.widgets import Button, Digits, Label, Static, Switch
 
 from flexi.components.common import Tone
 from flexi.components.expandable import SESSION, TOTAL, day_key
-from flexi.components.modules.balance import BalanceModule, _state_class
+from flexi.components.modules.balance import BalanceModule, lean_class
 from flexi.components.modules.base import Module
 from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.monthview import MonthView
@@ -37,7 +37,7 @@ from flexi.components.modules.records import (
     DeleteHere,
     RecordsModule,
 )
-from flexi.components.modules.wallet import _pace_tone
+from flexi.components.modules.wallet import pace_tone
 from flexi.components.punch import PunchStrip
 from flexi.constants import AbsenceType, DayKind, Portion
 from flexi.domain.ledger import AbsenceSlice, DayLedger
@@ -297,7 +297,7 @@ def test_a_balance_with_no_contract_behind_it_is_left_in_hours() -> None:
 
 def test_a_level_balance_is_muted_rather_than_coloured() -> None:
     """Green is earned by a surplus; nil is not a very small one."""
-    assert _state_class(timedelta()) == "muted"
+    assert lean_class(timedelta()) == "muted"
 
 
 # -- the wallet --------------------------------------------------------------
@@ -325,7 +325,7 @@ def test_only_an_allowance_with_nothing_left_is_red(
     allowance = Allowance(
         type=AbsenceType.ANNUAL, used=used, occurrences=1, total=total, pace=pace
     )
-    assert _pace_tone(allowance) is expected
+    assert pace_tone(allowance) is expected
 
 
 # -- the calendar ------------------------------------------------------------
