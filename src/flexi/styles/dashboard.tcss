@@ -227,6 +227,12 @@ DashboardScreen.-tiny #balance-module {
     color: $c-ash;
 }
 
+/* Before Flexi was set up. The same grey a weekend wears: both are days it
+   asks nothing of, and neither is a day somebody failed to turn up for. */
+.calendar-row Label.day-untracked {
+    color: $c-line;
+}
+
 .calendar-row Label.day-worked {
     color: $c-accent-lift;
 }

@@ -43,6 +43,7 @@ KIND_CLASSES: Final[Mapping[DayKind, str]] = MappingProxyType(
         DayKind.PARTIAL: "day-partial",
         DayKind.WEEKEND: "day-weekend",
         DayKind.WORKING: "day-working",
+        DayKind.UNTRACKED: "day-untracked",
     }
 )
 

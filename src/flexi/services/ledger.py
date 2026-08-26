@@ -181,6 +181,7 @@ class LedgerService:
         settings = self._settings.resolved()
         working_days = set(settings.working_days)
         contracted = settings.contracted
+        tracking_since = settings.tracking_since
 
         for when in days_between(start, end):
             segments = tuple(
@@ -195,12 +196,20 @@ class LedgerService:
             )
             title = holidays.get(when)
             is_working = when.weekday() in working_days
+            # Work recorded on a day is proof Flexi was there for it,
+            # whatever the stamp says, and it outranks the stamp in `_kind`
+            # too. Letting the two disagree would draw the day as worked and
+            # then expect nothing of it, so the session read as pure surplus.
+            is_tracked = (
+                tracking_since is None or when >= tracking_since or bool(segments)
+            )
 
             worked = worked_from(
                 segments, now=moment if when >= today else end_of_day(when)
             )
             expected = expected_for(
                 contracted,
+                is_tracked=is_tracked,
                 is_working_day=is_working,
                 is_holiday=title is not None,
                 absences=slices,
@@ -208,7 +217,13 @@ class LedgerService:
 
             self._cache[when] = DayLedger(
                 date=when,
-                kind=day_kind(title, slices, segments, is_working=is_working),
+                kind=day_kind(
+                    title,
+                    slices,
+                    segments,
+                    is_working=is_working,
+                    is_tracked=is_tracked,
+                ),
                 is_working_day=is_working,
                 contracted=contracted,
                 worked=worked,
@@ -305,13 +320,21 @@ def day_kind(
     segments: tuple[Segment, ...],
     *,
     is_working: bool,
+    is_tracked: bool,
 ) -> DayKind:
     """What a date is, from what is recorded against it.
 
-    The one place the five kinds are decided. `PARTIAL` is the case a
-    one-status-per-day table gets wrong: a half-day absence with work in the
-    other half.
+    The one place the six kinds are decided, in precedence order. `UNTRACKED`
+    comes first: a day before setup is not a day somebody failed to work, so
+    labelling it a weekend or a bank holiday would answer a question nobody
+    asked. A day with a session on it is never untracked -- `_build` settles
+    that before this is called.
+
+    `PARTIAL` is the case a one-status-per-day table gets wrong: a half-day
+    absence with work in the other half.
     """
+    if not is_tracked:
+        return DayKind.UNTRACKED
     if holiday is not None:
         return DayKind.HOLIDAY
     if not is_working:

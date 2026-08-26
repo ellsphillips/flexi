@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+import time_machine
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
@@ -867,3 +868,90 @@ def test_the_exclusive_re_read_is_the_authority_on_an_unstamped_schema(
 
     with pytest.raises(RuntimeError, match="unstamped schema"):
         run_migrations(db)
+
+
+# ---- 0015: the day tracking began ----
+
+BEFORE_TRACKING = "0014"
+
+
+def tracking_since_of(db: Path) -> date | None:
+    """Read back through the model, which is what the application will see.
+
+    SQLite has no date type, so the column holds a string either way; what
+    matters is that `Settings.tracking_since` comes back as a `date`.
+    """
+    session = get_session(create_db_engine(db))
+    try:
+        return session.query(Settings).one().tracking_since
+    finally:
+        session.close()
+
+
+def configured(db: Path) -> None:
+    """A settings row as 0014 knew it, written without the ORM.
+
+    Through raw SQL because the model has `tracking_since` and 0015 is what
+    adds it; writing through the model would test the schema against itself
+    rather than against what is on disk.
+    """
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO settings (id, singleton_key, leave_year_start,"
+                " working_days, bank_holiday_division, auto_close_time,"
+                " contracted_minutes, day_window_start, day_window_end)"
+                " VALUES (1, 1, '04-06', '0,1,2,3,4', 'england-and-wales',"
+                " '18:00', 444, '07:00', '19:00')"
+            )
+        )
+        connection.commit()
+    engine.dispose()
+
+
+def test_a_database_with_records_is_dated_from_its_earliest_one(db: Path) -> None:
+    """Somebody who has been using Flexi keeps the balance they had.
+
+    The earliest thing on disk is the earliest day Flexi can be shown to have
+    been running, so dating tracking from it leaves every recorded day counting
+    exactly as it did before the column existed.
+    """
+    upgrade(db, BEFORE_TRACKING)
+    configured(db)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO clock_events (id, action, timestamp, source)"
+                " VALUES (1, 'IN', '2026-05-04 09:00:00', 'user')"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO work_sessions (id, clock_in_id, work_date, auto_closed)"
+                " VALUES (1, 1, '2026-05-04', 0)"
+            )
+        )
+        connection.commit()
+    engine.dispose()
+
+    upgrade(db, HEAD)
+
+    assert tracking_since_of(db) == date(2026, 5, 4)
+
+
+def test_a_database_with_nothing_recorded_is_dated_from_the_upgrade(db: Path) -> None:
+    """There is no deficit worth keeping, so the phantom one goes.
+
+    A settings row and not one session is somebody who set Flexi up and never
+    came back. Every working day since their leave year opened is scoring a
+    contracted day against them and not one of them is real.
+    """
+    upgrade(db, BEFORE_TRACKING)
+    configured(db)
+
+    with time_machine.travel(date(2026, 8, 26), tick=False):
+        upgrade(db, HEAD)
+
+    assert tracking_since_of(db) == date(2026, 8, 26)
