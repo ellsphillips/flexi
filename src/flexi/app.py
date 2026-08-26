@@ -325,7 +325,25 @@ class FlexiApp(TextualApp[None]):
         self.services.invalidate()
         for screen in self.screen_stack:
             if isinstance(screen, Refreshable):
-                screen.refresh_modules(scope)
+                try:
+                    screen.refresh_modules(scope)
+                except NoMatches:
+                    # Still being built. Widgets compose depth by depth, so a
+                    # redraw arriving from off the message loop -- the bank
+                    # holiday worker's -- can land on a module whose own cells
+                    # are not in the tree yet.
+                    #
+                    # Caught here rather than guarded at each widget: there is
+                    # no flag that means "my whole subtree is composed"
+                    # (`is_mounted` is true well before it), and a screen that
+                    # is still mounting draws itself from `on_mount` a moment
+                    # later, with the data this call had already committed.
+                    #
+                    # This cannot hide a mistyped selector. Every module calls
+                    # `rebuild` directly from its own `on_mount`, which is not
+                    # this path, so a bad id still fails loudly on the first
+                    # draw.
+                    continue
 
     def dashboard(self) -> DashboardScreen | None:
         for screen in self.screen_stack:

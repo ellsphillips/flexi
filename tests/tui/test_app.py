@@ -10,12 +10,14 @@ ones worth pinning.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
 from pathlib import Path
 
 import httpx
 import pytest
 from sqlalchemy import update
+from textual.css.query import NoMatches
 from textual.pilot import Pilot
 from textual.widgets import Input, Select
 
@@ -155,6 +157,47 @@ async def test_a_calendar_fetched_this_week_is_left_alone(seeded_db: Path) -> No
         assert not [
             line for line in await said(app, pilot) if "bank holiday" in line.lower()
         ]
+
+
+MOUNT_TICKS = 20
+"""Event loop turns to redraw across. The window this is about opens four or
+five turns in, so this clears it with room to spare and costs a second."""
+
+
+async def test_a_redraw_arriving_while_the_screen_mounts_is_not_a_crash(
+    seeded_db: Path,
+) -> None:
+    """Widgets compose depth by depth, and a redraw can land between two levels.
+
+    `refresh_open_screens` is called from off the message loop when the bank
+    holiday worker finishes, so it can reach a dashboard whose modules are in
+    the tree and whose calendar cells are not yet — `NoMatches`, raised on a
+    worker and reported as the whole application failing. CI hit it on a loaded
+    runner; this laptop never did.
+
+    Redrawing on every turn of the loop while the app starts is what makes the
+    window reachable on demand. There is no flag to assert against instead:
+    `is_mounted` goes true well before a widget's own children arrive, which is
+    why the first fix for this did not take.
+    """
+    app = FlexiApp(db_path=seeded_db)
+    raised: list[NoMatches] = []
+
+    async def redraw_throughout_mounting() -> None:
+        for _ in range(MOUNT_TICKS):
+            try:
+                app.refresh_open_screens()
+            except NoMatches as error:
+                raised.append(error)
+                return
+            await asyncio.sleep(0)
+
+    hammer = asyncio.create_task(redraw_throughout_mounting())
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+    hammer.cancel()
+
+    assert not raised, f"a redraw during mounting raised {raised[0]!r}"
 
 
 async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
