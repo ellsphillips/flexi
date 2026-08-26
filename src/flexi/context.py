@@ -21,12 +21,39 @@ lookup avoiding a type.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from textual.app import App as TextualApp
+    from textual.screen import Screen
 
     from flexi.app import FlexiApp
+    from flexi.domain.period import Period
+
+
+class ModuleHost(Protocol):
+    """What a screen has to own before it can mount a module.
+
+    Both of these were reached with ``getattr(self.screen, name, fallback)`` and
+    a cast. Neither fallback was taken once in fifteen hundred tests and neither
+    can be -- every screen that mounts a module sets both in ``__init__`` -- but
+    the period's fallback still read the clock and built a week around it on
+    every access, to compute a default that was then thrown away.
+
+    Written as a protocol rather than a base class because the three screens
+    already share no ancestor, and what a module needs of its host is these two
+    attributes rather than an inheritance.
+    """
+
+    period: Period
+    now: datetime
+
+
+def module_host(screen: Screen[Any]) -> ModuleHost:
+    """The screen a module is mounted on, typed as one that can host it."""
+    return cast("ModuleHost", screen)
 
 
 def flexi_app(app: TextualApp[Any]) -> FlexiApp:
