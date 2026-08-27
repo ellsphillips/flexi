@@ -94,13 +94,17 @@ async def test_p_cycles_the_granularity(app_factory: AppFactory) -> None:
 
 
 async def test_the_header_says_where_you_are(app_factory: AppFactory) -> None:
-    """It names today and the shown period, always, in the same place."""
+    """It names the shown period, always, in the same place.
+
+    The date left this slot for the clock panel, beside the figure that moves
+    every second. Two facts sharing one corner meant the period -- the thing the
+    period key changes -- was the half a reader had to look past.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         header = app.screen.query_one("#header-context")
-        assert "Thu 11 Jun" in str(header.render())
-        assert "Week of 8 Jun" in str(header.render())
+        assert str(header.render()) == "Week of 8 Jun"
 
         await pilot.press("m")
         await pilot.pause()

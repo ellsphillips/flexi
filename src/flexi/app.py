@@ -31,7 +31,7 @@ from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
 import flexi
-from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, NavBar
+from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, AppHeader, NavBar
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import (
     HasFocusTarget,
@@ -134,6 +134,8 @@ class FlexiApp(TextualApp[None]):
             self._bank_holiday_fetcher = bank_holiday_fetcher
             self._holiday_refresh_lock = Lock()
             self._shutdown_event = Event()
+            self.latest_release = ""
+            """The published version superseding this one, once one is known."""
             self._database_lifetime = construction.pop_all()
 
     # -- lifecycle ---------------------------------------------------------
@@ -268,12 +270,35 @@ class FlexiApp(TextualApp[None]):
         latest = available_update()
         if latest is None:
             return
+        self.call_from_thread(self.update_offered, latest)
         self.notify(
             f"Update available: {flexi.__version__} → {latest}\n"
             f"Run: uv tool upgrade flexi",
             severity="information",
             timeout=UPDATE_NOTICE_SECONDS,
         )
+
+    def update_offered(self, latest: str) -> None:
+        """Remember that a newer version exists, and say so on every header.
+
+        Called on the message loop: the check runs on a thread, and a reactive
+        written from one is a widget refreshed from off the loop.
+        """
+        self.latest_release = latest
+        self.dress_headers()
+
+    def dress_headers(self) -> None:
+        """Tell every header on the stack what the app knows about the release.
+
+        Pushed rather than asked for. A header is mounted bare in its own tests
+        and must not reach upward for an application that is not there -- and a
+        screen opened after the check finished has a header that never heard.
+        """
+        if not self.latest_release:
+            return
+        for screen in self.screen_stack:
+            for header in screen.query(AppHeader):
+                header.offer_update(self.latest_release)
 
     # -- navigation --------------------------------------------------------
 
@@ -330,6 +355,12 @@ class FlexiApp(TextualApp[None]):
         self._pushed = screen
         self.nav = name
         self.push_screen(screen, callback=partial(self._back, screen))
+        # After the refresh, because the pushed screen composes its header on
+        # the way in and there is nothing to tell until it has. A destination
+        # opened after the release check finished otherwise has a header that
+        # never heard the answer -- and the value is the application's, so the
+        # application hands it over rather than the header reaching for it.
+        self.call_after_refresh(self.dress_headers)
 
     def _close_pushed(self) -> None:
         """Dismiss whatever destination is open, if any.

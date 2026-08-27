@@ -22,8 +22,9 @@ from textual.css.query import NoMatches
 from textual.pilot import Pilot
 from textual.widgets import Input, Select
 
+import flexi
 from flexi.app import FlexiApp
-from flexi.components.chrome import NavBar
+from flexi.components.chrome import NavBar, VersionTag
 from flexi.components.modules.records import RecordsModule
 from flexi.constants import Division
 from flexi.context import flexi_app
@@ -745,3 +746,80 @@ def test_the_application_satisfies_the_complete_composed_contract(
     app = FlexiApp(db_path=seeded_db)
 
     assert flexi_app(app) is app
+
+
+# -- the version, and the one that supersedes it -----------------------------
+
+
+def version_tag(app: FlexiApp) -> VersionTag:
+    return app.screen.query_one(VersionTag)
+
+
+async def test_the_header_names_the_installed_version(
+    app_factory: AppFactory,
+) -> None:
+    """Quiet when there is nothing to say. A current build is not news."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        tag = version_tag(app)
+
+        assert str(tag.render()) == flexi.__version__
+        assert not tag.has_class("-outdated")
+        assert tag.tooltip is None
+
+
+async def test_a_newer_release_is_offered_in_the_header_not_only_in_a_toast(
+    app_factory: AppFactory,
+) -> None:
+    """A toast says it once and is gone; the tag is there whenever you look up.
+
+    The command to run cannot fit beside a version number, so it is the
+    tooltip -- and the toast keeps saying it too, for anyone who never hovers.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        app.update_offered("99.0.0")
+        await pilot.pause()
+        tag = version_tag(app)
+
+        assert str(tag.render()) == f"{flexi.__version__} → 99.0.0"
+        assert tag.has_class("-outdated")
+        assert "uv tool upgrade flexi" in str(tag.tooltip)
+
+
+async def test_a_destination_opened_afterwards_hears_about_the_release(
+    app_factory: AppFactory,
+) -> None:
+    """The check finishes on a thread, whenever it finishes.
+
+    A screen pushed after it has a header that was not there to be told, and
+    the header must not reach upward for an application it is sometimes mounted
+    without. So the application hands it over on the way in.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        app.update_offered("99.0.0")
+        await pilot.pause()
+
+        await pilot.press("f2")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert str(version_tag(app).render()) == f"{flexi.__version__} → 99.0.0"
+
+
+async def test_a_current_build_leaves_every_header_quiet(
+    app_factory: AppFactory,
+) -> None:
+    """`dress_headers` runs on every push, and has nothing to say on most."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await pilot.press("f3")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert not version_tag(app).has_class("-outdated")

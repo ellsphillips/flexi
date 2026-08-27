@@ -30,7 +30,7 @@ from flexi.components.options import ModuleOptions, ScreenOptions
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
 from flexi.context import service_app
-from flexi.domain.format import day_month, delta, hm, short_date
+from flexi.domain.format import day_month, delta, hm
 from flexi.domain.period import Period
 from flexi.messages import Scope
 
@@ -194,7 +194,7 @@ class InsightsScreen(Screen[None]):
     def on_mount(self) -> None:
         for header in self.query(AppHeader):
             header.set_active("insights")
-            header.context = f"{short_date(wallclock.today())} · {self.period.label}"
+            header.context = self.period.label
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)
@@ -220,16 +220,14 @@ class InsightsScreen(Screen[None]):
                 service_app(self.app).services.settings.get_leave_year_start()
             )
             for header in self.query(AppHeader):
-                header.context = (
-                    f"{short_date(wallclock.today())} · {self.period.label}"
-                )
+                header.context = self.period.label
         for module in self.query(Module):
             module.rebuild_if(scope)
 
     def set_period(self, period: Period) -> None:
         self.period = period
         for header in self.query(AppHeader):
-            header.context = f"{short_date(wallclock.today())} · {period.label}"
+            header.context = period.label
         # No `invalidate()`: moving the view changes no rows, and the ledger
         # cache is what stops a leave year being re-derived from scratch on
         # every keypress. `DashboardScreen.refresh_modules` states the same rule

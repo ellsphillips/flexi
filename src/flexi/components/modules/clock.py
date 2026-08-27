@@ -79,12 +79,21 @@ class ClockModule(Module):
         self.tick()
 
     def tick(self) -> None:
-        """Refresh only what changes second to second."""
+        """Refresh only what changes second to second.
+
+        The date rides here rather than in the header, beside the one figure
+        that moves every second. It is the same fact either way, and this is
+        where somebody already looks to see how long they have been on.
+
+        Numeric and padded, because it sits next to a running clock: `27/08/2026`
+        keeps the same width all month where `Thu 27 Aug` does not, and a slot
+        that changes width every day makes the panel edge move.
+        """
+        today = f"{self.now.date():%d/%m/%Y}"
         if self._ledger is None or not self._ledger.is_open:
-            self.set_subtitle("/")
+            self.set_subtitle(today)
             return
-        elapsed = self._ledger.worked
-        self.set_subtitle(hms(elapsed))
+        self.set_subtitle(f"{hms(self._ledger.worked)} · {today}")
 
     def _detail(self, ledger: DayLedger) -> str:
         """The one line under the strip: where today stands."""

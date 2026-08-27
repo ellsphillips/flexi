@@ -122,16 +122,21 @@ async def test_the_switch_moves_through_its_watcher_so_it_animates(
 async def test_the_elapsed_time_is_in_the_border_subtitle(
     app_factory: AppFactory,
 ) -> None:
-    """It puts the live figure in the module's data slot, not in a whole row."""
+    """It puts the live figure in the module's data slot, not in a whole row.
+
+    The date rides beside it, numeric and padded so the slot keeps one width all
+    month. Off the clock there is no elapsed time and the date stands alone.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         clock = app.screen.query_one(ClockModule)
-        assert ":" in str(clock.border_subtitle)
+        assert str(clock.border_subtitle).endswith(" · 11/06/2026")
+        assert ":" in str(clock.border_subtitle).split(" · ")[0]
 
         await pilot.press("slash")  # clock out
         await pilot.pause()
-        assert str(app.screen.query_one(ClockModule).border_subtitle) == "/"
+        assert str(app.screen.query_one(ClockModule).border_subtitle) == "11/06/2026"
 
 
 async def test_a_write_through_the_screen_carries_the_live_tick_with_it(

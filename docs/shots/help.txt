@@ -1,5 +1,5 @@
 
-  flexi·     Dashboard    Leave    Insights    Settings                                     Thu 11 Jun · Week of 8 Jun
+  flexi·     Dashboard    Leave    Insights    Settings                                           Week of 8 Jun  0.2.0
 ────────────────────────▎                                                                       ────────────────────────
   TODAY ━━━━━━━━━━━━━━━━▎  Keyboard                                                             ━━━━━━┿ 28:29 of 25:54
                         ▎
@@ -9,7 +9,7 @@
  │ since 08:44 · go home▎   tab  Focus Next                                                         7:36   +3:54      │
  │                      ▎   shift+tab  Focus Previous                                               7:32   +0:08      │
  │            Depart    ▎   ^c  Copy selected text                                                  5:08   −2:16      │
- ╰──────────────────── 5▎   t  Today                                                                TOIL              │
+ ╰─────── 5:08:00 · 11/0▎   t  Today                                                                TOIL              │
  ╭─ Balance ────────────▎   [  Previous                                                                —              │
  │    ╶╮ ╭─╮   ╷ ╷╭─╮   ▎   ]  Next                                                                    —              │
  │ ╶┼╴ │ ╰─┤ : ╰─┤├─┤   ▎   d  Day                                                                 28:29   −4:49      │
