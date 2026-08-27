@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ast
+from collections.abc import Iterator
+from pathlib import Path
 from types import ModuleType
 
 import pytest
@@ -32,6 +35,45 @@ LEAF_MODULES = (
 )
 
 
+def target_names(target: ast.expr) -> Iterator[str]:
+    """Names assigned by one module-level target."""
+    if isinstance(target, ast.Name):
+        yield target.id
+    elif isinstance(target, ast.List | ast.Tuple):
+        for item in target.elts:
+            yield from target_names(item)
+
+
+def locally_defined_public_names(module: ModuleType) -> set[str]:
+    """Public values defined by a domain leaf rather than imported."""
+    path = Path(module.__file__ or "")
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: set[str] = set()
+    for statement in tree.body:
+        if isinstance(statement, ast.AsyncFunctionDef | ast.ClassDef | ast.FunctionDef):
+            if not statement.name.startswith("_"):
+                found.add(statement.name)
+        elif isinstance(statement, ast.TypeAlias):
+            found.update(
+                name
+                for name in target_names(statement.name)
+                if not name.startswith("_")
+            )
+        elif isinstance(statement, ast.AnnAssign | ast.Assign):
+            targets = (
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
+            )
+            found.update(
+                name
+                for target in targets
+                for name in target_names(target)
+                if not name.startswith("_")
+            )
+    return found
+
+
 @pytest.mark.parametrize("module", LEAF_MODULES, ids=lambda module: module.__name__)
 def test_every_domain_module_declares_an_immutable_api(module: ModuleType) -> None:
     exports: tuple[str, ...] = module.__all__
@@ -39,6 +81,7 @@ def test_every_domain_module_declares_an_immutable_api(module: ModuleType) -> No
     assert isinstance(exports, tuple)
     assert len(exports) == len(set(exports))
     assert all(hasattr(module, name) for name in exports)
+    assert set(exports) == locally_defined_public_names(module)
 
     namespace: dict[str, object] = {}
     exec(f"from {module.__name__} import *", namespace)  # noqa: S102
