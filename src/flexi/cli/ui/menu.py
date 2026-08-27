@@ -7,10 +7,8 @@ sleeping -- the same trick the splash animation uses to stay out of the suite's
 running time.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, replace
-from typing import Final
+from typing import Final, Self
 
 from rich.text import Text
 
@@ -50,7 +48,7 @@ class Menu[ValueT]:
     def picked(self) -> Option[ValueT]:
         return self.options[self.cursor]
 
-    def press(self, key: Key) -> Menu[ValueT]:
+    def press(self, key: Key) -> Self:
         """The menu after a key press.
 
         Wraps at both ends. A list this short is quicker to reach round the back

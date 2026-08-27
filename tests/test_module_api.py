@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import ast
-import inspect
 from collections.abc import Iterator
 from pathlib import Path
 from types import MappingProxyType, ModuleType
-from typing import cast, get_type_hints
+from typing import cast
 
 import pytest
 from textual.app import App as TextualApp
@@ -26,6 +25,7 @@ from flexi import (
     wallclock,
 )
 from flexi.services.registry import Services
+from tests.public_api import contains_any, public_type_hints
 
 MODULES = (
     app,
@@ -73,6 +73,12 @@ def locally_defined_public_names(module: ModuleType) -> set[str]:
         if isinstance(statement, ast.AsyncFunctionDef | ast.ClassDef | ast.FunctionDef):
             if not statement.name.startswith("_"):
                 found.add(statement.name)
+        elif isinstance(statement, ast.TypeAlias):
+            found.update(
+                name
+                for name in target_names(statement.name)
+                if not name.startswith("_")
+            )
         elif isinstance(statement, ast.AnnAssign | ast.Assign):
             targets = (
                 statement.targets
@@ -104,14 +110,11 @@ def test_each_top_level_module_publishes_every_local_name(module: ModuleType) ->
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda module: module.__name__)
 def test_public_annotations_are_resolvable(module: ModuleType) -> None:
-    for name in module.__all__:
-        value = getattr(module, name)
-        if inspect.isfunction(value):
-            get_type_hints(value)
-        elif inspect.isclass(value):
-            # Unlike get_type_hints, this does not merge a third-party base
-            # class's private forward references into the subclass namespace.
-            inspect.get_annotations(value, eval_str=True)
+    checked = list(public_type_hints(module))
+    assert checked
+    for qualified, hints in checked:
+        assert hints, f"{qualified} has no annotations"
+        assert not any(map(contains_any, hints.values())), qualified
 
 
 def test_closed_constant_tables_and_choices_are_immutable() -> None:

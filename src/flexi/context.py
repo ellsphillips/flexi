@@ -16,7 +16,7 @@ tested independently.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from textual.app import App as TextualApp
 from textual.screen import Screen
@@ -25,7 +25,19 @@ from flexi.constants import AbsenceType
 from flexi.domain.period import Period
 
 if TYPE_CHECKING:
-    from flexi.services.registry import Services
+    from flexi.services.registry import Services as ServiceRegistry
+
+else:
+
+    class ServiceRegistry(Protocol):
+        """Runtime name for the statically concrete service registry.
+
+        Presentation modules need their return annotation to resolve without
+        importing SQLAlchemy into the UI layer. Type checkers see the concrete
+        :class:`~flexi.services.registry.Services` alias above; runtime
+        introspection sees this lightweight structural marker.
+        """
+
 
 __all__ = (
     "CommandApplication",
@@ -33,6 +45,7 @@ __all__ = (
     "FlexiApplication",
     "ModuleHost",
     "ServiceApplication",
+    "ServiceRegistry",
     "command_app",
     "flexi_app",
     "module_host",
@@ -88,25 +101,11 @@ class CommandApplication(Protocol):
         ...
 
 
-if TYPE_CHECKING:
+@runtime_checkable
+class ServiceApplication(Protocol):
+    """An application that owns Flexi's service registry."""
 
-    @runtime_checkable
-    class ServiceApplication(Protocol):
-        """An application that owns Flexi's service registry."""
-
-        services: Services
-
-else:
-
-    @runtime_checkable
-    class ServiceApplication(Protocol):
-        """An application that owns Flexi's service registry."""
-
-        # The concrete registry is intentionally not imported at runtime:
-        # doing so would load SQLAlchemy whenever a presentation component is
-        # imported. Runtime structural checks need only prove ownership; the
-        # TYPE_CHECKING definition above supplies the complete static type.
-        services: object
+    services: ServiceRegistry
 
 
 @runtime_checkable
@@ -122,7 +121,7 @@ class ModuleHost(Protocol):
     now: datetime
 
 
-def module_host(screen: Screen[Any]) -> ModuleHost:
+def module_host[ResultT](screen: Screen[ResultT]) -> ModuleHost:
     """Return ``screen`` as a module host, or fail at the context boundary."""
     if not isinstance(screen, ModuleHost):
         message = f"{screen!r} does not provide module period and time context"
@@ -130,7 +129,7 @@ def module_host(screen: Screen[Any]) -> ModuleHost:
     return screen
 
 
-def service_app(app: TextualApp[Any]) -> ServiceApplication:
+def service_app[ResultT](app: TextualApp[ResultT]) -> ServiceApplication:
     """Return an app that owns the service registry required by modules."""
     if not isinstance(app, ServiceApplication):
         message = f"{app!r} does not provide the Flexi service context"
@@ -138,7 +137,7 @@ def service_app(app: TextualApp[Any]) -> ServiceApplication:
     return app
 
 
-def command_app(app: TextualApp[Any]) -> CommandApplication:
+def command_app[ResultT](app: TextualApp[ResultT]) -> CommandApplication:
     """Return an app that implements every command-palette operation."""
     if not isinstance(app, CommandApplication):
         message = f"{app!r} does not provide the Flexi command context"
@@ -146,7 +145,7 @@ def command_app(app: TextualApp[Any]) -> CommandApplication:
     return app
 
 
-def flexi_app(app: TextualApp[Any]) -> FlexiApplication:
+def flexi_app[ResultT](app: TextualApp[ResultT]) -> FlexiApplication:
     """Return an app implementing the complete composed Flexi contract."""
     if not isinstance(app, FlexiApplication):
         message = f"{app!r} does not provide the complete Flexi application context"

@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import ast
 import importlib
-import inspect
 import subprocess
 import sys
 from collections import defaultdict
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
-from typing import Any, assert_type, get_args, get_type_hints
+from typing import assert_type, get_type_hints
 from unittest.mock import call, patch
 
 import pytest
@@ -29,6 +28,7 @@ from flexi.components.common import Gauge
 from flexi.components.modules.base import Module
 from flexi.screens import DashboardScreen as FacadeDashboardScreen
 from flexi.screens.dashboard import DashboardScreen
+from tests.public_api import contains_any, public_type_hints
 
 COMPONENTS = Path(component_api.__file__).parent
 SCREENS = Path(screen_api.__file__).parent
@@ -120,11 +120,6 @@ def owners_of(modules: tuple[ModuleType, ...]) -> dict[str, list[ModuleType]]:
     return dict(owners)
 
 
-def contains_any(annotation: object) -> bool:
-    """Whether a resolved annotation contains an ``Any`` escape hatch."""
-    return annotation is Any or any(contains_any(item) for item in get_args(annotation))
-
-
 @pytest.mark.parametrize("module", LEAVES, ids=lambda module: module.__name__)
 def test_each_ui_leaf_publishes_every_local_name(module: ModuleType) -> None:
     assert isinstance(module.__all__, tuple)
@@ -203,20 +198,11 @@ def test_facades_are_statically_typed() -> None:
 
 def test_public_annotations_resolve_at_runtime() -> None:
     for module in LEAVES:
-        for public_name in module.__all__:
-            value = getattr(module, public_name)
-            if inspect.isclass(value):
-                # Avoid merging unresolved private annotations from Textual's
-                # base classes into Flexi's own class namespace.
-                inspect.get_annotations(value, eval_str=True)
-                constructor = value.__dict__.get("__init__")
-                if inspect.isfunction(constructor):
-                    constructor_hints = get_type_hints(constructor)
-                    assert not any(map(contains_any, constructor_hints.values()))
-            elif getattr(value, "__module__", None) == module.__name__ and getattr(
-                value, "__annotations__", None
-            ):
-                get_type_hints(value)
+        checked = list(public_type_hints(module))
+        assert checked
+        for qualified, hints in checked:
+            assert hints, f"{qualified} has no annotations"
+            assert not any(map(contains_any, hints.values())), qualified
 
     common_hints = get_type_hints(component_api.styled_track)
     assert common_hints["track"].__module__ == "rich.style"
@@ -237,6 +223,15 @@ def test_public_annotations_resolve_at_runtime() -> None:
         assert get_type_hints(renderer.render)["return"].__module__ == "rich.text"
 
     assert get_type_hints(theme.flexi_theme) == {"return": theme.Theme}
+
+
+def test_every_dashboard_module_implements_the_rebuild_contract() -> None:
+    implementations = Module.__subclasses__()
+    assert implementations
+    assert all(module.rebuild is not Module.rebuild for module in implementations)
+
+    with pytest.raises(NotImplementedError):
+        Module(id="contract", title="Contract").rebuild()
 
 
 def test_lazy_results_are_cached() -> None:

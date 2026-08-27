@@ -7,8 +7,6 @@ by walking the package and asserts it — so a new modal is covered the day it i
 written rather than the day somebody remembers to add a test.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import date
 from typing import ClassVar

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import importlib
-import inspect
 import subprocess
 import sys
 from collections import Counter, defaultdict
@@ -26,6 +25,7 @@ from flexi.cli.init import Contents
 from flexi.cli.ui import Key as FacadeKey
 from flexi.cli.ui.keys import Key
 from flexi.services.registry import Services
+from tests.public_api import contains_any, public_type_hints
 
 CLI = Path(cli_api.__file__).parent
 UI = Path(ui_api.__file__).parent
@@ -216,15 +216,16 @@ def test_facades_are_static_and_runtime_typed() -> None:
     assert refresh is holidays_run
 
 
-def test_public_function_annotations_resolve_at_runtime() -> None:
+def test_public_annotations_resolve_at_runtime() -> None:
     modules = [importlib.import_module(name) for name in LEAF_MODULES]
     modules.append(cli_api)
 
     for module in modules:
-        for public_name in module.__all__:
-            value = getattr(module, public_name)
-            if inspect.isfunction(value) and value.__module__ == module.__name__:
-                assert get_type_hints(value)
+        checked = list(public_type_hints(module))
+        assert checked
+        for qualified, hints in checked:
+            assert hints, f"{qualified} has no annotations"
+            assert not any(map(contains_any, hints.values())), qualified
 
     assert get_type_hints(cli_api.TypedDate.convert)["return"] is date
 

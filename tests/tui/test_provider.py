@@ -21,9 +21,10 @@ from textual.widgets import Input, RadioSet
 
 from flexi.app import FlexiApp
 from flexi.constants import AbsenceType, Granularity
+from flexi.context import command_app
 from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine
-from flexi.provider import FlexiCommands
+from flexi.provider import Command, FlexiCommands, commands
 from flexi.screens.modals import AbsenceModal
 from flexi.screens.setup import SetupScreen
 from tests.conftest import settled
@@ -102,7 +103,11 @@ async def test_the_palette_offers_every_action_that_has_no_key(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         offered = await titles(app)
+        catalogue = commands(command_app(app))
 
+        assert isinstance(catalogue, tuple)
+        assert all(isinstance(command, Command) for command in catalogue)
+        assert [command.title for command in catalogue] == offered
         assert "Clock in or out" in offered
         assert "Help" in offered
         assert "Go to Leave" in offered
