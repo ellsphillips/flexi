@@ -182,11 +182,20 @@ class BankHolidayService:
         boundary still imports ``httpx`` only when a fetch is requested.
         """
         data = self._fetcher()
-        if data is None:
-            return False
+        return self.cache_payload(data)
 
+    def cache_payload(self, payload: object) -> bool:
+        """Validate and atomically cache a supplied bank-holiday index.
+
+        This is the persistence half of :meth:`fetch_and_cache`, exposed so a
+        host can keep the concrete network call outside its database-owning
+        execution context. In the Textual application the worker thread fetches
+        only this untrusted payload; the message loop hands it here after the
+        worker completes. ``False`` means validation failed, including a
+        fetcher returning ``None``, and leaves the existing calendar intact.
+        """
         division = self.division
-        events = parse_bank_holidays(data, division)
+        events = parse_bank_holidays(payload, division)
         if events is None:
             return False
         now = wallclock.utc_now().replace(tzinfo=None)

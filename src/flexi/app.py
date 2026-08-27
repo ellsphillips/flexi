@@ -15,7 +15,7 @@ from collections.abc import Callable
 from contextlib import ExitStack
 from functools import partial
 from pathlib import Path, PurePath
-from threading import Lock
+from threading import Event, Lock
 from typing import ClassVar
 
 from textual import events, log
@@ -41,8 +41,8 @@ from flexi.components.jumper import (
     Refreshable,
 )
 from flexi.config import CONFIG
-from flexi.messages import Scope
-from flexi.models.database.engine import database_scope, get_session
+from flexi.messages import BankHolidayRefreshCompleted, Scope
+from flexi.models.database.engine import database_scope
 from flexi.provider import FlexiCommands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings
@@ -52,11 +52,9 @@ from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import (
     BankHolidayFetcher,
-    BankHolidayService,
     fetch_bank_holiday_index,
 )
 from flexi.services.registry import build_services, invalidate_services
-from flexi.services.settings import SettingsService
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import available_update
 
@@ -135,6 +133,7 @@ class FlexiApp(TextualApp[None]):
             gives mypy `Never`."""
             self._bank_holiday_fetcher = bank_holiday_fetcher
             self._holiday_refresh_lock = Lock()
+            self._shutdown_event = Event()
             self._database_lifetime = construction.pop_all()
 
     # -- lifecycle ---------------------------------------------------------
@@ -176,50 +175,55 @@ class FlexiApp(TextualApp[None]):
         self.push_screen(DashboardScreen(self.services, id="dashboard"))
 
     def on_unmount(self) -> None:
+        # Textual cannot stop a synchronous request already inside a worker
+        # thread. Mark shutdown first so a queued or late completion can never
+        # reach the database after its lifetime has closed.
+        self._shutdown_event.set()
         self._database_lifetime.close()
 
-    @textual_work(thread=True)
     def refresh_holidays(self, *, force: bool = False) -> None:
-        """Refresh the holiday calendar on a scratch session and worker thread.
+        """Request a holiday refresh without blocking Textual's message loop.
 
-        A worker rather than a blocking call at mount: this is a network round
-        trip, and the dashboard should not wait on GOV.UK to draw. Nothing in
-        the application refreshed it at all before -- the only route was a
-        command-palette entry somebody had to know about.
-
-        On its own session, on the shared engine. A SQLAlchemy ``Session`` is
-        not thread-safe, and this ran ``SELECT``, ``DELETE``, ``INSERT`` and
-        ``commit`` on the one the message loop owns -- started, in ``on_mount``,
-        in the statement after the one that pushes the dashboard, whose modules
-        then read the same session to draw. Two interleavings show up: SQLite
-        answers ``database is locked``, or the reader finds the session
-        ``inactive`` because the writer's transaction was rolled back under it.
-        Neither is caught anywhere, and both surface as a dead application on
-        the first launch of the week -- the only launch that refetches.
+        Freshness is database state, so it is checked here on the message loop.
+        Only the concrete network call is delegated to a worker. This split
+        keeps the SQLAlchemy session and the engine's database lease inside the
+        application lifetime and on their owning thread.
 
         ``force`` is the explicit command-palette path. Normal startup respects
-        a fresh cache; an explicit refresh always asks GOV.UK. Both routes pass
-        through this worker and its scratch session, and the lock serialises
-        repeated requests so their replace transactions cannot overlap.
+        a fresh cache; an explicit refresh always asks GOV.UK. The network lock
+        serialises repeated requests, while their completion messages serialize
+        validation and replacement naturally on the message loop.
         """
-        with self._holiday_refresh_lock, get_session(self._engine) as scratch:
-            settings = SettingsService(scratch)
-            holidays = BankHolidayService(
-                scratch,
-                settings.get_division,
-                self._bank_holiday_fetcher,
+        if self._shutdown_event.is_set():
+            return
+        if not force and self.services.bank_holidays.is_fresh():
+            # Nothing changed, so nothing needs redrawing -- and refetching
+            # would put a GOV.UK timeout in front of a current calendar.
+            return
+        self.fetch_holiday_payload(forced=force)
+
+    @textual_work(thread=True)
+    def fetch_holiday_payload(self, *, forced: bool) -> None:
+        """Fetch one untrusted calendar payload without touching persistence."""
+        with self._holiday_refresh_lock:
+            payload = self._bank_holiday_fetcher()
+
+        # ``post_message`` is thread-safe and declines a closed message pump.
+        # The event closes the smaller race where unmount begins immediately
+        # before this check; the handler repeats it before touching services.
+        if not self._shutdown_event.is_set():
+            self.post_message(
+                BankHolidayRefreshCompleted(payload, forced=forced),
             )
-            if not force and holidays.is_fresh():
-                # Nothing changed, so nothing needs redrawing -- and
-                # refetching would put a GOV.UK timeout in front of the
-                # dashboard for a calendar that is already current.
-                return
-            fetched = holidays.fetch_and_cache()
-        self.call_from_thread(
-            self.finish_holiday_refresh,
-            fetched=fetched,
-            forced=force,
-        )
+
+    def on_bank_holiday_refresh_completed(
+        self, message: BankHolidayRefreshCompleted
+    ) -> None:
+        """Persist a worker result while the message-loop database is alive."""
+        if self._shutdown_event.is_set():
+            return
+        fetched = self.services.bank_holidays.cache_payload(message.payload)
+        self.finish_holiday_refresh(fetched=fetched, forced=message.forced)
 
     def finish_holiday_refresh(self, *, fetched: bool, forced: bool) -> None:
         """Apply one holiday worker result on Textual's message loop.
@@ -253,13 +257,9 @@ class FlexiApp(TextualApp[None]):
         ledger cache without asking anything to redraw, so the correction
         appeared on the next unrelated keystroke.
 
-        The rollback is what lets this session see the worker's rows. It reads
-        on the message loop and every write it makes is committed by the
-        service that made it, so there is never anything pending to lose --
-        but its read transaction is open, and a transaction that began before
-        the fetch cannot see what the fetch committed.
+        Persistence now happens on this session and this message loop before
+        the redraw, so there is no cross-session snapshot to reconcile.
         """
-        self._session.rollback()
         self.refresh_open_screens()
 
     @textual_work(thread=True)
@@ -376,9 +376,9 @@ class FlexiApp(TextualApp[None]):
                     screen.refresh_modules(scope)
                 except NoMatches:
                     # Still being built. Widgets compose depth by depth, so a
-                    # redraw arriving from off the message loop -- the bank
-                    # holiday worker's -- can land on a module whose own cells
-                    # are not in the tree yet.
+                    # completion message arriving while the dashboard mounts
+                    # can land on a module whose own cells are not in the tree
+                    # yet.
                     #
                     # Caught here rather than guarded at each widget: there is
                     # no flag that means "my whole subtree is composed"

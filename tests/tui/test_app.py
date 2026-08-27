@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date, timedelta
 from pathlib import Path
+from threading import get_ident
 
 import httpx
 import pytest
@@ -32,10 +33,8 @@ from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
-from flexi.services.bank_holidays import CACHE_MAX_AGE
-from flexi.services.registry import build_services
+from flexi.services.bank_holidays import CACHE_MAX_AGE, BankHolidayService
 from flexi.services.samples import NOW
-from tests.conftest import sessions_on
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
 
 TODAY = date(2026, 6, 11)
@@ -203,14 +202,12 @@ async def test_a_redraw_arriving_while_the_screen_mounts_is_not_a_crash(
 async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
     seeded_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The worker writes on a session of its own, and asks the loop to redraw.
+    """The worker fetches only; the message loop persists and redraws.
 
-    It used to run SELECT, DELETE, INSERT and commit on the session the message
-    loop owns, started in the statement after the one that pushes the dashboard
-    — whose modules read that same session to draw. A `Session` is not
-    thread-safe: the interleavings give `database is locked` or a reader
-    finding the session inactive under a rolled-back write, and nothing catches
-    either.
+    A SQLAlchemy ``Session`` is not thread-safe, and an engine kept by a blocked
+    network worker outlives application teardown. Both the freshness read and
+    supplied-payload persistence therefore belong to Textual's loop, while the
+    HTTP request alone belongs to the worker.
 
     Redrawing matters as much as fetching. Every figure on the dashboard
     depends on which days are holidays, so a calendar that lands after the
@@ -238,13 +235,30 @@ async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
 
     monkeypatch.setattr(httpx.Client, "get", answered)
 
+    freshness_threads: list[int] = []
+    persistence_threads: list[int] = []
+    original_is_fresh = BankHolidayService.is_fresh
+    original_cache_payload = BankHolidayService.cache_payload
+
+    def record_freshness(service: BankHolidayService) -> bool:
+        freshness_threads.append(get_ident())
+        return original_is_fresh(service)
+
+    def record_persistence(service: BankHolidayService, payload: object) -> bool:
+        persistence_threads.append(get_ident())
+        return original_cache_payload(service, payload)
+
+    monkeypatch.setattr(BankHolidayService, "is_fresh", record_freshness)
+    monkeypatch.setattr(BankHolidayService, "cache_payload", record_persistence)
+
+    message_loop_thread = get_ident()
     app = FlexiApp(db_path=seeded_db)
     async with app.run_test(size=WIDE) as pilot:
         # Pumped first, so `on_mount` has started the worker: `wait_for_complete`
         # returns at once if there is nothing to wait for. Then pumped until the
-        # redraw lands rather than a fixed number of times, because the redraw
-        # the worker asks for through `call_from_thread` is a callback the loop
-        # schedules -- and a fixed count is a test measuring the weather.
+        # redraw lands rather than a fixed number of times, because the worker's
+        # completion message still has to be dispatched by the loop -- and a
+        # fixed count is a test measuring the weather.
         await pilot.pause()
         await app.workers.wait_for_complete()
         landed = date(2026, 6, 12)
@@ -260,6 +274,8 @@ async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
         assert not [
             line for line in await said(app, pilot) if "bank holiday" in line.lower()
         ], "a calendar that arrived is not a calendar that is missing"
+        assert freshness_threads == [message_loop_thread]
+        assert persistence_threads == [message_loop_thread]
 
 
 async def test_a_calendar_that_lands_during_setup_has_no_dashboard_to_redraw(
@@ -375,7 +391,7 @@ async def test_the_clock_key_does_nothing_until_there_is_somewhere_to_clock(
         await pilot.press("slash")
         await pilot.pause()
 
-        assert sessions_on(app._session, TODAY) == []
+        assert not app.services.clock.is_clocked_in()
         showing(app, SetupScreen)
 
 
@@ -399,7 +415,7 @@ async def test_settings_saved_before_setup_has_finished_are_still_written(
         await pilot.pause()
 
         showing(app, SetupScreen)
-        stored = build_services(app._session).settings.get_settings()
+        stored = app.services.settings.get_settings()
         assert stored is not None
         assert stored.auto_close_time == "18:00"
 

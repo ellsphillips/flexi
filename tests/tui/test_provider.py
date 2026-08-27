@@ -339,10 +339,10 @@ async def test_a_successful_refresh_says_so_and_redraws_from_the_new_calendar(
         )
 
 
-async def test_repeated_refresh_requests_cannot_overlap_replace_transactions(
+async def test_repeated_refresh_requests_cannot_overlap_network_calls(
     seeded_db: Path,
 ) -> None:
-    """Two quick palette choices may fetch twice, but never write together."""
+    """Two quick palette choices may fetch twice, but never fetch together."""
     guard = Lock()
     active = 0
     most_active = 0

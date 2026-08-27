@@ -1,4 +1,4 @@
-"""What travels between widgets, and the flags that decide who redraws.
+"""What travels through Textual, and the flags that decide who redraws.
 
 One rule: a module never calls another module's ``rebuild()``. A module that
 wants something written posts a message the *screen* handles -- `BookHere`,
@@ -12,6 +12,10 @@ There was a generic `DataChanged` message for the same job, and nothing in the
 application ever posted one: every write in Flexi goes through a screen, which
 is a better rule than the one it was there to allow. Its handler and the
 `Module.announce` that would have fed it went with it.
+
+The application-level completion message carries an untrusted network payload
+back to Textual's owning loop. It deliberately carries no service or database
+object: persistence is resolved only after dispatch.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ from enum import Flag, auto
 
 from textual.message import Message
 
-__all__ = ("DateSelected", "Scope")
+__all__ = ("BankHolidayRefreshCompleted", "DateSelected", "Scope")
 
 
 class Scope(Flag):
@@ -46,3 +50,21 @@ class DateSelected(Message):
     def __init__(self, when: date) -> None:
         super().__init__()
         self.date = when
+
+
+class BankHolidayRefreshCompleted(Message):
+    """A worker finished the network-only half of a calendar refresh.
+
+    The payload remains deliberately untrusted. The application receives this
+    message on Textual's message loop and asks ``BankHolidayService`` to
+    validate and persist it there, so neither a SQLAlchemy session nor an
+    engine lease ever crosses the thread boundary.
+    """
+
+    payload: object
+    forced: bool
+
+    def __init__(self, payload: object, *, forced: bool) -> None:
+        super().__init__()
+        self.payload = payload
+        self.forced = forced

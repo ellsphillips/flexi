@@ -361,6 +361,33 @@ class TestFetchingTheIndex:
         assert asked == 1
         assert service.get_dates() == {date(2026, 1, 1), date(2026, 11, 30)}
 
+    def test_a_supplied_payload_can_be_cached_without_fetching(
+        self, session: Session
+    ) -> None:
+        """Hosts may separate network I/O from their persistence context."""
+
+        def unexpected_fetch() -> object:
+            pytest.fail("cache_payload must not invoke the fetch boundary")
+
+        service = BankHolidayService(
+            session,
+            reading(Division.SCOTLAND),
+            unexpected_fetch,
+        )
+
+        assert service.cache_payload(SAMPLE_RESPONSE) is True
+        assert service.get_dates() == {date(2026, 1, 1), date(2026, 11, 30)}
+
+    def test_an_invalid_supplied_payload_preserves_the_existing_calendar(
+        self, session: Session
+    ) -> None:
+        _seed_cache(session, "scotland")
+        service = BankHolidayService(session, reading(Division.SCOTLAND))
+        before = service.get_dates()
+
+        assert service.cache_payload(None) is False
+        assert service.get_dates() == before
+
     def test_the_default_fetch_boundary_is_public(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
