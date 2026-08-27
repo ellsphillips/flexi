@@ -58,6 +58,12 @@ WIDE_PANEL = 60
 """Seven columns of eight or nine: wide enough for a tile to carry a word."""
 
 
+@pytest.fixture(autouse=True)
+def full_colour_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep ordinary style assertions independent of the caller's terminal."""
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+
 class Harness(App[None]):
     """One calendar, the real palette, and an inbox for what it posts."""
 
@@ -163,6 +169,24 @@ def click_at(calendar: YearCalendar, x: int, y: int) -> None:
 
 def text_of(calendar: YearCalendar, line: int) -> str:
     return calendar.render_line(line).text
+
+
+async def test_no_color_environment_can_mount_and_draw_the_calendar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A monochrome first frame must not contain an unstyled Rich segment."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    calendar = YearCalendar()
+
+    async with mounted(calendar, width=WIDE_PANEL) as pilot:
+        assert pilot.app.no_color is True
+
+        calendar.show(JUNE, JULY_END, {}, today=JUNE)
+        await pilot.pause()
+
+        assert text_of(calendar, 0).strip()
+        blank = calendar.render_line(calendar.virtual_size.height)
+        assert all(segment.style is not None for segment in blank)
 
 
 # -- how wide a day is -------------------------------------------------------

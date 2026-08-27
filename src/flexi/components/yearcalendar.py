@@ -298,7 +298,7 @@ class YearCalendar(ScrollView, can_focus=True):
     def render_line(self, y: int) -> Strip:
         line = y + int(self.scroll_offset.y)
         if line >= len(self._rows):
-            return Strip.blank(self.size.width)
+            return Strip.blank(self.size.width, self.visual_style.rich_style)
         block, row = self._rows[line]
 
         if row == HEADING_ROW:
@@ -307,7 +307,7 @@ class YearCalendar(ScrollView, can_focus=True):
         # one `None` block it produces is paired with `HEADING_ROW`, which
         # returns two lines above. Kept because `_rows` is typed to allow it.
         if block is None:  # pragma: no cover
-            return Strip.blank(self.size.width)
+            return Strip.blank(self.size.width, self.visual_style.rich_style)
         if row == TITLE_ROW:
             return self._title_strip(block)
         return self._week_strip(block, row)
