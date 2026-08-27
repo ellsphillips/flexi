@@ -17,7 +17,12 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Division, Portion
-from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base
+from flexi.models.database.db import (
+    AbsenceDay,
+    BankHolidayCache,
+    BankHolidayRefresh,
+    Base,
+)
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.absence import (
     PLAN_CHANGED,
@@ -76,12 +81,14 @@ def _midsummer() -> Iterator[None]:
 @pytest.fixture
 def bank_holidays(session: Session) -> BankHolidayService:
     now = datetime.now(tz=UTC).replace(tzinfo=None)
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=date(2026, 12, 25),
-            title="Christmas Day",
-            fetched_at=now,
+    session.add_all(
+        (
+            BankHolidayRefresh(division="england-and-wales", fetched_at=now),
+            BankHolidayCache(
+                division="england-and-wales",
+                date=date(2026, 12, 25),
+                title="Christmas Day",
+            ),
         )
     )
     session.commit()

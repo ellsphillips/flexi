@@ -16,7 +16,12 @@ from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
-from flexi.models.database.db import BankHolidayCache, ClockEvent, WorkSession
+from flexi.models.database.db import (
+    BankHolidayCache,
+    BankHolidayRefresh,
+    ClockEvent,
+    WorkSession,
+)
 from flexi.models.database.moment import punched
 from flexi.services.absence import AbsenceResult
 from flexi.services.adjustments import AdjustmentResult
@@ -198,9 +203,10 @@ class TestBankHolidayDivision:
             (SCOTTISH_HOLIDAY, "scotland"),
             (ENGLISH_HOLIDAY, "england-and-wales"),
         ):
-            session.add(
-                BankHolidayCache(
-                    date=when, title="test", division=owner, fetched_at=stamped
+            session.add_all(
+                (
+                    BankHolidayRefresh(division=owner, fetched_at=stamped),
+                    BankHolidayCache(date=when, title="test", division=owner),
                 )
             )
         session.commit()
@@ -273,12 +279,17 @@ def ready(session: Session) -> Services:
             auto_close_time="18:00",
         )
     )
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=date(2026, 8, 31),
-            title="Summer bank holiday",
-            fetched_at=datetime(2026, 1, 1, 9, 0),
+    session.add_all(
+        (
+            BankHolidayRefresh(
+                division="england-and-wales",
+                fetched_at=datetime(2026, 1, 1, 9, 0),
+            ),
+            BankHolidayCache(
+                division="england-and-wales",
+                date=date(2026, 8, 31),
+                title="Summer bank holiday",
+            ),
         )
     )
     session.commit()

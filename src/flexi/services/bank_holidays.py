@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import Division
-from flexi.models.database.db import BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
 from flexi.services.transactions import atomic
 
 __all__ = (
@@ -148,16 +149,28 @@ class BankHolidayService:
         holds, so this is what keeps a GOV.UK timeout off the launch path six
         days out of seven.
         """
-        stmt = (
-            select(BankHolidayCache.fetched_at)
-            .where(BankHolidayCache.division == self.division)
-            .limit(1)
-        )
-        row = self._session.execute(stmt).scalar_one_or_none()
-        if row is None:
+        fetched_at = self.last_refresh()
+        if fetched_at is None:
             return False
-        age = wallclock.utc_now() - row.replace(tzinfo=UTC)
+        age = wallclock.utc_now() - fetched_at
         return age < CACHE_MAX_AGE
+
+    def last_refresh(self, division: Division | None = None) -> datetime | None:
+        """Return the last successful complete fetch as an aware UTC moment.
+
+        A refresh is first-class state rather than inferred from event rows, so
+        a valid response with no holidays is still available and fresh.  The
+        optional explicit division lets a compound query hold one division
+        stable even if settings change concurrently.
+        """
+        selected = self.division if division is None else division
+        stmt = select(BankHolidayRefresh.fetched_at).where(
+            BankHolidayRefresh.division == selected
+        )
+        fetched_at = self._session.execute(stmt).scalar_one_or_none()
+        if fetched_at is None:
+            return None
+        return fetched_at.replace(tzinfo=UTC)
 
     # ---- fetch ----
 
@@ -179,9 +192,16 @@ class BankHolidayService:
         now = wallclock.utc_now().replace(tzinfo=None)
 
         with atomic(self._session):
-            # Clear old cache for this division
             self._session.execute(
                 delete(BankHolidayCache).where(BankHolidayCache.division == division)
+            )
+            self._session.execute(
+                insert(BankHolidayRefresh)
+                .values(division=division.value, fetched_at=now)
+                .on_conflict_do_update(
+                    index_elements=(BankHolidayRefresh.division,),
+                    set_={"fetched_at": now},
+                )
             )
 
             for event in events:
@@ -190,7 +210,6 @@ class BankHolidayService:
                         division=division,
                         date=event.date,
                         title=event.title,
-                        fetched_at=now,
                     )
                 )
         return True
@@ -214,7 +233,7 @@ class BankHolidayService:
         book a full day's deficit against every bank holiday without saying so.
         """
         division = self.division
-        if not self._has_any(division):
+        if self.last_refresh(division) is None:
             return None
         stmt = select(BankHolidayCache.date, BankHolidayCache.title).where(
             BankHolidayCache.division == division,
@@ -226,16 +245,8 @@ class BankHolidayService:
     # ---- validation helpers ----
 
     def is_available(self) -> bool:
-        """Return True if any cached data exists for this division."""
-        return self._has_any(self.division)
-
-    def _has_any(self, division: Division) -> bool:
-        stmt = (
-            select(BankHolidayCache.id)
-            .where(BankHolidayCache.division == division)
-            .limit(1)
-        )
-        return self._session.execute(stmt).scalar_one_or_none() is not None
+        """Return whether a complete calendar is cached for this division."""
+        return self.last_refresh() is not None
 
     def holiday_on(self, day: date) -> str | None:
         """What this date is a bank holiday for, or ``None``.
@@ -256,7 +267,7 @@ class BankHolidayService:
     def get_dates(self) -> set[date] | None:
         """Every cached bank holiday, or None when there is no calendar at all."""
         division = self.division
-        if not self._has_any(division):
+        if self.last_refresh(division) is None:
             return None
         stmt = select(BankHolidayCache.date).where(
             BankHolidayCache.division == division

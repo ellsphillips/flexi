@@ -36,6 +36,7 @@ from flexi.models.database.db import (
     AbsenceDay,
     BalanceAdjustment,
     BankHolidayCache,
+    BankHolidayRefresh,
     ClockEvent,
     LeaveEntitlement,
     Settings,
@@ -159,6 +160,7 @@ def _wipe(session: Session) -> None:
         AbsenceDay,
         BalanceAdjustment,
         BankHolidayCache,
+        BankHolidayRefresh,
         LeaveEntitlement,
         Settings,
     ):
@@ -194,13 +196,18 @@ def _holidays(session: Session, year: int, anchor: date) -> None:
     # opened. A timestamp from a fixed date would have the command palette's
     # refresh reach for the network on a machine being shown the sample data.
     fetched = datetime.combine(anchor, time(9, 0))
+    session.add(
+        BankHolidayRefresh(
+            division=DEFAULT_DIVISION,
+            fetched_at=fetched,
+        )
+    )
     for when, title in holidays_in(year):
         session.add(
             BankHolidayCache(
                 division=DEFAULT_DIVISION,
                 date=when,
                 title=title,
-                fetched_at=fetched,
             )
         )
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -25,6 +25,8 @@ from flexi.constants import AbsenceType, Portion
 from flexi.locations import backups_directory, ensure
 from flexi.models.database.db import (
     AbsenceDay,
+    BankHolidayCache,
+    BankHolidayRefresh,
     Base,
     Settings,
     WorkSession,
@@ -43,6 +45,7 @@ from flexi.models.database.migrate import (
 
 BEFORE_HALF_DAYS = "0006"
 BEFORE_INVARIANTS = "0010"
+BEFORE_BANK_HOLIDAY_REFRESHES = "0012"
 HEAD = "head"
 
 
@@ -269,6 +272,48 @@ def test_the_new_columns_are_backfilled(db: Path) -> None:
         assert settings.day_window_end == "19:00"
     finally:
         session.close()
+
+
+def test_bank_holiday_refresh_metadata_is_backfilled(db: Path) -> None:
+    """Each legacy division keeps its latest complete-cache timestamp."""
+    upgrade(db, BEFORE_BANK_HOLIDAY_REFRESHES)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO bank_holiday_cache"
+                " (id, division, date, title, fetched_at) VALUES"
+                " (1, 'england-and-wales', '2026-01-01', 'New Year',"
+                "  '2026-01-02 09:00:00'),"
+                " (2, 'england-and-wales', '2026-12-25', 'Christmas',"
+                "  '2026-01-03 09:00:00'),"
+                " (3, 'scotland', '2026-11-30', 'St Andrew',"
+                "  '2026-02-01 10:30:00')"
+            )
+        )
+        connection.commit()
+    engine.dispose()
+
+    upgrade(db, HEAD)
+
+    engine = create_db_engine(db)
+    session = get_session(engine)
+    try:
+        refreshes = session.query(BankHolidayRefresh).order_by(
+            BankHolidayRefresh.division
+        )
+        assert [(refresh.division, refresh.fetched_at) for refresh in refreshes] == [
+            ("england-and-wales", datetime(2026, 1, 3, 9, 0)),
+            ("scotland", datetime(2026, 2, 1, 10, 30)),
+        ]
+        assert session.query(BankHolidayCache).count() == 3
+        assert "fetched_at" not in {
+            column["name"]
+            for column in sa.inspect(engine).get_columns("bank_holiday_cache")
+        }
+    finally:
+        session.close()
+        engine.dispose()
 
 
 def test_half_days_of_different_types_share_a_date(db: Path) -> None:

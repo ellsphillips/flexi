@@ -38,7 +38,13 @@ from hypothesis.stateful import (
 from sqlalchemy import func, select
 
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base, WorkSession
+from flexi.models.database.db import (
+    AbsenceDay,
+    BankHolidayCache,
+    BankHolidayRefresh,
+    Base,
+    WorkSession,
+)
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
@@ -86,12 +92,17 @@ class TimesheetModel(RuleBasedStateMachine):
                 auto_close_time=AUTO_CLOSE.strftime("%H:%M"),
             )
         )
-        self.db.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=HOLIDAY,
-                title="Summer bank holiday",
-                fetched_at=datetime(2026, 1, 1, 9, 0),
+        self.db.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=datetime(2026, 1, 1, 9, 0),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=HOLIDAY,
+                    title="Summer bank holiday",
+                ),
             )
         )
         self.db.commit()

@@ -25,7 +25,7 @@ from flexi.app import FlexiApp
 from flexi.components.chrome import NavBar
 from flexi.components.modules.records import RecordsModule
 from flexi.constants import Division
-from flexi.models.database.db import BankHolidayCache, Base
+from flexi.models.database.db import BankHolidayRefresh, Base
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.insights import InsightsScreen
@@ -128,7 +128,7 @@ async def test_an_empty_bank_holiday_calendar_is_reported_as_a_consequence(
     """
     stale = NOW - CACHE_MAX_AGE - timedelta(days=1)
     with get_session(create_db_engine(seeded_db)) as session:
-        session.execute(update(BankHolidayCache).values(fetched_at=stale))
+        session.execute(update(BankHolidayRefresh).values(fetched_at=stale))
         session.commit()
 
     app = FlexiApp(db_path=seeded_db)
@@ -148,7 +148,7 @@ async def test_a_calendar_fetched_this_week_is_left_alone(seeded_db: Path) -> No
     train people to ignore the warning that matters.
     """
     with get_session(create_db_engine(seeded_db)) as session:
-        session.execute(update(BankHolidayCache).values(fetched_at=NOW))
+        session.execute(update(BankHolidayRefresh).values(fetched_at=NOW))
         session.commit()
 
     app = FlexiApp(db_path=seeded_db)
@@ -219,7 +219,7 @@ async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
     """
     stale = NOW - CACHE_MAX_AGE - timedelta(days=1)
     with get_session(create_db_engine(seeded_db)) as session:
-        session.execute(update(BankHolidayCache).values(fetched_at=stale))
+        session.execute(update(BankHolidayRefresh).values(fetched_at=stale))
         session.commit()
 
     def answered(_self: object, url: str, **_kwargs: object) -> httpx.Response:

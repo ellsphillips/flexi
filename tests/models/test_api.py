@@ -31,6 +31,7 @@ LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
             "AbsenceDay",
             "BalanceAdjustment",
             "BankHolidayCache",
+            "BankHolidayRefresh",
             "Base",
             "ClockEvent",
             "LeaveEntitlement",

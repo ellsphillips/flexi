@@ -18,7 +18,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from flexi.constants import Division
-from flexi.models.database.db import BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
 from flexi.services.bank_holidays import (
     BankHolidayService,
     ParsedBankHoliday,
@@ -96,6 +96,7 @@ def _answering(payload: object, status: int = 200) -> Callable[..., httpx.Respon
 def _seed_cache(session: Session, division: str = "england-and-wales") -> None:
     """Insert sample bank holidays directly into the cache table."""
     now = datetime.now(tz=UTC).replace(tzinfo=None)
+    session.add(BankHolidayRefresh(division=division, fetched_at=now))
     known = SAMPLE_RESPONSE.get(division)
     for ev in known["events"] if known else ():
         session.add(
@@ -103,7 +104,6 @@ def _seed_cache(session: Session, division: str = "england-and-wales") -> None:
                 division=division,
                 date=date.fromisoformat(ev["date"]),
                 title=ev["title"],
-                fetched_at=now,
             )
         )
     session.commit()
@@ -136,12 +136,17 @@ class TestStaleRefresh:
     def test_stale_cache_triggers_refresh(self, session: Session) -> None:
         # Insert old entries
         old = datetime.now(tz=UTC) - timedelta(days=10)
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2026, 1, 1),
-                title="Old",
-                fetched_at=old.replace(tzinfo=None),
+        session.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=old.replace(tzinfo=None),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2026, 1, 1),
+                    title="Old",
+                ),
             )
         )
         session.commit()
@@ -215,12 +220,17 @@ class TestFetchingTheIndex:
         refresh that merged would leave the withdrawn date behind for ever and
         the calendar would slowly fill with holidays that are not holidays.
         """
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2026, 7, 4),
-                title="Withdrawn",
-                fetched_at=datetime(2020, 1, 1),
+        session.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=datetime(2020, 1, 1),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2026, 7, 4),
+                    title="Withdrawn",
+                ),
             )
         )
         session.commit()
@@ -362,6 +372,33 @@ class TestFetchingTheIndex:
             parse_bank_holidays({"scotland": {"events": []}}, Division.SCOTLAND) == ()
         )
 
+    def test_a_successful_empty_calendar_has_persisted_cache_state(
+        self, session: Session
+    ) -> None:
+        """No event rows is a known empty calendar, not an unavailable one."""
+        _seed_cache(session, "scotland")
+        fetches = 0
+
+        def empty_index() -> object:
+            nonlocal fetches
+            fetches += 1
+            return {"scotland": {"events": []}}
+
+        svc = BankHolidayService(
+            session,
+            reading(Division.SCOTLAND),
+            empty_index,
+        )
+
+        assert svc.fetch_and_cache() is True
+        assert session.get(BankHolidayRefresh, Division.SCOTLAND.value) is not None
+        assert svc.is_available() is True
+        assert svc.is_fresh() is True
+        assert svc.get_dates() == set()
+        assert svc.titles_between(date(2026, 1, 1), date(2026, 12, 31)) == {}
+        assert svc.fill_if_empty() is True
+        assert fetches == 1, "known-empty metadata must prevent a second fetch"
+
     def test_an_empty_cache_is_filled_from_the_index(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -417,13 +454,14 @@ class TestRefreshingOnlyWhenItIsStale:
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Stale means a substitute day may have moved since it was written."""
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2026, 7, 4),
-                title="Withdrawn",
-                fetched_at=(datetime.now(tz=UTC) - timedelta(days=10)).replace(
-                    tzinfo=None
+        stale = (datetime.now(tz=UTC) - timedelta(days=10)).replace(tzinfo=None)
+        session.add_all(
+            (
+                BankHolidayRefresh(division="england-and-wales", fetched_at=stale),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2026, 7, 4),
+                    title="Withdrawn",
                 ),
             )
         )
@@ -444,7 +482,7 @@ class TestRefreshingOnlyWhenItIsStale:
     ) -> None:
         """Last year's list beats no list at all when the train goes into a tunnel."""
         _seed_cache(session)
-        session.query(BankHolidayCache).update(
+        session.query(BankHolidayRefresh).update(
             {"fetched_at": datetime(2020, 1, 1)},
         )
         session.commit()
@@ -508,12 +546,17 @@ class TestFillingTheCache:
         it on the command line would put a network timeout in front of `flexi
         clock in` once a week.
         """
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2020, 1, 1),
-                title="ancient",
-                fetched_at=datetime(2020, 1, 1),
+        session.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=datetime(2020, 1, 1),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2020, 1, 1),
+                    title="ancient",
+                ),
             )
         )
         session.commit()
@@ -534,12 +577,17 @@ class TestTellingEmptyFromAbsent:
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         assert svc.titles_between(date(2026, 1, 1), date(2026, 12, 31)) is None
 
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2026, 12, 25),
-                title="Christmas Day",
-                fetched_at=datetime(2026, 1, 1),
+        session.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=datetime(2026, 1, 1),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2026, 12, 25),
+                    title="Christmas Day",
+                ),
             )
         )
         session.commit()

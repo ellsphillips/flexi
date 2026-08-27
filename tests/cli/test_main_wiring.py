@@ -34,7 +34,7 @@ from flexi.__main__ import cli
 from flexi.cli import init as init_cli
 from flexi.cli import ui
 from flexi.locations import backups_directory, database_file
-from flexi.models.database.db import AbsenceDay, BankHolidayCache
+from flexi.models.database.db import AbsenceDay, BankHolidayCache, BankHolidayRefresh
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import build_services
@@ -72,12 +72,15 @@ def set_up(db_path: Path) -> None:
         )
     )
     services.settings.save_entitlement(2026, 25.0)
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=BANK_HOLIDAY,
-            title="Summer bank holiday",
-            fetched_at=datetime(2026, 1, 1, 9, 0, tzinfo=UTC).replace(tzinfo=None),
+    fetched_at = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).replace(tzinfo=None)
+    session.add_all(
+        (
+            BankHolidayRefresh(division="england-and-wales", fetched_at=fetched_at),
+            BankHolidayCache(
+                division="england-and-wales",
+                date=BANK_HOLIDAY,
+                title="Summer bank holiday",
+            ),
         )
     )
     session.commit()

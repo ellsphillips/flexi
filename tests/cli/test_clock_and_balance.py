@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from flexi.cli import balance as balance_cli
 from flexi.cli import clock as clock_cli
 from flexi.constants import AbsenceType
-from flexi.models.database.db import BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
 from flexi.services.registry import Services, build_services, invalidate_services
 from flexi.services.settings import parse_settings
 
@@ -147,12 +147,17 @@ def stocked(services: Services, session: Session) -> Services:
     `AbsenceService` refuses every booking while the calendar answers
     `None`, so a test that books anything needs at least one cached row.
     """
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=BANK_HOLIDAY,
-            title="Summer bank holiday",
-            fetched_at=datetime(2026, 1, 1, 9, 0),
+    session.add_all(
+        (
+            BankHolidayRefresh(
+                division="england-and-wales",
+                fetched_at=datetime(2026, 1, 1, 9, 0),
+            ),
+            BankHolidayCache(
+                division="england-and-wales",
+                date=BANK_HOLIDAY,
+                title="Summer bank holiday",
+            ),
         )
     )
     session.commit()

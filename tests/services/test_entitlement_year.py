@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType
-from flexi.models.database.db import BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
 from flexi.services.registry import build_services
 from flexi.services.settings import SettingsService, parse_settings
 
@@ -33,12 +33,17 @@ def _seed_calendar(session: Session) -> None:
     `book()` asks whether the day is a bank holiday before it asks about the
     allowance, and an absent calendar is a refusal in its own right.
     """
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=date(2026, 12, 25),
-            title="Christmas Day",
-            fetched_at=datetime(2026, 1, 1),
+    session.add_all(
+        (
+            BankHolidayRefresh(
+                division="england-and-wales",
+                fetched_at=datetime(2026, 1, 1),
+            ),
+            BankHolidayCache(
+                division="england-and-wales",
+                date=date(2026, 12, 25),
+                title="Christmas Day",
+            ),
         )
     )
     session.commit()

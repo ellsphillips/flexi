@@ -20,7 +20,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
-from flexi.models.database.db import BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
 from flexi.services.registry import Services, build_services, invalidate_services
 from flexi.services.settings import parse_settings
 
@@ -59,15 +59,14 @@ def configure(session: Session) -> Configured:
                 auto_close_time=auto_close_time,
             )
         )
+        fetched_at = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).replace(tzinfo=None)
+        session.add(BankHolidayRefresh(division=division, fetched_at=fetched_at))
         for when, title in holidays:
             session.add(
                 BankHolidayCache(
                     division=division,
                     date=when,
                     title=title,
-                    fetched_at=datetime(2026, 1, 1, 9, 0, tzinfo=UTC).replace(
-                        tzinfo=None
-                    ),
                 )
             )
         session.commit()

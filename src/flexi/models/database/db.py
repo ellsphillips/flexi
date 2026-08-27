@@ -32,6 +32,7 @@ __all__ = (
     "AbsenceDay",
     "BalanceAdjustment",
     "BankHolidayCache",
+    "BankHolidayRefresh",
     "Base",
     "ClockEvent",
     "LeaveEntitlement",
@@ -114,17 +115,43 @@ class LeaveEntitlement(Base):
     days: Mapped[float] = mapped_column(Float())
 
 
+class BankHolidayRefresh(Base):
+    """A complete cached division calendar, including an empty one.
+
+    Freshness belongs to the response as a whole, not to each event in it.  A
+    row therefore records that one division was fetched successfully even when
+    GOV.UK returned no events.  The division is the natural key because only
+    the latest complete response is retained.
+    """
+
+    __tablename__ = "bank_holiday_refreshes"
+
+    division: Mapped[str] = mapped_column(String(30), primary_key=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime())
+    events: Mapped[list[BankHolidayCache]] = relationship(
+        back_populates="refresh",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
 class BankHolidayCache(Base):
-    """Cached bank holiday entries from GOV.UK."""
+    """One event in a successfully fetched GOV.UK division calendar."""
 
     __tablename__ = "bank_holiday_cache"
     __table_args__ = (UniqueConstraint("division", "date", name="uq_division_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    division: Mapped[str] = mapped_column(String(30))
+    division: Mapped[str] = mapped_column(
+        ForeignKey(
+            "bank_holiday_refreshes.division",
+            name="fk_bank_holiday_cache_division_refresh",
+            ondelete="CASCADE",
+        )
+    )
     date: Mapped[date_type] = mapped_column(Date())
     title: Mapped[str] = mapped_column(String(100))
-    fetched_at: Mapped[datetime] = mapped_column(DateTime())
+    refresh: Mapped[BankHolidayRefresh] = relationship(back_populates="events")
 
 
 class ClockEvent(Base):

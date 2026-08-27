@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from flexi.cli.leave import Request, parse_request, render, run
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.db import AbsenceDay, BankHolidayCache
+from flexi.models.database.db import AbsenceDay, BankHolidayCache, BankHolidayRefresh
 from flexi.services.registry import Services, build_services
 from flexi.services.settings import parse_settings
 
@@ -31,12 +31,17 @@ def services(session: Session) -> Services:
         )
     )
     built.settings.save_entitlement(2025, 25.0)
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=BANK_HOLIDAY,
-            title="Summer bank holiday",
-            fetched_at=datetime(2026, 1, 1, 9, 0),
+    session.add_all(
+        (
+            BankHolidayRefresh(
+                division="england-and-wales",
+                fetched_at=datetime(2026, 1, 1, 9, 0),
+            ),
+            BankHolidayCache(
+                division="england-and-wales",
+                date=BANK_HOLIDAY,
+                title="Summer bank holiday",
+            ),
         )
     )
     session.commit()
