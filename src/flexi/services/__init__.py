@@ -70,7 +70,14 @@ if TYPE_CHECKING:
         parse_bank_holidays,
     )
     from flexi.services.clock import ClockResult, ClockService
-    from flexi.services.ledger import LedgerService, day_kind, end_of_day, segment_of
+    from flexi.services.ledger import (
+        LedgerRevision,
+        LedgerService,
+        day_kind,
+        end_of_day,
+        ledger_revision,
+        segment_of,
+    )
     from flexi.services.outcome import Outcome
     from flexi.services.registry import (
         Services,
@@ -205,9 +212,11 @@ _EXPORTS: Final = MappingProxyType(
         "parse_bank_holidays": ("bank_holidays", "parse_bank_holidays"),
         "ClockResult": ("clock", "ClockResult"),
         "ClockService": ("clock", "ClockService"),
+        "LedgerRevision": ("ledger", "LedgerRevision"),
         "LedgerService": ("ledger", "LedgerService"),
         "day_kind": ("ledger", "day_kind"),
         "end_of_day": ("ledger", "end_of_day"),
+        "ledger_revision": ("ledger", "ledger_revision"),
         "segment_of": ("ledger", "segment_of"),
         "Outcome": ("outcome", "Outcome"),
         "Services": ("registry", "Services"),
@@ -328,9 +337,11 @@ __all__ = (  # noqa: RUF022
     "parse_bank_holidays",
     "ClockResult",
     "ClockService",
+    "LedgerRevision",
     "LedgerService",
     "day_kind",
     "end_of_day",
+    "ledger_revision",
     "segment_of",
     "Outcome",
     "Services",

@@ -261,7 +261,7 @@ def test_zeroing_recomputes_after_an_external_commit(
             MONDAY, timedelta(minutes=30), "external correction"
         )
 
-    assert services.ledger.balance(MONDAY).delta == preview
+    assert services.ledger.balance(MONDAY).delta == preview + timedelta(minutes=30)
     assert zero_balance(services, MONDAY).success
 
     with get_session(engine) as fresh_session:
