@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical
@@ -336,7 +337,7 @@ class SetupScreen(Screen[bool]):
         questions.styles.animate("opacity", value=1.0, duration=RISE, delay=RISE / 2)
         self.query_one("#input-leave-start", Input).focus()
 
-    def on_key(self, event: object) -> None:
+    def on_key(self, event: events.Key) -> None:
         """Any key during the animation cuts to the end of it.
 
         Somebody setting Flexi up a second time should not have to watch it
@@ -345,9 +346,9 @@ class SetupScreen(Screen[bool]):
         """
         if not self.query_one("#setup-questions").has_class("-arrived"):
             self.query_one("#setup-wordmark", Wordmark).skip()
-            event.stop()  # type: ignore[attr-defined]
+            event.stop()
 
-    def on_descendant_focus(self, _event: object) -> None:
+    def on_descendant_focus(self, _event: events.DescendantFocus) -> None:
         self._mark_the_live_question()
 
     def _mark_the_live_question(self) -> None:

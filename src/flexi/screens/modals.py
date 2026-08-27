@@ -59,9 +59,14 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     buttons stay put.
     """
 
+    @property
+    def modal_title(self) -> str:
+        """The title rendered for this modal instance."""
+        return self.title_text
+
     def compose(self) -> ComposeResult:
         with Container(classes="modal -tall" if self.tall else "modal"):
-            yield Static(self.title_text, classes="modal-title")
+            yield Static(self.modal_title, classes="modal-title")
             with VerticalScroll(classes="modal-body"):
                 yield from self.compose_body()
             yield from self.compose_aside()
@@ -126,12 +131,10 @@ class ConfirmModal(FlexiModal[bool]):
         self._title = title
         self._question = question
 
-    def compose(self) -> ComposeResult:
-        # The title varies per question, and `title_text` is a class variable
-        # every other modal sets once. Overriding compose is cheaper than making
-        # the attribute an instance one on the base for the sake of this modal.
-        self.title_text = self._title  # type: ignore[misc]
-        yield from super().compose()
+    @property
+    def modal_title(self) -> str:
+        """The title supplied with this particular confirmation."""
+        return self._title
 
     def compose_body(self) -> ComposeResult:
         yield Static(self._question)

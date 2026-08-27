@@ -158,8 +158,15 @@ class YearCalendar(ScrollView, can_focus=True):
             super().__init__()
             self.selection = selection
 
-    def __init__(self, **kwargs: object) -> None:
-        super().__init__(**kwargs)  # type: ignore[arg-type]
+    def __init__(
+        self,
+        *,
+        name: str | None = None,
+        id: str | None = None,  # noqa: A002 - Textual's parameter name
+        classes: str | None = None,
+        disabled: bool = False,
+    ) -> None:
+        super().__init__(name=name, id=id, classes=classes, disabled=disabled)
         self.blocks: tuple[MonthBlock, ...] = ()
         self.ledgers: dict[date, DayLedger] = {}
         self.selection = Selection.at(wallclock.today())
