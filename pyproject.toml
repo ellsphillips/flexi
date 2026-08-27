@@ -124,7 +124,7 @@ strict = true
 # and once as `src.flexi.x`, and mypy refuses to check either.
 mypy_path = "src"
 files = ["src/flexi", "tests"]
-exclude = "migrations|dist|build"
+exclude = "dist|build"
 warn_unreachable = true
 show_error_codes = true
 
@@ -132,7 +132,6 @@ show_error_codes = true
 line-length = 88
 target-version = "py312"
 src = ["src", "tests"]
-extend-exclude = ["src/flexi/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["ALL"]
