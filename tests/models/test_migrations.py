@@ -46,6 +46,7 @@ from flexi.models.database.migrate import (
 BEFORE_HALF_DAYS = "0006"
 BEFORE_INVARIANTS = "0010"
 BEFORE_BANK_HOLIDAY_REFRESHES = "0012"
+BEFORE_CLOCK_SESSION_INVARIANTS = "0013"
 HEAD = "head"
 
 
@@ -512,6 +513,154 @@ def test_ambiguous_legacy_states_fail_before_the_schema_changes(
         upgrade(db, HEAD)
 
     assert revision_of(db) == BEFORE_INVARIANTS
+
+
+@pytest.mark.parametrize(
+    ("statements", "expected"),
+    [
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0),"
+                " (3, 'OUT', '2026-06-10 11:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES"
+                " (11, 1, 2, '2026-06-10', 0, 0),"
+                " (12, 1, 3, '2026-06-11', 0, 0)",
+            ),
+            "work_sessions reuses clock_in_id values: 1",
+        ),
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 08:00:00', 'user', 0),"
+                " (2, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (3, 'OUT', '2026-06-10 10:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES"
+                " (11, 1, 3, '2026-06-10', 0, 0),"
+                " (12, 2, 3, '2026-06-11', 0, 0)",
+            ),
+            "work_sessions reuses clock_out_id values: 3",
+        ),
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'OUT', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (11, 1, 2, '2026-06-10', 0, 0)",
+            ),
+            "work_sessions has non-IN clock_in rows: 11",
+        ),
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'IN', '2026-06-10 10:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (11, 1, 2, '2026-06-10', 0, 0)",
+            ),
+            "work_sessions has non-OUT clock_out rows: 11",
+        ),
+    ],
+    ids=("duplicate-in", "duplicate-out", "wrong-in-role", "wrong-out-role"),
+)
+def test_clock_session_conflicts_fail_before_revision_0014_changes_anything(
+    db: Path,
+    statements: tuple[str, ...],
+    expected: str,
+) -> None:
+    """0014 reports ambiguous history and leaves its rows and schema untouched."""
+    upgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(sa.text(statement))
+    engine.dispose()
+    before = rows(db, "work_sessions")
+
+    with pytest.raises(RuntimeError, match=expected):
+        upgrade(db, HEAD)
+
+    assert revision_of(db) == BEFORE_CLOCK_SESSION_INVARIANTS
+    assert rows(db, "work_sessions") == before
+    with sqlite3.connect(db) as connection:
+        indexes = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        triggers = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+    assert "uq_work_sessions_clock_in_id" not in indexes
+    assert "uq_work_sessions_clock_out_id" not in indexes
+    assert "trg_work_sessions_clock_actions_insert" not in triggers
+    assert "trg_work_sessions_clock_actions_update" not in triggers
+
+
+def test_clock_session_invariant_downgrade_preserves_history(db: Path) -> None:
+    """Removing and restoring 0014 changes enforcement, never user records."""
+    upgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (11, 1, 2, '2026-06-10', 0, 0)"
+            )
+        )
+    engine.dispose()
+    before = rows(db, "work_sessions")
+
+    upgrade(db, HEAD)
+    downgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
+
+    assert revision_of(db) == BEFORE_CLOCK_SESSION_INVARIANTS
+    assert rows(db, "work_sessions") == before
+    with sqlite3.connect(db) as connection:
+        indexes = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        triggers = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+    assert "uq_work_sessions_clock_in_id" not in indexes
+    assert "uq_work_sessions_clock_out_id" not in indexes
+    assert "trg_work_sessions_clock_actions_insert" not in triggers
+    assert "trg_work_sessions_clock_actions_update" not in triggers
+
+    upgrade(db, HEAD)
+    assert rows(db, "work_sessions") == before
 
 
 def test_head_downgrades_and_upgrades_again(db: Path) -> None:

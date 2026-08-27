@@ -23,6 +23,9 @@ from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
 from flexi.models.database.invariants import (
     register_clock_event_immutability as _register_clock_event_immutability,
 )
+from flexi.models.database.invariants import (
+    register_work_session_action_invariants as _register_work_session_action_invariants,
+)
 
 __all__ = (
     "DEFAULT_CONTRACTED_MINUTES",
@@ -209,6 +212,8 @@ class WorkSession(Base):
 
     __tablename__ = "work_sessions"
     __table_args__ = (
+        UniqueConstraint("clock_in_id", name="uq_work_sessions_clock_in_id"),
+        UniqueConstraint("clock_out_id", name="uq_work_sessions_clock_out_id"),
         Index(
             "uq_work_sessions_one_open",
             "voided",
@@ -235,6 +240,9 @@ class WorkSession(Base):
     clock_out_event: Mapped[ClockEvent | None] = relationship(
         foreign_keys=[clock_out_id]
     )
+
+
+_register_work_session_action_invariants(WorkSession.__table__)
 
 
 class AbsenceDay(Base):

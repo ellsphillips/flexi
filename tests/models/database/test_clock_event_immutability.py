@@ -26,6 +26,20 @@ from flexi.models.database.migrate import alembic_config, run_migrations
 
 SchemaSource = Literal["metadata", "migrations"]
 
+FROZEN_0012_UPDATE_ERROR = (
+    "clock_events are immutable; insert a replacement event instead"
+)
+FROZEN_0012_TRIGGER_SQL = (
+    "CREATE TRIGGER trg_clock_events_immutable_update\n"
+    "BEFORE UPDATE ON clock_events\n"
+    "FOR EACH ROW\n"
+    "BEGIN\n"
+    "    SELECT RAISE(ABORT, "
+    "'clock_events are immutable; insert a replacement event instead'"
+    ");\n"
+    "END"
+)
+
 
 @pytest.fixture(params=("metadata", "migrations"))
 def clock_event_engine(
@@ -226,5 +240,40 @@ def test_migration_upgrade_and_downgrade_toggle_only_the_guard(
                 sa.text("SELECT timestamp FROM clock_events WHERE id = 1")
             )
         assert stored == "2026-08-27 10:30:00"
+    finally:
+        engine.dispose()
+
+
+def test_migration_0012_owns_frozen_ddl_and_error_semantics(tmp_path: Path) -> None:
+    """A live helper refactor cannot retroactively change revision 0012."""
+    migration = (
+        Path(__file__).parents[3]
+        / "src/flexi/migrations/versions/0012_clock_event_immutability.py"
+    )
+    assert "flexi.models.database.invariants" not in migration.read_text(
+        encoding="utf-8"
+    )
+
+    path = tmp_path / "frozen-clock-event-migration.db"
+    upgrade(path, "0011")
+    engine = create_db_engine(path)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, utc_offset_minutes, source)"
+                " VALUES (1, 'IN', '2026-08-27 09:00:00', 60, 'user')"
+            )
+        )
+    engine.dispose()
+
+    upgrade(path, "0012")
+    engine = create_db_engine(path)
+    try:
+        installed = trigger_sql(engine)
+        assert installed is not None
+        assert normalise_sql(installed) == normalise_sql(FROZEN_0012_TRIGGER_SQL)
+        with pytest.raises(IntegrityError, match=re.escape(FROZEN_0012_UPDATE_ERROR)):
+            update_clock_event(engine, "2026-08-27 10:00:00")
     finally:
         engine.dispose()
