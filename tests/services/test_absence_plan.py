@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from datetime import date
 
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion, Verdict
-from flexi.models.database.db import AbsenceDay
+from flexi.models.database.db import AbsenceDay, BankHolidayRefresh
 from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import Services
 from tests.services.conftest import Configured, work
@@ -87,13 +88,17 @@ def test_a_bank_holiday_is_typed_not_pattern_matched(services: Services) -> None
     assert plan.refused == ()
 
 
-def test_missing_calendar_data_is_a_refusal_not_a_skip(configure: Configured) -> None:
+def test_missing_calendar_data_is_a_refusal_not_a_skip(
+    configure: Configured, session: Session
+) -> None:
     """The case the substring match missed, on a capital B.
 
     "Bank holiday data unavailable" means we do not know whether the day is
     bookable. Passing over it silently would lose the day without saying so.
     """
     services = _configure(configure, holidays=False)
+    session.execute(delete(BankHolidayRefresh))
+    session.commit()
     plan = services.absence.plan(MONDAY, MONDAY, AbsenceType.ANNUAL)
 
     assert plan.days[0].verdict is Verdict.NO_CALENDAR
