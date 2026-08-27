@@ -22,16 +22,19 @@ from flexi.components.charts import (
     WeekRibbon,
     YearHeatmap,
     week_columns,
+    weekly_hours,
 )
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import mark_width
 from flexi.components.modules.base import Module
 from flexi.components.options import ModuleOptions, ScreenOptions
+from flexi.components.plot import Plot
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
 from flexi.context import service_app
 from flexi.domain.format import day_month, delta, hm
 from flexi.domain.period import Period
+from flexi.domain.plot import Mark, Series
 from flexi.messages import Scope
 
 __all__ = (
@@ -40,6 +43,7 @@ __all__ = (
     "InsightsScreen",
     "LeaveBurndown",
     "ShapeOfTheWeeks",
+    "WhereTheHoursWent",
     "YearAtAGlance",
 )
 
@@ -78,6 +82,50 @@ class BalanceHistory(Module):
         )
         total = self.services.ledger.summary(period.start, end, now=self.now)
         self.set_subtitle(f"{delta(total.delta)} to {day_month(end)}")
+
+
+class WhereTheHoursWent(Module):
+    """A week's hours, split by what excused them, against what it asked for.
+
+    Stacked, because the question is not "how much of each" but "did the week
+    add up": four bands reaching the line is a week that balanced however it was
+    spent, and the line is what says so. Drawn as a line rather than a fifth
+    band because what a week asked for is not a thing that happened.
+    """
+
+    WATCHES: ClassVar[Scope] = Scope.ALL
+
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
+        super().__init__(id="hours-went", title="Where the hours went", **kwargs)
+
+    def compose(self) -> ComposeResult:
+        yield Plot(id="hours-plot")
+
+    def on_mount(self) -> None:
+        self.rebuild()
+
+    def rebuild(self) -> None:
+        period = self.period
+        end = min(period.end, self.now.date())
+        chart = self.query_one("#hours-plot", Plot)
+        if end < period.start:
+            chart.show([], empty_message="Not started")
+            self.set_subtitle("not started")
+            return
+
+        ledgers = self.services.ledger.days(period.start, end, now=self.now)
+        bands = weekly_hours(ledgers, first_weekday=period.first_weekday)
+        chart.show(
+            [
+                Series("worked", bands["worked"], Mark.BAR, "series"),
+                Series("annual", bands["annual"], Mark.BAR, "annual"),
+                Series("sick", bands["sick"], Mark.BAR, "sick"),
+                Series("other", bands["other"], Mark.BAR, "other"),
+                Series("asked", bands["expected"], Mark.LINE, "target"),
+            ],
+            stacked=True,
+        )
+        self.set_subtitle(f"{len(bands['worked'])} weeks to {day_month(end)}")
 
 
 class LeaveBurndown(Module):
@@ -186,6 +234,8 @@ class InsightsScreen(Screen[None]):
             with Horizontal(classes="insights-row"):
                 yield BalanceHistory()
                 yield LeaveBurndown()
+            with Vertical(classes="insights-row"):
+                yield WhereTheHoursWent()
             with Vertical(classes="insights-row"):
                 yield ShapeOfTheWeeks()
                 yield YearAtAGlance()

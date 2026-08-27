@@ -5,8 +5,11 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+from textual.containers import VerticalScroll
+from textual.pilot import Pilot
 from textual.widgets import Input
 
+from flexi.app import FlexiApp
 from flexi.components.charts import (
     Burndown,
     DivergingBars,
@@ -129,18 +132,35 @@ async def test_the_balance_chart_stops_at_today(app_factory: AppFactory) -> None
 async def test_every_chart_writes_its_figures_as_well_as_drawing_them(
     app_factory: AppFactory,
 ) -> None:
-    """No chart is the only way to read its own numbers."""
+    """No chart is the only way to read its own numbers.
+
+    Read down the page rather than off one screenful. Insights is a scrolling
+    page and there are more charts on it than fit a terminal, so a test that
+    looked at the viewport alone would be asserting the layout as much as the
+    figures -- and would start failing for whichever chart was added last.
+    """
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
         await pilot.pause()
-        text = screen_text(app)
+        text = await scrolled_text(app, pilot)
         assert "best" in text
         assert "worst" in text
         assert "taken" in text
         assert "left" in text
         assert "+" in text
         assert "−" in text
+
+
+async def scrolled_text(app: FlexiApp, pilot: Pilot[None]) -> str:
+    """Everything the page says, gathered a screenful at a time."""
+    body = app.screen.query_one(VerticalScroll)
+    seen = [screen_text(app)]
+    while body.scroll_offset.y < body.max_scroll_y:
+        body.scroll_page_down(animate=False)
+        await pilot.pause()
+        seen.append(screen_text(app))
+    return "\n".join(seen)
 
 
 async def test_the_heatmap_legend_names_both_ends(app_factory: AppFactory) -> None:

@@ -43,8 +43,14 @@ CONSOLE = Console()
 
 
 @asynccontextmanager
-async def mounted(*widgets: Widget) -> AsyncIterator[Pilot[None]]:
-    """Run the given widgets in an app that has the palette and nothing else."""
+async def mounted(
+    *widgets: Widget, size: tuple[int, int] = (60, 20)
+) -> AsyncIterator[Pilot[None]]:
+    """Run the given widgets in an app that has the palette and nothing else.
+
+    ``size`` because a widget that gives its furniture away as the panel shrinks
+    can only be asked about that by being given a panel to shrink.
+    """
 
     class Harness(App[None]):
         CSS_PATH: ClassVar[list[str | PurePath]] = [
@@ -60,7 +66,7 @@ async def mounted(*widgets: Widget) -> AsyncIterator[Pilot[None]]:
         def compose(self) -> ComposeResult:
             yield from widgets
 
-    async with Harness().run_test(size=(60, 20)) as pilot:
+    async with Harness().run_test(size=size) as pilot:
         yield pilot
 
 

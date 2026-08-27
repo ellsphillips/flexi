@@ -24,6 +24,7 @@ if TYPE_CHECKING:
         jumper,
         modules,
         options,
+        plot,
         progress,
         punch,
         splash,
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
         WeekRibbon,
         YearHeatmap,
         week_columns,
+        weekly_hours,
     )
     from flexi.components.charts import FULL as CHART_FULL_GLYPH
     from flexi.components.chrome import (
@@ -158,6 +160,13 @@ if TYPE_CHECKING:
         StaticOptions,
         WidgetOptions,
     )
+    from flexi.components.plot import (
+        AXIS_WIDTH,
+        LEGEND_MARKS,
+        MIN_PLOT_HEIGHT,
+        PLOT_TONES,
+        Plot,
+    )
     from flexi.components.progress import MIN_RAIL, ProgressRail, TimeProgress
     from flexi.components.punch import (
         BASE_STYLES,
@@ -244,6 +253,7 @@ _MODULE_PATHS: Final = MappingProxyType(
         "yearcalendar": "flexi.components.yearcalendar",
         "modules": "flexi.components.modules",
         "options": "flexi.components.options",
+        "plot": "flexi.components.plot",
         "balance": "flexi.components.modules.balance",
         "base": "flexi.components.modules.base",
         "clock": "flexi.components.modules.clock",
@@ -274,7 +284,10 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "DivergingBars",
             "WeekRibbon",
             "YearHeatmap",
+            "SECONDS_PER_HOUR",
+            "WEEKLY_BANDS",
             "week_columns",
+            "weekly_hours",
         ),
         "flexi.components.chrome": (
             "NAV_BY_SCREEN",
@@ -437,6 +450,13 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "month_grid",
             "totals_subtitle",
         ),
+        "flexi.components.plot": (
+            "AXIS_WIDTH",
+            "LEGEND_MARKS",
+            "MIN_PLOT_HEIGHT",
+            "PLOT_TONES",
+            "Plot",
+        ),
         "flexi.components.options": (
             "DataTableOptions",
             "ModuleOptions",
@@ -475,6 +495,7 @@ __all__ = (  # noqa: RUF022
     "yearcalendar",
     "modules",
     "options",
+    "plot",
     "balance",
     "base",
     "clock",
@@ -502,7 +523,10 @@ __all__ = (  # noqa: RUF022
     "DivergingBars",
     "WeekRibbon",
     "YearHeatmap",
+    "SECONDS_PER_HOUR",
+    "WEEKLY_BANDS",
     "week_columns",
+    "weekly_hours",
     "NAV_BY_SCREEN",
     "NAV_ITEMS",
     "OVERFLOW_TEMPLATE",
@@ -558,6 +582,11 @@ __all__ = (  # noqa: RUF022
     "Jumper",
     "JumpScreen",
     "Refreshable",
+    "AXIS_WIDTH",
+    "LEGEND_MARKS",
+    "MIN_PLOT_HEIGHT",
+    "PLOT_TONES",
+    "Plot",
     "MIN_RAIL",
     "ProgressRail",
     "TimeProgress",

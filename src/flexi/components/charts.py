@@ -8,6 +8,7 @@ the mark, so none of them is the only way to read its own numbers.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import ClassVar, Final, Unpack
@@ -18,6 +19,7 @@ from textual.widget import Widget
 
 from flexi.components.options import WidgetOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
+from flexi.constants import AbsenceType
 from flexi.domain.dates import week_start
 from flexi.domain.format import MINUS, delta, hm
 from flexi.domain.format import days as fmt_days
@@ -32,12 +34,15 @@ __all__ = (
     "EMPTY",
     "FULL",
     "HEAT",
+    "SECONDS_PER_HOUR",
+    "WEEKLY_BANDS",
     "Burndown",
     "Column",
     "DivergingBars",
     "WeekRibbon",
     "YearHeatmap",
     "week_columns",
+    "weekly_hours",
 )
 
 BLOCK: Final = "█"
@@ -56,6 +61,21 @@ EMPTY: Final = "·"
 DIVERGING_STEPS: Final = 4
 """Steps per arm of the heatmap ramp. Four is as many as a reader can rank by
 eye without a legend they have to keep consulting."""
+
+
+WEEKLY_BANDS: Final[tuple[str, ...]] = (
+    "worked",
+    "annual",
+    "sick",
+    "other",
+    "expected",
+)
+"""The bands a week is split into, and the hours it asked for.
+
+`expected` is not a band -- it is the line the bands are read against -- but it
+is grouped in the same pass because it is the same sum over the same days."""
+
+SECONDS_PER_HOUR: Final = 3600
 
 
 @dataclass(frozen=True, slots=True)
@@ -411,6 +431,42 @@ class YearHeatmap(Widget):
             text.append(HEAT, self.get_component_rich_style(f"chart--surplus-{step}"))
         text.append(f" +{hm(self.scale)}", label)
         return text
+
+
+def weekly_hours(
+    ledgers: Sequence[DayLedger], *, first_weekday: int
+) -> dict[str, tuple[float, ...]]:
+    """Hours a week, split into what the time was spent on.
+
+    Four runs of the same length, one per band of a stacked bar, plus the hours
+    each week asked for. Grouped here rather than in the plot, which counts in
+    numbers and has never heard of an absence.
+
+    A day off contributes the hours it excused rather than the hours worked on
+    it, which is what makes the bands add up to the week the contract asked
+    for: a week of annual leave is a full bar, not an empty one.
+    """
+    buckets: defaultdict[date, dict[str, float]] = defaultdict(
+        lambda: dict.fromkeys(WEEKLY_BANDS, 0.0)
+    )
+    for ledger in ledgers:
+        week = week_start(ledger.date, first_weekday=first_weekday)
+        buckets[week]["worked"] += ledger.worked.total_seconds() / SECONDS_PER_HOUR
+        buckets[week]["expected"] += ledger.expected.total_seconds() / SECONDS_PER_HOUR
+        excused = ledger.contracted.total_seconds() / SECONDS_PER_HOUR
+        for absence in ledger.absences:
+            buckets[week][_band(absence.type)] += excused * absence.portion.days
+    ordered = [totals for _, totals in sorted(buckets.items())]
+    return {band: tuple(totals[band] for totals in ordered) for band in WEEKLY_BANDS}
+
+
+def _band(kind: AbsenceType) -> str:
+    """Which band of the bar an absence type falls in.
+
+    Annual and sick earn their own; the rest are rare enough that four bands
+    would be three of them at one pixel each.
+    """
+    return kind.value if kind.value in WEEKLY_BANDS else "other"
 
 
 def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column]:

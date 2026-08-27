@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         InsightsScreen,
         LeaveBurndown,
         ShapeOfTheWeeks,
+        WhereTheHoursWent,
         YearAtAGlance,
     )
     from flexi.screens.leave import (
@@ -88,6 +89,7 @@ _MODULE_EXPORTS: Final = MappingProxyType(
             "InsightsScreen",
             "LeaveBurndown",
             "ShapeOfTheWeeks",
+            "WhereTheHoursWent",
             "YearAtAGlance",
         ),
         "leave": (
@@ -162,6 +164,7 @@ __all__ = (  # noqa: RUF022
     "InsightsScreen",
     "LeaveBurndown",
     "ShapeOfTheWeeks",
+    "WhereTheHoursWent",
     "YearAtAGlance",
     "PORTION_CYCLE",
     "REMOVE_THRESHOLD",
