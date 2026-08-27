@@ -6,9 +6,13 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import time_machine
+from sqlalchemy import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.models.database.db import BalanceAdjustment
+from flexi.models.database.engine import get_session
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services, invalidate_services, zero_balance
 from tests.conftest import sessions_on
@@ -110,6 +114,57 @@ def test_removing_one_puts_the_balance_back(services: Services) -> None:
     services.adjustments.remove(recorded.adjustment.id)
     invalidate_services(services)
     assert services.ledger.balance(MONDAY).adjustment == timedelta()
+
+
+def test_removal_reserves_an_adjustment_before_reading_it(
+    services: Services,
+    session: Session,
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A concurrent replacement cannot reuse the identity being removed."""
+    recorded = services.adjustments.record(
+        MONDAY, timedelta(hours=4), "original correction"
+    )
+    assert recorded.adjustment is not None
+    adjustment_id = recorded.adjustment.id
+    get = session.get
+    writer_was_blocked = False
+
+    with get_session(engine) as competing:
+        competing.connection().exec_driver_sql("PRAGMA busy_timeout=0")
+
+        def interleave(
+            model: type[BalanceAdjustment], ident: int
+        ) -> BalanceAdjustment | None:
+            nonlocal writer_was_blocked
+            row = get(model, ident)
+            assert row is not None
+            current = competing.get(BalanceAdjustment, ident)
+            assert current is not None
+            try:
+                competing.delete(current)
+                competing.commit()
+                competing.add(
+                    BalanceAdjustment(
+                        date=FRIDAY,
+                        minutes=30,
+                        reason="replacement correction",
+                        created_at=datetime(2026, 6, 12, 12),
+                    )
+                )
+                competing.commit()
+            except OperationalError:
+                competing.rollback()
+                writer_was_blocked = True
+            return row
+
+        monkeypatch.setattr(session, "get", interleave)
+        result = services.adjustments.remove(adjustment_id)
+
+    assert writer_was_blocked
+    assert result.success
+    assert services.adjustments.all() == []
 
 
 # -- reading them back -----------------------------------------------------

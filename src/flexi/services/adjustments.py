@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.domain.format import stamp
 from flexi.models.database.db import BalanceAdjustment
-from flexi.services.transactions import atomic
+from flexi.services.transactions import atomic, write_transaction
 
 __all__ = ("OPENING_BALANCE", "AdjustmentResult", "AdjustmentService")
 
@@ -85,9 +85,9 @@ class AdjustmentService:
 
     def remove(self, adjustment_id: int) -> AdjustmentResult:
         """Undo a correction. It is one row, so it can simply go."""
-        row = self._session.get(BalanceAdjustment, adjustment_id)
-        if row is None:
-            return AdjustmentResult(False, "No such adjustment")
-        with atomic(self._session):
+        with write_transaction(self._session):
+            row = self._session.get(BalanceAdjustment, adjustment_id)
+            if row is None:
+                return AdjustmentResult(False, "No such adjustment")
             self._session.delete(row)
         return AdjustmentResult(True, "Adjustment removed")

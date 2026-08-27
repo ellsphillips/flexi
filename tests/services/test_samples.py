@@ -23,12 +23,14 @@ from sqlalchemy.orm import Session
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.db import (
     AbsenceDay,
+    BalanceAdjustment,
     ClockEvent,
     LeaveEntitlement,
     Settings,
     WorkSession,
 )
 from flexi.services import samples
+from flexi.services.adjustments import AdjustmentService
 from flexi.services.samples import ANCHOR, holidays_in, seed_demo
 
 ANCHORS = [
@@ -47,6 +49,16 @@ def _worked(session: Session) -> set[date]:
 
 def _absent(session: Session) -> set[date]:
     return set(session.execute(select(AbsenceDay.date)).scalars())
+
+
+def test_reseeding_removes_existing_balance_corrections(session: Session) -> None:
+    """Replacing a demo means no state from the previous database survives."""
+    AdjustmentService(session).record(ANCHOR, timedelta(hours=2), "old correction")
+    assert session.scalars(select(BalanceAdjustment)).all()
+
+    seed_demo(session)
+
+    assert session.scalars(select(BalanceAdjustment)).all() == []
 
 
 @pytest.mark.parametrize("anchor", ANCHORS)
