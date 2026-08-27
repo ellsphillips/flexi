@@ -27,7 +27,9 @@ if TYPE_CHECKING:
         settings,
         setup,
         startup,
+        transactions,
         wallet,
+        work_sessions,
     )
     from flexi.services.absence import (
         AbsencePlan,
@@ -126,7 +128,9 @@ if TYPE_CHECKING:
         stamped_and_configured,
     )
     from flexi.services.startup import close_stale_sessions
+    from flexi.services.transactions import atomic
     from flexi.services.wallet import WalletService
+    from flexi.services.work_sessions import stage_clock_out
 
 _SUBMODULES: Final = (
     "absence",
@@ -140,7 +144,9 @@ _SUBMODULES: Final = (
     "settings",
     "setup",
     "startup",
+    "transactions",
     "wallet",
+    "work_sessions",
 )
 
 # Every public name has exactly one source. A future collision must be resolved
@@ -234,7 +240,9 @@ _EXPORTS: Final = MappingProxyType(
         "is_initialised": ("setup", "is_initialised"),
         "stamped_and_configured": ("setup", "stamped_and_configured"),
         "close_stale_sessions": ("startup", "close_stale_sessions"),
+        "atomic": ("transactions", "atomic"),
         "WalletService": ("wallet", "WalletService"),
+        "stage_clock_out": ("work_sessions", "stage_clock_out"),
     }
 )
 
@@ -251,7 +259,9 @@ __all__ = (  # noqa: RUF022
     "settings",
     "setup",
     "startup",
+    "transactions",
     "wallet",
+    "work_sessions",
     "AbsencePlan",
     "AbsenceResult",
     "AbsenceService",
@@ -339,7 +349,9 @@ __all__ = (  # noqa: RUF022
     "is_initialised",
     "stamped_and_configured",
     "close_stale_sessions",
+    "atomic",
     "WalletService",
+    "stage_clock_out",
 )
 
 

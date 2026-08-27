@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.domain.format import stamp
 from flexi.models.database.db import BalanceAdjustment
+from flexi.services.transactions import atomic
 
 __all__ = ("OPENING_BALANCE", "AdjustmentResult", "AdjustmentService")
 
@@ -74,8 +75,8 @@ class AdjustmentService:
             reason=reason.strip(),
             created_at=wallclock.utc_now().replace(tzinfo=None),
         )
-        self._session.add(row)
-        self._session.commit()
+        with atomic(self._session):
+            self._session.add(row)
         return AdjustmentResult(
             True,
             f"Balance adjusted by {minutes:+d} minutes on {stamp(when, '%-d %b %Y')}",
@@ -87,6 +88,6 @@ class AdjustmentService:
         row = self._session.get(BalanceAdjustment, adjustment_id)
         if row is None:
             return AdjustmentResult(False, "No such adjustment")
-        self._session.delete(row)
-        self._session.commit()
+        with atomic(self._session):
+            self._session.delete(row)
         return AdjustmentResult(True, "Adjustment removed")

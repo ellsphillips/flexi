@@ -84,6 +84,22 @@ class TestFallbackTo2359:
         close_time = closing.timestamp.replace(tzinfo=None).time()
         assert close_time == time(23, 59)
 
+    def test_clock_in_at_auto_close_closes_at_that_time(
+        self, svc: ClockService, session: Session
+    ) -> None:
+        yesterday_6pm = datetime.combine(
+            wallclock.today() - timedelta(days=1),
+            time(18, 0),
+            tzinfo=UTC,
+        )
+        svc.clock_in(now=yesterday_6pm)
+
+        closed = close_stale_sessions(session, time(18, 0))
+
+        closing = closed[0].clock_out_event
+        assert closing is not None
+        assert closing.timestamp.time() == time(18, 0)
+
 
 class TestCountsTowardWorkedTime:
     def test_auto_closed_session_has_duration(

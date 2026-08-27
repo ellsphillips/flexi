@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import date, time, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
@@ -21,6 +20,7 @@ from flexi.models.database.db import (
     LeaveEntitlement,
     Settings,
 )
+from flexi.services.transactions import atomic
 
 __all__ = (
     "CLOCK_PATTERN",
@@ -205,13 +205,8 @@ class SettingsService:
 
     def save_settings(self, update: SettingsUpdate) -> Settings:
         """Persist and commit one typed settings update."""
-        try:
-            settings = self.stage_settings(update)
-            self._session.commit()
-        except SQLAlchemyError:
-            self._session.rollback()
-            raise
-        return settings
+        with atomic(self._session):
+            return self.stage_settings(update)
 
     def stage_settings(self, update: SettingsUpdate) -> Settings:
         """Apply a typed update to this transaction without committing it.
@@ -268,14 +263,10 @@ class SettingsService:
         self, update: SettingsUpdate, entitlements: Mapping[int, float]
     ) -> Settings:
         """Commit settings and their entitlement edits as one transaction."""
-        try:
+        with atomic(self._session):
             settings = self.stage_settings(update)
             for year, days in entitlements.items():
                 self.stage_entitlement(year, days)
-            self._session.commit()
-        except SQLAlchemyError:
-            self._session.rollback()
-            raise
         return settings
 
     # ---- helpers ----
@@ -334,13 +325,8 @@ class SettingsService:
         return ent.days if ent else None
 
     def save_entitlement(self, year: int, days: float) -> LeaveEntitlement:
-        try:
-            ent = self.stage_entitlement(year, days)
-            self._session.commit()
-        except SQLAlchemyError:
-            self._session.rollback()
-            raise
-        return ent
+        with atomic(self._session):
+            return self.stage_entitlement(year, days)
 
     def stage_entitlement(self, year: int, days: float) -> LeaveEntitlement:
         """Apply one entitlement to this transaction without committing it."""

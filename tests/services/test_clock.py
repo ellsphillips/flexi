@@ -8,7 +8,7 @@ nothing at all.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
-from unittest.mock import patch
+from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import select
@@ -112,17 +112,21 @@ class TestRejections:
 
 
 class TestRollback:
-    def test_flush_failure_leaves_no_event(
-        self, svc: ClockService, session: Session
+    def test_commit_failure_is_rolled_back_without_partial_state(
+        self,
+        svc: ClockService,
+        session: Session,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """If commit fails after flush, no partial state should remain."""
-        with (
-            patch.object(session, "commit", side_effect=RuntimeError("boom")),
-            pytest.raises(RuntimeError, match="boom"),
-        ):
+        rollback = Mock(wraps=session.rollback)
+        monkeypatch.setattr(session, "commit", Mock(side_effect=RuntimeError("boom")))
+        monkeypatch.setattr(session, "rollback", rollback)
+
+        with pytest.raises(RuntimeError, match="boom"):
             svc.clock_in()
 
-        session.rollback()
+        rollback.assert_called_once_with()
         events = session.execute(select(ClockEvent)).scalars().all()
         sessions = session.execute(select(WorkSession)).scalars().all()
         assert len(events) == 0

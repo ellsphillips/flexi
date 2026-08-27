@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import Division
 from flexi.models.database.db import BankHolidayCache
+from flexi.services.transactions import atomic
 
 __all__ = (
     "CACHE_MAX_AGE",
@@ -148,21 +149,21 @@ class BankHolidayService:
             return False
         now = wallclock.utc_now().replace(tzinfo=None)
 
-        # Clear old cache for this division
-        self._session.execute(
-            delete(BankHolidayCache).where(BankHolidayCache.division == division)
-        )
-
-        for event in events:
-            self._session.add(
-                BankHolidayCache(
-                    division=division,
-                    date=event.date,
-                    title=event.title,
-                    fetched_at=now,
-                )
+        with atomic(self._session):
+            # Clear old cache for this division
+            self._session.execute(
+                delete(BankHolidayCache).where(BankHolidayCache.division == division)
             )
-        self._session.commit()
+
+            for event in events:
+                self._session.add(
+                    BankHolidayCache(
+                        division=division,
+                        date=event.date,
+                        title=event.title,
+                        fetched_at=now,
+                    )
+                )
         return True
 
     def fill_if_empty(self) -> bool:

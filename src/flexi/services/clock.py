@@ -15,6 +15,8 @@ from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
+from flexi.services.transactions import atomic
+from flexi.services.work_sessions import stage_clock_out
 
 __all__ = ("ClockResult", "ClockService")
 
@@ -124,15 +126,15 @@ class ClockService:
             )
 
         event = punched(ClockAction.IN, moment, source=source)
-        self._session.add(event)
-        self._session.flush()
+        with atomic(self._session):
+            self._session.add(event)
+            self._session.flush()
 
-        work_session = WorkSession(
-            clock_in_id=event.id,
-            work_date=work_date,
-        )
-        self._session.add(work_session)
-        self._session.commit()
+            work_session = WorkSession(
+                clock_in_id=event.id,
+                work_date=work_date,
+            )
+            self._session.add(work_session)
 
         return ClockResult(
             success=True,
@@ -166,25 +168,28 @@ class ClockService:
                 session=open_session,
             )
 
-        event = punched(ClockAction.OUT, moment, source=source)
-        self._session.add(event)
-        self._session.flush()
-        open_session.clock_out_id = event.id
+        short = length < self._minimum
+        with atomic(self._session):
+            closed = stage_clock_out(
+                self._session,
+                open_session.id,
+                moment,
+                source=source,
+                voided=short,
+            )
+        if not closed:
+            return ClockResult(success=False, message="Not clocked in")
 
         # Clocking in and straight back out is a slip of the finger. The events
         # stay — they are immutable, and the audit trail is the point — but the
         # session is voided, so it is absent from the records table and from
         # every figure derived from it.
-        if length < self._minimum:
-            open_session.voided = True
-            self._session.commit()
+        if short:
             return ClockResult(
                 success=True,
                 message=f"Discarded — under {spoken(self._minimum)} on the clock",
                 session=open_session,
             )
-
-        self._session.commit()
         return ClockResult(
             success=True,
             message="Clocked out",
@@ -212,8 +217,9 @@ class ClockService:
                 continue
             length = moment_of(work.clock_out_event) - moment_of(work.clock_in_event)
             if timedelta() <= length < self._minimum:
-                work.voided = True
                 discarded.append(work)
         if discarded:
-            self._session.commit()
+            with atomic(self._session):
+                for work in discarded:
+                    work.voided = True
         return discarded

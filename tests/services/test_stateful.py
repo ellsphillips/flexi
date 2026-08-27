@@ -143,7 +143,7 @@ class TimesheetModel(RuleBasedStateMachine):
         """
         if self.open_since is None or self.open_since.date() >= self.now.date():
             return
-        closing = AUTO_CLOSE if self.open_since.time() < AUTO_CLOSE else time(23, 59)
+        closing = AUTO_CLOSE if self.open_since.time() <= AUTO_CLOSE else time(23, 59)
         closed_at = datetime.combine(self.open_since.date(), closing)
         length = closed_at - self.open_since
         self.sessions.append((self.open_since, closed_at, length < self.minimum))

@@ -36,6 +36,7 @@ from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
+from flexi.services.transactions import atomic
 
 __all__ = (
     "AbsencePlan",
@@ -624,8 +625,8 @@ class AbsenceService:
             portion=portion,
             note=note,
         )
-        self._session.add(absence)
-        self._session.commit()
+        with atomic(self._session):
+            self._session.add(absence)
 
         return AbsenceResult(
             success=True,
@@ -737,11 +738,12 @@ class AbsenceService:
     def book_plan(self, plan: AbsencePlan) -> RangeResult:
         """Write exactly what the plan decided, and nothing it did not."""
         booked: list[date] = []
+        rows: list[AbsenceDay] = []
         skipped: list[tuple[date, str]] = []
 
         for day in plan.days:
             if day.verdict is Verdict.BOOK:
-                self._session.add(
+                rows.append(
                     AbsenceDay(
                         date=day.date,
                         absence_type=plan.absence_type,
@@ -753,8 +755,9 @@ class AbsenceService:
             elif day.verdict.is_refusal:
                 skipped.append((day.date, day.reason))
 
-        if booked:
-            self._session.commit()
+        if rows:
+            with atomic(self._session):
+                self._session.add_all(rows)
         return RangeResult(tuple(booked), tuple(skipped), plan.warning)
 
     def book_range(
@@ -810,9 +813,9 @@ class AbsenceService:
         rows = self.in_range(start, end)
         if not rows:
             return RangeResult()
-        for row in rows:
-            self._session.delete(row)
-        self._session.commit()
+        with atomic(self._session):
+            for row in rows:
+                self._session.delete(row)
         # Distinct dates, in order: `in_range` orders by date, and a date
         # holding both halves is one date cleared, not two.
         return RangeResult(tuple(dict.fromkeys(row.date for row in rows)))
@@ -826,9 +829,9 @@ class AbsenceService:
             return AbsenceResult(False, "Nothing is booked on that date")
 
         removed = booked[0].absence_type.label if len(booked) == 1 else "Absence"
-        for absence in booked:
-            self._session.delete(absence)
-        self._session.commit()
+        with atomic(self._session):
+            for absence in booked:
+                self._session.delete(absence)
         return AbsenceResult(True, f"{removed} removed from {short_date(day)}")
 
 

@@ -40,6 +40,7 @@ from flexi.models.database.db import (
 )
 from flexi.models.database.moment import punched
 from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
+from flexi.services.transactions import atomic
 
 __all__ = (
     "ANCHOR",
@@ -137,15 +138,15 @@ def holidays_in(year: int) -> tuple[tuple[date, str], ...]:
 
 
 def seed_demo(session: Session, *, anchor: date = ANCHOR) -> None:
-    """Fill an empty database with a working life ending on ``anchor``."""
+    """Replace the database atomically with a life ending on ``anchor``."""
     start = leaveyear.start_of(anchor, *LEAVE_YEAR)
     holidays = {when for when, _ in holidays_in(start.year)}
-    _wipe(session)
-    _settings(session, anchor)
-    _holidays(session, start.year, anchor)
-    booked, half_day = _absences(session, anchor, holidays)
-    _work(session, start, anchor, booked | holidays, half_day)
-    session.commit()
+    with atomic(session):
+        _wipe(session)
+        _settings(session, anchor)
+        _holidays(session, start.year, anchor)
+        booked, half_day = _absences(session, anchor, holidays)
+        _work(session, start, anchor, booked | holidays, half_day)
 
 
 def _wipe(session: Session) -> None:
@@ -158,7 +159,6 @@ def _wipe(session: Session) -> None:
         Settings,
     ):
         session.execute(delete(model))
-    session.commit()
 
 
 def _settings(session: Session, anchor: date) -> None:
