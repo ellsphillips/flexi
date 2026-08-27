@@ -1,10 +1,12 @@
 """A plausible working life, for demos, screenshots and snapshot tests.
 
-`seed_demo` is the whole of what this module offers. The steps under it are its
-body broken up to be readable, and they run in an order nothing enforces --
-wiping before settings, settings before work, absences before the work that has
-to skip them. Publishing them would advertise a sequence a caller could get
-wrong, which is the one case where private earns its keep here.
+`seed_demo` is the module's only mutation and composition boundary. The public
+constants and pure date helpers describe its deterministic scenario; the
+private steps under it are its body broken up to be readable, and they run in
+an order nothing enforces -- wiping before settings, settings before work,
+absences before the work that has to skip them. Publishing those stages would
+advertise a sequence a caller could get wrong, which is the one case where
+private earns its keep here.
 
 Deterministic by construction -- no ``random``, no clock reads. Every figure is
 derived from the day's index, so the seed produces byte-identical output on any
