@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from logging.config import fileConfig
-from typing import cast
 
 from alembic import context
 from sqlalchemy import engine_from_config, event, pool
@@ -41,8 +40,11 @@ def run_migrations_online() -> None:
     Running `alembic` from the command line passes no engine and still reads
     `alembic.ini` as it always did.
     """
-    provided_engine = cast("Engine | None", config.attributes.get("engine"))
+    provided_engine = config.attributes.get("engine")
     if provided_engine is not None:
+        if not isinstance(provided_engine, Engine):
+            message = "Alembic's injected 'engine' attribute must be an Engine"
+            raise TypeError(message)
         with provided_engine.connect() as connection:
             context.configure(connection=connection, target_metadata=target_metadata)
             with context.begin_transaction():
