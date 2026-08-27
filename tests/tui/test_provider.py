@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
+from threading import Lock, get_ident
+from time import sleep
 
 import pytest
 from textual.command import DiscoveryHit, Hit
@@ -271,13 +273,14 @@ async def test_refreshing_the_calendar_reports_that_it_could_not_reach_govuk(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         await run_command(app, "Refresh bank holidays")
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         assert notification(app, "Could not reach gov.uk").severity == "warning"
 
 
 async def test_a_successful_refresh_says_so_and_redraws_from_the_new_calendar(
-    app_factory: AppFactory, monkeypatch: pytest.MonkeyPatch
+    seeded_db: Path,
 ) -> None:
     """Invalidating matters as much as the message.
 
@@ -296,23 +299,72 @@ async def test_a_successful_refresh_says_so_and_redraws_from_the_new_calendar(
     whether the cache was invalidated or not: it is the one day whose figures
     move while you are looking at them.
     """
-    app = app_factory()
+    message_loop_thread = get_ident()
+    fetch_threads: list[int] = []
+
+    def fetch() -> object:
+        fetch_threads.append(get_ident())
+        return {
+            "england-and-wales": {
+                "events": [{"title": "A new holiday", "date": "2026-06-12"}]
+            }
+        }
+
+    app = FlexiApp(db_path=seeded_db, bank_holiday_fetcher=fetch)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         # The dashboard measures itself after its first layout and rebuilds when
         # that lands. Deriving days again is exactly what this test is watching
         # for, so it has to be finished happening before the cache is read.
         await settled(pilot)
-        monkeypatch.setattr(app.services.bank_holidays, "fetch_and_cache", lambda: True)
         ledger = app.services.ledger
         yesterday = TODAY - timedelta(days=1)
         derived = ledger.day(yesterday)
         assert ledger._cache[yesterday] is derived, "the day was not cached"
 
         await run_command(app, "Refresh bank holidays")
+        await app.workers.wait_for_complete()
         await pilot.pause()
 
         assert notification(app, "Bank holidays refreshed").severity == "information"
+        assert len(fetch_threads) == 1, "force refreshes even while the cache is fresh"
+        assert fetch_threads[0] != message_loop_thread, "network I/O stays off the loop"
         assert ledger._cache.get(yesterday) is not derived, (
             "the day derived from the old calendar is still cached"
         )
+
+
+async def test_repeated_refresh_requests_cannot_overlap_replace_transactions(
+    seeded_db: Path,
+) -> None:
+    """Two quick palette choices may fetch twice, but never write together."""
+    guard = Lock()
+    active = 0
+    most_active = 0
+    requests = 0
+
+    def fetch() -> object:
+        nonlocal active, most_active, requests
+        with guard:
+            active += 1
+            requests += 1
+            most_active = max(most_active, active)
+        sleep(0.05)
+        with guard:
+            active -= 1
+        return {
+            "england-and-wales": {
+                "events": [{"title": "A new holiday", "date": "2026-06-12"}]
+            }
+        }
+
+    app = FlexiApp(db_path=seeded_db, bank_holiday_fetcher=fetch)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        app.refresh_holidays(force=True)
+        app.refresh_holidays(force=True)
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert requests == 2
+    assert most_active == 1

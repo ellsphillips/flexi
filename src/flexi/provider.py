@@ -17,9 +17,9 @@ from textual.types import IgnoreReturnCallbackType
 
 from flexi.components.chrome import NAV_ITEMS
 from flexi.constants import AbsenceType, Granularity
-from flexi.context import FlexiApplication, flexi_app
+from flexi.context import flexi_app
 
-__all__ = ("Command", "FlexiCommands", "refresh_holidays")
+__all__ = ("Command", "FlexiCommands")
 
 
 class FlexiCommands(Provider):
@@ -94,7 +94,7 @@ class FlexiCommands(Provider):
         yield Command(
             "Refresh bank holidays",
             "Re-fetch the GOV.UK calendar for the configured division",
-            partial(refresh_holidays, app),
+            partial(app.refresh_holidays, force=True),
         )
 
 
@@ -105,13 +105,3 @@ class Command:
     title: str
     help: str
     run: IgnoreReturnCallbackType
-
-
-def refresh_holidays(app: FlexiApplication) -> None:
-    ok = app.services.bank_holidays.fetch_and_cache()
-    app.holidays_refreshed()
-    app.notify(
-        "Bank holidays refreshed" if ok else "Could not reach gov.uk",
-        severity="information" if ok else "warning",
-        timeout=4,
-    )

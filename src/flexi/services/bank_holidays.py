@@ -16,14 +16,19 @@ __all__ = (
     "CACHE_MAX_AGE",
     "GOVUK_URL",
     "REQUEST_TIMEOUT",
+    "BankHolidayFetcher",
     "BankHolidayService",
     "ParsedBankHoliday",
+    "fetch_bank_holiday_index",
     "parse_bank_holidays",
 )
 
 GOVUK_URL = "https://www.gov.uk/bank-holidays.json"
 CACHE_MAX_AGE = timedelta(days=7)
 REQUEST_TIMEOUT = 5.0
+
+type BankHolidayFetcher = Callable[[], object | None]
+"""A source of an untrusted bank-holiday index, or ``None`` on failure."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +64,7 @@ def parse_bank_holidays(
         return None
 
     parsed: list[ParsedBankHoliday] = []
+    seen_dates: set[date] = set()
     for raw_event in raw_events:
         event: object = raw_event
         if not isinstance(event, Mapping):
@@ -72,15 +78,44 @@ def parse_bank_holidays(
             when = date.fromisoformat(raw_date)
         except ValueError:
             return None
+        if when in seen_dates:
+            return None
+        seen_dates.add(when)
         parsed.append(ParsedBankHoliday(date=when, title=raw_title))
 
     return tuple(parsed)
 
 
+def fetch_bank_holiday_index() -> object | None:
+    """Fetch the GOV.UK index, returning ``None`` for an unusable response.
+
+    This is the concrete network edge. Keeping it as a free function makes the
+    service depend on the typed :data:`BankHolidayFetcher` abstraction, and the
+    local import keeps ``httpx`` off every command that only reads the cache.
+    Payload validation remains the pure responsibility of
+    :func:`parse_bank_holidays`.
+    """
+    import httpx
+
+    try:
+        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            response = client.get(GOVUK_URL)
+            response.raise_for_status()
+            payload: object = response.json()
+            return payload
+    except (httpx.HTTPError, ValueError, OSError):
+        return None
+
+
 class BankHolidayService:
     """Fetch, cache (in DB), and validate GOV.UK bank holidays."""
 
-    def __init__(self, session: Session, division: Callable[[], Division]) -> None:
+    def __init__(
+        self,
+        session: Session,
+        division: Callable[[], Division],
+        fetcher: BankHolidayFetcher = fetch_bank_holiday_index,
+    ) -> None:
         """Takes a way to find the division out, rather than the division.
 
         Required either way: it once defaulted to England & Wales, and every
@@ -97,6 +132,7 @@ class BankHolidayService:
         """
         self._session = session
         self._division = division
+        self._fetcher = fetcher
 
     @property
     def division(self) -> Division:
@@ -128,19 +164,12 @@ class BankHolidayService:
     def fetch_and_cache(self) -> bool:
         """Fetch from GOV.UK and replace the DB cache. Returns True on success.
 
-        `httpx` is imported here rather than at module scope. It costs sixty
-        milliseconds to import and this is the only method that needs it, so
-        every `flexi clock in` -- which opens this service to *read* the cache
-        and never touches the network -- was paying for an HTTP client.
+        Fetching is injected, so this service owns validation and persistence
+        without constructing a concrete HTTP client. The default free-function
+        boundary still imports ``httpx`` only when a fetch is requested.
         """
-        import httpx
-
-        try:
-            with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-                response = client.get(GOVUK_URL)
-                response.raise_for_status()
-                data = response.json()
-        except (httpx.HTTPError, ValueError, OSError):
+        data = self._fetcher()
+        if data is None:
             return False
 
         division = self.division

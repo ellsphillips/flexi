@@ -15,6 +15,7 @@ from collections.abc import Callable
 from contextlib import ExitStack
 from functools import partial
 from pathlib import Path, PurePath
+from threading import Lock
 from typing import ClassVar
 
 from textual import events, log
@@ -49,7 +50,11 @@ from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
-from flexi.services.bank_holidays import BankHolidayService
+from flexi.services.bank_holidays import (
+    BankHolidayFetcher,
+    BankHolidayService,
+    fetch_bank_holiday_index,
+)
 from flexi.services.registry import build_services, invalidate_services
 from flexi.services.settings import SettingsService
 from flexi.theme import THEME_NAME, flexi_theme
@@ -100,7 +105,12 @@ class FlexiApp(TextualApp[None]):
     _jumping: Reactive[bool] = reactive(False, init=False, bindings=True)
     """True while the jump overlay is open."""
 
-    def __init__(self, *, db_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        db_path: Path | None = None,
+        bank_holiday_fetcher: BankHolidayFetcher = fetch_bank_holiday_index,
+    ) -> None:
         super().__init__()
         with ExitStack() as construction:
             self._engine, self._session = construction.enter_context(
@@ -123,6 +133,8 @@ class FlexiApp(TextualApp[None]):
             Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
             is typed as `Screen[object]` and narrowing it against a `Screen[None]`
             gives mypy `Never`."""
+            self._bank_holiday_fetcher = bank_holiday_fetcher
+            self._holiday_refresh_lock = Lock()
             self._database_lifetime = construction.pop_all()
 
     # -- lifecycle ---------------------------------------------------------
@@ -167,8 +179,8 @@ class FlexiApp(TextualApp[None]):
         self._database_lifetime.close()
 
     @textual_work(thread=True)
-    def refresh_holidays(self) -> None:
-        """Keep the bank holiday calendar current, off the message loop.
+    def refresh_holidays(self, *, force: bool = False) -> None:
+        """Refresh the holiday calendar on a scratch session and worker thread.
 
         A worker rather than a blocking call at mount: this is a network round
         trip, and the dashboard should not wait on GOV.UK to draw. Nothing in
@@ -184,25 +196,51 @@ class FlexiApp(TextualApp[None]):
         ``inactive`` because the writer's transaction was rolled back under it.
         Neither is caught anywhere, and both surface as a dead application on
         the first launch of the week -- the only launch that refetches.
+
+        ``force`` is the explicit command-palette path. Normal startup respects
+        a fresh cache; an explicit refresh always asks GOV.UK. Both routes pass
+        through this worker and its scratch session, and the lock serialises
+        repeated requests so their replace transactions cannot overlap.
         """
-        with get_session(self._engine) as scratch:
+        with self._holiday_refresh_lock, get_session(self._engine) as scratch:
             settings = SettingsService(scratch)
-            holidays = BankHolidayService(scratch, settings.get_division)
-            if holidays.is_fresh():
-                # Nothing changed, so nothing needs redrawing -- and refetching
-                # would put a GOV.UK timeout in front of the dashboard once a
-                # week for a calendar that already answers every question
-                # correctly for the year it holds.
+            holidays = BankHolidayService(
+                scratch,
+                settings.get_division,
+                self._bank_holiday_fetcher,
+            )
+            if not force and holidays.is_fresh():
+                # Nothing changed, so nothing needs redrawing -- and
+                # refetching would put a GOV.UK timeout in front of the
+                # dashboard for a calendar that is already current.
                 return
             fetched = holidays.fetch_and_cache()
-        if fetched:
-            self.call_from_thread(self.holidays_refreshed)
-            return
-        self.notify(
-            "No bank holiday calendar. Days off will count as working days.",
-            severity="warning",
-            timeout=UPDATE_NOTICE_SECONDS,
+        self.call_from_thread(
+            self.finish_holiday_refresh,
+            fetched=fetched,
+            forced=force,
         )
+
+    def finish_holiday_refresh(self, *, fetched: bool, forced: bool) -> None:
+        """Apply one holiday worker result on Textual's message loop.
+
+        Public because the worker/message-loop hand-off is a reusable app
+        boundary, not an implementation detail hidden behind the palette.
+        """
+        if fetched:
+            self.holidays_refreshed()
+        if forced:
+            self.notify(
+                "Bank holidays refreshed" if fetched else "Could not reach gov.uk",
+                severity="information" if fetched else "warning",
+                timeout=4,
+            )
+        elif not fetched:
+            self.notify(
+                "No bank holiday calendar. Days off will count as working days.",
+                severity="warning",
+                timeout=UPDATE_NOTICE_SECONDS,
+            )
 
     def holidays_refreshed(self) -> None:
         """The calendar changed under the application. Show the new one.

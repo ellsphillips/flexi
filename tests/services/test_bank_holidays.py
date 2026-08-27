@@ -6,6 +6,8 @@ difference between "no holidays" and "could not tell" has to survive the cache.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, TypedDict
@@ -20,6 +22,7 @@ from flexi.models.database.db import BankHolidayCache
 from flexi.services.bank_holidays import (
     BankHolidayService,
     ParsedBankHoliday,
+    fetch_bank_holiday_index,
     parse_bank_holidays,
 )
 
@@ -56,6 +59,23 @@ SAMPLE_RESPONSE: dict[str, DivisionPayload] = {
         ],
     },
 }
+
+
+def test_importing_the_service_does_not_import_the_http_client() -> None:
+    """Cache-only commands keep the network stack off their startup path."""
+    script = """
+import sys
+
+before = set(sys.modules)
+import flexi.services.bank_holidays
+introduced = set(sys.modules) - before
+if "httpx" in introduced:
+    raise AssertionError("importing bank_holidays eagerly imported httpx")
+"""
+    subprocess.run(  # noqa: S603 - fixed interpreter and in-repository script
+        [sys.executable, "-c", script],
+        check=True,
+    )
 
 
 def _answering(payload: object, status: int = 200) -> Callable[..., httpx.Response]:
@@ -260,6 +280,17 @@ class TestFetchingTheIndex:
                 },
                 id="a title is malformed",
             ),
+            pytest.param(
+                {
+                    "england-and-wales": {
+                        "events": [
+                            {"title": "First name", "date": "2026-01-01"},
+                            {"title": "Second name", "date": "2026-01-01"},
+                        ]
+                    }
+                },
+                id="two events claim the same date",
+            ),
             pytest.param({}, id="the configured division is missing"),
         ],
     )
@@ -298,6 +329,33 @@ class TestFetchingTheIndex:
             ParsedBankHoliday(date=date(2026, 1, 1), title="New Year's Day"),
             ParsedBankHoliday(date=date(2026, 11, 30), title="St Andrew's Day"),
         )
+
+    def test_the_fetch_boundary_is_a_free_injectable_function(
+        self, session: Session
+    ) -> None:
+        """Persistence depends on a callable, not on an HTTP client class."""
+        asked = 0
+
+        def fetch() -> object:
+            nonlocal asked
+            asked += 1
+            return SAMPLE_RESPONSE
+
+        service = BankHolidayService(
+            session,
+            reading(Division.SCOTLAND),
+            fetch,
+        )
+
+        assert service.fetch_and_cache() is True
+        assert asked == 1
+        assert service.get_dates() == {date(2026, 1, 1), date(2026, 11, 30)}
+
+    def test_the_default_fetch_boundary_is_public(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        assert fetch_bank_holiday_index() == SAMPLE_RESPONSE
 
     def test_an_explicitly_empty_calendar_is_valid(self) -> None:
         assert (
