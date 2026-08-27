@@ -19,6 +19,8 @@ from flexi.domain import leaveyear
 from flexi.domain.dates import add_months, days_between, week_start
 from flexi.domain.format import day_month, long_date, month_title
 
+__all__ = ("Period",)
+
 
 @dataclass(frozen=True, slots=True)
 class Period:

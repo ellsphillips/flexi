@@ -19,6 +19,15 @@ from __future__ import annotations
 import calendar
 from datetime import date, timedelta
 
+__all__ = (
+    "active_year",
+    "bounds",
+    "clamp",
+    "fraction_elapsed",
+    "start_of",
+    "step",
+)
+
 
 def clamp(year: int, month: int, day: int) -> date:
     """That day of that month, or the month's last day if it is shorter.

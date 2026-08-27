@@ -1,6 +1,213 @@
-"""Pure domain logic: dates, durations, periods, ledgers and the balance.
+"""Pure domain values and transformations.
 
-Nothing in this package may import ``textual`` or ``sqlalchemy``. That rule is
-what makes the arithmetic testable without a terminal or a database, and it is
-enforced by ``tests/test_layering.py``.
+This is the stable, dependency-free facade for Flexi's functional core. The
+leaf modules remain public when a narrower namespace reads better, while the
+most useful values are also available directly from :mod:`flexi.domain`.
+
+Nothing in this package may import Textual, SQLAlchemy, or a Flexi service.
+That rule is enforced by ``tests/test_layering.py``.
 """
+
+from __future__ import annotations
+
+from flexi.domain import (
+    balance,
+    dates,
+    leaveyear,
+    ledger,
+    period,
+    punch,
+    stitch,
+    wallet,
+)
+from flexi.domain import (
+    format as formatting,
+)
+from flexi.domain.balance import ZERO as ZERO_DURATION
+from flexi.domain.balance import (
+    BalanceSummary,
+    accumulate,
+    expected_for,
+    toil_taken_for,
+    worked_from,
+)
+from flexi.domain.dates import (
+    DATE_HELP,
+    DAY_NAMES,
+    DAYS_IN_WEEK,
+    FORMATS,
+    MONTHS_IN_YEAR,
+    OFFSET_UNITS,
+    RELATIVE_DAYS,
+    SEPARATORS,
+    SHORTEST_DAY_NAME,
+    Preference,
+    add_months,
+    days_between,
+    forward_if_passed,
+    parse_date,
+    parse_day_of_month,
+    parse_offset,
+    parse_span,
+    parse_weekday,
+    parse_written,
+    relative_to,
+    week_start,
+    weekday_index,
+)
+from flexi.domain.format import (
+    LEVEL,
+    MINUS,
+    SECONDS_PER_MINUTE,
+    clock,
+    day_month,
+    days,
+    delta,
+    digits,
+    hm,
+    hms,
+    is_level,
+    long_date,
+    month_title,
+    plural,
+    short_date,
+    signed_days,
+    spoken,
+    stamp,
+)
+from flexi.domain.format import ZERO as ZERO_TEXT
+from flexi.domain.leaveyear import (
+    active_year,
+    bounds,
+    clamp,
+    fraction_elapsed,
+    start_of,
+    step,
+)
+from flexi.domain.ledger import MIDDAY_HOUR, AbsenceSlice, DayLedger, Segment
+from flexi.domain.period import Period
+from flexi.domain.punch import (
+    BUCKET_SIZES,
+    COARSE_CELLS,
+    MIN_CELLS,
+    Window,
+    bucket_minutes,
+    cell_count,
+    cell_holding,
+    covering_slices,
+    edges,
+    overlaps,
+    paint_absences,
+    paint_breaks,
+    paint_live,
+    paint_sessions,
+    paint_target,
+    strip,
+)
+from flexi.domain.punch import Cell as PunchCell
+from flexi.domain.stitch import Cell as CalendarCell
+from flexi.domain.stitch import (
+    MonthBlock,
+    Selection,
+    month_block,
+    weekday_initials,
+)
+from flexi.domain.stitch import stitch as stitch_months
+from flexi.domain.wallet import PACE_TOLERANCE, Allowance, Pace, WalletData
+
+__all__ = (
+    "BUCKET_SIZES",
+    "COARSE_CELLS",
+    "DATE_HELP",
+    "DAYS_IN_WEEK",
+    "DAY_NAMES",
+    "FORMATS",
+    "LEVEL",
+    "MIDDAY_HOUR",
+    "MINUS",
+    "MIN_CELLS",
+    "MONTHS_IN_YEAR",
+    "OFFSET_UNITS",
+    "PACE_TOLERANCE",
+    "RELATIVE_DAYS",
+    "SECONDS_PER_MINUTE",
+    "SEPARATORS",
+    "SHORTEST_DAY_NAME",
+    "ZERO_DURATION",
+    "ZERO_TEXT",
+    "AbsenceSlice",
+    "Allowance",
+    "BalanceSummary",
+    "CalendarCell",
+    "DayLedger",
+    "MonthBlock",
+    "Pace",
+    "Period",
+    "Preference",
+    "PunchCell",
+    "Segment",
+    "Selection",
+    "WalletData",
+    "Window",
+    "accumulate",
+    "active_year",
+    "add_months",
+    "balance",
+    "bounds",
+    "bucket_minutes",
+    "cell_count",
+    "cell_holding",
+    "clamp",
+    "clock",
+    "covering_slices",
+    "dates",
+    "day_month",
+    "days",
+    "days_between",
+    "delta",
+    "digits",
+    "edges",
+    "expected_for",
+    "formatting",
+    "forward_if_passed",
+    "fraction_elapsed",
+    "hm",
+    "hms",
+    "is_level",
+    "leaveyear",
+    "ledger",
+    "long_date",
+    "month_block",
+    "month_title",
+    "overlaps",
+    "paint_absences",
+    "paint_breaks",
+    "paint_live",
+    "paint_sessions",
+    "paint_target",
+    "parse_date",
+    "parse_day_of_month",
+    "parse_offset",
+    "parse_span",
+    "parse_weekday",
+    "parse_written",
+    "period",
+    "plural",
+    "punch",
+    "relative_to",
+    "short_date",
+    "signed_days",
+    "spoken",
+    "stamp",
+    "start_of",
+    "step",
+    "stitch",
+    "stitch_months",
+    "strip",
+    "toil_taken_for",
+    "wallet",
+    "week_start",
+    "weekday_index",
+    "weekday_initials",
+    "worked_from",
+)
