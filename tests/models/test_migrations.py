@@ -811,3 +811,59 @@ def test_the_migrations_build_the_schema_the_models_describe(db: Path) -> None:
         if "alembic_version" not in str(difference)
     ]
     assert real == [], f"the migrations and the models disagree: {real}"
+
+
+# ---- the gap between the shared check and the exclusive one ----
+
+
+def _answers(monkeypatch: pytest.MonkeyPatch, *revisions: DatabaseRevision) -> None:
+    """Make successive revision reads disagree, which is the race being guarded."""
+    replies = iter(revisions)
+    monkeypatch.setattr(
+        "flexi.models.database.migrate.current_revision",
+        lambda _path: next(replies),
+    )
+
+
+def test_a_migration_another_starter_finished_in_the_gap_is_not_repeated(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cheap check runs shared; the authoritative one runs exclusive.
+
+    Two applications starting together both see work to do, both queue for the
+    exclusive lease, and only one of them does it. The second must find head on
+    its own re-read and stop -- without taking a backup for a migration it is
+    not going to run.
+    """
+    upgrade(db, BEFORE_HALF_DAYS)
+    before = sorted(backups_directory().glob("*.bak"))
+    _answers(
+        monkeypatch,
+        DatabaseRevision(RevisionState.STAMPED, BEFORE_HALF_DAYS),
+        DatabaseRevision(RevisionState.STAMPED, RECORDED_HEAD),
+    )
+
+    run_migrations(db)
+
+    assert revision_of(db) == BEFORE_HALF_DAYS, "it did not migrate"
+    assert sorted(backups_directory().glob("*.bak")) == before, "nor back up"
+
+
+def test_the_exclusive_re_read_is_the_authority_on_an_unstamped_schema(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The shared read is a fast path, not a verdict.
+
+    Whatever it saw, the schema is only migrated on the strength of the read
+    taken while nothing else can write. A schema that has lost its stamp by
+    then is refused there, exactly as it would have been on the way in.
+    """
+    upgrade(db, BEFORE_HALF_DAYS)
+    _answers(
+        monkeypatch,
+        DatabaseRevision(RevisionState.STAMPED, BEFORE_HALF_DAYS),
+        DatabaseRevision(RevisionState.UNSTAMPED),
+    )
+
+    with pytest.raises(RuntimeError, match="unstamped schema"):
+        run_migrations(db)

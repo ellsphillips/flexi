@@ -130,6 +130,12 @@ def test_leave_at_is_unknown_before_arriving() -> None:
     assert ledger().leave_at is None
 
 
+def test_leave_at_is_unknown_when_the_day_expects_no_work() -> None:
+    day = ledger(segments=(Segment(1, at(9)),), expected=timedelta())
+
+    assert day.leave_at is None
+
+
 def test_first_in_and_last_out() -> None:
     """It bounds the day, counting a running session up to now."""
     day = ledger(segments=(Segment(1, at(9), at(12)), Segment(2, at(13), None)))

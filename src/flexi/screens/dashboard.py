@@ -193,6 +193,11 @@ class DashboardScreen(Screen[None]):
     def refresh_modules(self, scope: Scope) -> None:
         """Invalidate once, then redraw only the modules that care."""
         self.now = wallclock.now()
+        if scope & Scope.SETTINGS:
+            self.period = self.period.with_year_start(
+                self._services.settings.get_leave_year_start()
+            )
+            self._sync_header()
         if scope & (Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS):
             invalidate_services(self._services)
         for module in self.query(Module):

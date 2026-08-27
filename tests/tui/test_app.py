@@ -26,6 +26,7 @@ from flexi.app import FlexiApp
 from flexi.components.chrome import NavBar
 from flexi.components.modules.records import RecordsModule
 from flexi.constants import Division
+from flexi.context import flexi_app
 from flexi.models.database.db import BankHolidayRefresh, Base
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
@@ -729,3 +730,18 @@ async def test_escape_from_a_destination_still_comes_home(
 
         showing(app, DashboardScreen)
         assert app.nav == "dashboard"
+
+
+def test_the_application_satisfies_the_complete_composed_contract(
+    seeded_db: Path,
+) -> None:
+    """`flexi_app` is the statement that the real app is service *and* commands.
+
+    Nothing in `src` calls it -- the segregated adapters each have the callers
+    that need one half -- so the composed contract was only ever exercised by
+    the objects that fail it. If `FlexiApp` dropped a member of either half,
+    every negative test would still pass and this one would not.
+    """
+    app = FlexiApp(db_path=seeded_db)
+
+    assert flexi_app(app) is app

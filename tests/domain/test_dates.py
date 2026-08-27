@@ -305,6 +305,42 @@ def test_public_date_arithmetic_reports_range_errors_as_values(
     assert str(raised.value) == DATE_RANGE_ERROR
 
 
+def test_an_offset_beyond_the_calendar_is_a_value_error_not_an_overflow() -> None:
+    """`+999999999999d` is a typo, and `date` answers it with `OverflowError`.
+
+    Every other unreadable date leaves `parse_date` as a `ValueError` naming the
+    forms it understands. One arriving as an `OverflowError` would escape every
+    caller that catches the documented one -- the CLI's `TypedDate` and the
+    go-to-date modal both.
+    """
+    with pytest.raises(ValueError, match="outside") as raised:
+        parse_date("+999999999999d", reference=date(2026, 6, 11))
+
+    assert str(raised.value) == DATE_RANGE_ERROR
+
+
+@pytest.mark.parametrize("typed", ["31/02/2026", "29/02/2026", "31/04/2026"])
+def test_a_written_date_that_is_not_a_real_day_is_refused(typed: str) -> None:
+    """A day the month does not have is not a date, however well spelled.
+
+    With a year given there is nothing to resolve, so the reader has to decide:
+    it answers `None` and lets the next reader try, which ends in the help
+    string rather than a `ValueError` from inside `date`.
+    """
+    with pytest.raises(ValueError, match="Try"):
+        parse_date(typed, reference=date(2026, 6, 11))
+
+
+def test_resolving_a_month_and_day_that_no_year_has_says_so() -> None:
+    """The 30th of February is not a date that a different year would fix.
+
+    Distinct from the range error above: this is a pair that cannot be a day in
+    any year, so it is refused before a year is chosen rather than after.
+    """
+    with pytest.raises(ValueError, match="not a valid calendar day"):
+        resolve_month_day(2, 30, date(2026, 6, 11), Preference.CURRENT)
+
+
 # -- arithmetic --------------------------------------------------------------
 
 

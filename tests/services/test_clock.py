@@ -342,3 +342,59 @@ def test_half_a_day_off_still_leaves_the_other_half_to_work(ready: Services) -> 
 
     assert result.success is True, result.message
     assert ready.clock.get_open_session() is not None
+
+
+# ---------- losing a race to another writer ----------
+
+
+class TestConcurrentWriters:
+    """The stale-read arms, which only a second writer can reach.
+
+    Both actions read the open session, decide, and then write. The read is not
+    a lock -- SQLite has no row lock suitable for it -- so the write is
+    conditional and the database is the authority. These are the two paths
+    where the conditional write declines.
+    """
+
+    def test_a_clock_in_that_loses_the_insert_is_refused_not_raised(
+        self, svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The partial unique index is what actually admits one open session.
+
+        Reaching it means the open-session read came back empty and a session
+        existed by the time the insert ran. `ON CONFLICT DO NOTHING` turns the
+        loser into `None`; without this arm it is an `IntegrityError` out of a
+        service whose entire contract is a result object.
+        """
+        assert svc.clock_in().success is True
+        monkeypatch.setattr(ClockService, "get_open_session", lambda _self: None)
+
+        result = svc.clock_in()
+
+        assert result.success is False
+        assert result.message == "Already clocked in"
+        assert len(session.execute(select(WorkSession)).scalars().all()) == 1
+        assert len(session.execute(select(ClockEvent)).scalars().all()) == 1, (
+            "the speculative IN event goes with the session it could not open"
+        )
+
+    def test_a_clock_out_that_loses_the_update_is_refused_not_raised(
+        self, svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The conditional UPDATE is what actually closes a session.
+
+        Reaching this means the session read as open and was closed before the
+        update ran. The candidate OUT event is discarded with it, so committing
+        cannot leave an audit row belonging to nothing.
+        """
+        opened = svc.clock_in()
+        assert opened.session is not None
+        stale = opened.session
+        assert svc.clock_out().success is True
+        monkeypatch.setattr(ClockService, "get_open_session", lambda _self: stale)
+
+        result = svc.clock_out()
+
+        assert result.success is False
+        assert result.message == "Not clocked in"
+        assert len(session.execute(select(ClockEvent)).scalars().all()) == 2

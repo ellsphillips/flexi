@@ -477,6 +477,8 @@ class RemovalPlan:
     end: date
     bookings: tuple[RemovalBooking, ...]
     """The exact rows whose removal was previewed and confirmed."""
+    portion: Portion | None = None
+    """The portion selected for removal, or ``None`` for every booking."""
 
     @property
     def lots(self) -> tuple[tuple[AbsenceType, Portion, int], ...]:
@@ -517,7 +519,13 @@ def snapshot_booking(booking: AbsenceDay) -> RemovalBooking:
     )
 
 
-def plan_removal(start: date, end: date, bookings: Iterable[AbsenceDay]) -> RemovalPlan:
+def plan_removal(
+    start: date,
+    end: date,
+    bookings: Iterable[AbsenceDay],
+    *,
+    portion: Portion | None = None,
+) -> RemovalPlan:
     """Freeze the exact bookings a removal preview asks someone to approve.
 
     The immutable values deliberately include more than the database key. If a
@@ -527,7 +535,12 @@ def plan_removal(start: date, end: date, bookings: Iterable[AbsenceDay]) -> Remo
     return RemovalPlan(
         start,
         end,
-        tuple(map(snapshot_booking, bookings)),
+        tuple(
+            snapshot_booking(booking)
+            for booking in bookings
+            if portion is None or booking.portion is portion
+        ),
+        portion,
     )
 
 
@@ -924,15 +937,38 @@ class AbsenceService:
             )
         )
 
-    def removal_plan(self, start: date, end: date) -> RemovalPlan:
+    def removal_plan(
+        self,
+        start: date,
+        end: date,
+        *,
+        portion: Portion | None = None,
+    ) -> RemovalPlan:
         """What clearing a span would take back, without taking any of it back."""
-        return plan_removal(start, end, self.in_range(start, end))
+        return plan_removal(
+            start,
+            end,
+            self.in_range(start, end),
+            portion=portion,
+        )
 
     def remove_plan(self, plan: RemovalPlan) -> RangeResult:
         """Remove a confirmed plan only while its exact bookings are unchanged."""
         with write_transaction(self._session):
-            rows = self.in_range(plan.start, plan.end)
-            if plan_removal(plan.start, plan.end, rows) != plan:
+            rows = [
+                row
+                for row in self.in_range(plan.start, plan.end)
+                if plan.portion is None or row.portion is plan.portion
+            ]
+            if (
+                plan_removal(
+                    plan.start,
+                    plan.end,
+                    rows,
+                    portion=plan.portion,
+                )
+                != plan
+            ):
                 return RangeResult(skipped=((plan.start, PLAN_CHANGED),))
 
             removed = tuple(dict.fromkeys(row.date for row in rows))

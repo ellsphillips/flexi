@@ -295,3 +295,24 @@ if loaded_heavy:
     subprocess.run(  # noqa: S603 - fixed interpreter and source-owned script
         [sys.executable, "-c", script], check=True
     )
+
+
+@pytest.mark.parametrize(
+    ("facade", "leaf_name"),
+    [(component_api, "charts"), (module_api, "balance"), (screen_api, "leave")],
+)
+def test_a_leaf_module_is_reachable_through_its_facade(
+    facade: ModuleType, leaf_name: str
+) -> None:
+    """A facade publishes the leaves as well as the names inside them.
+
+    Only `flexi.components` was ever asked for one, and only after something
+    else had already imported it -- so the arm that resolves a leaf ran from
+    the module cache in one facade and never at all in the other two. Popping
+    it first is what makes the lazy path the path under test.
+    """
+    vars(facade).pop(leaf_name, None)
+
+    resolved = getattr(facade, leaf_name)
+
+    assert resolved is importlib.import_module(f"{facade.__name__}.{leaf_name}")

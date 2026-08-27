@@ -29,6 +29,7 @@ from flexi.components.modules.base import Module
 from flexi.components.options import ModuleOptions, ScreenOptions
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
+from flexi.context import service_app
 from flexi.domain.format import day_month, delta, hm, short_date
 from flexi.domain.period import Period
 from flexi.messages import Scope
@@ -214,6 +215,14 @@ class InsightsScreen(Screen[None]):
         `LeaveScreen` said that and the app called it on neither, singling the
         dashboard out instead; this screen did not have the method at all.
         """
+        if scope & Scope.SETTINGS:
+            self.period = self.period.with_year_start(
+                service_app(self.app).services.settings.get_leave_year_start()
+            )
+            for header in self.query(AppHeader):
+                header.context = (
+                    f"{short_date(wallclock.today())} · {self.period.label}"
+                )
         for module in self.query(Module):
             module.rebuild_if(scope)
 

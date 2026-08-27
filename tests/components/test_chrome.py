@@ -316,3 +316,82 @@ async def test_the_badges_follow_the_layout_when_the_terminal_resizes() -> None:
             base.get_offset(app.query_one("#one", Static)): JumpInfo("o", "one"),
             base.get_offset(app.query_one("#two", Named)): JumpInfo("t", "two"),
         }
+
+
+async def test_a_disabled_hint_looks_unavailable_and_rings_instead_of_acting() -> None:
+    """A key the screen advertises but cannot run at this moment.
+
+    It stays on the strip rather than vanishing -- a footer that reshuffles as
+    state changes is harder to read than one with a greyed key on it -- so it
+    has to carry the class that greys it and refuse to fire the action.
+    """
+    app = Bound()
+    async with app.run_test(size=(40, 10)) as pilot:
+        hint = BindingHint("x", "x", "Mark", "mark", disabled=True)
+        await app.screen.mount(hint)
+        await pilot.pause()
+
+        assert hint.has_class("-disabled")
+        assert hint.binding_enabled is False
+
+        rung = False
+
+        def ring() -> None:
+            nonlocal rung
+            rung = True
+
+        app.bell = ring  # type: ignore[method-assign]
+        hint.on_mouse_down()
+
+        assert rung, "a disabled key answers rather than doing nothing at all"
+        assert app.marked is False, "and does not run the action it advertises"
+
+
+async def test_a_hint_with_no_description_draws_the_key_alone() -> None:
+    """The command palette's key carries no words on a narrow strip.
+
+    Assembling an empty description would still spend the padding around it, so
+    the key would sit a column left of where the measurement said it would.
+    """
+    app = Bound()
+    async with app.run_test(size=(40, 10)) as pilot:
+        hint = BindingHint("p", "^p", "", "command_palette")
+        await app.screen.mount(hint)
+        await pilot.pause()
+
+        assert str(hint.render()) == "^p"
+
+
+async def test_a_footer_recomposes_only_while_the_terminal_has_focus() -> None:
+    """Textual publishes the binding map to background applications too.
+
+    Recomposing then costs a layout pass for a strip nobody is looking at, and
+    on a tiling desktop that is every focus change in the session.
+    """
+    app = Bound()
+    async with app.run_test(size=(40, 10)) as pilot:
+        await pilot.pause()
+        strip = app.query_one(KeyStrip)
+        strip.bindings_ready = False
+        app.app_focus = False
+
+        strip.bindings_changed(app.screen)
+
+        assert strip.bindings_ready is True, "the map is still recorded"
+
+        scheduled: list[object] = []
+
+        def record(callback: object, *_args: object, **_kwargs: object) -> bool:
+            scheduled.append(callback)
+            return True
+
+        strip.call_after_refresh = record  # type: ignore[method-assign]
+
+        app.app_focus = True
+        strip.bindings_changed(Screen())
+
+        assert scheduled == [], "a map published for another screen is not ours"
+
+        strip.bindings_changed(app.screen)
+
+        assert scheduled == [strip.recompose], "and the one for ours is"

@@ -18,6 +18,7 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import StrEnum
+from math import isfinite
 from pathlib import Path
 from time import monotonic, sleep
 from typing import BinaryIO
@@ -111,6 +112,9 @@ def database_lease(
     """
     if timeout < 0:
         msg = "A database lease timeout cannot be negative"
+        raise ValueError(msg)
+    if not isfinite(timeout):
+        msg = "A database lease timeout must be finite"
         raise ValueError(msg)
 
     lock_file = lease_path(database)

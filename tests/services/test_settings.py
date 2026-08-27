@@ -264,6 +264,14 @@ class TestParseMonthDay:
         with pytest.raises(ValueError, match="Day"):
             parse_month_day("01-32")
 
+    @pytest.mark.parametrize("typed", ["02-30", "04-31", "11-31"])
+    def test_impossible_calendar_day(self, typed: str) -> None:
+        with pytest.raises(ValueError, match="not valid for month"):
+            parse_month_day(typed)
+
+    def test_leap_day_is_a_valid_leave_year_boundary(self) -> None:
+        assert parse_month_day("02-29") == (2, 29)
+
 
 # ---- auto-close time ----
 

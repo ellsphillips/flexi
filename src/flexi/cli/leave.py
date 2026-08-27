@@ -75,7 +75,8 @@ class Request(NamedTuple):
     """
 
     kind: AbsenceType | None
-    portion: Portion
+    portion: Portion | None
+    """The explicitly requested portion, or ``None`` when none was written."""
     when: str
 
 
@@ -99,7 +100,7 @@ def parse_request(words: tuple[str, ...]) -> Request:
         )
         raise click.UsageError(msg)
 
-    portion = Portion.FULL
+    portion: Portion | None = None
     if rest and rest[-1].lower() in PORTION_WORDS:
         portion = PORTION_WORDS[rest.pop().lower()]
 
@@ -159,7 +160,7 @@ def run(
     today: date,
 ) -> int:
     """Plan, show, ask, write. Returns the exit code."""
-    kind, portion, when = parse_request(words)
+    kind, requested_portion, when = parse_request(words)
 
     try:
         start, end = parse_span(
@@ -169,7 +170,16 @@ def run(
         raise click.UsageError(str(error)) from error
 
     if kind is None:
-        return cancel(services, start, end, assume_yes=assume_yes, dry_run=dry_run)
+        return cancel(
+            services,
+            start,
+            end,
+            portion=requested_portion,
+            assume_yes=assume_yes,
+            dry_run=dry_run,
+        )
+
+    portion = requested_portion or Portion.FULL
 
     if kind is AbsenceType.OTHER and not (note or "").strip():
         msg = "Other leave needs --note saying what it is"
@@ -203,10 +213,11 @@ def cancel(
     start: date,
     end: date,
     *,
+    portion: Portion | None = None,
     assume_yes: bool,
     dry_run: bool,
 ) -> int:
-    plan = services.absence.removal_plan(start, end)
+    plan = services.absence.removal_plan(start, end, portion=portion)
     if plan.is_empty:
         span = (
             long_date(start)
@@ -218,13 +229,14 @@ def cancel(
 
     click.echo("Cancelling")
     for absence in plan.bookings:
-        portion = (
+        portion_label = (
             ""
             if absence.portion is Portion.FULL
             else f" ({absence.portion.label.lower()})"
         )
         click.echo(
-            f"  {short_date(absence.date)}   {absence.absence_type.label}{portion}"
+            f"  {short_date(absence.date)}   "
+            f"{absence.absence_type.label}{portion_label}"
         )
 
     if dry_run:

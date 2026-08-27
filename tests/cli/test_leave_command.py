@@ -58,14 +58,14 @@ def _booked(session: Session) -> list[AbsenceDay]:
 @pytest.mark.parametrize(
     ("words", "kind", "portion", "when"),
     [
-        (("annual", "friday"), AbsenceType.ANNUAL, Portion.FULL, "friday"),
+        (("annual", "friday"), AbsenceType.ANNUAL, None, "friday"),
         (("sick", "today", "pm"), AbsenceType.SICK, Portion.PM, "today"),
         (("sick", "today", "afternoon"), AbsenceType.SICK, Portion.PM, "today"),
-        (("toil", "12", "jun"), AbsenceType.FLEXI, Portion.FULL, "12 jun"),
+        (("toil", "12", "jun"), AbsenceType.FLEXI, None, "12 jun"),
         (
             ("annual", "monday", "to", "friday"),
             AbsenceType.ANNUAL,
-            Portion.FULL,
+            None,
             "monday to friday",
         ),
         (
@@ -74,12 +74,15 @@ def _booked(session: Session) -> list[AbsenceDay]:
             Portion.AM,
             "monday to friday",
         ),
-        (("cancel", "friday"), None, Portion.FULL, "friday"),
-        (("annual",), AbsenceType.ANNUAL, Portion.FULL, ""),
+        (("cancel", "friday"), None, None, "friday"),
+        (("annual",), AbsenceType.ANNUAL, None, ""),
     ],
 )
 def test_the_grammar_splits_into_kind_portion_and_when(
-    words: tuple[str, ...], kind: AbsenceType | None, portion: Portion, when: str
+    words: tuple[str, ...],
+    kind: AbsenceType | None,
+    portion: Portion | None,
+    when: str,
 ) -> None:
     """The kind comes back resolved. `None` is a cancellation, and only that."""
     assert parse_request(words) == Request(kind, portion, when)
@@ -87,7 +90,7 @@ def test_the_grammar_splits_into_kind_portion_and_when(
 
 def test_a_portion_is_only_taken_from_the_end() -> None:
     """So a month name or a note cannot be mistaken for one."""
-    assert parse_request(("annual", "1", "may"))[1] is Portion.FULL
+    assert parse_request(("annual", "1", "may"))[1] is None
 
 
 @pytest.mark.parametrize("word", ["someday", "vacation", "holidays"])
@@ -334,6 +337,28 @@ def test_cancelling_is_a_dry_run_too(services: Services, session: Session) -> No
         today=MONDAY,
     )
     assert len(_booked(session)) == 1
+
+
+def test_cancelling_one_half_preserves_the_other(
+    services: Services,
+    session: Session,
+) -> None:
+    services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM)
+    services.absence.book(MONDAY, AbsenceType.SICK, Portion.PM)
+
+    code = run(
+        services,
+        ("cancel", "monday", "pm"),
+        note=None,
+        assume_yes=True,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    assert code == 0
+    assert [(row.absence_type, row.portion) for row in _booked(session)] == [
+        (AbsenceType.ANNUAL, Portion.AM)
+    ]
 
 
 def test_saying_nothing_at_all_is_told_what_the_kinds_are() -> None:

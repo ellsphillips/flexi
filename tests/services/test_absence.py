@@ -17,6 +17,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Division, Portion
+from flexi.domain import leaveyear
 from flexi.models.database.db import (
     AbsenceDay,
     BankHolidayCache,
@@ -32,7 +33,7 @@ from flexi.services.absence import (
 )
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.registry import build_services
-from flexi.services.settings import SettingsService, parse_settings
+from flexi.services.settings import SettingsService, SettingsUpdate, parse_settings
 
 
 def _next_weekday(start: date, weekday: int) -> date:
@@ -435,3 +436,90 @@ class TestCounts:
         counted = absence.tally(d1, d2)
         assert counted[AbsenceType.SICK] == (2.0, 2)
         assert counted[AbsenceType.ANNUAL] == (0.0, 0)
+
+    def test_counting_valid_days_only_drops_what_is_no_longer_bookable(
+        self, absence: AbsenceService, settings: SettingsService
+    ) -> None:
+        """An allowance is spent on days that could be booked, not days that were.
+
+        Someone books a Friday, then drops Friday from their working pattern.
+        The marker stays -- it is a record of a decision -- but it no longer
+        costs a day of leave, because it no longer costs a day of work.
+        """
+        friday = _next_weekday(date(2026, 6, 8), 4)
+        assert absence.book(friday, AbsenceType.ANNUAL).success
+        current = settings.resolved()
+        settings.save_settings(
+            SettingsUpdate(
+                leave_year_start=current.leave_year_start,
+                working_days=(0, 1, 2, 3),
+                division=current.division,
+                auto_close=current.auto_close,
+            )
+        )
+
+        counted = absence.count_days(AbsenceType.ANNUAL, friday, friday)
+        spent = absence.count_days(AbsenceType.ANNUAL, friday, friday, valid_only=True)
+
+        assert counted == 1.0, "the booking is still on record"
+        assert spent == 0.0, "and no longer drawn against the allowance"
+
+    def test_remaining_allowances_for_no_years_reads_nothing(
+        self, absence: AbsenceService
+    ) -> None:
+        """Planning an empty span asks for no years, and must not scan the table.
+
+        The bounded read is built from the lowest and highest year requested;
+        with none there is no range to build and nothing to answer.
+        """
+        assert absence.get_remaining_annual_leave_by_year(()) == {}
+
+    def test_a_booking_the_pattern_no_longer_covers_is_not_charged_to_its_year(
+        self, absence: AbsenceService, settings: SettingsService
+    ) -> None:
+        """The same rule as `valid_only`, applied where the allowance is read.
+
+        Both sides have to agree: a day that stops counting against the balance
+        has to stop counting against the entitlement, or the wallet reports
+        leave spent that the planner will happily let you book again.
+        """
+        friday = _next_weekday(date(2026, 6, 8), 4)
+        assert absence.book(friday, AbsenceType.ANNUAL).success
+        year = leaveyear.active_year(friday, *settings.resolved().leave_year_start)
+        before = absence.get_remaining_annual_leave_by_year((year,))[year]
+
+        current = settings.resolved()
+        settings.save_settings(
+            SettingsUpdate(
+                leave_year_start=current.leave_year_start,
+                working_days=(0, 1, 2, 3),
+                division=current.division,
+                auto_close=current.auto_close,
+            )
+        )
+
+        after = absence.get_remaining_annual_leave_by_year((year,))[year]
+        assert before is not None
+        assert after is not None
+        assert after == before + 1.0, "the day came back to the allowance"
+
+    def test_removing_one_portion_leaves_the_other_half_of_the_day(
+        self, absence: AbsenceService
+    ) -> None:
+        """A sick morning and an annual afternoon are two bookings, not one day.
+
+        `remove(day)` clears the date; naming a portion clears that half. With
+        the filter untested, removing a morning could take the afternoon with
+        it and nothing would have said so.
+        """
+        when = _next_weekday(date(2026, 6, 8), 0)
+        assert absence.book(when, AbsenceType.SICK, Portion.AM).success
+        assert absence.book(when, AbsenceType.ANNUAL, Portion.PM).success
+
+        result = absence.remove(when, Portion.AM)
+
+        assert result.success is True
+        kept = absence.for_date(when)
+        assert [(row.absence_type, row.portion) for row in kept] == [
+            (AbsenceType.ANNUAL, Portion.PM)
+        ]

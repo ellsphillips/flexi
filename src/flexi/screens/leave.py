@@ -265,6 +265,11 @@ class LeaveScreen(Screen[None]):
         self, event: YearCalendar.SelectionChanged
     ) -> None:
         event.stop()
+        if not self.period.contains(event.selection.head):
+            self.period = self.period.go_to(event.selection.head)
+            self.rebuild()
+            self.calendar.scroll_to_day(event.selection.head)
+            return
         self._draw_selection()
 
     # -- booking -----------------------------------------------------------
@@ -437,7 +442,10 @@ class LeaveScreen(Screen[None]):
 
     def refresh_modules(self, scope: Scope) -> None:
         """Redraw on an external change, so the app can treat every screen alike."""
-        del scope
+        if scope & Scope.SETTINGS:
+            self.period = self.period.with_year_start(
+                self._services.settings.get_leave_year_start()
+            )
         self.rebuild()
 
 

@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
-from flexi.domain.dates import DAY_NAMES, MONTHS_IN_YEAR, weekday_index
+from flexi.domain.dates import (
+    DAY_NAMES,
+    LEAP_SENTINEL_YEAR,
+    MONTHS_IN_YEAR,
+    weekday_index,
+)
 from flexi.domain.punch import Window
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
@@ -498,6 +503,11 @@ def parse_month_day(raw: str) -> tuple[int, int]:
     if not (1 <= day <= LONGEST_MONTH):
         msg = f"Day {day} out of range 1-31"
         raise ValueError(msg)
+    try:
+        date(LEAP_SENTINEL_YEAR, month, day)
+    except ValueError as error:
+        msg = f"Day {day} is not valid for month {month}"
+        raise ValueError(msg) from error
     return month, day
 
 

@@ -17,8 +17,10 @@ from flexi.components.charts import (
 from flexi.components.chrome import AppHeader
 from flexi.constants import DayKind, Granularity
 from flexi.domain.ledger import DayLedger
+from flexi.messages import Scope
 from flexi.screens.insights import BalanceHistory, InsightsScreen
 from flexi.screens.settings import SettingsScreen
+from flexi.services.settings import SettingsUpdate
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
 CONTRACTED = timedelta(minutes=444)
@@ -265,3 +267,46 @@ async def test_saving_settings_redraws_insights_under_the_dialog(
         charts = showing(app, InsightsScreen).query_one(BalanceHistory)
         after = str(charts.border_subtitle)
         assert after != before, f"the charts still say {before}"
+
+
+async def test_saving_settings_moves_the_leave_year_under_open_insights(
+    app_factory: AppFactory,
+) -> None:
+    """Every chart here is measured across the leave year the settings own.
+
+    This screen had no `refresh_modules` at all until the app started treating
+    the whole stack alike, so a settings change behind it left every figure
+    computed against the year that had just been replaced.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        assert showing(app, InsightsScreen).period.start == date(2026, 4, 6)
+
+        settings = app.services.settings
+        current = settings.resolved()
+        settings.save_settings(
+            SettingsUpdate(
+                leave_year_start=(1, 1),
+                working_days=current.working_days,
+                division=current.division,
+                auto_close=current.auto_close,
+            )
+        )
+        app.refresh_open_screens(Scope.SETTINGS)
+        await pilot.pause()
+
+        insights = showing(app, InsightsScreen)
+        assert insights.period.start == date(2026, 1, 1)
+        assert any(
+            "2026" in str(header.context) for header in insights.query(AppHeader)
+        ), "the header names the period it is showing"
+
+        moved = insights.period
+        app.refresh_open_screens(Scope.CLOCK)
+        await pilot.pause()
+
+        assert showing(app, InsightsScreen).period == moved, (
+            "clocking redraws the charts; it does not re-read the leave year"
+        )

@@ -188,7 +188,7 @@ class DayLedger:
         """
         first = self.first_in
         if first is None or self.expected <= timedelta():
-            return first
+            return None
         return wallclock.advance(first, self.expected + self.break_total)
 
     @property

@@ -19,8 +19,6 @@ from textual.widgets import Button, Footer, Input, Label, Select, Static
 
 from flexi.components.options import ScreenOptions
 from flexi.constants import Division
-from flexi.domain.format import days as fmt_days
-from flexi.domain.format import plural
 from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
@@ -111,6 +109,11 @@ class SettingsScreen(Screen[bool]):
     def __init__(self, services: Services, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
         self._svc = services.settings
+        self.entitlement_drafts = {
+            entitlement.year: str(entitlement.days)
+            for entitlement in self._svc.all_entitlements()
+        }
+        """Displayed entitlement years and their initial, uncommitted text."""
 
     def compose(self) -> ComposeResult:
         # Every field through the service's own accessor, which is where each
@@ -144,12 +147,12 @@ class SettingsScreen(Screen[bool]):
 
             yield Static("\nEntitlements by year:")
             with Vertical(id="entitlements-list"):
-                for ent in self._svc.all_entitlements():
+                for year, days in self.entitlement_drafts.items():
                     with Horizontal(classes="entitlement-row"):
-                        yield Label(str(ent.year))
+                        yield Label(str(year))
                         yield Input(
-                            str(ent.days),
-                            id=f"ent-{ent.year}",
+                            days,
+                            id=f"ent-{year}",
                         )
 
             with Horizontal(classes="settings-buttons"):
@@ -168,32 +171,33 @@ class SettingsScreen(Screen[bool]):
             self._add_next_year()
 
     def _add_next_year(self) -> None:
-        """Add a year to the list, and stay on the screen.
+        """Add an uncommitted year to the list, and stay on the screen.
 
         It used to dismiss, which looked like a refresh and was an exit: every
         field typed into the form above went with it, unsaved and unmentioned,
         and dismissing with ``True`` told the application settings had been
-        changed. Mounting the row is what "refresh screen" meant.
+        changed. It later committed the allowance immediately, so Back only
+        discarded some of the form. The row is now a draft like every other
+        field and the existing atomic Save owns all persistence.
         """
-        years = self._svc.all_entitlements()
-        if years:
-            next_year = years[-1].year + 1
-            default_days = years[-1].days
+        if self.entitlement_drafts:
+            latest = max(self.entitlement_drafts)
+            next_year = latest + 1
+            default_days = self.query_one(f"#ent-{latest}", Input).value
         else:
             next_year = self._svc.active_leave_year()
-            default_days = DEFAULT_ENTITLEMENT_DAYS
+            default_days = str(DEFAULT_ENTITLEMENT_DAYS)
 
-        self._svc.save_entitlement(next_year, default_days)
+        self.entitlement_drafts[next_year] = default_days
         self.query_one("#entitlements-list", Vertical).mount(
             Horizontal(
                 Label(str(next_year)),
-                Input(str(default_days), id=f"ent-{next_year}"),
+                Input(default_days, id=f"ent-{next_year}"),
                 classes="entitlement-row",
             )
         )
         self.notify(
-            f"Added {next_year} with {fmt_days(default_days)}"
-            f" {plural(default_days, 'day')}"
+            f"Added {next_year}; save to keep it",
         )
 
     def _save(self) -> None:
@@ -208,12 +212,12 @@ class SettingsScreen(Screen[bool]):
         """
         allowances: dict[int, float] = {}
         rejected: list[str] = []
-        for entitlement in self._svc.all_entitlements():
-            field = self.query_one(f"#ent-{entitlement.year}", Input)
+        for year in self.entitlement_drafts:
+            field = self.query_one(f"#ent-{year}", Input)
             try:
-                allowances[entitlement.year] = parse_entitlement_days(field.value)
+                allowances[year] = parse_entitlement_days(field.value)
             except ValueError:
-                rejected.append(str(entitlement.year))
+                rejected.append(str(year))
 
         if rejected:
             self.notify(

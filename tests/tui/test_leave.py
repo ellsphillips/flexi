@@ -12,6 +12,7 @@ from flexi.app import FlexiApp
 from flexi.components.common import Gauge, Tone
 from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion, Verdict
+from flexi.messages import Scope
 from flexi.screens.leave import LeaveScreen, preview
 from flexi.screens.modals import AbsenceModal, ConfirmModal, GoToDateModal
 from flexi.services.absence import (
@@ -20,6 +21,7 @@ from flexi.services.absence import (
     AnnualBalance,
     PlannedDay,
 )
+from flexi.services.settings import SettingsUpdate
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
 
 TODAY = date(2026, 6, 11)  # a Thursday
@@ -893,3 +895,67 @@ async def test_a_backwards_span_is_refused_before_it_is_written(
         showing(app, AbsenceModal)  # the modal stays put
         assert "before the first" in screen_text(app)
         assert app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY) == []
+
+
+async def test_the_cursor_leaving_the_shown_year_reloads_the_grid(
+    app_factory: AppFactory,
+) -> None:
+    """The calendar holds one leave year; the cursor is not confined to it.
+
+    Reached by moving the selection rather than by the go-to modal, which sets
+    the period itself. Here the calendar reports where it went and the screen
+    has to notice the date is outside what it drew -- otherwise the cursor sits
+    on a day the grid has never rendered.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        before = showing(app, LeaveScreen).period
+        assert not before.contains(date(2028, 6, 14))
+
+        calendar(app).go_to(date(2028, 6, 14))
+        await pilot.pause()
+        await pilot.pause()
+
+        leave = showing(app, LeaveScreen)
+        assert leave.period != before, "the shown year followed the cursor"
+        assert leave.period.contains(date(2028, 6, 14))
+        assert calendar(app).selection.head == date(2028, 6, 14)
+
+
+async def test_saving_settings_moves_the_leave_year_under_an_open_planner(
+    app_factory: AppFactory,
+) -> None:
+    """The planner is measured against a leave year the settings own.
+
+    The app refreshes every open screen, not just the dashboard. Without this
+    the planner goes on drawing a year that starts where the settings used to
+    say, and books against the wrong twelve months.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        assert showing(app, LeaveScreen).period.start == date(2026, 4, 6)
+
+        settings = app.services.settings
+        current = settings.resolved()
+        settings.save_settings(
+            SettingsUpdate(
+                leave_year_start=(1, 1),
+                working_days=current.working_days,
+                division=current.division,
+                auto_close=current.auto_close,
+            )
+        )
+        app.refresh_open_screens(Scope.SETTINGS)
+        await pilot.pause()
+
+        assert showing(app, LeaveScreen).period.start == date(2026, 1, 1)
+
+        moved = showing(app, LeaveScreen).period
+        app.refresh_open_screens(Scope.ABSENCE)
+        await pilot.pause()
+
+        assert showing(app, LeaveScreen).period == moved, (
+            "a booking redraws the year; it does not re-read where it starts"
+        )

@@ -176,6 +176,24 @@ def test_a_removal_plan_removes_nothing(services: Services) -> None:
     assert len(services.absence.in_range(MONDAY, FRIDAY)) == 5
 
 
+def test_a_portion_specific_removal_plan_preserves_the_other_half(
+    services: Services,
+) -> None:
+    services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM)
+    services.absence.book(MONDAY, AbsenceType.SICK, Portion.PM)
+
+    plan = services.absence.removal_plan(MONDAY, MONDAY, portion=Portion.PM)
+    result = services.absence.remove_plan(plan)
+
+    assert result.success
+    assert plan.portion is Portion.PM
+    assert plan.summary == "  1 afternoon of sickness"
+    assert [
+        (row.absence_type, row.portion)
+        for row in services.absence.in_range(MONDAY, MONDAY)
+    ] == [(AbsenceType.ANNUAL, Portion.AM)]
+
+
 def test_an_empty_removal_plan_is_empty(services: Services) -> None:
     plan = services.absence.removal_plan(MONDAY, FRIDAY)
     assert plan.is_empty

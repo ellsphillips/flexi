@@ -168,3 +168,23 @@ def test_the_sweep_can_be_told_what_day_it_is(
 
     assert len(closed) == 1
     assert closed[0].auto_closed is True
+
+
+def test_a_session_closed_under_the_sweep_is_not_reported_as_swept(
+    svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sweep reads the stale sessions, then closes them one at a time.
+
+    Between the read and the update another writer can close the same session
+    -- the application starting twice is the ordinary way. The conditional
+    update declines, and the sweep must leave it out of what it says it did
+    rather than claim a clock-out it did not write.
+    """
+    yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+    svc.clock_in(now=yesterday)
+    monkeypatch.setattr(
+        "flexi.services.startup.stage_clock_out",
+        lambda *_args, **_kwargs: False,
+    )
+
+    assert close_stale_sessions(session, time(18, 0)) == []

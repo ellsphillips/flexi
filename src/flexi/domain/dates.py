@@ -178,16 +178,17 @@ def parse_date(
     # first that answers wins and the rest are never called -- and each reader
     # keeps the signature it deserves instead of a uniform one that had three
     # of them `del` an argument they never read.
-    try:
-        found = (
-            relative_to(text, reference)
-            or parse_weekday(text, reference)
-            or parse_offset(text, reference)
-            or parse_written(text, reference, prefer)
-            or parse_day_of_month(text, reference, prefer)
-        )
-    except OverflowError as error:
-        raise ValueError(DATE_RANGE_ERROR) from error
+    # No `OverflowError` guard here: every reader converts its own, so one
+    # wrapped around all five could not fire. The range error a caller sees
+    # comes from the reader that computed the date, which is the one that knows
+    # what was being asked for.
+    found = (
+        relative_to(text, reference)
+        or parse_weekday(text, reference)
+        or parse_offset(text, reference)
+        or parse_written(text, reference, prefer)
+        or parse_day_of_month(text, reference, prefer)
+    )
     if found is None:
         raise ValueError(DATE_HELP)
     return found

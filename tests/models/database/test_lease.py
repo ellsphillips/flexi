@@ -63,6 +63,15 @@ def test_a_negative_wait_is_rejected(tmp_path: Path) -> None:
         pytest.fail("an invalid lease cannot be entered")
 
 
+@pytest.mark.parametrize("timeout", [float("nan"), float("inf")])
+def test_a_non_finite_wait_is_rejected(tmp_path: Path, timeout: float) -> None:
+    with (
+        pytest.raises(ValueError, match="must be finite"),
+        database_lease(tmp_path / "records.db", LeaseMode.SHARED, timeout=timeout),
+    ):
+        pytest.fail("an unbounded lease wait cannot be entered")
+
+
 def test_database_scope_holds_a_shared_lease_until_cleanup(tmp_path: Path) -> None:
     database = tmp_path / "records.db"
 
