@@ -223,7 +223,7 @@ class DashboardScreen(Screen[None]):
 
     def _sync_header(self) -> None:
         for header in self.query(AppHeader):
-            header.context = f"{short_date(wallclock.today())} · {self.period.label}"
+            header.context = self.period.label
 
     # -- the live tick -----------------------------------------------------
 

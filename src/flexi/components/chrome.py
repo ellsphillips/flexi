@@ -23,6 +23,7 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Footer, Label, Static
 
+import flexi
 from flexi.components.common import Pill, Tone
 
 __all__ = (
@@ -40,6 +41,7 @@ __all__ = (
     "OverflowLabel",
     "StatusBar",
     "StripEntry",
+    "VersionTag",
     "footer_key_cost",
     "keys_that_fit",
     "strip_entries",
@@ -130,6 +132,47 @@ class NavBar(Horizontal):
             label.set_class(label.item.screen == self.active, "-active")
 
 
+class VersionTag(Static):
+    """The installed version, and whether a newer one has been published.
+
+    Ambient rather than announced. A toast says it once and is gone; the tag is
+    there whenever somebody looks up, which is what makes it possible to notice
+    an upgrade without being interrupted by one.
+
+    The check is the application's to run -- it costs a request -- so the tag is
+    told rather than asking. Told nothing, it says what is installed and stops.
+    """
+
+    COMPONENT_CLASSES: ClassVar[set[str]] = {
+        "version--arrow",
+        "version--latest",
+    }
+
+    latest: reactive[str] = reactive("", init=False)
+    """The newer published version, or empty when this is the newest."""
+
+    def render(self) -> Text:
+        installed = Text(flexi.__version__, style=self.rich_style)
+        if not self.latest:
+            return installed
+        installed.append(" → ", style=self.get_component_rich_style("version--arrow"))
+        installed.append(
+            self.latest, style=self.get_component_rich_style("version--latest")
+        )
+        return installed
+
+    def watch_latest(self, latest: str) -> None:
+        self.set_class(bool(latest), "-outdated")
+        self.tooltip = (
+            f"Version {latest} is available. Run: uv tool upgrade flexi"
+            if latest
+            else None
+        )
+        # With layout: the tag grows by the width of an arrow and a version, and
+        # a plain refresh redraws it inside the width it had before.
+        self.refresh(layout=True)
+
+
 class AppHeader(Horizontal):
     """Wordmark, navigation, and the date and period in play.
 
@@ -146,6 +189,7 @@ class AppHeader(Horizontal):
         yield Lockup()
         yield NavBar()
         yield Static(self.context, classes="header-context", id="header-context")
+        yield VersionTag(id="header-version", classes="header-version")
 
     def watch_context(self, context: str) -> None:
         if self.is_mounted:
@@ -154,6 +198,11 @@ class AppHeader(Horizontal):
     def set_active(self, screen: str) -> None:
         for bar in self.query(NavBar):
             bar.active = screen
+
+    def offer_update(self, latest: str) -> None:
+        """Show that a newer version has been published."""
+        for tag in self.query(VersionTag):
+            tag.latest = latest
 
 
 class StatusBar(Horizontal):

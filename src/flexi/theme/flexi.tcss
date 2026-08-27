@@ -475,6 +475,29 @@ NavBar {
     text-align: right;
 }
 
+/* The installed version, and the one that supersedes it. Quiet until there is
+   something to say: a build that is current is a fact nobody needs pointed out,
+   so it wears the same grey as the rest of the chrome until it does not. */
+.header-version {
+    width: auto;
+    height: 1;
+    padding: 0 0 0 2;
+    color: $c-line;
+}
+
+.header-version.-outdated {
+    color: $c-muted;
+}
+
+.header-version > .version--arrow {
+    color: $c-muted;
+}
+
+.header-version > .version--latest {
+    color: $c-accent-lift;
+    text-style: bold;
+}
+
 /* Two rows and not one more: the status line and the key strip. */
 AppFooter {
     dock: bottom;

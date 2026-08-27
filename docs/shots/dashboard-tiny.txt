@@ -1,5 +1,5 @@
 
-  flexi·     Dashboard    Leave    Insights    Settings    Thu
+  flexi·     Dashboard    Leave    Insights    Settings    W
 ────────────────────────────────────────────────────────────────
   TODAY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5:08 of 7:24
 
@@ -11,7 +11,7 @@
  │      Depart      ││  19:48 banked ·  ││ S 1d · 1 occasion │
  │                  ││    +2.7 days     ││                   │
  │                  ││                  ││                   │
- ╰──────── 5:08:00 ─╯╰─ 6 Apr 26–5 Ap… ─╯╰─ −4:49 this per… ─╯
+ ╰─ 5:08:00 · 11/… ─╯╰─ 6 Apr 26–5 Ap… ─╯╰─ −4:49 this per… ─╯
  ╭─ Records ──────────────────────────────────────────────────╮
  │  Day                                Worked   ±             │
  │  Mon 08   ──█████████·████████────     8:13   +0:49      ▁ │

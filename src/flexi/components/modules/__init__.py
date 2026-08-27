@@ -32,6 +32,8 @@ if TYPE_CHECKING:
         KIND_CLASSES,
         WEEKS,
         MonthView,
+        cell_classes,
+        cell_text,
         month_grid,
     )
     from flexi.components.modules.records import (
@@ -55,7 +57,14 @@ _MODULE_EXPORTS: Final = MappingProxyType(
         "balance": ("STATE_CLASSES", "BalanceModule", "lean_class"),
         "base": ("Module",),
         "clock": ("ClockModule",),
-        "monthview": ("KIND_CLASSES", "WEEKS", "MonthView", "month_grid"),
+        "monthview": (
+            "KIND_CLASSES",
+            "WEEKS",
+            "MonthView",
+            "cell_classes",
+            "cell_text",
+            "month_grid",
+        ),
         "records": (
             "BADGE_WIDTH",
             "BRANCH",
@@ -98,6 +107,8 @@ __all__ = (  # noqa: RUF022
     "KIND_CLASSES",
     "WEEKS",
     "MonthView",
+    "cell_classes",
+    "cell_text",
     "month_grid",
     "BADGE_WIDTH",
     "BRANCH",
