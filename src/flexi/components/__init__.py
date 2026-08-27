@@ -99,11 +99,14 @@ if TYPE_CHECKING:
         row_key,
     )
     from flexi.components.jump_overlay import (
+        BADGE_OVERHANG,
         SWALLOWED_KEYS,
         JumpOverlay,
         JumpOverlayProvider,
+        badge_offset,
     )
     from flexi.components.jumper import (
+        BadgeShape,
         HasFocusTarget,
         HasJumpOverlays,
         HasJumpTargets,
@@ -317,11 +320,14 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "row_key",
         ),
         "flexi.components.jump_overlay": (
+            "BADGE_OVERHANG",
             "SWALLOWED_KEYS",
             "JumpOverlay",
             "JumpOverlayProvider",
+            "badge_offset",
         ),
         "flexi.components.jumper": (
+            "BadgeShape",
             "HasFocusTarget",
             "HasJumpOverlays",
             "HasJumpTargets",
@@ -531,9 +537,12 @@ __all__ = (  # noqa: RUF022
     "RowKind",
     "row_ident",
     "row_key",
+    "BADGE_OVERHANG",
     "SWALLOWED_KEYS",
     "JumpOverlay",
     "JumpOverlayProvider",
+    "badge_offset",
+    "BadgeShape",
     "HasFocusTarget",
     "HasJumpOverlays",
     "HasJumpTargets",

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import pytest
 from textual import events
+from textual.css.query import DOMQuery
+from textual.geometry import Offset
 from textual.message import Message
+from textual.widget import Widget
 from textual.widgets import Static
 
 from flexi.components.expandable import ExpandableTable, RowKind
-from flexi.components.jump_overlay import JumpOverlay
+from flexi.components.jump_overlay import JumpOverlay, badge_offset
+from flexi.components.jumper import BadgeShape
 from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.monthview import MonthView
 from flexi.components.modules.records import RecordsModule
@@ -292,3 +296,64 @@ async def test_a_panel_that_cannot_take_focus_is_clicked_instead(
 
         assert app.focused is calendar, "the keyboard left the calendar"
         assert screen.query_one("#leave-legend") in clicked
+
+
+# -- how a badge is drawn ----------------------------------------------------
+
+
+def heights(badges: DOMQuery[Widget]) -> set[int | None]:
+    """The resolved height of every badge in a query."""
+    return {
+        None if badge.styles.height is None else int(badge.styles.height.value)
+        for badge in badges
+    }
+
+
+@pytest.mark.parametrize(
+    ("corner", "expected"),
+    [
+        (Offset(20, 8), Offset(19, 7)),
+        (Offset(0, 8), Offset(0, 7)),
+        (Offset(20, 0), Offset(19, 0)),
+        (Offset(0, 0), Offset(0, 0)),
+    ],
+)
+def test_a_corner_badge_hangs_on_the_corner_but_never_off_the_screen(
+    corner: Offset, expected: Offset
+) -> None:
+    """The box straddles the panel's own border, which is what attaches it.
+
+    Clamped at the edges: a negative offset does not move a widget further out,
+    it clips the side that left the screen -- so a panel in the top-left would
+    lose the two borders that make its badge read as a box.
+    """
+    assert badge_offset(corner, BadgeShape.CORNER) == expected
+
+
+def test_a_row_badge_stays_exactly_where_the_table_put_it() -> None:
+    """A row chip names one line, and a line above is a different day."""
+    assert badge_offset(Offset(20, 8), BadgeShape.ROW) == Offset(20, 8)
+
+
+async def test_panels_are_boxed_and_table_rows_are_not(
+    app_factory: AppFactory,
+) -> None:
+    """Rows sit a single cell apart, so only panels can afford three of them.
+
+    Boxing a row would stand it on its neighbours and leave one badge with all
+    four corners and the rest with none.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("v")
+        await pilot.pause()
+        await pilot.pause()
+        overlay = showing(app, JumpOverlay)
+
+        boxed = overlay.query(".textual-jump-label.-corner")
+        chips = overlay.query(".textual-jump-label.-row")
+
+        assert boxed, "the dashboard's panels are jumpable"
+        assert chips, "and so are the records table's day rows"
+        assert heights(boxed) == {3}, "a box: border, key, border"
+        assert heights(chips) == {1}, "a chip: the key and nothing over it"

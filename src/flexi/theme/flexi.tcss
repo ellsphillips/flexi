@@ -831,14 +831,34 @@ JumpOverlay {
     background: $c-ink 55%;
 }
 
+/* Two shapes, because two kinds of thing are being marked.
+
+   A panel gets a box hung on its top-left corner: three rows, so the middle one
+   sits on the line the panel is drawn with, and an opaque ground so the border
+   underneath does not show through the key. `width: auto` because the box is
+   sized by what is in it -- every key is one character today, and a
+   two-character one would otherwise lose its border.
+
+   A table row gets a chip one row tall. Rows are a single cell apart, so boxes
+   would stand on each other and only the last drawn would keep its corners. */
 .textual-jump-label {
     layer: textual-jump;
     dock: top;
     text-style: bold;
+    width: auto;
+    padding: 0 1;
+}
+
+.textual-jump-label.-corner {
+    color: $c-paper;
+    background: $c-ink;
+    border: round $c-accent-lift;
+    height: 3;
+}
+
+.textual-jump-label.-row {
     color: $c-ink;
     background: $c-accent-lift;
-    padding: 0 1;
-    width: auto;
     height: 1;
 }
 

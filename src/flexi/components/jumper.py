@@ -10,6 +10,7 @@ dict, so a target can only ever name something that is mounted.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from enum import StrEnum
 from typing import NamedTuple, Protocol, runtime_checkable
 
 from textual.errors import NoWidget
@@ -19,6 +20,7 @@ from textual.widget import Widget
 from flexi.messages import Scope
 
 __all__ = (
+    "BadgeShape",
     "HasFocusTarget",
     "HasJumpOverlays",
     "HasJumpTargets",
@@ -78,6 +80,20 @@ class HasFocusTarget(Protocol):
     def focus_target(self) -> Widget: ...
 
 
+class BadgeShape(StrEnum):
+    """How a target's badge is drawn, which is decided by what it marks."""
+
+    CORNER = "corner"
+    """A panel: the badge is a box hung on its top-left corner."""
+
+    ROW = "row"
+    """A line of a table: the badge is a chip one row tall.
+
+    Rows are a single cell apart, so a box would stand on its neighbours and
+    only the last one drawn would keep all four of its corners.
+    """
+
+
 class JumpInfo(NamedTuple):
     """One jump target: the key that reaches it, and what it reaches."""
 
@@ -86,6 +102,9 @@ class JumpInfo(NamedTuple):
 
     widget: str | Widget
     """Either the id of the target or a direct reference to it."""
+
+    shape: BadgeShape = BadgeShape.CORNER
+    """How to draw the badge. Panels are the common case, so they are default."""
 
 
 class Jumper:

@@ -29,7 +29,7 @@ from flexi.components.expandable import (
     row_ident,
     row_key,
 )
-from flexi.components.jumper import JumpInfo
+from flexi.components.jumper import BadgeShape, JumpInfo
 from flexi.components.modules.base import Module
 from flexi.components.options import ModuleOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
@@ -382,7 +382,7 @@ class RecordsModule(Module):
             if not (region.y + header <= y < region.y + region.height):
                 continue
             targets[Offset(region.x + region.width - BADGE_WIDTH, y)] = JumpInfo(
-                str(numbered), row.key
+                str(numbered), row.key, BadgeShape.ROW
             )
         return targets
 
