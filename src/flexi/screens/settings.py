@@ -25,6 +25,7 @@ from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
     SettingsUpdate,
+    parse_entitlement_days,
     parse_settings,
 )
 
@@ -210,13 +211,14 @@ class SettingsScreen(Screen[bool]):
         for entitlement in self._svc.all_entitlements():
             field = self.query_one(f"#ent-{entitlement.year}", Input)
             try:
-                allowances[entitlement.year] = float(field.value)
+                allowances[entitlement.year] = parse_entitlement_days(field.value)
             except ValueError:
                 rejected.append(str(entitlement.year))
 
         if rejected:
             self.notify(
-                f"Leave for {', '.join(rejected)} must be a number of days",
+                f"Leave for {', '.join(rejected)} must be finite, "
+                "non-negative numbers of days",
                 severity="error",
             )
             return

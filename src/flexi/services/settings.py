@@ -4,6 +4,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, time, timedelta
+from math import isfinite
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,6 +30,7 @@ __all__ = (
     "DEFAULT_LEAVE_YEAR_START",
     "DEFAULT_WORKING_DAYS",
     "HOURS_IN_DAY",
+    "INVALID_ENTITLEMENT",
     "LONGEST_MONTH",
     "MINUTES_IN_HOUR",
     "NOON",
@@ -44,12 +46,14 @@ __all__ = (
     "format_working_days",
     "named_weekday",
     "parse_clock_time",
+    "parse_entitlement_days",
     "parse_month_day",
     "parse_settings",
     "parse_working_days",
     "read_or",
     "readable_window",
     "resolve_settings",
+    "validate_entitlement_days",
     "validate_window",
 )
 
@@ -71,11 +75,35 @@ Named because the setup form, the settings screen and the demo data each typed
 it out, so the number a new install sees was three numbers that happened to
 agree."""
 
+INVALID_ENTITLEMENT = "Entitlement must be a number of days (finite and zero or more)"
+"""The shared user-facing contract for an invalid leave allowance."""
+
 type LeaveYearStart = tuple[int, int]
 """The month and day on which a leave year begins."""
 
 type WorkingDays = tuple[int, ...]
 """Ordered weekday indices, where Monday is zero and Sunday is six."""
+
+
+def validate_entitlement_days(days: float) -> float:
+    """Return a finite non-negative allowance, or reject it.
+
+    ``nan`` is especially dangerous here: SQLite's driver turns it into
+    ``NULL``, so without an explicit domain boundary the error arrives as an
+    unrelated persistence failure during commit.
+    """
+    if not isfinite(days) or days < 0:
+        raise ValueError(INVALID_ENTITLEMENT)
+    return days
+
+
+def parse_entitlement_days(raw: str) -> float:
+    """Parse a user-entered allowance under the entitlement domain rule."""
+    try:
+        days = float(raw)
+    except ValueError as error:
+        raise ValueError(INVALID_ENTITLEMENT) from error
+    return validate_entitlement_days(days)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -330,6 +358,7 @@ class SettingsService:
 
     def stage_entitlement(self, year: int, days: float) -> LeaveEntitlement:
         """Apply one entitlement to this transaction without committing it."""
+        days = validate_entitlement_days(days)
         ent = self.get_entitlement(year)
         if ent is None:
             ent = LeaveEntitlement(year=year, days=days)

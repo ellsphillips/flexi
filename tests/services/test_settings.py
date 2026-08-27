@@ -19,12 +19,14 @@ from flexi.domain.punch import Window
 from flexi.models.database.db import DEFAULT_WINDOW_END, DEFAULT_WINDOW_START
 from flexi.models.database.engine import get_session
 from flexi.services.settings import (
+    INVALID_ENTITLEMENT,
     SettingsService,
     SettingsUpdate,
     duration_minutes,
     format_clock_time,
     format_window,
     parse_clock_time,
+    parse_entitlement_days,
     parse_month_day,
     parse_settings,
     validate_window,
@@ -161,6 +163,30 @@ class TestLeaveEntitlements:
         ent = svc.get_entitlement(2026)
         assert ent is not None
         assert ent.days == 30.0
+
+    @pytest.mark.parametrize(
+        "days",
+        [
+            pytest.param(-1.0, id="negative"),
+            pytest.param(float("nan"), id="not-a-number"),
+            pytest.param(float("inf"), id="positive-infinity"),
+            pytest.param(float("-inf"), id="negative-infinity"),
+        ],
+    )
+    def test_invalid_allowances_are_rejected_before_persistence(
+        self, svc: SettingsService, days: float
+    ) -> None:
+        with pytest.raises(ValueError, match="finite and zero or more"):
+            svc.save_entitlement(2026, days)
+
+        assert svc.get_entitlement(2026) is None
+
+    @pytest.mark.parametrize("raw", ["-1", "nan", "inf", "twenty five"])
+    def test_user_entered_allowances_share_one_error_contract(self, raw: str) -> None:
+        with pytest.raises(ValueError, match="Entitlement must be a number") as raised:
+            parse_entitlement_days(raw)
+
+        assert str(raised.value) == INVALID_ENTITLEMENT
 
     def test_active_entitlement(self, svc: SettingsService) -> None:
         _do_setup(svc)

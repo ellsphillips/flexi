@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import pytest
 from textual.pilot import Pilot
 from textual.widgets import Button, Input, Select
 
@@ -172,10 +173,11 @@ async def test_a_changed_entitlement_is_written(app_factory: AppFactory) -> None
         assert kept.days == 27.5
 
 
-async def test_an_entitlement_that_is_not_a_number_is_refused(
-    app_factory: AppFactory,
+@pytest.mark.parametrize("allowance", ["loads", "-1", "nan", "inf"])
+async def test_an_invalid_entitlement_is_refused(
+    app_factory: AppFactory, allowance: str
 ) -> None:
-    """A year somebody could not type stops the whole save.
+    """A year outside the allowance domain stops the whole save.
 
     `_save` used to commit the four settings fields first and parse the
     entitlements after, so a rejection left the working pattern and the region
@@ -192,7 +194,7 @@ async def test_an_entitlement_that_is_not_a_number_is_refused(
         await open_settings(pilot)
         screen = showing(app, SettingsScreen)
         screen.query_one("#input-leave-start", Input).value = "07-07"
-        screen.query_one(f"#ent-{year}", Input).value = "loads"
+        screen.query_one(f"#ent-{year}", Input).value = allowance
 
         await pilot.click("#btn-save")
         await pilot.pause()

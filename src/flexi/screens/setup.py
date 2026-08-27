@@ -38,7 +38,7 @@ from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
 from flexi.screens.settings import ALL_REQUIRED, parse_answers
 from flexi.services.registry import Services
-from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
+from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS, parse_entitlement_days
 from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
 
 __all__ = (
@@ -390,9 +390,9 @@ class SetupScreen(Screen[bool]):
             self.notify(ALL_REQUIRED, severity="error")
             return
         try:
-            entitlement = float(entitlement_str)
-        except ValueError:
-            self.notify("Entitlement must be a number of days", severity="error")
+            entitlement = parse_entitlement_days(entitlement_str)
+        except ValueError as error:
+            self.notify(str(error), severity="error")
             return
 
         try:

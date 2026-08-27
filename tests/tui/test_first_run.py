@@ -157,7 +157,31 @@ async def test_an_entitlement_that_is_not_a_number_is_refused(fresh_db: Path) ->
         screen.action_save()
         await pilot.pause()
 
-        assert "Entitlement must be a number of days" in notices(app)
+        assert any(
+            "Entitlement must be a number of days" in notice for notice in notices(app)
+        )
+        showing(app, SetupScreen)
+
+    with get_session(create_db_engine(fresh_db)) as session:
+        assert SettingsService(session).get_settings() is None
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "inf"])
+async def test_an_entitlement_outside_the_domain_is_refused(
+    fresh_db: Path, value: str
+) -> None:
+    """A parseable float is not necessarily a meaningful leave allowance."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-entitlement", Input).value = value
+
+        screen.action_save()
+        await pilot.pause()
+
+        assert any("finite and zero or more" in notice for notice in notices(app))
         showing(app, SetupScreen)
 
     with get_session(create_db_engine(fresh_db)) as session:
