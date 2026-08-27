@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from flexi.config import CONFIG, Config, Defaults, Hotkeys, load_config
 from flexi.constants import AbsenceType
@@ -102,6 +103,45 @@ def test_a_value_of_the_wrong_shape_gets_the_defaults(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        pytest.param("minimum_session_seconds", 0, id="zero-length-session"),
+        pytest.param("tick_seconds", 2, id="positive-tick-interval"),
+    ],
+)
+def test_timing_boundaries_accept_valid_values(
+    tmp_path: Path, name: str, value: int
+) -> None:
+    """Zero disables only the short-session threshold, never the live clock."""
+    path = written(tmp_path / "config.yaml", f"defaults:\n  {name}: {value}\n")
+
+    assert getattr(load_config(path).defaults, name) == value
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        pytest.param("minimum_session_seconds", -1, id="negative-session-threshold"),
+        pytest.param("tick_seconds", 0, id="zero-tick-interval"),
+        pytest.param("tick_seconds", -1, id="negative-tick-interval"),
+    ],
+)
+def test_invalid_timing_boundaries_fall_back_only_their_section(
+    tmp_path: Path, name: str, value: int
+) -> None:
+    """Invalid intervals cannot reach Textual or discard every real session."""
+    path = written(
+        tmp_path / "config.yaml",
+        f"hotkeys:\n  clock_toggle: c\ndefaults:\n  {name}: {value}\n",
+    )
+
+    config = load_config(path)
+
+    assert config.hotkeys.clock_toggle == "c"
+    assert config.defaults == Defaults()
+
+
+@pytest.mark.parametrize(
     "line",
     ["  period: fortnight\n", "  first_day_of_week: 9\n"],
 )
@@ -165,3 +205,26 @@ def test_the_module_level_config_is_the_one_the_bindings_read() -> None:
     """
     assert isinstance(CONFIG, Config)
     assert CONFIG.hotkeys.clock_toggle != ""
+
+
+@pytest.mark.parametrize(
+    ("target_name", "attribute", "replacement"),
+    [
+        pytest.param("config", "defaults", Defaults(tick_seconds=2), id="config"),
+        pytest.param("hotkeys", "clock_toggle", "c", id="nested-hotkeys"),
+        pytest.param("defaults", "tick_seconds", 2, id="nested-defaults"),
+    ],
+)
+def test_loaded_config_is_deeply_immutable(
+    tmp_path: Path, target_name: str, attribute: str, replacement: object
+) -> None:
+    """Shared module preferences cannot drift after bindings have read them."""
+    config = load_config(tmp_path / "never-written.yaml")
+    targets = {
+        "config": config,
+        "hotkeys": config.hotkeys,
+        "defaults": config.defaults,
+    }
+
+    with pytest.raises(ValidationError, match="Instance is frozen"):
+        setattr(targets[target_name], attribute, replacement)

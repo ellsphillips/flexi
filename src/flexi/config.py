@@ -13,6 +13,7 @@ the property that matters rather than the count.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,7 +27,7 @@ __all__ = ("CONFIG", "Config", "Defaults", "Hotkeys", "load_config", "section")
 class Hotkeys(BaseModel):
     """Every binding, in one place. See ``docs/KEYMAP.md``."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     # global
     clock_toggle: str = "slash"
@@ -74,7 +75,7 @@ class Hotkeys(BaseModel):
 class Defaults(BaseModel):
     """How the application opens, and the few behaviours worth tuning."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     period: Granularity = Granularity.WEEK
     """Which span the dashboard opens on.
@@ -89,7 +90,7 @@ class Defaults(BaseModel):
     """Monday is 0. Bounded, because nothing downstream rejects a 9: the grid
     would rotate by `9 % 7` while the column headings, sliced rather than
     rotated, would silently stay on Monday."""
-    minimum_session_seconds: int = 60
+    minimum_session_seconds: Annotated[int, Field(ge=0)] = 60
     """A session shorter than this never happened.
 
     Clocking in and straight back out is a slip of the finger, not a minute of
@@ -97,7 +98,7 @@ class Defaults(BaseModel):
     Sixty seconds is long enough to cover a double-press and short enough that
     nobody loses a real errand to it."""
 
-    tick_seconds: int = 1
+    tick_seconds: Annotated[int, Field(gt=0)] = 1
     """How often the live readout refreshes while a session is open. A minute
     would make an elapsed clock jump in 60-second steps, which looks broken."""
 
@@ -105,7 +106,7 @@ class Defaults(BaseModel):
 class Config(BaseModel):
     """The whole file."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     hotkeys: Hotkeys = Field(default_factory=Hotkeys)
     defaults: Defaults = Field(default_factory=Defaults)
