@@ -142,7 +142,10 @@ class MonthView(Module):
             if classes != set(cell.classes):
                 cell.set_classes(classes)
 
-        self.set_subtitle(period.label)
+        # The grid already names the month it is showing, in the row above the
+        # days. The slot under it is better spent on the span the rest of the
+        # dashboard is reporting, which is the thing the window is tinting for.
+        self.set_subtitle(period.granularity.label)
 
     # -- interaction -------------------------------------------------------
 

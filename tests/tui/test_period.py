@@ -12,6 +12,7 @@ from flexi.components.modules.monthview import MonthView
 from flexi.config import CONFIG
 from flexi.constants import Granularity
 from flexi.domain.dates import DAYS_IN_WEEK
+from flexi.services.registry import invalidate_services
 from tests.tui.conftest import WIDE, AppFactory, dashboard
 
 TODAY = date(2026, 6, 11)
@@ -256,3 +257,109 @@ async def test_cycling_the_period_moves_the_window_with_it(
         assert covered["day"] == 1
         assert covered["week"] == DAYS_IN_WEEK
         assert covered["day"] < covered["week"] < covered["month"] <= covered["year"]
+
+
+# -- and legible once it is tinted -------------------------------------------
+
+READABLE = 3.0
+"""Contrast a day number has to clear against the ground behind it.
+
+Below three to one a dim tone on a lifted ground stops being a number and
+becomes a texture. `$c-line` on the window fill measured 1.02:1 -- the day was
+in the compositor and not on the screen.
+"""
+
+
+def channel(value: int) -> float:
+    scaled = value / 255
+    return scaled / 12.92 if scaled <= 0.04045 else ((scaled + 0.055) / 1.055) ** 2.4
+
+
+def relative_luminance(colour: tuple[int, int, int]) -> float:
+    red, green, blue = (channel(part) for part in colour)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def contrast(foreground: tuple[int, int, int], ground: tuple[int, int, int]) -> float:
+    """The WCAG ratio between two colours, brighter over darker."""
+    pair = sorted((relative_luminance(foreground), relative_luminance(ground)))
+    return (pair[1] + 0.05) / (pair[0] + 0.05)
+
+
+@pytest.mark.parametrize("granularity", list(Granularity))
+async def test_every_day_inside_the_window_stays_readable(
+    app_factory: AppFactory, granularity: Granularity
+) -> None:
+    """The window lifts the ground under days drawn in the dimmest tones.
+
+    A fortnight of untracked days, or the tail of an adjacent month inside a
+    leave year, are exactly the cells a period window covers and exactly the
+    ones drawn faintest. Lifting the ground without lifting them leaves the
+    numbers missing from cells that still have borders.
+
+    The seed records work from the first day of its leave year, so the dimmest
+    tier does not occur in it and a test taking the seed as it comes cannot see
+    this. Setup is moved forward to put a fortnight of untracked days on screen,
+    which is what a first month of use actually looks like.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        stored = app.services.settings.get_settings()
+        assert stored is not None
+        stored.tracking_since = TODAY.replace(day=14)
+        invalidate_services(app.services)
+        dashboard(app).action_zoom(granularity.value)
+        await pilot.pause()
+
+        assert app.screen.query_one(MonthView).query("Label.day-untracked"), (
+            "the dimmest tier has to be on screen for this to be measuring it"
+        )
+
+        illegible = {
+            (contrast(cell.colors[3].rgb, cell.background_colors[1].rgb), cell.id)
+            for cell in app.screen.query_one(MonthView).query("Label.in-period")
+        }
+        worst = min(illegible, default=(READABLE, None))
+
+        assert worst[0] >= READABLE, f"{worst[1]} reads at {worst[0]:.2f}:1"
+
+
+async def test_the_cursor_keeps_its_own_colours_on_a_day_that_was_worked(
+    app_factory: AppFactory,
+) -> None:
+    """Every calendar rule is one class on one element, so the last one wins.
+
+    The day-type colours were written after the selection and took it, which put
+    the accent's own lift on the accent itself: the cursor was least readable on
+    a day somebody had worked, which is most of the days there are.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        view = app.screen.query_one(MonthView)
+        cursor = next(iter(view.query("Label.selected")))
+
+        assert "day-worked" in cursor.classes, "the seeded cursor sits on a worked day"
+        assert contrast(cursor.colors[3].rgb, cursor.background_colors[1].rgb) >= (
+            READABLE
+        )
+
+
+@pytest.mark.parametrize("granularity", list(Granularity))
+async def test_the_calendar_names_the_period_type_it_is_windowing(
+    app_factory: AppFactory, granularity: Granularity
+) -> None:
+    """The row above the days already names the month the grid is drawn around.
+
+    Repeating it underneath spent the one live slot on the panel saying the same
+    thing twice, and left the span the window is tinting for unnamed.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        dashboard(app).action_zoom(granularity.value)
+        await pilot.pause()
+
+        view = app.screen.query_one(MonthView)
+        assert view.border_subtitle == granularity.label

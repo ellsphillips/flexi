@@ -211,14 +211,11 @@ DashboardScreen.-tiny #balance-module {
     background: $c-accent-deep;
 }
 
-.calendar-row Label.selected {
-    background: $c-accent;
-    color: $c-ink;
-    text-style: bold;
-}
-
+/* A day belonging to the month either side of this one: context, not content.
+   `$c-line` is a hairline colour and was never a text one -- 1.4:1 on the page,
+   which is a number somebody has to lean in to read. */
 .calendar-row Label.not-current-month {
-    color: $c-line;
+    color: $c-rule;
 }
 
 .calendar-row Label.day-holiday {
@@ -229,10 +226,21 @@ DashboardScreen.-tiny #balance-module {
     color: $c-ash;
 }
 
-/* Before Flexi was set up. The same grey a weekend wears: both are days it
-   asks nothing of, and neither is a day somebody failed to turn up for. */
+/* Before Flexi was set up. The same grey a weekend wears -- both are days it
+   asks nothing of, and neither is a day somebody failed to turn up for. It said
+   that and used `$c-line`, which is a hairline and not a weekend's grey at all:
+   a fortnight of untracked days read as blank cells with the numbers missing.
+*/
 .calendar-row Label.day-untracked {
-    color: $c-line;
+    color: $c-ash;
+}
+
+/* The recessed tiers step up with the ground they sit on. Against the window
+   fill `$c-line` reads 1.0:1 and `$c-rule` 1.4:1 -- present in the compositor,
+   absent on the screen -- so a month or a year window would swallow every day
+   it was drawn to include. */
+.calendar-row Label.in-period.not-current-month {
+    color: $c-ash;
 }
 
 .calendar-row Label.day-worked {
@@ -257,6 +265,17 @@ DashboardScreen.-tiny #balance-module {
 
 .calendar-row Label.absence-other {
     color: $c-other-lift;
+}
+
+/* Last, and that is the whole rule: every selector above is one class on the
+   same element, so the one written last wins. The day-type colours came after
+   this and took it, which put `$c-accent-lift` on `$c-accent` at 1.7:1 -- the
+   cursor was hardest to read on exactly the day somebody had worked, which is
+   most of them. */
+.calendar-row Label.selected {
+    background: $c-accent;
+    color: $c-ink;
+    text-style: bold;
 }
 
 
