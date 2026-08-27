@@ -46,6 +46,7 @@ __all__ = (
     "DayFacts",
     "PlannedDay",
     "RangeResult",
+    "RemovalBooking",
     "RemovalPlan",
     "Span",
     "Tally",
@@ -53,6 +54,7 @@ __all__ = (
     "covers_the_whole_day",
     "deficit",
     "overdraw",
+    "plan_removal",
     "span_of",
     "still_bookable",
     "verdict_for",
@@ -436,6 +438,17 @@ class AbsencePlan:
 
 
 @dataclass(frozen=True, slots=True)
+class RemovalBooking:
+    """The immutable identity and content of one confirmed booking removal."""
+
+    absence_id: int
+    date: date
+    absence_type: AbsenceType
+    portion: Portion
+    note: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class RemovalPlan:
     """What clearing a span would take back, decided without deleting anything.
 
@@ -447,17 +460,27 @@ class RemovalPlan:
 
     start: date
     end: date
-    lots: tuple[tuple[AbsenceType, Portion, int], ...]
-    """Each kind and portion present, with how many of it, in booking order."""
+    bookings: tuple[RemovalBooking, ...]
+    """The exact rows whose removal was previewed and confirmed."""
+
+    @property
+    def lots(self) -> tuple[tuple[AbsenceType, Portion, int], ...]:
+        """Each kind and portion present, with how many of it, in booking order."""
+        counted = Counter(
+            (booking.absence_type, booking.portion) for booking in self.bookings
+        )
+        return tuple(
+            (kind, portion, count) for (kind, portion), count in counted.items()
+        )
 
     @property
     def count(self) -> int:
         """How many bookings would go."""
-        return sum(count for _kind, _portion, count in self.lots)
+        return len(self.bookings)
 
     @property
     def is_empty(self) -> bool:
-        return not self.lots
+        return not self.bookings
 
     @property
     def summary(self) -> str:
@@ -466,6 +489,29 @@ class RemovalPlan:
             f"  {count} {plural(count, portion.noun)} of {kind.phrase}"
             for kind, portion, count in self.lots
         )
+
+
+def plan_removal(start: date, end: date, bookings: Iterable[AbsenceDay]) -> RemovalPlan:
+    """Freeze the exact bookings a removal preview asks someone to approve.
+
+    The immutable values deliberately include more than the database key. If a
+    booking is edited in place after the preview, the wording that was approved
+    is stale just as surely as when another booking is added to the span.
+    """
+    return RemovalPlan(
+        start,
+        end,
+        tuple(
+            RemovalBooking(
+                absence_id=booking.id,
+                date=booking.date,
+                absence_type=booking.absence_type,
+                portion=booking.portion,
+                note=booking.note,
+            )
+            for booking in bookings
+        ),
+    )
 
 
 class AbsenceService:
@@ -805,13 +851,19 @@ class AbsenceService:
 
     def removal_plan(self, start: date, end: date) -> RemovalPlan:
         """What clearing a span would take back, without taking any of it back."""
-        counted = Counter(
-            (row.absence_type, row.portion) for row in self.in_range(start, end)
-        )
-        lots = tuple(
-            (kind, portion, count) for (kind, portion), count in counted.items()
-        )
-        return RemovalPlan(start, end, lots)
+        return plan_removal(start, end, self.in_range(start, end))
+
+    def remove_plan(self, plan: RemovalPlan) -> RangeResult:
+        """Remove a confirmed plan only while its exact bookings are unchanged."""
+        with write_transaction(self._session):
+            rows = self.in_range(plan.start, plan.end)
+            if plan_removal(plan.start, plan.end, rows) != plan:
+                return RangeResult(skipped=((plan.start, PLAN_CHANGED),))
+
+            removed = tuple(dict.fromkeys(row.date for row in rows))
+            for row in rows:
+                self._session.delete(row)
+            return RangeResult(removed)
 
     def clear_range(self, start: date, end: date) -> RangeResult:
         """Remove every booking in a span.
@@ -820,20 +872,13 @@ class AbsenceService:
         happens to be half empty should report what it removed, not five
         complaints about the days that were already free.
 
-        One read and one commit for the whole span. Walking the dates and
-        calling `remove` per date read every date twice -- `remove` opens by
-        re-reading what the guard had just read -- and committed once per
-        booking: 415 queries and 25 commits to clear a year.
+        Two bounded reads and one commit for the whole span: one freezes the
+        intended rows and the other revalidates them while holding SQLite's
+        writer reservation. Walking the dates and calling `remove` per date
+        made the work grow with the span and committed once per booking: 415
+        queries and 25 commits to clear a year.
         """
-        rows = self.in_range(start, end)
-        if not rows:
-            return RangeResult()
-        with atomic(self._session):
-            for row in rows:
-                self._session.delete(row)
-        # Distinct dates, in order: `in_range` orders by date, and a date
-        # holding both halves is one date cleared, not two.
-        return RangeResult(tuple(dict.fromkeys(row.date for row in rows)))
+        return self.remove_plan(self.removal_plan(start, end))
 
     def remove(self, day: date, portion: Portion | None = None) -> AbsenceResult:
         """Remove one portion's booking, or everything booked on the date."""

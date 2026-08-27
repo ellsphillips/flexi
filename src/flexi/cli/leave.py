@@ -196,8 +196,8 @@ def cancel(
     assume_yes: bool,
     dry_run: bool,
 ) -> int:
-    booked = services.absence.in_range(start, end)
-    if not booked:
+    plan = services.absence.removal_plan(start, end)
+    if plan.is_empty:
         span = (
             long_date(start)
             if start == end
@@ -207,7 +207,7 @@ def cancel(
         return 1
 
     click.echo("Cancelling")
-    for absence in booked:
+    for absence in plan.bookings:
         portion = (
             ""
             if absence.portion is Portion.FULL
@@ -223,6 +223,6 @@ def cancel(
         click.echo("Nothing was cancelled.")
         return 1
 
-    result = services.absence.clear_range(start, end)
-    click.secho(result.message("cancelled"), fg="green")
-    return 0
+    result = services.absence.remove_plan(plan)
+    click.secho(result.message("cancelled"), fg="green" if result.success else "yellow")
+    return 0 if result.success else 1

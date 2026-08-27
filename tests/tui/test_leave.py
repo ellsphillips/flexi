@@ -14,7 +14,7 @@ from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.screens.leave import LeaveScreen, preview
 from flexi.screens.modals import AbsenceModal, ConfirmModal, GoToDateModal
-from flexi.services.absence import AbsencePlan, PlannedDay
+from flexi.services.absence import PLAN_CHANGED, AbsencePlan, PlannedDay
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
 
 TODAY = date(2026, 6, 11)  # a Thursday
@@ -503,6 +503,45 @@ async def test_agreeing_to_the_question_clears_the_lot(app_factory: AppFactory) 
             == []
         )
         assert "removed" in status_text(app)
+
+
+async def test_confirmation_does_not_remove_a_booking_added_after_the_preview(
+    app_factory: AppFactory,
+) -> None:
+    """The modal approves the five shown rows, not a mutable calendar range."""
+    app = app_factory()
+    end = FREE_MONDAY + timedelta(days=6)
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        for _ in range(6):
+            await pilot.press("shift+right")
+        await pilot.pause()
+        booked = app.services.absence.book_range(
+            FREE_MONDAY,
+            end,
+            AbsenceType.ANNUAL,
+            Portion.AM,
+        )
+        assert len(booked.booked) == 5
+
+        await pilot.press("x")
+        await pilot.pause()
+        showing(app, ConfirmModal)
+
+        added = app.services.absence.book(
+            FREE_MONDAY,
+            AbsenceType.SICK,
+            Portion.PM,
+        )
+        assert added.success
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert len(app.services.absence.in_range(FREE_MONDAY, end)) == 6
+        assert status_text(app) == PLAN_CHANGED
 
 
 async def test_declining_the_question_keeps_every_day_of_it(

@@ -14,6 +14,7 @@ from flexi.services.registry import Services, build_services
 from flexi.services.settings import parse_settings
 
 MONDAY = date(2026, 8, 10)
+TUESDAY = date(2026, 8, 11)
 FRIDAY = date(2026, 8, 14)
 BANK_HOLIDAY = date(2026, 8, 31)
 
@@ -381,3 +382,41 @@ def test_declining_the_cancellation_leaves_the_leave_alone(
     assert code == 1
     assert len(_booked(session)) == 5
     assert asked == [("Cancel these?", False)]
+
+
+def test_cancellation_refuses_a_booking_added_after_confirmation(
+    services: Services, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Confirmation approves exact rows, never everything currently in a span."""
+    run(
+        services,
+        ("annual", "monday"),
+        note=None,
+        assume_yes=True,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    def add_then_confirm(
+        _prompt: str, *, default: bool = False, **_options: object
+    ) -> bool:
+        assert default is False
+        assert services.absence.book(TUESDAY, AbsenceType.SICK).success
+        return True
+
+    monkeypatch.setattr("click.confirm", add_then_confirm)
+
+    code = run(
+        services,
+        ("cancel", "monday", "to", "friday"),
+        note=None,
+        assume_yes=False,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    assert code == 1
+    assert [(row.date, row.absence_type) for row in _booked(session)] == [
+        (MONDAY, AbsenceType.ANNUAL),
+        (TUESDAY, AbsenceType.SICK),
+    ]

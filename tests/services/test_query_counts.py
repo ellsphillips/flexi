@@ -95,10 +95,10 @@ def test_the_wallet_reads_the_leave_year_once(
     assert len(seen) <= WALLET_CEILING, "\n".join(seen)
 
 
-def test_clearing_a_year_is_one_read_and_one_commit(
+def test_clearing_a_year_uses_bounded_reads_and_one_commit(
     booked: Services, session: Session
 ) -> None:
-    """It walked the dates, and `remove` re-read each one it had just read."""
+    """Planning and locked revalidation stay constant however long the span."""
     with counting(session) as seen:
         cleared = booked.absence.clear_range(YEAR_START, YEAR_END)
 

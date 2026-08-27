@@ -39,7 +39,7 @@ from flexi.screens.modals import (
     ConfirmModal,
     GoToDateModal,
 )
-from flexi.services.absence import AbsencePlan
+from flexi.services.absence import AbsencePlan, RemovalPlan
 from flexi.services.registry import (
     Services,
     available_toil_days,
@@ -350,12 +350,12 @@ class LeaveScreen(Screen[None]):
             return
 
         if plan.count <= REMOVE_THRESHOLD:
-            self._clear(selection)
+            self._clear(plan)
             return
 
         def confirm(answer: bool | None) -> None:
             if answer:
-                self._clear(selection)
+                self._clear(plan)
 
         self.app.push_screen(
             ConfirmModal(
@@ -365,8 +365,8 @@ class LeaveScreen(Screen[None]):
             callback=confirm,
         )
 
-    def _clear(self, selection: Selection) -> None:
-        result = self._services.absence.clear_range(selection.start, selection.end)
+    def _clear(self, plan: RemovalPlan) -> None:
+        result = self._services.absence.remove_plan(plan)
         self._after_write(result.message("removed"), ok=result.success)
 
     def action_edit(self) -> None:
