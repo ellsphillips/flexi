@@ -39,6 +39,17 @@ def test_an_adjustment_moves_the_balance(services: Services) -> None:
     assert services.ledger.balance(MONDAY).delta == timedelta(hours=3)
 
 
+def test_a_committed_adjustment_invalidates_a_cached_balance(
+    services: Services,
+) -> None:
+    """A caller cannot accidentally keep reading a pre-write derivation."""
+    before = services.ledger.balance(MONDAY).delta
+
+    services.adjustments.record(MONDAY, timedelta(hours=3), "carried over")
+
+    assert services.ledger.balance(MONDAY).delta == before + timedelta(hours=3)
+
+
 def test_it_only_counts_from_the_date_it_takes_effect(services: Services) -> None:
     """A correction dated Friday does not move Monday's balance."""
     services.adjustments.record(FRIDAY, timedelta(hours=5), "carried over")

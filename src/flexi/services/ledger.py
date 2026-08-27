@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
@@ -52,12 +52,25 @@ class LedgerService:
         self._settings = settings
         self._holidays_service = holidays
         self._cache: dict[date, DayLedger] = {}
+        event.listen(session, "after_commit", self.invalidate_after_commit)
 
     # -- cache -------------------------------------------------------------
 
     def invalidate(self) -> None:
         """Forget every ledger built so far."""
         self._cache.clear()
+
+    def invalidate_after_commit(self, committed: Session) -> None:
+        """Forget derived values after their source session commits.
+
+        Cache correctness belongs beside the cache. Requiring every screen,
+        command, and future service caller to remember ``invalidate`` after a
+        successful write made a stale balance the default failure mode. The
+        registry constructs one ledger per session, so this observer follows
+        the same lifetime and covers every write path through that session.
+        """
+        if committed is self._session:
+            self.invalidate()
 
     # -- reading -----------------------------------------------------------
 
