@@ -138,3 +138,6 @@ dmypy.json
 # things I added
 .idea/
 .pytyte/
+
+# The lease files the demo and the tests take beside a scratch database.
+*.db.lock
