@@ -84,3 +84,36 @@ def test_two_writers_cannot_both_close_one_session(engine: Engine) -> None:
     assert (first_closed, second_closed) == (True, False)
     assert len(clock_outs) == 1
     assert work_session.clock_out_id == clock_outs[0].id
+
+
+def test_a_voided_open_session_cannot_claim_a_clock_out(engine: Engine) -> None:
+    """The conditional primitive shares the active-session invariant."""
+    with Session(engine) as session, atomic(session):
+        clock_in = punched(ClockAction.IN, NINE, source=EventSource.USER)
+        session.add(clock_in)
+        session.flush()
+        session.add(
+            WorkSession(
+                clock_in_id=clock_in.id,
+                work_date=MONDAY,
+                voided=True,
+            )
+        )
+
+    with Session(engine) as session, atomic(session):
+        work_session_id = session.scalar(select(WorkSession.id))
+        assert work_session_id is not None
+        closed = stage_clock_out(
+            session,
+            work_session_id,
+            NINE + timedelta(hours=8),
+            source=EventSource.USER,
+        )
+
+    with Session(engine) as check:
+        clock_outs = check.scalars(
+            select(ClockEvent).where(ClockEvent.action == ClockAction.OUT)
+        ).all()
+
+    assert closed is False
+    assert clock_outs == []

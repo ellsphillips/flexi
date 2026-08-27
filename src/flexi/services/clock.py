@@ -65,7 +65,10 @@ class ClockService:
 
     def get_open_session(self) -> WorkSession | None:
         """Return the currently open work session, or None."""
-        stmt = select(WorkSession).where(WorkSession.clock_out_id.is_(None))
+        stmt = select(WorkSession).where(
+            WorkSession.clock_out_id.is_(None),
+            WorkSession.voided.is_(False),
+        )
         return self._session.execute(stmt).scalar_one_or_none()
 
     def is_clocked_in(self) -> bool:

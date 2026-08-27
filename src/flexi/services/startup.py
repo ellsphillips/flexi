@@ -41,6 +41,7 @@ def close_stale_sessions(
 
     stmt = select(WorkSession).where(
         WorkSession.clock_out_id.is_(None),
+        WorkSession.voided.is_(False),
         WorkSession.work_date < today,
     )
     stale = list(session.execute(stmt).scalars())

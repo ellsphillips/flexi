@@ -81,6 +81,7 @@ def stage_clock_out(
         .where(
             WorkSession.id == work_session_id,
             WorkSession.clock_out_id.is_(None),
+            WorkSession.voided.is_(False),
         )
         .values(
             clock_out_id=event.id,

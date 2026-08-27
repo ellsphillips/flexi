@@ -8,7 +8,9 @@ import pytest
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import ClockAction
+from flexi.constants import ClockAction, EventSource
+from flexi.models.database.db import WorkSession
+from flexi.models.database.moment import punched
 from flexi.services.clock import ClockService
 from flexi.services.startup import close_stale_sessions
 from tests.services.conftest import Configured
@@ -64,6 +66,28 @@ class TestStaleSessionClose:
 
     def test_noop_when_no_stale(self, svc: ClockService, session: Session) -> None:
         assert close_stale_sessions(session, time(18, 0)) == []
+
+    def test_does_not_auto_close_voided_history(self, session: Session) -> None:
+        """A discarded open row is history, not unfinished current work."""
+        yesterday = wallclock.today() - timedelta(days=1)
+        event = punched(
+            ClockAction.IN,
+            datetime.combine(yesterday, time(9), tzinfo=UTC),
+            source=EventSource.USER,
+        )
+        session.add(event)
+        session.flush()
+        discarded = WorkSession(
+            clock_in_id=event.id,
+            work_date=yesterday,
+            voided=True,
+        )
+        session.add(discarded)
+        session.commit()
+
+        assert close_stale_sessions(session, time(18, 0)) == []
+        session.refresh(discarded)
+        assert discarded.clock_out_id is None
 
 
 class TestFallbackTo2359:

@@ -15,8 +15,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import AbsenceType, Portion
+from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
 from flexi.models.database.db import BankHolidayCache, ClockEvent, WorkSession
+from flexi.models.database.moment import punched
 from flexi.services.absence import AbsenceResult
 from flexi.services.adjustments import AdjustmentResult
 from flexi.services.clock import ClockResult, ClockService
@@ -106,6 +107,32 @@ class TestRejections:
         svc.clock_out()
         result = svc.clock_in()
         assert result.success is True
+
+    def test_voided_open_rows_are_not_live_sessions(
+        self, svc: ClockService, session: Session
+    ) -> None:
+        """Discarded history may be open without joining the active clock."""
+        active = svc.clock_in(now=datetime(2026, 8, 10, 9, tzinfo=UTC))
+        assert active.session is not None
+        discarded_event = punched(
+            ClockAction.IN,
+            datetime(2026, 8, 9, 9, tzinfo=UTC),
+            source=EventSource.USER,
+        )
+        session.add(discarded_event)
+        session.flush()
+        discarded = WorkSession(
+            clock_in_id=discarded_event.id,
+            work_date=date(2026, 8, 9),
+            voided=True,
+        )
+        session.add(discarded)
+        session.commit()
+
+        assert svc.get_open_session() is active.session
+        assert svc.clock_out(now=datetime(2026, 8, 10, 17, tzinfo=UTC)).success
+        session.refresh(discarded)
+        assert discarded.clock_out_id is None
 
 
 # ---------- rollback leaves no partial state ----------
