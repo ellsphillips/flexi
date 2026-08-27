@@ -21,6 +21,8 @@ from enum import Flag, auto
 
 from textual.message import Message
 
+__all__ = ("DateSelected", "Scope")
+
 
 class Scope(Flag):
     """What changed, so only the widgets that care redraw."""

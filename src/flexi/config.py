@@ -20,6 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from flexi.constants import AbsenceType, Granularity
 from flexi.locations import config_file
 
+__all__ = ("CONFIG", "Config", "Defaults", "Hotkeys", "load_config", "section")
+
 
 class Hotkeys(BaseModel):
     """Every binding, in one place. See ``docs/KEYMAP.md``."""

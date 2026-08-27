@@ -7,8 +7,26 @@ domain, the services and the widgets without a cycle.
 from __future__ import annotations
 
 import enum
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from types import MappingProxyType
+from typing import Final
+
+__all__ = (
+    "CANCEL_WORD",
+    "DEFAULT_DIVISION",
+    "AbsenceType",
+    "ClockAction",
+    "DayKind",
+    "Division",
+    "EventSource",
+    "Granularity",
+    "Portion",
+    "Verdict",
+    "absence_from_word",
+    "undeclared_types",
+)
 
 
 class EventSource(StrEnum):
@@ -67,16 +85,18 @@ class Division(StrEnum):
         return _DIVISION_LABELS[self]
 
     @classmethod
-    def choices(cls) -> list[tuple[str, str]]:
+    def choices(cls) -> tuple[tuple[str, str], ...]:
         """Label and value, for a Select or a click.Choice."""
-        return [(member.label, member.value) for member in cls]
+        return tuple((member.label, member.value) for member in cls)
 
 
-_DIVISION_LABELS: dict[Division, str] = {
-    Division.ENGLAND_AND_WALES: "England & Wales",
-    Division.SCOTLAND: "Scotland",
-    Division.NORTHERN_IRELAND: "Northern Ireland",
-}
+_DIVISION_LABELS: Final[Mapping[Division, str]] = MappingProxyType(
+    {
+        Division.ENGLAND_AND_WALES: "England & Wales",
+        Division.SCOTLAND: "Scotland",
+        Division.NORTHERN_IRELAND: "Northern Ireland",
+    }
+)
 
 DEFAULT_DIVISION = Division.ENGLAND_AND_WALES
 """What to assume before anybody has chosen. Named, so the assumption is
@@ -175,13 +195,19 @@ class _Details:
     token: str
 
 
-_DETAILS: dict[AbsenceType, _Details] = {
-    AbsenceType.ANNUAL: _Details("Annual leave", "annual leave", "ANNUAL", "annual"),
-    AbsenceType.SICK: _Details("Sickness", "sickness", "SICK", "sick"),
-    AbsenceType.FLEXI: _Details("TOIL", "TOIL", "TOIL", "toil"),
-    AbsenceType.UNPAID: _Details("Unpaid leave", "unpaid leave", "UNPAID", "unpaid"),
-    AbsenceType.OTHER: _Details("Other", "other leave", "OTHER", "other"),
-}
+_DETAILS: Final[Mapping[AbsenceType, _Details]] = MappingProxyType(
+    {
+        AbsenceType.ANNUAL: _Details(
+            "Annual leave", "annual leave", "ANNUAL", "annual"
+        ),
+        AbsenceType.SICK: _Details("Sickness", "sickness", "SICK", "sick"),
+        AbsenceType.FLEXI: _Details("TOIL", "TOIL", "TOIL", "toil"),
+        AbsenceType.UNPAID: _Details(
+            "Unpaid leave", "unpaid leave", "UNPAID", "unpaid"
+        ),
+        AbsenceType.OTHER: _Details("Other", "other leave", "OTHER", "other"),
+    }
+)
 """One table rather than three parallel ones.
 
 Private, and the only kind of name in this codebase that stays so on purpose:
@@ -246,13 +272,15 @@ class Verdict(enum.Enum):
         return self in {Verdict.NON_WORKING, Verdict.BANK_HOLIDAY}
 
 
-_SPOKEN: dict[str, AbsenceType] = {
-    **{kind.token: kind for kind in AbsenceType},
-    "flexi": AbsenceType.FLEXI,
-    "holiday": AbsenceType.ANNUAL,
-    "al": AbsenceType.ANNUAL,
-    "leave": AbsenceType.ANNUAL,
-}
+_SPOKEN: Final[Mapping[str, AbsenceType]] = MappingProxyType(
+    {
+        **{kind.token: kind for kind in AbsenceType},
+        "flexi": AbsenceType.FLEXI,
+        "holiday": AbsenceType.ANNUAL,
+        "al": AbsenceType.ANNUAL,
+        "leave": AbsenceType.ANNUAL,
+    }
+)
 
 
 class Portion(enum.Enum):
@@ -288,11 +316,13 @@ class _PortionNames:
     noun: str
 
 
-_PORTION_LABELS: dict[Portion, _PortionNames] = {
-    Portion.FULL: _PortionNames("Full day", "day"),
-    Portion.AM: _PortionNames("Morning", "morning"),
-    Portion.PM: _PortionNames("Afternoon", "afternoon"),
-}
+_PORTION_LABELS: Final[Mapping[Portion, _PortionNames]] = MappingProxyType(
+    {
+        Portion.FULL: _PortionNames("Full day", "day"),
+        Portion.AM: _PortionNames("Morning", "morning"),
+        Portion.PM: _PortionNames("Afternoon", "afternoon"),
+    }
+)
 
 
 class DayKind(StrEnum):

@@ -14,8 +14,11 @@ already knew.
 from __future__ import annotations
 
 import functools
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar
+from datetime import date
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 import click
 
@@ -25,18 +28,65 @@ from flexi.locations import database_file
 from flexi.services.setup import is_initialised
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from datetime import date
-    from pathlib import Path
+    from sqlalchemy import Engine as DatabaseEngine
+    from sqlalchemy.orm import Session as DatabaseSession
 
-    from sqlalchemy import Engine
-    from sqlalchemy.orm import Session
+    from flexi.app import FlexiApp as FlexiApplication
+    from flexi.services.registry import Services as ServiceRegistry
+else:
 
-    from flexi.app import FlexiApp
-    from flexi.services.registry import Services
+    class DatabaseEngine(Protocol):
+        """The engine lifecycle retained by an open command."""
+
+        def dispose(self) -> None:
+            """Release pooled database connections."""
+
+    class DatabaseSession(Protocol):
+        """The session lifecycle retained by an open command."""
+
+        def close(self) -> None:
+            """Release the command's database session."""
+
+    class FlexiApplication(Protocol):
+        """Runtime-resolvable application result without an eager Textual import."""
+
+        def run(self) -> object:
+            """Run the application."""
+
+    class ServiceRegistry(Protocol):
+        """Runtime annotation for the lazily imported concrete registry."""
 
 
-T = TypeVar("T")
+__all__ = (
+    "NOT_INITIALISED",
+    "DatabaseEngine",
+    "DatabaseSession",
+    "FlexiApplication",
+    "Handles",
+    "ServiceRegistry",
+    "already_set_up",
+    "as_of_option",
+    "ask_the_questions",
+    "balance",
+    "balance_log",
+    "balance_show",
+    "balance_undo",
+    "balance_zero",
+    "cli",
+    "clock",
+    "clock_in",
+    "clock_out",
+    "erase",
+    "holidays",
+    "holidays_refresh",
+    "init",
+    "launch",
+    "leave",
+    "open_app",
+    "open_database",
+    "requires_setup",
+    "run_demo",
+)
 
 
 @click.group(invoke_without_command=True)
@@ -98,16 +148,18 @@ class Handles:
     runtime. It stays on the context for ``ctx.call_on_close``.
     """
 
-    engine: Engine
-    session: Session
-    services: Services
+    engine: DatabaseEngine
+    session: DatabaseSession
+    services: ServiceRegistry
 
     def close(self) -> None:
         self.session.close()
         self.engine.dispose()
 
 
-def as_of_option(help_text: str) -> Callable[[Callable[..., T]], Callable[..., T]]:
+def as_of_option[ReturnT](
+    help_text: str,
+) -> Callable[[Callable[..., ReturnT]], Callable[..., ReturnT]]:
     """The ``--as-of`` option, declared once for the two commands that take it.
 
     It was written out twice, differing only in the help string, and both
@@ -143,7 +195,7 @@ def requires_setup(command: Callable[..., int]) -> Callable[..., None]:
     return guarded
 
 
-def launch(*, settings: bool = False, splash: bool = False) -> FlexiApp:
+def launch(*, settings: bool = False, splash: bool = False) -> FlexiApplication:
     """Every way into the application goes through here.
 
     ``FlexiApp.__init__`` builds an engine, opens a session and reads the settings
@@ -198,7 +250,7 @@ def holidays() -> None:
 
 @holidays.command(name="refresh")
 @requires_setup
-def holidays_refresh(services: Services) -> int:
+def holidays_refresh(services: ServiceRegistry) -> int:
     """Fetch the calendar for the configured region from GOV.UK."""
     from flexi.cli import holidays as holidays_cli
 
@@ -350,7 +402,7 @@ def clock() -> None:
 
 @clock.command(name="in")
 @requires_setup
-def clock_in(services: Services) -> int:
+def clock_in(services: ServiceRegistry) -> int:
     """Clock in to start a work session."""
     from flexi.cli import clock as clock_cli
 
@@ -359,7 +411,7 @@ def clock_in(services: Services) -> int:
 
 @clock.command(name="out")
 @requires_setup
-def clock_out(services: Services) -> int:
+def clock_out(services: ServiceRegistry) -> int:
     """Clock out to end the current work session."""
     from flexi.cli import clock as clock_cli
 
@@ -376,7 +428,7 @@ def clock_out(services: Services) -> int:
 @click.option("--dry-run", is_flag=True, help="Show the plan and stop.")
 @requires_setup
 def leave(
-    services: Services,
+    services: ServiceRegistry,
     words: tuple[str, ...],
     note: str | None,
     *,
@@ -414,7 +466,7 @@ def balance() -> None:
 @balance.command(name="show")
 @as_of_option("Report the balance as at the end of this date. Defaults to today.")
 @requires_setup
-def balance_show(services: Services, as_of: date | None) -> int:
+def balance_show(services: ServiceRegistry, as_of: date | None) -> int:
     """Print the running balance and what it is made of."""
     from flexi.cli import balance as balance_cli
 
@@ -427,7 +479,7 @@ def balance_show(services: Services, as_of: date | None) -> int:
 @click.option("--yes", is_flag=True, help="Do not ask.")
 @requires_setup
 def balance_zero(
-    services: Services,
+    services: ServiceRegistry,
     as_of: date | None,
     reason: str | None,
     *,
@@ -441,7 +493,7 @@ def balance_zero(
 
 @balance.command(name="log")
 @requires_setup
-def balance_log(services: Services) -> int:
+def balance_log(services: ServiceRegistry) -> int:
     """List every correction ever recorded."""
     from flexi.cli import balance as balance_cli
 
@@ -451,7 +503,7 @@ def balance_log(services: Services) -> int:
 @balance.command(name="undo")
 @click.argument("adjustment_id", type=int)
 @requires_setup
-def balance_undo(services: Services, adjustment_id: int) -> int:
+def balance_undo(services: ServiceRegistry, adjustment_id: int) -> int:
     """Remove a correction by its id, as listed by `flexi balance log`."""
     from flexi.cli import balance as balance_cli
 

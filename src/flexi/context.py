@@ -21,16 +21,30 @@ lookup avoiding a type.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
+from textual.app import App as TextualApp
+from textual.screen import Screen
+
+from flexi.domain.period import Period
+
 if TYPE_CHECKING:
-    from datetime import datetime
+    from flexi.app import FlexiApp as FlexiApplication
+else:
 
-    from textual.app import App as TextualApp
-    from textual.screen import Screen
+    class FlexiApplication(Protocol):
+        """Runtime-resolvable view of the application returned by :func:`flexi_app`.
 
-    from flexi.app import FlexiApp
-    from flexi.domain.period import Period
+        Static analysis sees the concrete :class:`flexi.app.FlexiApp`. Keeping
+        the runtime side structural avoids importing the application back into
+        the components that use this module solely to break that cycle.
+        """
+
+        services: object
+
+
+__all__ = ("FlexiApplication", "ModuleHost", "flexi_app", "module_host")
 
 
 class ModuleHost(Protocol):
@@ -56,11 +70,11 @@ def module_host(screen: Screen[Any]) -> ModuleHost:
     return cast("ModuleHost", screen)
 
 
-def flexi_app(app: TextualApp[Any]) -> FlexiApp:
+def flexi_app(app: TextualApp[Any]) -> FlexiApplication:
     """The running :class:`~flexi.app.FlexiApp`, typed.
 
     One cast, in one place, for everything that is only ever mounted inside
     Flexi. Anything reached through it -- ``services``, ``nav``, the actions --
     is checked from here on.
     """
-    return cast("FlexiApp", app)
+    return cast("FlexiApplication", app)

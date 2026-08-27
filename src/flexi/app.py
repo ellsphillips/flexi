@@ -54,6 +54,8 @@ from flexi.services.settings import SettingsService
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import available_update
 
+__all__ = ("UPDATE_NOTICE_SECONDS", "FlexiApp")
+
 UPDATE_NOTICE_SECONDS = 10
 
 

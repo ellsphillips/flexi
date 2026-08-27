@@ -11,17 +11,15 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING
 
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.types import IgnoreReturnCallbackType
 
 from flexi.components.chrome import NAV_ITEMS
 from flexi.constants import AbsenceType, Granularity
-from flexi.context import flexi_app
+from flexi.context import FlexiApplication, flexi_app
 
-if TYPE_CHECKING:
-    from flexi.app import FlexiApp
+__all__ = ("Command", "FlexiCommands", "refresh_holidays")
 
 
 class FlexiCommands(Provider):
@@ -46,19 +44,19 @@ class FlexiCommands(Provider):
 
     # -- the catalogue -----------------------------------------------------
 
-    def _commands(self) -> Iterable[_Command]:
+    def _commands(self) -> Iterable[Command]:
         app = flexi_app(self.app)
         screen = app.dashboard()
 
-        yield _Command(
+        yield Command(
             "Clock in or out",
             "Toggle the clock. Bound to /",
             app.action_clock_toggle,
         )
-        yield _Command("Help", "Every binding on this screen", app.action_help)
+        yield Command("Help", "Every binding on this screen", app.action_help)
 
         for item in NAV_ITEMS:
-            yield _Command(
+            yield Command(
                 f"Go to {item.label}",
                 item.description,
                 partial(app.action_go_to, item.screen),
@@ -68,32 +66,32 @@ class FlexiCommands(Provider):
             return
 
         for granularity in Granularity:
-            yield _Command(
+            yield Command(
                 f"Period: {granularity.label.lower()}",
                 f"Show one {granularity.value} at a time",
                 partial(screen.action_zoom, granularity.value),
             )
-        yield _Command(
+        yield Command(
             "Go to today", "Return to the current period", screen.action_today
         )
-        yield _Command(
+        yield Command(
             "Go to date…", "Jump the view to a date", screen.action_go_to_date
         )
 
-        yield _Command(
+        yield Command(
             "Book leave…",
             "Open the leave year and book on it directly",
             partial(app.action_go_to, "leave"),
         )
 
         for kind in AbsenceType:
-            yield _Command(
+            yield Command(
                 f"Book {kind.phrase}…",
                 f"Record {kind.phrase} on the selected day",
                 partial(screen.open_absence_modal, screen.period.anchor, kind),
             )
 
-        yield _Command(
+        yield Command(
             "Refresh bank holidays",
             "Re-fetch the GOV.UK calendar for the configured division",
             partial(refresh_holidays, app),
@@ -101,7 +99,7 @@ class FlexiCommands(Provider):
 
 
 @dataclass(frozen=True, slots=True)
-class _Command:
+class Command:
     """One palette entry."""
 
     title: str
@@ -109,7 +107,7 @@ class _Command:
     run: IgnoreReturnCallbackType
 
 
-def refresh_holidays(app: FlexiApp) -> None:
+def refresh_holidays(app: FlexiApplication) -> None:
     ok = app.services.bank_holidays.fetch_and_cache()
     app.holidays_refreshed()
     app.notify(
