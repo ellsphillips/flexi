@@ -194,7 +194,7 @@ def _never_the_real_home(
     home = tmp_path_factory.mktemp("xdg")
     monkeypatch.setenv("XDG_DATA_HOME", str(home / "data"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "config"))
-    setup._INITIALISED.clear()
+    setup.clear_initialisation_cache()
 
 
 @pytest.fixture(autouse=True)

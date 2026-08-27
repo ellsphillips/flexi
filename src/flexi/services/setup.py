@@ -22,6 +22,7 @@ from flexi.locations import database_file
 
 __all__ = (
     "REQUIRED_SETTINGS",
+    "clear_initialisation_cache",
     "forget",
     "is_initialised",
     "stamped_and_configured",
@@ -65,6 +66,17 @@ def forget(db_path: Path | None = None) -> None:
     """Drop the remembered answer, for the moment after a reset."""
     path = (db_path or database_file()).expanduser()
     _INITIALISED.discard(path)
+
+
+def clear_initialisation_cache() -> None:
+    """Forget every remembered database path.
+
+    Normal application flows know the one path they reset and should call
+    :func:`forget`.  Test harnesses and embedders can switch between several
+    databases in one process, so they need a supported way to reset all cached
+    answers without reaching into this module's mutable implementation state.
+    """
+    _INITIALISED.clear()
 
 
 def stamped_and_configured(path: Path) -> bool:
