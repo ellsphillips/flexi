@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -58,6 +59,54 @@ LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
 )
 
 
+def module_statements(statements: list[ast.stmt]) -> Iterator[ast.stmt]:
+    """Statements evaluated at module scope, including conditional branches."""
+    for statement in statements:
+        yield statement
+        if isinstance(statement, ast.If):
+            yield from module_statements(statement.body)
+            yield from module_statements(statement.orelse)
+
+
+def target_names(target: ast.expr) -> Iterator[str]:
+    """Names assigned by one module-level target."""
+    if isinstance(target, ast.Name):
+        yield target.id
+    elif isinstance(target, ast.List | ast.Tuple):
+        for item in target.elts:
+            yield from target_names(item)
+
+
+def locally_defined_public_names(module: ModuleType) -> set[str]:
+    """Public values defined by a persistence leaf rather than imported."""
+    path = Path(module.__file__ or "")
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: set[str] = set()
+    for statement in module_statements(tree.body):
+        if isinstance(statement, ast.AsyncFunctionDef | ast.ClassDef | ast.FunctionDef):
+            if not statement.name.startswith("_"):
+                found.add(statement.name)
+        elif isinstance(statement, ast.TypeAlias):
+            found.update(
+                name
+                for name in target_names(statement.name)
+                if not name.startswith("_")
+            )
+        elif isinstance(statement, ast.AnnAssign | ast.Assign):
+            targets = (
+                statement.targets
+                if isinstance(statement, ast.Assign)
+                else [statement.target]
+            )
+            found.update(
+                name
+                for target in targets
+                for name in target_names(target)
+                if not name.startswith("_")
+            )
+    return found
+
+
 def wildcard_names(module: ModuleType) -> set[str]:
     """Names a real wildcard import receives from ``module``."""
     namespace: dict[str, object] = {}
@@ -76,6 +125,7 @@ def test_every_database_module_declares_an_immutable_api(
     assert module.__all__ == expected
     assert isinstance(module.__all__, tuple)
     assert len(module.__all__) == len(set(module.__all__))
+    assert set(module.__all__) == locally_defined_public_names(module)
     assert wildcard_names(module) == set(expected)
 
 

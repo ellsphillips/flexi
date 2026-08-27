@@ -75,7 +75,7 @@ importing Alembic to ask. Kept honest by a test that reads the real head off
 the script directory and compares.
 """
 
-log = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -170,7 +170,7 @@ def prune_backups(directory: Path) -> None:
         for old in backups[:-MAX_BACKUPS]:
             old.unlink()
     except OSError:
-        log.warning("could not prune old backups", exc_info=True)
+        _LOGGER.warning("could not prune old backups", exc_info=True)
 
 
 def run_migrations(db_path: Path | None = None) -> None:
