@@ -77,7 +77,7 @@ class LedgerService:
     @property
     def window(self) -> Window:
         """The span of the day the punch strip should draw."""
-        return Window.parse(*self._settings.get_day_window())
+        return self._settings.get_day_window()
 
     def day(self, when: date, *, now: datetime | None = None) -> DayLedger:
         """One day's ledger."""

@@ -35,7 +35,7 @@ from flexi.domain.dates import Preference, parse_span
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import long_date, plural, short_date
 from flexi.services.absence import AbsencePlan
-from flexi.services.registry import Services
+from flexi.services.registry import Services, available_toil_days
 
 __all__ = (
     "PORTION_WORDS",
@@ -171,7 +171,7 @@ def run(
         kind,
         portion,
         note=note,
-        available_toil_days=services.wallet.available_toil_days(today),
+        available_toil_days=available_toil_days(services, today),
     )
     click.echo(render(plan))
 

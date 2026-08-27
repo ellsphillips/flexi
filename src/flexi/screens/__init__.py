@@ -57,7 +57,7 @@ if TYPE_CHECKING:
         ALL_REQUIRED,
         NO_DIVISION,
         SettingsScreen,
-        save_answers,
+        parse_answers,
     )
     from flexi.screens.setup import (
         ASK_WIDTH,
@@ -106,7 +106,12 @@ _MODULE_EXPORTS: Final = MappingProxyType(
             "GoToDateModal",
             "selected_name",
         ),
-        "settings": ("ALL_REQUIRED", "NO_DIVISION", "SettingsScreen", "save_answers"),
+        "settings": (
+            "ALL_REQUIRED",
+            "NO_DIVISION",
+            "SettingsScreen",
+            "parse_answers",
+        ),
         "setup": (
             "ASK_WIDTH",
             "FIELD_WIDTH",
@@ -173,7 +178,7 @@ __all__ = (  # noqa: RUF022
     "ALL_REQUIRED",
     "NO_DIVISION",
     "SettingsScreen",
-    "save_answers",
+    "parse_answers",
     "ASK_WIDTH",
     "FIELD_WIDTH",
     "FORM_WIDTH",

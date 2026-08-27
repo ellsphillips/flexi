@@ -49,7 +49,7 @@ from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import BankHolidayService
-from flexi.services.registry import Services
+from flexi.services.registry import build_services, invalidate_services
 from flexi.services.settings import SettingsService
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import available_update
@@ -103,7 +103,7 @@ class FlexiApp(TextualApp[None]):
         super().__init__()
         self._engine = create_db_engine(db_path) if db_path else create_db_engine()
         self._session = get_session(self._engine)
-        self.services = Services.build(self._session)
+        self.services = build_services(self._session)
         # Before anything can be pushed: `App.theme = x` raises if the theme has
         # not been registered, and setup is pushed from `on_mount`.
         self.register_theme(flexi_theme())
@@ -328,7 +328,7 @@ class FlexiApp(TextualApp[None]):
         carried a `refresh_modules` written "so the app can treat every screen
         alike" that the app never called.
         """
-        self.services.invalidate()
+        invalidate_services(self.services)
         for screen in self.screen_stack:
             if isinstance(screen, Refreshable):
                 try:

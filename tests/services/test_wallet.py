@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.leaveyear import fraction_elapsed
 from flexi.domain.wallet import Pace
-from flexi.services.registry import Services
+from flexi.services.registry import (
+    Services,
+    available_toil_days,
+    build_services,
+    invalidate_services,
+)
+from flexi.services.settings import parse_settings
 from tests.services.conftest import Configured
 
 MONDAY = date(2026, 6, 8)
@@ -38,7 +44,7 @@ def work(services: Services, when: date, hours: float) -> None:
     start = datetime.combine(when, datetime.min.time(), tzinfo=UTC).replace(hour=9)
     services.clock.clock_in(now=start)
     services.clock.clock_out(now=start + timedelta(hours=hours))
-    services.invalidate()
+    invalidate_services(services)
 
 
 # -- allowances ------------------------------------------------------------
@@ -56,7 +62,7 @@ def test_an_untouched_wallet_reports_the_whole_entitlement(services: Services) -
 def test_a_booked_day_is_drawn_down(services: Services) -> None:
     """It spends a day of annual leave when one is booked."""
     services.absence.book(date(2026, 6, 10), AbsenceType.ANNUAL)
-    services.invalidate()
+    invalidate_services(services)
     annual = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY).allowance(
         AbsenceType.ANNUAL
     )
@@ -67,7 +73,7 @@ def test_a_booked_day_is_drawn_down(services: Services) -> None:
 def test_a_half_day_costs_half(services: Services) -> None:
     """It counts a morning as half a day and as one occasion."""
     services.absence.book(date(2026, 6, 10), AbsenceType.ANNUAL, Portion.AM)
-    services.invalidate()
+    invalidate_services(services)
     annual = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY).allowance(
         AbsenceType.ANNUAL
     )
@@ -79,7 +85,7 @@ def test_a_half_day_costs_half(services: Services) -> None:
 def test_sickness_is_counted_but_never_capped(services: Services) -> None:
     """It reports sickness without an entitlement to run out of."""
     services.absence.book(date(2026, 6, 9), AbsenceType.SICK)
-    services.invalidate()
+    invalidate_services(services)
     sick = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY).allowance(
         AbsenceType.SICK
     )
@@ -100,14 +106,16 @@ def test_pace_marks_where_an_even_spread_would_be(services: Services) -> None:
 
 def test_an_unrecorded_entitlement_reads_as_unknown_not_zero(session: Session) -> None:
     """It distinguishes 'no allowance recorded' from 'no allowance left'."""
-    services = Services.build(session)
+    services = build_services(session)
     services.settings.save_settings(
-        leave_year_start="06-08",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="06-08",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
-    data = Services.build(session).wallet.compute(MONDAY, SUNDAY, today=THURSDAY)
+    data = build_services(session).wallet.compute(MONDAY, SUNDAY, today=THURSDAY)
     assert data.allowance(AbsenceType.ANNUAL).remaining is None
 
 
@@ -125,7 +133,7 @@ def test_the_balance_banks_overtime(services: Services) -> None:
 def test_the_balance_ignores_a_day_of_annual_leave(services: Services) -> None:
     """It neither earns nor costs flexi to take annual leave."""
     services.absence.book(MONDAY, AbsenceType.ANNUAL)
-    services.invalidate()
+    invalidate_services(services)
     data = services.wallet.compute(MONDAY, SUNDAY, today=MONDAY)
     assert data.balance.delta == timedelta()
 
@@ -133,7 +141,7 @@ def test_the_balance_ignores_a_day_of_annual_leave(services: Services) -> None:
 def test_a_toil_day_spends_the_balance(services: Services) -> None:
     """It withdraws a day of contracted hours when TOIL is taken."""
     services.absence.book(MONDAY, AbsenceType.FLEXI)
-    services.invalidate()
+    invalidate_services(services)
     data = services.wallet.compute(MONDAY, SUNDAY, today=MONDAY)
     assert data.balance.delta == -CONTRACTED
     assert data.balance_days == pytest.approx(-1.0)
@@ -142,7 +150,7 @@ def test_a_toil_day_spends_the_balance(services: Services) -> None:
 def test_available_toil_is_the_balance_in_days(services: Services) -> None:
     """It answers the question the booking modal asks."""
     work(services, MONDAY, hours=7.4 + 7.4)
-    assert services.wallet.available_toil_days(MONDAY) == pytest.approx(1.0, abs=0.05)
+    assert available_toil_days(services, MONDAY) == pytest.approx(1.0, abs=0.05)
 
 
 def test_the_period_figures_cover_only_the_shown_span(services: Services) -> None:
@@ -174,16 +182,18 @@ def test_a_contracted_day_of_zero_is_not_a_division_by_zero(
     there is then no screen left to correct it from.
     """
     services.settings.save_settings(
-        leave_year_start="06-08",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
-        contracted_minutes=0,
+        parse_settings(
+            leave_year_start="06-08",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+            contracted_minutes=0,
+        )
     )
-    rebuilt = Services.build(session)
+    rebuilt = build_services(session)
     work(rebuilt, MONDAY, hours=8)
 
-    assert rebuilt.wallet.available_toil_days(MONDAY) == 0.0
+    assert available_toil_days(rebuilt, MONDAY) == 0.0
     assert rebuilt.wallet.compute(MONDAY, SUNDAY, today=MONDAY).balance_days == 0.0
 
 

@@ -45,7 +45,7 @@ from flexi.domain.period import Period
 from flexi.domain.punch import Window
 from flexi.domain.wallet import Allowance
 from flexi.messages import DateSelected
-from flexi.services.registry import Services
+from flexi.services.registry import Services, invalidate_services, zero_balance
 from tests.conftest import settled
 from tests.services.conftest import (  # noqa: F401 - `configure` is used as a fixture
     CONTRACTED,
@@ -274,8 +274,8 @@ async def test_a_balance_level_with_the_contract_is_drawn_flat(
     what a reader would otherwise have to infer from a figure that looks like
     every other figure.
     """
-    flexi.zero_balance(as_of=SATURDAY)
-    flexi.invalidate()
+    zero_balance(flexi, as_of=SATURDAY)
+    invalidate_services(flexi)
 
     module = BalanceModule()
     sunday = datetime(2026, 6, 14, 10, 0)

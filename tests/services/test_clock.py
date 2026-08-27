@@ -21,7 +21,8 @@ from flexi.services.absence import AbsenceResult
 from flexi.services.adjustments import AdjustmentResult
 from flexi.services.clock import ClockResult, ClockService
 from flexi.services.outcome import Outcome
-from flexi.services.registry import Services
+from flexi.services.registry import Services, build_services
+from flexi.services.settings import parse_settings
 
 SCOTTISH_HOLIDAY = date(2027, 1, 4)
 """2 January, observed. Scotland only."""
@@ -32,7 +33,7 @@ ENGLISH_HOLIDAY = date(2027, 5, 3)
 
 @pytest.fixture
 def svc(session: Session) -> ClockService:
-    return Services.build(session).clock
+    return build_services(session).clock
 
 
 # ---------- accepted actions persist ----------
@@ -150,12 +151,14 @@ class TestBankHolidayDivision:
 
     @staticmethod
     def _configured(session: Session, division: str) -> Services:
-        built = Services.build(session)
+        built = build_services(session)
         built.settings.save_settings(
-            leave_year_start="04-06",
-            working_days="0,1,2,3,4,5,6",
-            bank_holiday_division=division,
-            auto_close_time="18:00",
+            parse_settings(
+                leave_year_start="04-06",
+                working_days="0,1,2,3,4,5,6",
+                bank_holiday_division=division,
+                auto_close_time="18:00",
+            )
         )
         stamped = datetime.now(UTC).replace(tzinfo=None)
         for when, owner in (
@@ -168,7 +171,7 @@ class TestBankHolidayDivision:
                 )
             )
         session.commit()
-        return Services.build(session)
+        return build_services(session)
 
     def test_a_scottish_user_is_blocked_on_a_scottish_holiday(
         self, session: Session
@@ -228,12 +231,14 @@ def test_every_result_the_status_bar_sees_satisfies_the_protocol() -> None:
 @pytest.fixture
 def ready(session: Session) -> Services:
     """A configured install with a calendar, so absences can be booked at all."""
-    built = Services.build(session)
+    built = build_services(session)
     built.settings.save_settings(
-        leave_year_start="04-06",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     session.add(
         BankHolidayCache(
@@ -244,7 +249,7 @@ def ready(session: Session) -> Services:
         )
     )
     session.commit()
-    rebuilt = Services.build(session)
+    rebuilt = build_services(session)
     rebuilt.settings.save_entitlement(rebuilt.settings.active_leave_year(), 25.0)
     return rebuilt
 

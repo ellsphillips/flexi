@@ -26,7 +26,7 @@ from flexi.cli import init as init_cli
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services import setup
-from flexi.services.settings import SettingsService
+from flexi.services.settings import SettingsService, parse_settings
 
 LOCATIONS = (
     "flexi.locations",
@@ -51,15 +51,17 @@ def erased(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     engine = create_db_engine(db)
     session = get_session(engine)
     SettingsService(session).save_settings(
-        leave_year_start="04-06",
-        working_days="Mon-Fri",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     session.close()
     engine.dispose()
 
-    setup._INITIALISED.clear()
+    setup.clear_initialisation_cache()
     assert setup.is_initialised(db), "the fixture must start from a set-up machine"
 
     init_cli.reset(db)

@@ -40,7 +40,11 @@ from flexi.screens.modals import (
     GoToDateModal,
 )
 from flexi.services.absence import AbsencePlan
-from flexi.services.registry import Services
+from flexi.services.registry import (
+    Services,
+    available_toil_days,
+    invalidate_services,
+)
 
 __all__ = (
     "PORTION_CYCLE",
@@ -93,9 +97,15 @@ class LeaveScreen(Screen[None]):
     ]
 
     def __init__(
-        self, services: Services, anchor: date | None = None, **kwargs: object
+        self,
+        services: Services,
+        anchor: date | None = None,
+        *,
+        name: str | None = None,
+        id: str | None = None,  # noqa: A002 - Textual's parameter name
+        classes: str | None = None,
     ) -> None:
-        super().__init__(**kwargs)  # type: ignore[arg-type]
+        super().__init__(name=name, id=id, classes=classes)
         self._services = services
         self.now = wallclock.now()
         self.portion = Portion.FULL
@@ -294,7 +304,7 @@ class LeaveScreen(Screen[None]):
             selection.end,
             absence_type,
             self.portion,
-            available_toil_days=self._services.toil_days(),
+            available_toil_days=available_toil_days(self._services),
         )
 
         if plan.is_empty:
@@ -372,7 +382,7 @@ class LeaveScreen(Screen[None]):
                 booking.kind,
                 booking.portion,
                 note=booking.note,
-                available_toil_days=self._services.toil_days(),
+                available_toil_days=available_toil_days(self._services),
             )
             self._after_write(
                 result.message(f"of {booking.kind.phrase} booked"),
@@ -386,7 +396,7 @@ class LeaveScreen(Screen[None]):
                 AbsenceType.ANNUAL,
                 until=None if selection.single else selection.end,
                 remaining=self._services.absence.get_remaining_annual_leave(),
-                toil_days=self._services.toil_days(),
+                toil_days=available_toil_days(self._services),
             ),
             callback=book,
         )
@@ -394,7 +404,7 @@ class LeaveScreen(Screen[None]):
     def _after_write(
         self, message: str, *, ok: bool, warning: str | None = None
     ) -> None:
-        self._services.invalidate()
+        invalidate_services(self._services)
         self.rebuild()
         self.status(
             warning or message, Tone.WARN if warning else (Tone.OK if ok else Tone.ERR)

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
-from flexi.services.registry import Services
+from flexi.services.registry import Services, invalidate_services
 
 TUESDAY = date(2026, 8, 11)
 THURSDAY = date(2026, 8, 13)
@@ -36,7 +36,7 @@ def test_an_open_past_day_stops_at_its_own_midnight(
     services: Services, session: Session
 ) -> None:
     _leave_open(session, TUESDAY_NINE)
-    services.invalidate()
+    invalidate_services(services)
 
     tuesday = services.ledger.day(TUESDAY, now=THURSDAY_NOON)
 
@@ -49,7 +49,7 @@ def test_an_open_past_day_stops_at_its_own_midnight(
 def test_it_does_not_count_the_days_since(services: Services, session: Session) -> None:
     """The bug: two days and three hours of 'work' on a single Tuesday."""
     _leave_open(session, TUESDAY_NINE)
-    services.invalidate()
+    invalidate_services(services)
 
     tuesday = services.ledger.day(TUESDAY, now=THURSDAY_NOON)
 
@@ -61,7 +61,7 @@ def test_an_open_session_today_still_runs_live(
 ) -> None:
     """Today is not clamped -- the balance has to tick up while it is watched."""
     _leave_open(session, TUESDAY_NINE)
-    services.invalidate()
+    invalidate_services(services)
 
     watching = datetime.combine(TUESDAY, datetime.min.time()).replace(
         hour=11, minute=30

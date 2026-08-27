@@ -49,7 +49,11 @@ from flexi.screens.modals import (
 )
 from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
-from flexi.services.registry import Services
+from flexi.services.registry import (
+    Services,
+    available_toil_days,
+    invalidate_services,
+)
 
 __all__ = ("JUMP_TARGETS", "DashboardScreen", "with_time")
 
@@ -188,7 +192,7 @@ class DashboardScreen(Screen[None]):
         """Invalidate once, then redraw only the modules that care."""
         self.now = wallclock.now()
         if scope & (Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS):
-            self._services.invalidate()
+            invalidate_services(self._services)
         for module in self.query(Module):
             module.rebuild_if(scope)
         self._refresh_progress()
@@ -292,7 +296,7 @@ class DashboardScreen(Screen[None]):
                 booking.kind,
                 booking.portion,
                 note=booking.note,
-                available_toil_days=self._services.toil_days(),
+                available_toil_days=available_toil_days(self._services),
             )
             self._report(result, scope=Scope.ABSENCE)
 
@@ -301,7 +305,7 @@ class DashboardScreen(Screen[None]):
                 when,
                 kind,
                 remaining=self._services.absence.get_remaining_annual_leave(),
-                toil_days=self._services.toil_days(),
+                toil_days=available_toil_days(self._services),
             ),
             callback=book,
         )

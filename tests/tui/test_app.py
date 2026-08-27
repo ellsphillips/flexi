@@ -33,7 +33,7 @@ from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import CACHE_MAX_AGE
-from flexi.services.registry import Services
+from flexi.services.registry import build_services
 from flexi.services.samples import NOW
 from tests.conftest import sessions_on
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
@@ -375,7 +375,7 @@ async def test_the_clock_key_does_nothing_until_there_is_somewhere_to_clock(
         await pilot.press("slash")
         await pilot.pause()
 
-        assert sessions_on(app.services.session, TODAY) == []
+        assert sessions_on(app._session, TODAY) == []
         showing(app, SetupScreen)
 
 
@@ -399,7 +399,7 @@ async def test_settings_saved_before_setup_has_finished_are_still_written(
         await pilot.pause()
 
         showing(app, SetupScreen)
-        stored = Services.build(app._session).settings.get_settings()
+        stored = build_services(app._session).settings.get_settings()
         assert stored is not None
         assert stored.auto_close_time == "18:00"
 

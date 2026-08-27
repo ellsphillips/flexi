@@ -12,34 +12,33 @@ was through the runner -- which is why neither had any coverage at all.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import pytest
 import time_machine
+from sqlalchemy.orm import Session
 
 from flexi.cli import balance as balance_cli
 from flexi.cli import clock as clock_cli
 from flexi.constants import AbsenceType
-from flexi.models.database.db import BankHolidayCache, Base
-from flexi.models.database.engine import create_db_engine, get_session
-from flexi.services.registry import Services
+from flexi.models.database.db import BankHolidayCache
+from flexi.services.registry import Services, build_services, invalidate_services
+from flexi.services.settings import parse_settings
 
 NOON = date(2026, 6, 10)
 
 
 @pytest.fixture
-def services(tmp_path: Path) -> Services:
-    engine = create_db_engine(tmp_path / "f.db")
-    Base.metadata.create_all(engine)
-    session = get_session(engine)
-    built = Services.build(session)
+def services(session: Session) -> Services:
+    built = build_services(session)
     built.settings.save_settings(
-        leave_year_start="04-06",
-        working_days="0,1,2,3,4,5,6",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="0,1,2,3,4,5,6",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
-    return Services.build(session)
+    return build_services(session)
 
 
 def test_clocking_in_reports_success(services: Services) -> None:
@@ -142,13 +141,13 @@ BANK_HOLIDAY = date(2026, 8, 31)
 
 
 @pytest.fixture
-def stocked(services: Services) -> Services:
+def stocked(services: Services, session: Session) -> Services:
     """The same machine, with a bank holiday calendar on it.
 
     `AbsenceService` refuses every booking while the calendar answers
     `None`, so a test that books anything needs at least one cached row.
     """
-    services.session.add(
+    session.add(
         BankHolidayCache(
             division="england-and-wales",
             date=BANK_HOLIDAY,
@@ -156,8 +155,8 @@ def stocked(services: Services) -> Services:
             fetched_at=datetime(2026, 1, 1, 9, 0),
         )
     )
-    services.session.commit()
-    return Services.build(services.session)
+    session.commit()
+    return build_services(session)
 
 
 def test_toil_taken_is_shown_on_its_own_line(
@@ -170,7 +169,7 @@ def test_toil_taken_is_shown_on_its_own_line(
     """
     plan = stocked.absence.plan(NOON, NOON, AbsenceType.FLEXI)
     stocked.absence.book_plan(plan)
-    stocked.invalidate()
+    invalidate_services(stocked)
 
     assert balance_cli.show(stocked, NOON) == 0
     assert "toil taken" in capsys.readouterr().out

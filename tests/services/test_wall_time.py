@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from flexi.models.database.db import ClockEvent
-from flexi.services.registry import Services
+from flexi.services.registry import build_services
 
 NINE_FORTY_FOUR = datetime(2026, 6, 11, 9, 44)
 
@@ -24,13 +24,13 @@ def _stored(session: Session) -> list[datetime]:
 
 
 def test_the_time_stored_is_the_time_on_the_wall(session: Session) -> None:
-    Services.build(session).clock.clock_in(now=NINE_FORTY_FOUR)
+    build_services(session).clock.clock_in(now=NINE_FORTY_FOUR)
     assert _stored(session) == [NINE_FORTY_FOUR]
 
 
 def test_it_reads_back_as_it_went_in(session: Session) -> None:
     """The round trip is what the old code lost."""
-    service = Services.build(session).clock
+    service = build_services(session).clock
     service.clock_in(now=NINE_FORTY_FOUR)
     open_session = service.get_open_session()
     assert open_session is not None
@@ -50,7 +50,7 @@ def test_an_aware_moment_is_converted_rather_than_stripped(session: Session) -> 
     lose.
     """
     aware = datetime(2026, 6, 11, 8, 44, tzinfo=UTC)
-    Services.build(session).clock.clock_in(now=aware)
+    build_services(session).clock.clock_in(now=aware)
 
     stored = _stored(session)[0]
     assert stored.tzinfo is None
@@ -58,7 +58,7 @@ def test_an_aware_moment_is_converted_rather_than_stripped(session: Session) -> 
 
 
 def test_a_session_lasts_what_the_clock_says(session: Session) -> None:
-    service = Services.build(session).clock
+    service = build_services(session).clock
     service.clock_in(now=NINE_FORTY_FOUR)
     service.clock_out(now=NINE_FORTY_FOUR + timedelta(hours=7, minutes=24))
 
@@ -69,7 +69,7 @@ def test_a_session_lasts_what_the_clock_says(session: Session) -> None:
 def test_the_work_date_is_the_local_day(session: Session) -> None:
     """A late finish belongs to the day it started, in the wearer's own calendar."""
     late = datetime(2026, 6, 11, 23, 30)
-    Services.build(session).clock.clock_in(now=late)
-    open_session = Services.build(session).clock.get_open_session()
+    build_services(session).clock.clock_in(now=late)
+    open_session = build_services(session).clock.get_open_session()
     assert open_session is not None
     assert open_session.work_date == late.date()

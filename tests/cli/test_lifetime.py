@@ -24,7 +24,8 @@ from flexi.__main__ import cli
 from flexi.locations import database_file
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
-from flexi.services.registry import Services
+from flexi.services.registry import Services, build_services
+from flexi.services.settings import parse_settings
 
 
 @pytest.fixture
@@ -35,11 +36,13 @@ def home() -> Path:
     run_migrations(db)
     engine = create_db_engine(db)
     session = get_session(engine)
-    Services.build(session).settings.save_settings(
-        leave_year_start="04-06",
-        working_days="Mon-Fri",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+    build_services(session).settings.save_settings(
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     session.close()
     engine.dispose()

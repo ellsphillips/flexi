@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-from sqlalchemy.orm import Session
-
 from flexi import wallclock
 from flexi.constants import AbsenceType
 from flexi.domain import leaveyear
@@ -27,7 +25,6 @@ class WalletService:
 
     def __init__(
         self,
-        session: Session,
         settings: SettingsService,
         absence: AbsenceService,
         ledger: LedgerService,
@@ -38,9 +35,8 @@ class WalletService:
         they were never taken -- but they built a `BankHolidayService` with the
         default division unconditionally and threw it away, and the ledger
         fallback would have created a second memo cache that
-        `Services.invalidate` does not clear.
+        :func:`~flexi.services.registry.invalidate_services` does not clear.
         """
-        self._session = session
         self._settings = settings
         self._absence = absence
         self._ledger = ledger

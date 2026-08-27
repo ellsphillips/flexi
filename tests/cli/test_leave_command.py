@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from flexi.cli.leave import Request, parse_request, render, run
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.db import AbsenceDay, BankHolidayCache
-from flexi.services.registry import Services
+from flexi.services.registry import Services, build_services
+from flexi.services.settings import parse_settings
 
 MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
@@ -19,12 +20,14 @@ BANK_HOLIDAY = date(2026, 8, 31)
 
 @pytest.fixture
 def services(session: Session) -> Services:
-    built = Services.build(session)
+    built = build_services(session)
     built.settings.save_settings(
-        leave_year_start="10-20",
-        working_days="Mon-Fri",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="10-20",
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     built.settings.save_entitlement(2025, 25.0)
     session.add(
@@ -36,7 +39,7 @@ def services(session: Session) -> Services:
         )
     )
     session.commit()
-    return Services.build(session)
+    return build_services(session)
 
 
 def _booked(session: Session) -> list[AbsenceDay]:

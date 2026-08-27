@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType
 from flexi.models.database.db import BankHolidayCache
-from flexi.services.registry import Services
-from flexi.services.settings import SettingsService
+from flexi.services.registry import build_services
+from flexi.services.settings import SettingsService, parse_settings
 
 APRIL_LEAVE_YEAR = "04-06"
 BEFORE_IT_TURNS = date(2026, 2, 15)
@@ -47,10 +47,12 @@ def _seed_calendar(session: Session) -> None:
 def _configure(session: Session, start: str = APRIL_LEAVE_YEAR) -> SettingsService:
     settings = SettingsService(session)
     settings.save_settings(
-        leave_year_start=start,
-        working_days="Mon-Fri",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start=start,
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     return settings
 
@@ -84,7 +86,7 @@ def test_annual_leave_is_capped_rather_than_unlimited(session: Session) -> None:
     """The consequence. None reads as 'no limit', so the allowance must be found."""
     settings = _configure(session)
     settings.save_entitlement(settings.active_leave_year(BEFORE_IT_TURNS), 1.0)
-    services = Services.build(session)
+    services = build_services(session)
 
     remaining = services.absence.get_remaining_annual_leave(BEFORE_IT_TURNS)
     assert remaining == 1.0, "None here means annual leave is refused on nothing"
@@ -108,7 +110,7 @@ def test_no_allowance_found_means_no_limit_applied(session: Session) -> None:
     """
     _configure(session)
     _seed_calendar(session)
-    absence = Services.build(session).absence
+    absence = build_services(session).absence
 
     assert absence.get_remaining_annual_leave(BEFORE_IT_TURNS) is None
 

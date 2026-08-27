@@ -1,9 +1,9 @@
 """Changing the four answers given at setup, and the leave for each year.
 
 The four shared questions are asked here and again on the first-run form, of the
-same four widget ids -- so reading and writing them lives in :func:`save_answers`
-rather than in each screen, which is where the two wordings of the same refusal
-came from.
+same four widget ids -- so parsing them lives in :func:`parse_answers` rather
+than in each screen, which is where the two wordings of the same refusal came
+from.
 """
 
 from __future__ import annotations
@@ -21,25 +21,32 @@ from flexi.constants import Division
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural
 from flexi.services.registry import Services
-from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS, SettingsService
+from flexi.services.settings import (
+    DEFAULT_ENTITLEMENT_DAYS,
+    SettingsUpdate,
+    parse_settings,
+)
 
-__all__ = ("ALL_REQUIRED", "NO_DIVISION", "SettingsScreen", "save_answers")
+__all__ = (
+    "ALL_REQUIRED",
+    "NO_DIVISION",
+    "SettingsScreen",
+    "parse_answers",
+)
 
 ALL_REQUIRED = "All fields are required"
 NO_DIVISION = "Select a bank holiday region"
 
 
-def save_answers(node: Widget, settings: SettingsService) -> str | None:
-    """Read the four questions both forms ask, and write them.
+def parse_answers(node: Widget) -> SettingsUpdate:
+    """Parse the four answers shared by setup and settings forms.
 
-    Answers the refusal to show, or ``None`` once written -- so a caller reads
-    ``if refusal := save_answers(...)``. The two screens put the same questions
-    to the same widget ids and had drifted into two wordings of the same
-    refusal, only one of which any test ever looked at.
+    No persistence happens here. Both forms can therefore validate all of
+    their other fields before opening one settings transaction.
 
-    A ``Select`` with nothing chosen answers ``NoSelection`` rather than a
-    string, which is why the division is checked by type where the rest are
-    checked for emptiness.
+    A ``Select`` with nothing chosen answers its ``NULL`` sentinel rather than
+    a string, which is why the division is checked separately from the text
+    fields.
     """
     leave_start = node.query_one("#input-leave-start", Input).value.strip()
     working_days = node.query_one("#input-working-days", Input).value.strip()
@@ -47,19 +54,15 @@ def save_answers(node: Widget, settings: SettingsService) -> str | None:
     auto_close = node.query_one("#input-auto-close", Input).value.strip()
 
     if not all([leave_start, working_days, auto_close]):
-        return ALL_REQUIRED
+        raise ValueError(ALL_REQUIRED)
     if not isinstance(division, str):
-        return NO_DIVISION
-    try:
-        settings.save_settings(
-            leave_year_start=leave_start,
-            working_days=working_days,
-            bank_holiday_division=division,
-            auto_close_time=auto_close,
-        )
-    except ValueError as error:
-        return str(error)
-    return None
+        raise ValueError(NO_DIVISION)  # noqa: TRY004 - invalid user selection
+    return parse_settings(
+        leave_year_start=leave_start,
+        working_days=working_days,
+        bank_holiday_division=division,
+        auto_close_time=auto_close,
+    )
 
 
 class SettingsScreen(Screen[bool]):
@@ -217,12 +220,13 @@ class SettingsScreen(Screen[bool]):
             )
             return
 
-        if refusal := save_answers(self, self._svc):
-            self.notify(refusal, severity="error")
+        try:
+            update = parse_answers(self)
+        except ValueError as error:
+            self.notify(str(error), severity="error")
             return
 
-        for year, days in allowances.items():
-            self._svc.save_entitlement(year, days)
+        self._svc.save_settings_and_entitlements(update, allowances)
 
         self.dismiss(True)
 

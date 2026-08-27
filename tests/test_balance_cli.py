@@ -14,7 +14,8 @@ from flexi.__main__ import cli
 from flexi.locations import database_file
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
-from flexi.services.registry import Services
+from flexi.services.registry import build_services
+from flexi.services.settings import parse_settings
 from tests.conftest import sessions_on
 
 NOON = datetime(2026, 6, 10, 12, 0)
@@ -54,12 +55,14 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     run_migrations(db)
     engine = create_db_engine(db)
     session = get_session(engine)
-    services = Services.build(session)
+    services = build_services(session)
     services.settings.save_settings(
-        leave_year_start=YESTERDAY.strftime("%m-%d"),
-        working_days="0,1,2,3,4,5,6",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start=YESTERDAY.strftime("%m-%d"),
+            working_days="0,1,2,3,4,5,6",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     start = datetime.combine(YESTERDAY, datetime.min.time(), tzinfo=UTC)
     services.clock.clock_in(now=start.replace(hour=9))

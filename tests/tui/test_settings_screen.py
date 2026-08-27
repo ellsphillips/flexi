@@ -228,8 +228,8 @@ async def test_adding_a_year_with_none_on_record_uses_the_default(
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         for row in app.services.settings.all_entitlements():
-            app.services.session.delete(row)
-        app.services.session.commit()
+            app._session.delete(row)
+        app._session.commit()
 
         await open_settings(pilot)
         await pilot.click("#btn-add-year")

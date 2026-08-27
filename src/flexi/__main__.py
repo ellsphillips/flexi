@@ -228,12 +228,12 @@ def open_database(ctx: click.Context) -> Handles:
     """
     from flexi.models.database.engine import create_db_engine, get_session
     from flexi.models.database.migrate import run_migrations
-    from flexi.services.registry import Services
+    from flexi.services.registry import build_services
 
     run_migrations()
     engine = create_db_engine()
     session = get_session(engine)
-    services = Services.build(session)
+    services = build_services(session)
     services.clock.sweep()
     services.bank_holidays.fill_if_empty()
 

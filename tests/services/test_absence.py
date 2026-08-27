@@ -19,8 +19,8 @@ from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.absence import AbsenceService, covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
-from flexi.services.registry import Services
-from flexi.services.settings import SettingsService
+from flexi.services.registry import build_services
+from flexi.services.settings import SettingsService, parse_settings
 
 
 def _next_weekday(start: date, weekday: int) -> date:
@@ -35,10 +35,12 @@ def _next_weekday(start: date, weekday: int) -> date:
 def settings(session: Session) -> SettingsService:
     svc = SettingsService(session)
     svc.save_settings(
-        leave_year_start="01-01",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="01-01",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     # The active leave year, not a fixed one. A hardcoded 2026 here is compared
     # against the real clock by get_active_entitlement_days, so the test would
@@ -139,10 +141,12 @@ class TestRejections:
         try:
             settings = SettingsService(session)
             settings.save_settings(
-                leave_year_start="01-01",
-                working_days="0,1,2,3,4",
-                bank_holiday_division="england-and-wales",
-                auto_close_time="18:00",
+                parse_settings(
+                    leave_year_start="01-01",
+                    working_days="0,1,2,3,4",
+                    bank_holiday_division="england-and-wales",
+                    auto_close_time="18:00",
+                )
             )
             svc = AbsenceService(
                 session,
@@ -161,7 +165,7 @@ class TestRejections:
         self, absence: AbsenceService, session: Session
     ) -> None:
         d = _next_weekday(date(2026, 7, 6), 0)  # A Monday in future
-        clock = Services.build(session).clock
+        clock = build_services(session).clock
         now = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
         clock.clock_in(now=now)
         clock.clock_out(now=now + timedelta(hours=8))
@@ -195,7 +199,7 @@ class TestRejections:
         for every half day booked against a day with work on it.
         """
         d = _next_weekday(date(2026, 7, 6), 0)
-        clock = Services.build(session).clock
+        clock = build_services(session).clock
         midnight = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
         clock.clock_in(now=midnight.replace(hour=worked_from))
         clock.clock_out(now=midnight.replace(hour=worked_to))

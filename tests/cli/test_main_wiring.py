@@ -37,7 +37,8 @@ from flexi.locations import backups_directory, database_file
 from flexi.models.database.db import AbsenceDay, BankHolidayCache
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
-from flexi.services.registry import Services
+from flexi.services.registry import build_services
+from flexi.services.settings import parse_settings
 
 MONDAY = datetime(2026, 8, 10, 12, 0)
 """The clock every test in this file runs against.
@@ -61,12 +62,14 @@ def set_up(db_path: Path) -> None:
     """Answer the five questions against an already-migrated database."""
     engine = create_db_engine(db_path)
     session = get_session(engine)
-    services = Services.build(session)
+    services = build_services(session)
     services.settings.save_settings(
-        leave_year_start="04-06",
-        working_days="Mon-Fri",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     services.settings.save_entitlement(2026, 25.0)
     session.add(

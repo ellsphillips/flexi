@@ -31,9 +31,11 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Input, Label, Select, Static
 
+from flexi import wallclock
 from flexi.components.wordmark import Wordmark
 from flexi.constants import DEFAULT_DIVISION, Division
-from flexi.screens.settings import ALL_REQUIRED, save_answers
+from flexi.domain import leaveyear
+from flexi.screens.settings import ALL_REQUIRED, parse_answers
 from flexi.services.registry import Services
 from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
 from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
@@ -368,9 +370,9 @@ class SetupScreen(Screen[bool]):
     def action_save(self) -> None:
         """Write the answers, or say which one is not an answer yet.
 
-        The entitlement is parsed before anything is written, so a number
-        somebody cannot type does not leave the working pattern committed and
-        the form still open -- the same ordering `SettingsScreen._save` keeps.
+        Every answer is parsed before anything is written, then settings and
+        entitlement commit together -- the same boundary `SettingsScreen._save`
+        uses.
         """
         entitlement_str = self.query_one("#input-entitlement", Input).value.strip()
         if not entitlement_str:
@@ -382,15 +384,17 @@ class SetupScreen(Screen[bool]):
             self.notify("Entitlement must be a number of days", severity="error")
             return
 
-        if refusal := save_answers(self, self._settings_svc):
-            self.notify(refusal, severity="error")
+        try:
+            update = parse_answers(self)
+        except ValueError as error:
+            self.notify(str(error), severity="error")
             return
 
         # The leave year, not the calendar year. Setting Flexi up in February
         # against an April leave year files the allowance under the year that
         # has not started, and get_active_entitlement_days then finds nothing.
-        year = self._settings_svc.active_leave_year()
-        self._settings_svc.save_entitlement(year, entitlement)
+        year = leaveyear.active_year(wallclock.today(), *update.leave_year_start)
+        self._settings_svc.save_settings_and_entitlements(update, {year: entitlement})
 
         self.dismiss(True)
 

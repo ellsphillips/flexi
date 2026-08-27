@@ -166,7 +166,7 @@ async def test_loading_a_period_costs_the_same_whatever_its_length(
                 if statement.lstrip().upper().startswith("SELECT"):
                     statements.append(statement)
 
-            engine = services.session.get_bind()
+            engine = app._session.get_bind()
             event.listen(engine, "before_cursor_execute", record)
             try:
                 services.ledger.invalidate()
@@ -415,7 +415,7 @@ async def test_x_on_a_worked_day_says_sessions_cannot_be_deleted_yet(
         await pilot.pause()
 
         assert status_text(app) == "Deleting sessions is not implemented yet"
-        assert sessions_on(app.services.session, date(2026, 6, 10))
+        assert sessions_on(app._session, date(2026, 6, 10))
 
 
 async def test_x_where_there_is_nothing_to_delete_says_nothing(

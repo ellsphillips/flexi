@@ -7,16 +7,26 @@ import importlib
 import subprocess
 import sys
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
-from typing import assert_type
+from typing import assert_type, get_type_hints
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy.orm import Session
 
 import flexi.services as service_api
 from flexi.services import Services as FacadeServices
+from flexi.services import build_services as facade_build_services
 from flexi.services.registry import Services as RegistryServices
+from flexi.services.registry import (
+    available_toil_days,
+    build_services,
+    invalidate_services,
+    settlement_date,
+    zero_balance,
+)
 
 SERVICES = Path(service_api.__file__).parent
 MODULE_NAMES = tuple(
@@ -95,17 +105,58 @@ def test_the_facade_has_one_unambiguous_route_to_every_export() -> None:
             assert getattr(service_api, public_name) is getattr(module, public_name)
 
 
-def test_services_is_available_from_the_typed_facade() -> None:
+def test_composition_api_is_available_from_the_typed_facade() -> None:
+    factory: Callable[[Session], RegistryServices] = facade_build_services
+
     assert assert_type(FacadeServices, type[RegistryServices]) is RegistryServices
+    assert factory is build_services
+
+
+def test_services_is_a_frozen_session_free_data_bundle(session: Session) -> None:
+    services = build_services(session)
+
+    assert {field.name for field in fields(services)} == {
+        "absence",
+        "adjustments",
+        "bank_holidays",
+        "clock",
+        "ledger",
+        "settings",
+        "wallet",
+    }
+    assert not hasattr(services, "session")
+    assert not hasattr(services.wallet, "_session")
+    assert not {
+        "available_toil_days",
+        "build",
+        "invalidate",
+        "settles_to",
+        "zero_balance",
+    }.intersection(vars(RegistryServices))
+
+    name = "wallet"
+    with pytest.raises(FrozenInstanceError):
+        setattr(services, name, services.wallet)
+
+
+def test_composition_function_annotations_resolve() -> None:
+    for operation in (
+        available_toil_days,
+        build_services,
+        invalidate_services,
+        settlement_date,
+        zero_balance,
+    ):
+        assert get_type_hints(operation)
 
 
 def test_a_lazily_resolved_symbol_is_cached(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delitem(vars(service_api), "Services", raising=False)
+    monkeypatch.delitem(vars(service_api), "build_services", raising=False)
     with patch("importlib.import_module", wraps=importlib.import_module) as load:
-        assert service_api.Services is RegistryServices
-        assert service_api.Services is RegistryServices
+        assert service_api.build_services is build_services
+        assert service_api.build_services is build_services
 
     load.assert_called_once_with("flexi.services.registry")
 
