@@ -31,6 +31,11 @@ from rich.text import Text
 from flexi.cli import ui
 from flexi.domain.format import plural
 from flexi.models.database.backup import snapshot, verify
+from flexi.models.database.lease import (
+    DatabaseBusyError,
+    LeaseMode,
+    database_lease,
+)
 
 __all__ = (
     "CONFIRM_WORD",
@@ -226,11 +231,17 @@ def reset(db_path: Path) -> Path | None:
     deleting the directory would take every snapshot ever made -- including the
     one taken a moment earlier, which is the whole safety net.
     """
-    taken: Path | None = None
-    if db_path.is_file():
-        taken = snapshot(db_path)
-        if not verify(taken):
-            msg = f"The snapshot at {taken} did not verify. Nothing was deleted."
-            raise click.ClickException(msg)
-        db_path.unlink()
-    return taken
+    try:
+        with database_lease(db_path, LeaseMode.EXCLUSIVE):
+            taken: Path | None = None
+            if db_path.is_file():
+                taken = snapshot(db_path)
+                if not verify(taken):
+                    msg = (
+                        f"The snapshot at {taken} did not verify. Nothing was deleted."
+                    )
+                    raise click.ClickException(msg)
+                db_path.unlink()
+            return taken
+    except DatabaseBusyError as error:
+        raise click.ClickException(str(error)) from error

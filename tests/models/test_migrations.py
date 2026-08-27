@@ -29,7 +29,8 @@ from flexi.models.database.db import (
     Settings,
     WorkSession,
 )
-from flexi.models.database.engine import create_db_engine, get_session
+from flexi.models.database.engine import create_db_engine, database_scope, get_session
+from flexi.models.database.lease import DatabaseBusyError
 from flexi.models.database.migrate import HEAD as RECORDED_HEAD
 from flexi.models.database.migrate import (
     MAX_BACKUPS,
@@ -531,6 +532,21 @@ def test_upgrading_an_existing_database_snapshots_it_as_it_was(db: Path) -> None
     with alembic_config(db) as cfg:
         head = ScriptDirectory.from_config(cfg).get_current_head()
     assert revision_of(db) == head
+
+
+def test_a_migration_refuses_an_application_using_the_old_schema(db: Path) -> None:
+    """DDL cannot run beneath an engine whose mappings assume the old schema."""
+    upgrade(db, BEFORE_HALF_DAYS)
+
+    with (
+        database_scope(db),
+        pytest.raises(DatabaseBusyError, match="in use"),
+    ):
+        run_migrations(db)
+
+    assert revision_of(db) == BEFORE_HALF_DAYS
+    run_migrations(db)
+    assert revision_of(db) == RECORDED_HEAD
 
 
 def test_an_upgrade_refuses_a_backup_that_does_not_verify(

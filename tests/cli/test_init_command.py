@@ -9,9 +9,13 @@ the entire safety net.
 from __future__ import annotations
 
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+from click import ClickException
+from sqlalchemy import text
 
 from flexi.cli import init as init_cli
 from flexi.cli import ui
@@ -79,6 +83,52 @@ def test_a_reset_removes_the_database_and_keeps_the_snapshot(populated: Path) ->
     assert taken is not None
     assert taken.is_file(), "the snapshot is not"
     assert verify(taken)
+
+
+def test_reset_refuses_a_live_process_then_snapshots_its_commit(
+    populated: Path,
+) -> None:
+    """Every row a reset erases is present in its verified recovery copy."""
+    engine = create_db_engine(populated)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE lease_commits (value INTEGER)"))
+    engine.dispose()
+
+    script = """
+import sys
+from pathlib import Path
+
+from sqlalchemy import text
+
+from flexi.models.database.engine import database_scope
+
+with database_scope(Path(sys.argv[1])) as (_engine, session):
+    session.execute(text("INSERT INTO lease_commits VALUES (42)"))
+    session.commit()
+    print("ready", flush=True)
+    sys.stdin.readline()
+"""
+    process = subprocess.Popen(  # noqa: S603 - fixed interpreter and source code
+        [sys.executable, "-c", script, str(populated)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout is not None
+    assert process.stdout.readline() == "ready\n"
+    try:
+        with pytest.raises(ClickException, match="in use"):
+            init_cli.reset(populated)
+        assert populated.is_file()
+    finally:
+        output, error = process.communicate("\n", timeout=10)
+        assert process.returncode == 0, output + error
+
+    taken = init_cli.reset(populated)
+    assert taken is not None
+    with sqlite3.connect(f"file:{taken}?mode=ro", uri=True) as copy:
+        assert copy.execute("SELECT value FROM lease_commits").fetchall() == [(42,)]
 
 
 def test_a_reset_does_not_touch_the_backups_directory(populated: Path) -> None:

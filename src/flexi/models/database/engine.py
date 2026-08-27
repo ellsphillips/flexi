@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import ConnectionPoolEntry
 
 from flexi.locations import database_file
+from flexi.models.database.lease import LeaseMode, database_lease
 
 __all__ = (
     "create_db_engine",
@@ -71,6 +72,9 @@ def database_scope(db_path: Path | None = None) -> Iterator[tuple[Engine, Sessio
     embed this scope without duplicating the cleanup operations.
     """
     with ExitStack() as resources:
+        if db_path is None:
+            db_path = database_file()
+        resources.enter_context(database_lease(db_path, LeaseMode.SHARED))
         engine = create_db_engine(db_path)
         resources.callback(engine.dispose)
         session = get_session(engine)

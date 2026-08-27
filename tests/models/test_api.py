@@ -14,7 +14,7 @@ import pytest
 
 from flexi import models
 from flexi.models import database
-from flexi.models.database import backup, db, engine, invariants, migrate, moment
+from flexi.models.database import backup, db, engine, invariants, lease, migrate, moment
 
 LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
     (
@@ -57,6 +57,17 @@ LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
             "drop_clock_event_update_trigger",
             "drop_clock_event_update_trigger_sql",
             "register_clock_event_immutability",
+        ),
+    ),
+    (
+        lease,
+        (
+            "DEFAULT_LEASE_TIMEOUT",
+            "LEASE_POLL_INTERVAL",
+            "DatabaseBusyError",
+            "LeaseMode",
+            "database_lease",
+            "lease_path",
         ),
     ),
     (

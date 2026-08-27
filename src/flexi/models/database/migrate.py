@@ -32,6 +32,7 @@ from flexi.models.database.backup import (
     verify,
 )
 from flexi.models.database.engine import create_db_engine
+from flexi.models.database.lease import LeaseMode, database_lease
 
 __all__ = (
     "HEAD",
@@ -260,26 +261,37 @@ def run_migrations(db_path: Path | None = None) -> None:
 
     ensure(db_path.parent)
 
-    revision = current_revision(db_path)
-    if revision.state is RevisionState.UNSTAMPED:
-        msg = "Database has an unstamped schema; migration refused"
-        raise RuntimeError(msg)
-
-    if revision.state is RevisionState.STAMPED:
-        if revision.revision == HEAD:
+    # The cheap shared check lets any number of already-current applications
+    # open together. A pending migration then upgrades to exclusive ownership
+    # and repeats the check: another starter may have completed it in the gap.
+    with database_lease(db_path, LeaseMode.SHARED):
+        revision = current_revision(db_path)
+        if revision.state is RevisionState.UNSTAMPED:
+            msg = "Database has an unstamped schema; migration refused"
+            raise RuntimeError(msg)
+        if revision.state is RevisionState.STAMPED and revision.revision == HEAD:
             return
 
-        backup = backup_database(db_path)
-        if backup is None:
-            msg = "Database file exists but backup failed"
+    with database_lease(db_path, LeaseMode.EXCLUSIVE):
+        revision = current_revision(db_path)
+        if revision.state is RevisionState.UNSTAMPED:
+            msg = "Database has an unstamped schema; migration refused"
             raise RuntimeError(msg)
-        if not verify(backup):
-            msg = "Database backup did not verify; migration refused"
-            raise RuntimeError(msg)
+        if revision.state is RevisionState.STAMPED:
+            if revision.revision == HEAD:
+                return
 
-        prune_backups(backups_directory())
+            backup = backup_database(db_path)
+            if backup is None:
+                msg = "Database file exists but backup failed"
+                raise RuntimeError(msg)
+            if not verify(backup):
+                msg = "Database backup did not verify; migration refused"
+                raise RuntimeError(msg)
 
-    from alembic import command
+            prune_backups(backups_directory())
 
-    with alembic_config(db_path) as cfg:
-        command.upgrade(cfg, "head")
+        from alembic import command
+
+        with alembic_config(db_path) as cfg:
+            command.upgrade(cfg, "head")

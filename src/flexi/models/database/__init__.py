@@ -7,7 +7,7 @@ listed here rather than SQLAlchemy, Alembic, or standard-library dependencies.
 
 from __future__ import annotations
 
-from flexi.models.database import backup, db, engine, invariants, migrate, moment
+from flexi.models.database import backup, db, engine, invariants, lease, migrate, moment
 from flexi.models.database.backup import (
     PROTECTED_PREFIX,
     ROUTINE_PREFIX,
@@ -43,6 +43,14 @@ from flexi.models.database.invariants import (
     drop_clock_event_update_trigger_sql,
     register_clock_event_immutability,
 )
+from flexi.models.database.lease import (
+    DEFAULT_LEASE_TIMEOUT,
+    LEASE_POLL_INTERVAL,
+    DatabaseBusyError,
+    LeaseMode,
+    database_lease,
+    lease_path,
+)
 from flexi.models.database.migrate import (
     HEAD,
     MAX_BACKUPS,
@@ -61,9 +69,11 @@ __all__ = (
     "CLOCK_EVENT_UPDATE_ERROR",
     "CLOCK_EVENT_UPDATE_TRIGGER",
     "DEFAULT_CONTRACTED_MINUTES",
+    "DEFAULT_LEASE_TIMEOUT",
     "DEFAULT_WINDOW_END",
     "DEFAULT_WINDOW_START",
     "HEAD",
+    "LEASE_POLL_INTERVAL",
     "MAX_BACKUPS",
     "PROTECTED_PREFIX",
     "ROUTINE_PREFIX",
@@ -73,7 +83,9 @@ __all__ = (
     "BankHolidayCache",
     "Base",
     "ClockEvent",
+    "DatabaseBusyError",
     "DatabaseRevision",
+    "LeaseMode",
     "LeaveEntitlement",
     "MigrationConfig",
     "RevisionState",
@@ -86,6 +98,7 @@ __all__ = (
     "create_clock_event_update_trigger",
     "create_db_engine",
     "current_revision",
+    "database_lease",
     "database_scope",
     "db",
     "drop_clock_event_update_trigger",
@@ -94,6 +107,8 @@ __all__ = (
     "engine",
     "get_session",
     "invariants",
+    "lease",
+    "lease_path",
     "migrate",
     "moment",
     "moment_of",
