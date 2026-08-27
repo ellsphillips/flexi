@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         jump_overlay,
         jumper,
         modules,
+        options,
         progress,
         punch,
         splash,
@@ -57,6 +58,7 @@ if TYPE_CHECKING:
         OVERFLOW_TEMPLATE,
         AppFooter,
         AppHeader,
+        BindingHint,
         KeyStrip,
         Lockup,
         NavBar,
@@ -96,7 +98,11 @@ if TYPE_CHECKING:
         row_ident,
         row_key,
     )
-    from flexi.components.jump_overlay import SWALLOWED_KEYS, JumpOverlay
+    from flexi.components.jump_overlay import (
+        SWALLOWED_KEYS,
+        JumpOverlay,
+        JumpOverlayProvider,
+    )
     from flexi.components.jumper import (
         HasFocusTarget,
         HasJumpOverlays,
@@ -104,6 +110,7 @@ if TYPE_CHECKING:
         Jumpable,
         Jumper,
         JumpInfo,
+        JumpScreen,
         Refreshable,
     )
     from flexi.components.modules import (
@@ -137,6 +144,13 @@ if TYPE_CHECKING:
         records,
         totals_subtitle,
         wallet,
+    )
+    from flexi.components.options import (
+        DataTableOptions,
+        ModuleOptions,
+        ScreenOptions,
+        StaticOptions,
+        WidgetOptions,
     )
     from flexi.components.progress import MIN_RAIL, ProgressRail, TimeProgress
     from flexi.components.punch import (
@@ -223,6 +237,7 @@ _MODULE_PATHS: Final = MappingProxyType(
         "wordmark": "flexi.components.wordmark",
         "yearcalendar": "flexi.components.yearcalendar",
         "modules": "flexi.components.modules",
+        "options": "flexi.components.options",
         "balance": "flexi.components.modules.balance",
         "base": "flexi.components.modules.base",
         "clock": "flexi.components.modules.clock",
@@ -261,6 +276,7 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "OVERFLOW_TEMPLATE",
             "AppFooter",
             "AppHeader",
+            "BindingHint",
             "KeyStrip",
             "Lockup",
             "NavBar",
@@ -300,7 +316,11 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "row_ident",
             "row_key",
         ),
-        "flexi.components.jump_overlay": ("SWALLOWED_KEYS", "JumpOverlay"),
+        "flexi.components.jump_overlay": (
+            "SWALLOWED_KEYS",
+            "JumpOverlay",
+            "JumpOverlayProvider",
+        ),
         "flexi.components.jumper": (
             "HasFocusTarget",
             "HasJumpOverlays",
@@ -308,6 +328,7 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "JumpInfo",
             "Jumpable",
             "Jumper",
+            "JumpScreen",
             "Refreshable",
         ),
         "flexi.components.progress": ("MIN_RAIL", "ProgressRail", "TimeProgress"),
@@ -404,6 +425,13 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "month_grid",
             "totals_subtitle",
         ),
+        "flexi.components.options": (
+            "DataTableOptions",
+            "ModuleOptions",
+            "ScreenOptions",
+            "StaticOptions",
+            "WidgetOptions",
+        ),
     }
 )
 
@@ -434,12 +462,18 @@ __all__ = (  # noqa: RUF022
     "wordmark",
     "yearcalendar",
     "modules",
+    "options",
     "balance",
     "base",
     "clock",
     "monthview",
     "records",
     "wallet",
+    "DataTableOptions",
+    "ModuleOptions",
+    "ScreenOptions",
+    "StaticOptions",
+    "WidgetOptions",
     "TOIL_SCALE",
     "pace_tone",
     "paint_allowance",
@@ -462,6 +496,7 @@ __all__ = (  # noqa: RUF022
     "OVERFLOW_TEMPLATE",
     "AppFooter",
     "AppHeader",
+    "BindingHint",
     "KeyStrip",
     "Lockup",
     "NavBar",
@@ -498,12 +533,14 @@ __all__ = (  # noqa: RUF022
     "row_key",
     "SWALLOWED_KEYS",
     "JumpOverlay",
+    "JumpOverlayProvider",
     "HasFocusTarget",
     "HasJumpOverlays",
     "HasJumpTargets",
     "JumpInfo",
     "Jumpable",
     "Jumper",
+    "JumpScreen",
     "Refreshable",
     "MIN_RAIL",
     "ProgressRail",

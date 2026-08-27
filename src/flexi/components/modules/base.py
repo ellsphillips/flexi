@@ -8,11 +8,12 @@ kinds of change are worth redrawing for. It never calls another module's
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Unpack
 
 from textual.widget import Widget
 from textual.widgets import Static
 
+from flexi.components.options import ModuleOptions
 from flexi.context import flexi_app, module_host
 from flexi.domain.period import Period
 from flexi.messages import Scope
@@ -41,7 +42,7 @@ class Module(Static):
         id: str,  # noqa: A002 - Textual's own parameter name
         title: str,
         subtitle: str = "",
-        **kwargs: Any,
+        **kwargs: Unpack[ModuleOptions],
     ) -> None:
         super().__init__(id=id, classes="module", **kwargs)
         # Plain assignment routes through Static's reactive machinery before the

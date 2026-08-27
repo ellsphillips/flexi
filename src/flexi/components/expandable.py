@@ -11,13 +11,15 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from rich.console import RenderableType
 from textual.binding import Binding, BindingType
 from textual.message import Message
 from textual.widgets import DataTable
 from textual.widgets.data_table import RowDoesNotExist
+
+from flexi.components.options import DataTableOptions
 
 __all__ = (
     "ExpandableTable",
@@ -116,7 +118,7 @@ class ExpandableTable(DataTable[RenderableType]):
             super().__init__()
             self.key = key
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[DataTableOptions]) -> None:
         super().__init__(**kwargs)
         self.cursor_type = "row"
         self._expanded: set[str] = set()

@@ -11,7 +11,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
-from typing import assert_type, get_type_hints
+from typing import Any, assert_type, get_args, get_type_hints
 from unittest.mock import call, patch
 
 import pytest
@@ -120,6 +120,11 @@ def owners_of(modules: tuple[ModuleType, ...]) -> dict[str, list[ModuleType]]:
     return dict(owners)
 
 
+def contains_any(annotation: object) -> bool:
+    """Whether a resolved annotation contains an ``Any`` escape hatch."""
+    return annotation is Any or any(contains_any(item) for item in get_args(annotation))
+
+
 @pytest.mark.parametrize("module", LEAVES, ids=lambda module: module.__name__)
 def test_each_ui_leaf_publishes_every_local_name(module: ModuleType) -> None:
     assert isinstance(module.__all__, tuple)
@@ -204,6 +209,10 @@ def test_public_annotations_resolve_at_runtime() -> None:
                 # Avoid merging unresolved private annotations from Textual's
                 # base classes into Flexi's own class namespace.
                 inspect.get_annotations(value, eval_str=True)
+                constructor = value.__dict__.get("__init__")
+                if inspect.isfunction(constructor):
+                    constructor_hints = get_type_hints(constructor)
+                    assert not any(map(contains_any, constructor_hints.values()))
             elif getattr(value, "__module__", None) == module.__name__ and getattr(
                 value, "__annotations__", None
             ):
@@ -212,6 +221,21 @@ def test_public_annotations_resolve_at_runtime() -> None:
     common_hints = get_type_hints(component_api.styled_track)
     assert common_hints["track"].__module__ == "rich.style"
     assert get_type_hints(component_api.mark_width)["node"].__module__ == "textual.dom"
+    assert get_type_hints(component_api.JumpOverlay.__init__)["jumper"] is (
+        component_api.JumpOverlayProvider
+    )
+
+    for renderer in (
+        component_api.Burndown,
+        component_api.DivergingBars,
+        component_api.Gauge,
+        component_api.ProgressRail,
+        component_api.PunchStrip,
+        component_api.WeekRibbon,
+        component_api.YearHeatmap,
+    ):
+        assert get_type_hints(renderer.render)["return"].__module__ == "rich.text"
+
     assert get_type_hints(theme.flexi_theme) == {"return": theme.Theme}
 
 

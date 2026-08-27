@@ -11,11 +11,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, VerticalScroll
+from textual.dom import DOMNode
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
 
@@ -290,7 +291,7 @@ class GoToDateModal(FlexiModal[date]):
         )
 
 
-def selected_name(screen: ModalScreen[Any], selector: str, *, fallback: str) -> str:
+def selected_name(screen: DOMNode, selector: str, *, fallback: str) -> str:
     """The ``name`` of the pressed radio button, or a fallback.
 
     Radio sets report the pressed *button*, and Flexi puts the enum value in its

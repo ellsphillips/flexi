@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sys
 from itertools import groupby
-from typing import Any, Final
+from typing import Final, Unpack
 
 from rich.text import Text
 from textual.message import Message
@@ -23,6 +23,7 @@ from textual.timer import Timer
 from textual.widgets import Static
 
 from flexi.components import splash
+from flexi.components.options import StaticOptions
 from flexi.theme import colour
 
 __all__ = (
@@ -93,7 +94,9 @@ class Wordmark(Static):
     class Landed(Message):
         """The word has stopped moving. Whatever waits beneath it may arrive."""
 
-    def __init__(self, *, animate: bool = True, **kwargs: Any) -> None:
+    def __init__(
+        self, *, animate: bool = True, **kwargs: Unpack[StaticOptions]
+    ) -> None:
         super().__init__(**kwargs)
         self._plays = animate
         self._elapsed = 0.0 if animate else splash.DURATION

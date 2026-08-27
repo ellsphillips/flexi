@@ -11,7 +11,7 @@ a layout pass per redraw, on the one widget that redraws every second.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -31,6 +31,7 @@ from flexi.components.expandable import (
 )
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.base import Module
+from flexi.components.options import ModuleOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.config import CONFIG
 from flexi.constants import DayKind, Granularity
@@ -117,7 +118,7 @@ class RecordsModule(Module):
         Binding(CONFIG.hotkeys.delete, "delete_here", "Delete", show=False),
     ]
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="records-module", title="Records", **kwargs)
         self._strip_width = 24
 

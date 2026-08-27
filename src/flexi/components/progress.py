@@ -8,14 +8,15 @@ ten, and the clock on the wall does not know that.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, ClassVar, Final
+from typing import ClassVar, Final, Unpack
 
 from rich.text import Text
-from textual.app import ComposeResult, RenderResult
+from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widget import Widget
 
 from flexi.components.common import styled_track
+from flexi.components.options import WidgetOptions
 from flexi.domain.format import hm
 
 __all__ = ("MIN_RAIL", "ProgressRail", "TimeProgress")
@@ -39,7 +40,7 @@ class ProgressRail(Widget):
         "rail--figure",
     }
 
-    def __init__(self, label: str, **kwargs: Any) -> None:
+    def __init__(self, label: str, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self.label = label
         self.done = timedelta()
@@ -73,7 +74,7 @@ class ProgressRail(Widget):
             return 1.0 if self.done else 0.0
         return self.done / self.total
 
-    def render(self) -> RenderResult:
+    def render(self) -> Text:
         label_style = self.get_component_rich_style("rail--label")
         figure_style = self.get_component_rich_style("rail--figure")
         readout = self._readout()

@@ -13,13 +13,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any, ClassVar, Final
+from typing import ClassVar, Final, Unpack
 
 from rich.style import Style
 from rich.text import Text
-from textual.app import RenderResult
 from textual.widget import Widget
 
+from flexi.components.options import WidgetOptions
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Cell, Window, covering_slices, edges, strip
 from flexi.theme import CELL_GLYPHS
@@ -117,7 +117,7 @@ class PunchStrip(Widget):
         *,
         window: Window | None = None,
         now: datetime,
-        **kwargs: Any,
+        **kwargs: Unpack[WidgetOptions],
     ) -> None:
         super().__init__(**kwargs)
         self.ledger = ledger
@@ -138,7 +138,7 @@ class PunchStrip(Widget):
         self.now = now
         self.refresh()
 
-    def render(self) -> RenderResult:
+    def render(self) -> Text:
         if self.ledger is None:
             return Text("")
         return render_strip(

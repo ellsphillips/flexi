@@ -8,7 +8,7 @@ from.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -17,6 +17,7 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
+from flexi.components.options import ScreenOptions
 from flexi.constants import Division
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural
@@ -106,7 +107,7 @@ class SettingsScreen(Screen[bool]):
     }
     """
 
-    def __init__(self, services: Services, **kwargs: Any) -> None:
+    def __init__(self, services: Services, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
         self._svc = services.settings
 

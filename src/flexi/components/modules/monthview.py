@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, timedelta
 from types import MappingProxyType
-from typing import Any, ClassVar, Final
+from typing import ClassVar, Final, Unpack
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -22,6 +22,7 @@ from textual.widgets import Button, Label
 
 from flexi import wallclock
 from flexi.components.modules.base import Module
+from flexi.components.options import ModuleOptions
 from flexi.config import CONFIG
 from flexi.constants import DayKind, Granularity
 from flexi.domain.dates import DAYS_IN_WEEK, add_months, week_start
@@ -63,7 +64,7 @@ class MonthView(Module):
         Binding("enter", "select", "Go to day", show=False),
     ]
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(
             id="month-view",
             title="Calendar",

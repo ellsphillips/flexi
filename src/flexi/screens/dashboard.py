@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 from types import MappingProxyType
-from typing import Any, ClassVar, Final
+from typing import ClassVar, Final, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -34,6 +34,7 @@ from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.monthview import MonthView
 from flexi.components.modules.records import BookHere, DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
+from flexi.components.options import ScreenOptions
 from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
@@ -103,7 +104,7 @@ class DashboardScreen(Screen[None]):
         """Open the booking modal, pre-filled with one type."""
         self.open_absence_modal(self.period.anchor, AbsenceType(kind))
 
-    def __init__(self, services: Services, **kwargs: Any) -> None:
+    def __init__(self, services: Services, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
         self._services = services
         self.period = Period.containing(

@@ -11,16 +11,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, ClassVar, Final
+from typing import ClassVar, Final, Unpack
 
 from rich.style import Style
 from rich.text import Text
-from textual.app import ComposeResult, RenderResult
+from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.dom import DOMNode
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Static
+
+from flexi.components.options import StaticOptions, WidgetOptions
 
 __all__ = (
     "ALL_TONE_CLASSES",
@@ -154,7 +156,10 @@ class Pill(Static):
     tone: reactive[Tone] = reactive(Tone.NEUTRAL, init=False)
 
     def __init__(
-        self, label: str = "", tone: Tone = Tone.NEUTRAL, **kwargs: Any
+        self,
+        label: str = "",
+        tone: Tone = Tone.NEUTRAL,
+        **kwargs: Unpack[StaticOptions],
     ) -> None:
         super().__init__(label, **kwargs)
         self.set_reactive(Pill.label, label)
@@ -209,7 +214,11 @@ class StatCard(Vertical):
     note: reactive[str] = reactive("", init=False)
 
     def __init__(
-        self, label: str, value: str = "", note: str = "", **kwargs: Any
+        self,
+        label: str,
+        value: str = "",
+        note: str = "",
+        **kwargs: Unpack[WidgetOptions],
     ) -> None:
         super().__init__(**kwargs)
         self._label = label
@@ -240,7 +249,7 @@ class KeyHint(Horizontal):
     expands — rather than a second copy of the footer.
     """
 
-    def __init__(self, key: str, action: str, **kwargs: Any) -> None:
+    def __init__(self, key: str, action: str, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self._key = key
         self._action = action
@@ -260,7 +269,13 @@ class Rule(Static):
 
     DEFAULT_CLASSES: ClassVar[str] = "rule"
 
-    def __init__(self, label: str = "", *, accent: bool = False, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        label: str = "",
+        *,
+        accent: bool = False,
+        **kwargs: Unpack[StaticOptions],
+    ) -> None:
         super().__init__(label, **kwargs)
         if accent:
             self.add_class("rule--accent")
@@ -275,7 +290,9 @@ class EmptyIndicator(Static):
 
     DEFAULT_CLASSES: ClassVar[str] = "empty-indicator"
 
-    def __init__(self, message: str = "Nothing here yet", **kwargs: Any) -> None:
+    def __init__(
+        self, message: str = "Nothing here yet", **kwargs: Unpack[StaticOptions]
+    ) -> None:
         super().__init__(message, **kwargs)
 
 
@@ -299,7 +316,7 @@ class Gauge(Widget):
         "gauge--readout-only",
     }
 
-    def __init__(self, label: str, **kwargs: Any) -> None:
+    def __init__(self, label: str, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self.label = label
         self.total = 0.0
@@ -348,7 +365,7 @@ class Gauge(Widget):
         self.styles.height = 1 if compact else 2
         self.refresh()
 
-    def render(self) -> RenderResult:
+    def render(self) -> Text:
         width = max(self.content_size.width, MIN_GAUGE_WIDTH)
         if self.compact:
             return self._headline(width)

@@ -10,17 +10,28 @@ footer that does not exist yet, an overlay that is no longer in front.
 
 from __future__ import annotations
 
-from typing import Any
+import ast
+import inspect
+from typing import Any, ClassVar
 
 from textual import events
 from textual.app import App, ComposeResult
+from textual.binding import Binding, BindingType
 from textual.containers import Horizontal
 from textual.geometry import Offset
 from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Static
 
-from flexi.components.chrome import AppHeader, NavItemLabel, StatusBar
+from flexi.components import chrome
+from flexi.components.chrome import (
+    AppHeader,
+    BindingHint,
+    KeyStrip,
+    NavItemLabel,
+    StatusBar,
+    footer_key_cost,
+)
 from flexi.components.common import Pill, Tone
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import Jumper, JumpInfo
@@ -48,6 +59,24 @@ class Jumpy(App[None]):
         with Horizontal():
             yield Static("one", id="one")
             yield Named("two", id="two")
+
+
+class Bound(App[None]):
+    """A single advertised action, for the footer's public binding boundary."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("x", "mark", "Mark", show=True),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.marked = False
+
+    def compose(self) -> ComposeResult:
+        yield KeyStrip(compact=True, show_command_palette=False)
+
+    def action_mark(self) -> None:
+        self.marked = True
 
 
 def active_labels(app: App[None]) -> set[str]:
@@ -90,6 +119,52 @@ async def test_the_nav_bar_moves_its_highlight_to_the_screen_in_front() -> None:
         await pilot.pause()
 
         assert active_labels(app) == {"leave"}
+
+
+# -- the key strip ------------------------------------------------------------
+
+
+def test_chrome_uses_only_public_textual_footer_contracts() -> None:
+    """A supported Textual minor must not move an implementation out from under us."""
+    tree = ast.parse(inspect.getsource(chrome))
+    imported = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+    imported.update(
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    )
+    assert not {
+        module
+        for module in imported
+        if module.startswith("textual.")
+        and any(part.startswith("_") for part in module.split("."))
+    }
+    assert "_bindings_ready" not in {
+        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+    }
+
+
+async def test_a_binding_hint_matches_its_measurement_and_runs_its_key() -> None:
+    """The local public widget keeps the rendering and click contract it replaces."""
+    app = Bound()
+    async with app.run_test(size=(40, 10)) as pilot:
+        await pilot.pause()
+        await pilot.pause()
+        hint = app.query_one(BindingHint)
+
+        assert str(hint.render()) == "x Mark"
+        assert hint.region.width + hint.styles.margin.right == footer_key_cost(
+            "x", "Mark"
+        )
+
+        await pilot.click(hint)
+        await pilot.pause()
+        assert app.marked
 
 
 # -- writing to chrome that is not there yet ---------------------------------

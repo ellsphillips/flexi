@@ -19,7 +19,7 @@ marker has a position on it, and a position is a thing that can be moved.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from rich.text import Text
 from textual import events
@@ -32,6 +32,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, Select, Static
 
 from flexi import wallclock
+from flexi.components.options import ScreenOptions, StaticOptions, WidgetOptions
 from flexi.components.wordmark import Wordmark
 from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
@@ -122,7 +123,7 @@ class Rail(Static):
     """Which row the marker is on. A float, because it is animated between rows
     and Textual can only interpolate numbers."""
 
-    def __init__(self, rows: int, **kwargs: Any) -> None:
+    def __init__(self, rows: int, **kwargs: Unpack[StaticOptions]) -> None:
         super().__init__(**kwargs)
         self._rows = rows
 
@@ -192,7 +193,13 @@ class Question(Horizontal):
     Question.-live .note { color: $c-muted; }
     """)
 
-    def __init__(self, ask: str, field: Widget, note: str, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        ask: str,
+        field: Widget,
+        note: str,
+        **kwargs: Unpack[WidgetOptions],
+    ) -> None:
         super().__init__(**kwargs)
         self._ask = ask
         self._field = field
@@ -237,7 +244,11 @@ class SetupScreen(Screen[bool]):
     """)
 
     def __init__(
-        self, services: Services, *, animate: bool = False, **kwargs: Any
+        self,
+        services: Services,
+        *,
+        animate: bool = False,
+        **kwargs: Unpack[ScreenOptions],
     ) -> None:
         super().__init__(**kwargs)
         self._settings_svc = services.settings

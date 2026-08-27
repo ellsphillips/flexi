@@ -8,7 +8,7 @@ draws the same wallet in its sidebar.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.message import Message
@@ -16,6 +16,7 @@ from textual.message import Message
 from flexi.components.allowance import paint_allowance
 from flexi.components.common import Gauge
 from flexi.components.modules.base import Module
+from flexi.components.options import ModuleOptions
 from flexi.constants import AbsenceType
 from flexi.domain.format import delta
 from flexi.messages import Scope
@@ -52,7 +53,7 @@ class WalletModule(Module):
         Scope.ABSENCE | Scope.CLOCK | Scope.SETTINGS | Scope.PERIOD
     )
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="wallet-module", title="Wallet", **kwargs)
 
     def compose(self) -> ComposeResult:

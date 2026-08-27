@@ -503,20 +503,20 @@ Footer {
     overflow-x: hidden;
 }
 
-FooterKey {
+BindingHint {
     background: $c-surface;
 }
 
-FooterKey:hover {
+BindingHint:hover {
     background: $c-raised;
 }
 
-FooterKey .footer-key--key {
+BindingHint .binding-hint--key {
     color: $c-accent-lift;
     background: $c-surface;
 }
 
-FooterKey .footer-key--description {
+BindingHint .binding-hint--description {
     color: $c-muted;
 }
 

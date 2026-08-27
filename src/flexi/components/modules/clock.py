@@ -10,7 +10,7 @@ process.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
@@ -19,6 +19,7 @@ from textual.widgets import Button, Static, Switch
 
 from flexi.components.common import Pill, Tone
 from flexi.components.modules.base import Module
+from flexi.components.options import ModuleOptions
 from flexi.components.punch import PunchStrip
 from flexi.domain.format import clock, hm, hms
 from flexi.domain.ledger import DayLedger
@@ -34,7 +35,7 @@ class ClockModule(Module):
 
     WATCHES: ClassVar[Scope] = Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="clock-module", title="Clock", subtitle="/", **kwargs)
         self._ledger: DayLedger | None = None
 
