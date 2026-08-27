@@ -7,15 +7,14 @@ by walking the package and asserts it — so a new modal is covered the day it i
 written rather than the day somebody remembers to add a test.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal, VerticalScroll
+from textual.dom import DOMNode
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
 
@@ -23,6 +22,15 @@ from flexi.constants import AbsenceType, Portion
 from flexi.domain.dates import parse_date
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural
+
+__all__ = (
+    "AbsenceBooking",
+    "AbsenceModal",
+    "ConfirmModal",
+    "FlexiModal",
+    "GoToDateModal",
+    "selected_name",
+)
 
 
 class FlexiModal[ResultT](ModalScreen[ResultT | None]):
@@ -50,9 +58,14 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     buttons stay put.
     """
 
+    @property
+    def modal_title(self) -> str:
+        """The title rendered for this modal instance."""
+        return self.title_text
+
     def compose(self) -> ComposeResult:
         with Container(classes="modal -tall" if self.tall else "modal"):
-            yield Static(self.title_text, classes="modal-title")
+            yield Static(self.modal_title, classes="modal-title")
             with VerticalScroll(classes="modal-body"):
                 yield from self.compose_body()
             yield from self.compose_aside()
@@ -117,12 +130,10 @@ class ConfirmModal(FlexiModal[bool]):
         self._title = title
         self._question = question
 
-    def compose(self) -> ComposeResult:
-        # The title varies per question, and `title_text` is a class variable
-        # every other modal sets once. Overriding compose is cheaper than making
-        # the attribute an instance one on the base for the sake of this modal.
-        self.title_text = self._title  # type: ignore[misc]
-        yield from super().compose()
+    @property
+    def modal_title(self) -> str:
+        """The title supplied with this particular confirmation."""
+        return self._title
 
     def compose_body(self) -> ComposeResult:
         yield Static(self._question)
@@ -278,7 +289,7 @@ class GoToDateModal(FlexiModal[date]):
         )
 
 
-def selected_name(screen: ModalScreen[Any], selector: str, *, fallback: str) -> str:
+def selected_name(screen: DOMNode, selector: str, *, fallback: str) -> str:
     """The ``name`` of the pressed radio button, or a fallback.
 
     Radio sets report the pressed *button*, and Flexi puts the enum value in its

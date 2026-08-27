@@ -1,5 +1,13 @@
 """A plausible working life, for demos, screenshots and snapshot tests.
 
+`seed_demo` is the module's only mutation and composition boundary. The public
+constants and pure date helpers describe its deterministic scenario; the
+private steps under it are its body broken up to be readable, and they run in
+an order nothing enforces -- wiping before settings, settings before work,
+absences before the work that has to skip them. Publishing those stages would
+advertise a sequence a caller could get wrong, which is the one case where
+private earns its keep here.
+
 Deterministic by construction -- no ``random``, no clock reads. Every figure is
 derived from the day's index, so the seed produces byte-identical output on any
 machine on any day, which is what a committed SVG snapshot requires.
@@ -26,7 +34,9 @@ from flexi.models.database.db import (
     DEFAULT_WINDOW_END,
     DEFAULT_WINDOW_START,
     AbsenceDay,
+    BalanceAdjustment,
     BankHolidayCache,
+    BankHolidayRefresh,
     ClockEvent,
     LeaveEntitlement,
     Settings,
@@ -34,6 +44,24 @@ from flexi.models.database.db import (
 )
 from flexi.models.database.moment import punched
 from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
+from flexi.services.transactions import atomic
+
+__all__ = (
+    "ANCHOR",
+    "ARRIVALS",
+    "AUGUST",
+    "EXTRAS",
+    "FRIDAY",
+    "LEAVE_YEAR",
+    "LUNCHES",
+    "MAY",
+    "NOW",
+    "TIMEZONE",
+    "add_minutes",
+    "holidays_in",
+    "nth_monday",
+    "seed_demo",
+)
 
 FRIDAY = 4
 """The last working weekday, as datetime.weekday() numbers them."""
@@ -82,7 +110,7 @@ EXTRAS = (0, 48, 5, -10, 12, 0, 25, -5, 18, 8)
 MAY, AUGUST = 5, 8
 
 
-def _monday(year: int, month: int, *, last: bool) -> date:
+def nth_monday(year: int, month: int, *, last: bool) -> date:
     """The first or last Monday of a month.
 
     `Calendar(MONDAY)` explicitly, not the bare `monthcalendar`: that one reads
@@ -107,22 +135,22 @@ def holidays_in(year: int) -> tuple[tuple[date, str], ...]:
     them all from its own starting year.
     """
     return (
-        (_monday(year, MAY, last=False), "Early May bank holiday"),
-        (_monday(year, MAY, last=True), "Spring bank holiday"),
-        (_monday(year, AUGUST, last=True), "Summer bank holiday"),
+        (nth_monday(year, MAY, last=False), "Early May bank holiday"),
+        (nth_monday(year, MAY, last=True), "Spring bank holiday"),
+        (nth_monday(year, AUGUST, last=True), "Summer bank holiday"),
     )
 
 
 def seed_demo(session: Session, *, anchor: date = ANCHOR) -> None:
-    """Fill an empty database with a working life ending on ``anchor``."""
+    """Replace the database atomically with a life ending on ``anchor``."""
     start = leaveyear.start_of(anchor, *LEAVE_YEAR)
     holidays = {when for when, _ in holidays_in(start.year)}
-    _wipe(session)
-    _settings(session, anchor)
-    _holidays(session, start.year, anchor)
-    booked, half_day = _absences(session, anchor, holidays)
-    _work(session, start, anchor, booked | holidays, half_day)
-    session.commit()
+    with atomic(session):
+        _wipe(session)
+        _settings(session, anchor)
+        _holidays(session, start.year, anchor)
+        booked, half_day = _absences(session, anchor, holidays)
+        _work(session, start, anchor, booked | holidays, half_day)
 
 
 def _wipe(session: Session) -> None:
@@ -130,12 +158,13 @@ def _wipe(session: Session) -> None:
         WorkSession,
         ClockEvent,
         AbsenceDay,
+        BalanceAdjustment,
         BankHolidayCache,
+        BankHolidayRefresh,
         LeaveEntitlement,
         Settings,
     ):
         session.execute(delete(model))
-    session.commit()
 
 
 def _settings(session: Session, anchor: date) -> None:
@@ -167,13 +196,18 @@ def _holidays(session: Session, year: int, anchor: date) -> None:
     # opened. A timestamp from a fixed date would have the command palette's
     # refresh reach for the network on a machine being shown the sample data.
     fetched = datetime.combine(anchor, time(9, 0))
+    session.add(
+        BankHolidayRefresh(
+            division=DEFAULT_DIVISION,
+            fetched_at=fetched,
+        )
+    )
     for when, title in holidays_in(year):
         session.add(
             BankHolidayCache(
                 division=DEFAULT_DIVISION,
                 date=when,
                 title=title,
-                fetched_at=fetched,
             )
         )
 
@@ -259,11 +293,11 @@ def _closed_day(session: Session, when: date, index: int, *, morning: bool) -> N
 
     if morning:
         _session(session, when, arrive, time(12, 30))
-        back = _add_minutes(time(12, 30), lunch)
+        back = add_minutes(time(12, 30), lunch)
     else:
         back = time(13, 0)
 
-    finish = _add_minutes(
+    finish = add_minutes(
         back, DEFAULT_CONTRACTED_MINUTES - (210 if morning else 0) + extra
     )
     _session(session, when, back, finish)
@@ -297,6 +331,6 @@ def _session(session: Session, when: date, start: time, end: time | None) -> Non
     )
 
 
-def _add_minutes(base: time, minutes: int) -> time:
+def add_minutes(base: time, minutes: int) -> time:
     total = base.hour * 60 + base.minute + minutes
     return time(min(23, total // 60), total % 60)

@@ -35,7 +35,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       publish: ${{ steps.published.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - id: version
         name: Read the version from pyproject
@@ -48,15 +48,28 @@ jobs:
         name: Has PyPI seen it before?
         run: |
           version="${{ steps.version.outputs.version }}"
-          code=$(curl -s -o /dev/null -w '%{http_code}' \
-            "https://pypi.org/pypi/${PACKAGE}/${version}/json")
-          if [ "$code" = "200" ]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::${PACKAGE} ${version} is already on PyPI. Nothing to release."
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::${PACKAGE} ${version} is new. Continuing to verification."
+          if ! code=$(curl --silent --show-error \
+            --retry 3 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 5 --max-time 20 \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://pypi.org/pypi/${PACKAGE}/${version}/json"); then
+            echo "::error::Could not establish whether ${PACKAGE} ${version} exists on PyPI."
+            exit 1
           fi
+          case "$code" in
+            200)
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::${PACKAGE} ${version} is already on PyPI. Nothing to release."
+              ;;
+            404)
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::${PACKAGE} ${version} is new. Continuing to verification."
+              ;;
+            *)
+              echo "::error::PyPI returned HTTP ${code}; refusing to assume the version is new."
+              exit 1
+              ;;
+          esac
 
   # The same three workflows `ci.yaml` calls, so a release is verified by
   # exactly what a pull request is verified by. It used to be a narrower copy
@@ -87,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
           path: dist
@@ -123,12 +136,12 @@ jobs:
       name: pypi
       url: https://pypi.org/project/flexi/${{ needs.guard.outputs.version }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
           path: dist
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
 
       - name: Upload
         # --check-url makes a re-run of an interrupted upload a no-op rather
@@ -144,7 +157,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Tag and release
         env:

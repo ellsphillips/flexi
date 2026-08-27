@@ -20,6 +20,14 @@ from pathlib import Path
 
 from flexi.locations import database_file
 
+__all__ = (
+    "REQUIRED_SETTINGS",
+    "clear_initialisation_cache",
+    "forget",
+    "is_initialised",
+    "stamped_and_configured",
+)
+
 REQUIRED_SETTINGS = (
     "leave_year_start",
     "working_days",
@@ -29,7 +37,10 @@ REQUIRED_SETTINGS = (
 
 _INITIALISED: set[Path] = set()
 """Paths known to be set up. Only the affirmative is remembered: False can
-become True at any moment, and nothing should have to invalidate that."""
+become True at any moment, and nothing should have to invalidate that.
+
+Private because a public handle on it is a way for anything to assert an
+install that is not there."""
 
 
 def is_initialised(db_path: Path | None = None) -> bool:
@@ -45,7 +56,7 @@ def is_initialised(db_path: Path | None = None) -> bool:
     if not path.is_file():
         return False
 
-    answer = _stamped_and_configured(path)
+    answer = stamped_and_configured(path)
     if answer:
         _INITIALISED.add(path)
     return answer
@@ -57,7 +68,18 @@ def forget(db_path: Path | None = None) -> None:
     _INITIALISED.discard(path)
 
 
-def _stamped_and_configured(path: Path) -> bool:
+def clear_initialisation_cache() -> None:
+    """Forget every remembered database path.
+
+    Normal application flows know the one path they reset and should call
+    :func:`forget`.  Test harnesses and embedders can switch between several
+    databases in one process, so they need a supported way to reset all cached
+    answers without reaching into this module's mutable implementation state.
+    """
+    _INITIALISED.clear()
+
+
+def stamped_and_configured(path: Path) -> bool:
     """The database carries a migration stamp and a complete settings row.
 
     ``mode=ro`` refuses to create the file, which is the invariant

@@ -15,7 +15,7 @@ from datetime import date
 
 import pytest
 
-from flexi.messages import DateSelected, Scope
+from flexi.messages import BankHolidayRefreshCompleted, DateSelected, Scope
 
 # The two real subscriptions in the application, quoted rather than imported so
 # that a change to either has to be made deliberately in both places.
@@ -74,3 +74,12 @@ def test_a_picked_date_arrives_under_a_name_that_is_not_the_argument() -> None:
     Textual logs and swallows, so the calendar simply stops responding.
     """
     assert DateSelected(date(2025, 6, 2)).date == date(2025, 6, 2)
+
+
+def test_a_holiday_worker_completion_keeps_its_untrusted_payload_and_intent() -> None:
+    payload: object = {"scotland": {"events": []}}
+
+    message = BankHolidayRefreshCompleted(payload, forced=True)
+
+    assert message.payload is payload
+    assert message.forced is True

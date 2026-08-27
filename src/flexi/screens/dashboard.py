@@ -10,8 +10,10 @@ screen invalidates the ledger cache once, and only interested modules rebuild.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
-from typing import Any, ClassVar
+from types import MappingProxyType
+from typing import ClassVar, Final, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -32,6 +34,7 @@ from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.monthview import MonthView
 from flexi.components.modules.records import BookHere, DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
+from flexi.components.options import ScreenOptions
 from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
@@ -45,17 +48,26 @@ from flexi.screens.modals import (
     ConfirmModal,
     GoToDateModal,
 )
+from flexi.services.absence import snapshot_booking
 from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
-from flexi.services.registry import Services
+from flexi.services.registry import (
+    Services,
+    available_toil_days,
+    invalidate_services,
+)
 
-JUMP_TARGETS = {
-    "clock-module": "c",
-    "balance-module": "b",
-    "wallet-module": "w",
-    "records-module": "r",
-    "month-view": "p",
-}
+__all__ = ("JUMP_TARGETS", "DashboardScreen", "with_time")
+
+JUMP_TARGETS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "clock-module": "c",
+        "balance-module": "b",
+        "wallet-module": "w",
+        "records-module": "r",
+        "month-view": "p",
+    }
+)
 
 
 class DashboardScreen(Screen[None]):
@@ -93,7 +105,7 @@ class DashboardScreen(Screen[None]):
         """Open the booking modal, pre-filled with one type."""
         self.open_absence_modal(self.period.anchor, AbsenceType(kind))
 
-    def __init__(self, services: Services, **kwargs: Any) -> None:
+    def __init__(self, services: Services, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
         self._services = services
         self.period = Period.containing(
@@ -181,8 +193,13 @@ class DashboardScreen(Screen[None]):
     def refresh_modules(self, scope: Scope) -> None:
         """Invalidate once, then redraw only the modules that care."""
         self.now = wallclock.now()
+        if scope & Scope.SETTINGS:
+            self.period = self.period.with_year_start(
+                self._services.settings.get_leave_year_start()
+            )
+            self._sync_header()
         if scope & (Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS):
-            self._services.invalidate()
+            invalidate_services(self._services)
         for module in self.query(Module):
             module.rebuild_if(scope)
         self._refresh_progress()
@@ -286,7 +303,7 @@ class DashboardScreen(Screen[None]):
                 booking.kind,
                 booking.portion,
                 note=booking.note,
-                available_toil_days=self._services.toil_days(),
+                available_toil_days=available_toil_days(self._services),
             )
             self._report(result, scope=Scope.ABSENCE)
 
@@ -295,7 +312,7 @@ class DashboardScreen(Screen[None]):
                 when,
                 kind,
                 remaining=self._services.absence.get_remaining_annual_leave(),
-                toil_days=self._services.toil_days(),
+                toil_days=available_toil_days(self._services),
             ),
             callback=book,
         )
@@ -315,17 +332,19 @@ class DashboardScreen(Screen[None]):
         if found is None:
             self.status("That booking has already gone", Tone.WARN)
             return
-        when, portion = found.date, found.portion
+        booking = snapshot_booking(found)
 
         def confirm(answer: bool | None) -> None:
             if answer:
                 self._report(
-                    self._services.absence.remove(when, portion), scope=Scope.ABSENCE
+                    self._services.absence.remove_booking(booking),
+                    scope=Scope.ABSENCE,
                 )
 
         self.app.push_screen(
             ConfirmModal(
-                f"Remove {found.absence_type.phrase} from {short_date(when)}?",
+                f"Remove {booking.absence_type.phrase} "
+                f"from {short_date(booking.date)}?",
                 title="Remove booking",
             ),
             callback=confirm,
@@ -336,7 +355,7 @@ class DashboardScreen(Screen[None]):
     def _report(self, result: Outcome, scope: Scope = Scope.CLOCK) -> None:
         """Put a service result on the status bar, and redraw if it wrote."""
         success = result.success
-        message = _with_time(result.message, result)
+        message = with_time(result.message, result)
         if success and result.warning:
             self.status(result.warning, Tone.WARN)
         else:
@@ -351,7 +370,7 @@ class DashboardScreen(Screen[None]):
             footer.set_status(message, tone)
 
 
-def _with_time(message: str, result: Outcome) -> str:
+def with_time(message: str, result: Outcome) -> str:
     """Stamp a clock result with the moment it recorded.
 
     "Clocked out" is a fact about the past tense; "Clocked out at 12:04" is a

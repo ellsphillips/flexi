@@ -99,7 +99,7 @@ def test_worked_counts_an_open_session_up_to_now() -> None:
 def test_a_naive_now_is_refused_rather_than_guessed_at() -> None:
     """The refusal the signature is shaped to force, and nothing pinned it."""
     running = [Segment(1, at(9), None)]
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError, match="now must be timezone-aware"):
         worked_from(running, now=datetime.combine(DAY, time(14, 30)))
 
 

@@ -52,7 +52,7 @@ test asserting otherwise would pass by describing something that had not
 happened. Denying a read there means an ACL, which is a great deal of machinery
 to reach a branch the other two platforms reach in a line.
 
-What is skipped is the *arrangement*, not the behaviour: `_stamped_and_configured`
+What is skipped is the *arrangement*, not the behaviour: `stamped_and_configured`
 has no platform in it, and a connection that raises is a connection that raises.
 """
 
@@ -92,7 +92,9 @@ def test_an_unopenable_database_is_never_remembered_as_ready(
 ) -> None:
     """Permission can be granted a second later, and nothing invalidates the memo."""
     setup.is_initialised(unreadable)
-    assert unreadable not in setup._INITIALISED
+    unreadable.chmod(0o600)
+
+    assert setup.is_initialised(unreadable) is True
 
 
 def test_a_stamp_table_with_no_stamp_in_it_is_not_an_install(tmp_path: Path) -> None:
@@ -127,8 +129,9 @@ def test_a_stamped_database_without_settings_is_remembered(tmp_path: Path) -> No
     """The affirmative is memoised, so the second command does not reconnect."""
     db = tmp_path / "db.db"
     build(db, *STAMP)
-    setup.is_initialised(db)
+    assert setup.is_initialised(db) is True
+    db.unlink()
 
-    assert db in setup._INITIALISED
+    assert setup.is_initialised(db) is True
     setup.forget(db)
-    assert db not in setup._INITIALISED
+    assert setup.is_initialised(db) is False

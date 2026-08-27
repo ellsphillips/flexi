@@ -40,7 +40,7 @@ def test_the_fallback_palette_agrees_with_the_stylesheet() -> None:
     """
     parsed = theme.palette()
 
-    assert {name: parsed.get(name) for name in theme._FALLBACK} == theme._FALLBACK
+    assert {name: parsed.get(name) for name in theme.FALLBACK} == theme.FALLBACK
 
 
 def test_the_palette_is_read_from_the_file_rather_than_restated_here(
@@ -84,7 +84,7 @@ def test_a_stylesheet_that_cannot_be_read_gives_the_fallback(tmp_path: Path) -> 
     Raising here would take the application down before the parser had a chance
     to say what was actually wrong with the file.
     """
-    assert theme.palette(tmp_path / "gone.tcss") == theme._FALLBACK
+    assert theme.palette(tmp_path / "gone.tcss") == theme.FALLBACK
 
 
 def test_a_stylesheet_with_no_palette_left_in_it_gives_the_fallback(
@@ -98,7 +98,7 @@ def test_a_stylesheet_with_no_palette_left_in_it_gives_the_fallback(
     """
     path = stylesheet(tmp_path, "/* the palette moved */\nScreen { background: red; }")
 
-    assert theme.palette(path) == theme._FALLBACK
+    assert theme.palette(path) == theme.FALLBACK
 
 
 # -- one colour at a time ----------------------------------------------------
@@ -176,7 +176,7 @@ def test_no_variable_falls_through_when_the_stylesheet_cannot_be_read(
 ) -> None:
     """The mirror of the test above, on the machine where the file is missing.
 
-    `_FALLBACK` is not an arbitrary subset of the palette: it is exactly the
+    `FALLBACK` is not an arbitrary subset of the palette: it is exactly the
     names Python asks for by name, because everything else is read as `$c-...`
     from a stylesheet that could not have parsed if it could not be read. That
     rule held for thirteen of the fourteen entries -- `c-accent-deep` was
@@ -184,7 +184,7 @@ def test_no_variable_falls_through_when_the_stylesheet_cannot_be_read(
     backgrounds. Nothing said so, because the containment check above only
     looks one way.
     """
-    monkeypatch.setattr(theme, "palette", lambda: dict(theme._FALLBACK))
+    monkeypatch.setattr(theme, "palette", lambda: dict(theme.FALLBACK))
 
     fallen = [
         name for name, value in theme.theme_variables().items() if value == MAGENTA

@@ -25,8 +25,46 @@ thirty of them a second affordable on the interface thread.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from functools import cache
+from types import MappingProxyType
 from typing import Final
+
+__all__ = (
+    "CANVAS_HEIGHT",
+    "CANVAS_WIDTH",
+    "DEPTH",
+    "DEPTH_SAMPLES",
+    "DURATION",
+    "EDGE_ON",
+    "FACE_SAMPLES",
+    "HOLD",
+    "INK",
+    "LETTER_GLYPHS",
+    "LIGHT",
+    "RAMP",
+    "ROWS",
+    "SCALE",
+    "SPIN",
+    "STRAPLINE",
+    "STRAPLINE_IN",
+    "TILT",
+    "TRACKING",
+    "TURNS",
+    "VIEWER",
+    "WORD",
+    "cells",
+    "ease_out",
+    "extent",
+    "is_finished",
+    "luminance",
+    "pitch",
+    "settled_rows",
+    "should_play",
+    "strapline_fade",
+    "surface",
+    "yaw",
+)
 
 WORD: Final = "flexi."
 STRAPLINE: Final = "Manage your time, flexibly."
@@ -39,14 +77,16 @@ INK: Final = "#"
 
 # Seven rows apiece. Lowercase with real ascenders, because "flexi" in capitals
 # is a different word about a different kind of company.
-LETTER_GLYPHS: Final[dict[str, tuple[str, ...]]] = {
-    "f": (".###", ".#..", "###.", ".#..", ".#..", ".#..", ".#.."),
-    "l": ("##.", ".#.", ".#.", ".#.", ".#.", ".#.", ".##"),
-    "e": (".....", ".....", ".###.", "#...#", "#####", "#....", ".###."),
-    "x": (".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#"),
-    "i": (".#.", "...", "##.", ".#.", ".#.", ".#.", "###"),
-    ".": ("..", "..", "..", "..", "..", "..", "##"),
-}
+LETTER_GLYPHS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
+    {
+        "f": (".###", ".#..", "###.", ".#..", ".#..", ".#..", ".#.."),
+        "l": ("##.", ".#.", ".#.", ".#.", ".#.", ".#.", ".##"),
+        "e": (".....", ".....", ".###.", "#...#", "#####", "#....", ".###."),
+        "x": (".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#"),
+        "i": (".#.", "...", "##.", ".#.", ".#.", ".#.", "###"),
+        ".": ("..", "..", "..", "..", "..", "..", "##"),
+    }
+)
 
 TRACKING: Final = 1
 """Blank columns between letters."""
@@ -110,7 +150,7 @@ only moment the application has to introduce itself."""
 
 DURATION: Final = SPIN + STRAPLINE_IN + HOLD
 
-_FACE_SAMPLES: Final = 6
+FACE_SAMPLES: Final = 6
 """Samples across a face, per axis.
 
 Taken at the middle of each sub-division rather than at its edges, so that the
@@ -118,7 +158,7 @@ samples sit wholly inside the cell and neighbouring cells tile instead of
 overlapping. Sampling the edges put a mark half a cell beyond the glyph on every
 side, which thickened the wordmark and closed up its counters."""
 
-_DEPTH_SAMPLES: Final = 9
+DEPTH_SAMPLES: Final = 9
 """Samples through the narrow faces of the extrusion.
 
 The word is a thin slab, so for a good part of every turn the faces are culled
@@ -172,15 +212,15 @@ def surface() -> tuple[tuple[float, float, float, float, float, float], ...]:
         for towards in (-1.0, 1.0):
             points.extend(
                 (
-                    x0 + ((across + 0.5) / _FACE_SAMPLES - 0.5),
-                    y0 + ((down + 0.5) / _FACE_SAMPLES - 0.5),
+                    x0 + ((across + 0.5) / FACE_SAMPLES - 0.5),
+                    y0 + ((down + 0.5) / FACE_SAMPLES - 0.5),
                     towards * half,
                     0.0,
                     0.0,
                     towards,
                 )
-                for across in range(_FACE_SAMPLES)
-                for down in range(_FACE_SAMPLES)
+                for across in range(FACE_SAMPLES)
+                for down in range(FACE_SAMPLES)
             )
 
         sides = (
@@ -196,15 +236,15 @@ def surface() -> tuple[tuple[float, float, float, float, float, float], ...]:
                 (
                     x0
                     + offset_x
-                    + (0.0 if step_x else (along + 0.5) / _FACE_SAMPLES - 0.5),
+                    + (0.0 if step_x else (along + 0.5) / FACE_SAMPLES - 0.5),
                     y0
                     + offset_y
-                    + (0.0 if step_y else (along + 0.5) / _FACE_SAMPLES - 0.5),
-                    (deep / (_DEPTH_SAMPLES - 1) - 0.5) * DEPTH,
+                    + (0.0 if step_y else (along + 0.5) / FACE_SAMPLES - 0.5),
+                    (deep / (DEPTH_SAMPLES - 1) - 0.5) * DEPTH,
                     *normal,
                 )
-                for along in range(_FACE_SAMPLES)
-                for deep in range(_DEPTH_SAMPLES)
+                for along in range(FACE_SAMPLES)
+                for deep in range(DEPTH_SAMPLES)
             )
     return tuple(points)
 
@@ -212,7 +252,7 @@ def surface() -> tuple[tuple[float, float, float, float, float, float], ...]:
 # -- the motion --------------------------------------------------------------
 
 
-def _ease_out(progress: float) -> float:
+def ease_out(progress: float) -> float:
     """Fast, then slowing to a stop. Cubic, the gentlest that still reads."""
     return 1.0 - (1.0 - progress) ** 3
 
@@ -221,14 +261,14 @@ def yaw(elapsed: float) -> float:
     """Rotation about the upright axis: several turns, arriving square on."""
     if elapsed >= SPIN:
         return 0.0
-    return TURNS * 2.0 * math.pi * (1.0 - _ease_out(max(0.0, elapsed) / SPIN))
+    return TURNS * 2.0 * math.pi * (1.0 - ease_out(max(0.0, elapsed) / SPIN))
 
 
 def pitch(elapsed: float) -> float:
     """Tilt towards the eye, easing away as the word lands."""
     if elapsed >= SPIN:
         return 0.0
-    return TILT * (1.0 - _ease_out(max(0.0, elapsed) / SPIN))
+    return TILT * (1.0 - ease_out(max(0.0, elapsed) / SPIN))
 
 
 def strapline_fade(elapsed: float) -> float:

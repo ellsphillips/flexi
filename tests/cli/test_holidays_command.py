@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 
 from flexi.cli import holidays as holidays_cli
 from flexi.constants import DEFAULT_DIVISION
-from flexi.services.registry import Services
+from flexi.services.registry import Services, build_services
+from flexi.services.settings import parse_settings
 
 SCOTLAND = "scotland"
 
@@ -28,9 +29,10 @@ PAYLOAD: dict[str, Any] = {
             {"title": "Summer bank holiday", "date": "2026-08-31"},
             {"title": "Christmas Day", "date": "2026-12-25"},
         ],
-    }
+    },
+    "scotland": {"division": "scotland", "events": []},
 }
-"""The shape GOV.UK publishes, cut down to two dates."""
+"""The shape GOV.UK publishes: two English dates and an empty Scottish list."""
 
 
 class _Answered:
@@ -57,17 +59,19 @@ def answering(monkeypatch: pytest.MonkeyPatch) -> None:
 def configured(session: Session, division: str = "england-and-wales") -> Services:
     """A registry for a machine whose region has been chosen.
 
-    Rebuilt after saving: `Services.build` reads the division once, and a
+    Rebuilt after saving: `build_services` reads the division once, and a
     registry made before the settings row exists holds the default.
     """
-    built = Services.build(session)
+    built = build_services(session)
     built.settings.save_settings(
-        leave_year_start="04-06",
-        working_days="Mon-Fri",
-        bank_holiday_division=division,
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="Mon-Fri",
+            bank_holiday_division=division,
+            auto_close_time="18:00",
+        )
     )
-    return Services.build(session)
+    return build_services(session)
 
 
 def test_a_refresh_that_reaches_govuk_caches_the_calendar(
@@ -135,5 +139,5 @@ def test_a_machine_with_no_settings_row_is_named_by_the_default_region(
     Saying nothing at all would leave somebody reading "could not reach GOV.UK
     for " with a blank where the answer should be.
     """
-    assert holidays_cli.run(Services.build(session)) == 1
+    assert holidays_cli.run(build_services(session)) == 1
     assert DEFAULT_DIVISION.label in capsys.readouterr().err

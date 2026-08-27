@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Any
 
 from sqlalchemy import URL, Engine, create_engine, event
+from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import ConnectionPoolEntry
 
 from flexi.locations import database_file
+from flexi.models.database.lease import LeaseMode, database_lease
+
+__all__ = (
+    "create_db_engine",
+    "database_scope",
+    "enforce_foreign_keys",
+    "get_session",
+)
 
 
 def enforce_foreign_keys(
-    dbapi_connection: Any,
-    _connection_record: Any,
+    dbapi_connection: DBAPIConnection,
+    _connection_record: ConnectionPoolEntry,
 ) -> None:
     """Enable SQLite foreign key enforcement on every connection.
 
@@ -48,3 +59,24 @@ def get_session(engine: Engine) -> Session:
     SQLite file open, which is what stops `flexi init` deleting it.
     """
     return Session(engine)
+
+
+@contextmanager
+def database_scope(db_path: Path | None = None) -> Iterator[tuple[Engine, Session]]:
+    """Own one engine and session for exactly as long as a caller needs them.
+
+    Each cleanup is registered immediately after its resource is acquired. If
+    session construction fails, the engine is therefore still disposed; if
+    anything later in the caller fails, the session is closed before its engine.
+    An :class:`~contextlib.ExitStack` also lets a longer-lived owner transfer or
+    embed this scope without duplicating the cleanup operations.
+    """
+    with ExitStack() as resources:
+        if db_path is None:
+            db_path = database_file()
+        resources.enter_context(database_lease(db_path, LeaseMode.SHARED))
+        engine = create_db_engine(db_path)
+        resources.callback(engine.dispose)
+        session = get_session(engine)
+        resources.callback(session.close)
+        yield engine, session

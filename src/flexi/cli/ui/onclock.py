@@ -7,29 +7,43 @@ I doing. Pure -- returns a Rich renderable and touches no terminal.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta
+from types import MappingProxyType
+from typing import Final
 
 from rich.text import Text
 
+from flexi import wallclock
 from flexi.cli.ui.rail import GUTTER, HAIRLINE, SETTLED, Tone
 from flexi.domain.format import clock, delta, hm
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window, strip
 from flexi.theme import CELL_GLYPHS, TAIL, colour
 
+__all__ = (
+    "CELL_TONES",
+    "STRIP_CELLS",
+    "elapsed_since",
+    "on_the_clock",
+    "punch_line",
+)
+
 STRIP_CELLS = 44
 """Fixed, not measured: a pure function cannot ask the terminal its width, and
 this leaves both window labels room inside eighty columns."""
 
-CELL_TONES = {
-    "off": "c-line",
-    "break": "c-muted",
-    "target": "c-accent",
-    "absence": "c-annual",
-    "holiday": "c-muted",
-    "on": "c-surplus",
-    "live": "c-accent-lift",
-}
+CELL_TONES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "off": "c-line",
+        "break": "c-muted",
+        "target": "c-accent",
+        "absence": "c-annual",
+        "holiday": "c-muted",
+        "on": "c-surplus",
+        "live": "c-accent-lift",
+    }
+)
 
 
 def punch_line(ledger: DayLedger, window: Window, *, now: datetime) -> Text:
@@ -45,7 +59,7 @@ def elapsed_since(since: datetime, now: datetime) -> timedelta:
 
     Clamped, so a clock corrected under it cannot read "-0:04 so far".
     """
-    return max(timedelta(), now - since)
+    return max(timedelta(), wallclock.elapsed(since, now))
 
 
 def on_the_clock(
@@ -64,16 +78,18 @@ def on_the_clock(
     line = colour("c-line")
     muted = colour("c-muted")
     paper = colour("c-paper")
-    remaining = max(timedelta(), ledger.contracted - ledger.worked)
+    remaining = max(timedelta(), ledger.expected - ledger.worked)
 
     facts = Text(f"in at {clock(since)}", style=paper)
     facts.append("  ·  ", style=line)
     facts.append(f"{hm(elapsed_since(since, now))} on this session", style=muted)
 
-    tally = Text(f"{hm(ledger.worked)} of {hm(ledger.contracted)} today", style=paper)
+    tally = Text(f"{hm(ledger.worked)} of {hm(ledger.expected)} today", style=paper)
     tally.append("  ·  ", style=line)
     if remaining:
-        tally.append(f"hours met at {clock(now + remaining)}", style=muted)
+        tally.append(
+            f"hours met at {clock(wallclock.advance(now, remaining))}", style=muted
+        )
     else:
         tally.append("hours met", style=colour("c-surplus"))
 

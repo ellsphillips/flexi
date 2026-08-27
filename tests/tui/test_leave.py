@@ -12,9 +12,16 @@ from flexi.app import FlexiApp
 from flexi.components.common import Gauge, Tone
 from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion, Verdict
+from flexi.messages import Scope
 from flexi.screens.leave import LeaveScreen, preview
 from flexi.screens.modals import AbsenceModal, ConfirmModal, GoToDateModal
-from flexi.services.absence import AbsencePlan, PlannedDay
+from flexi.services.absence import (
+    PLAN_CHANGED,
+    AbsencePlan,
+    AnnualBalance,
+    PlannedDay,
+)
+from flexi.services.settings import SettingsUpdate
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
 
 TODAY = date(2026, 6, 11)  # a Thursday
@@ -505,6 +512,45 @@ async def test_agreeing_to_the_question_clears_the_lot(app_factory: AppFactory) 
         assert "removed" in status_text(app)
 
 
+async def test_confirmation_does_not_remove_a_booking_added_after_the_preview(
+    app_factory: AppFactory,
+) -> None:
+    """The modal approves the five shown rows, not a mutable calendar range."""
+    app = app_factory()
+    end = FREE_MONDAY + timedelta(days=6)
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        for _ in range(6):
+            await pilot.press("shift+right")
+        await pilot.pause()
+        booked = app.services.absence.book_range(
+            FREE_MONDAY,
+            end,
+            AbsenceType.ANNUAL,
+            Portion.AM,
+        )
+        assert len(booked.booked) == 5
+
+        await pilot.press("x")
+        await pilot.pause()
+        showing(app, ConfirmModal)
+
+        added = app.services.absence.book(
+            FREE_MONDAY,
+            AbsenceType.SICK,
+            Portion.PM,
+        )
+        assert added.success
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert len(app.services.absence.in_range(FREE_MONDAY, end)) == 6
+        assert status_text(app) == PLAN_CHANGED
+
+
 async def test_declining_the_question_keeps_every_day_of_it(
     app_factory: AppFactory,
 ) -> None:
@@ -729,6 +775,25 @@ def test_the_preview_names_a_bank_holiday_with_no_weekend_to_hide_behind() -> No
     assert "non-working" not in shown, "there was no weekend in the span"
 
 
+def test_the_preview_keeps_cross_year_allowances_separate() -> None:
+    monday = date(2026, 12, 28)
+    shown = preview(
+        _plan(
+            (
+                _day(monday, Verdict.BOOK),
+                _day(monday + timedelta(days=7), Verdict.BOOK),
+            ),
+            annual_balances=(
+                AnnualBalance(2026, 1.0, 0.0),
+                AnnualBalance(2027, 2.0, 1.0),
+            ),
+        )
+    )
+
+    assert "Annual leave 2026: 1 → 0 left" in shown
+    assert "Annual leave 2027: 2 → 1 left" in shown
+
+
 def test_the_preview_carries_the_warning_it_was_given() -> None:
     """Agreeing to a week of TOIL means agreeing to the deficit it opens.
 
@@ -830,3 +895,67 @@ async def test_a_backwards_span_is_refused_before_it_is_written(
         showing(app, AbsenceModal)  # the modal stays put
         assert "before the first" in screen_text(app)
         assert app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY) == []
+
+
+async def test_the_cursor_leaving_the_shown_year_reloads_the_grid(
+    app_factory: AppFactory,
+) -> None:
+    """The calendar holds one leave year; the cursor is not confined to it.
+
+    Reached by moving the selection rather than by the go-to modal, which sets
+    the period itself. Here the calendar reports where it went and the screen
+    has to notice the date is outside what it drew -- otherwise the cursor sits
+    on a day the grid has never rendered.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        before = showing(app, LeaveScreen).period
+        assert not before.contains(date(2028, 6, 14))
+
+        calendar(app).go_to(date(2028, 6, 14))
+        await pilot.pause()
+        await pilot.pause()
+
+        leave = showing(app, LeaveScreen)
+        assert leave.period != before, "the shown year followed the cursor"
+        assert leave.period.contains(date(2028, 6, 14))
+        assert calendar(app).selection.head == date(2028, 6, 14)
+
+
+async def test_saving_settings_moves_the_leave_year_under_an_open_planner(
+    app_factory: AppFactory,
+) -> None:
+    """The planner is measured against a leave year the settings own.
+
+    The app refreshes every open screen, not just the dashboard. Without this
+    the planner goes on drawing a year that starts where the settings used to
+    say, and books against the wrong twelve months.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        assert showing(app, LeaveScreen).period.start == date(2026, 4, 6)
+
+        settings = app.services.settings
+        current = settings.resolved()
+        settings.save_settings(
+            SettingsUpdate(
+                leave_year_start=(1, 1),
+                working_days=current.working_days,
+                division=current.division,
+                auto_close=current.auto_close,
+            )
+        )
+        app.refresh_open_screens(Scope.SETTINGS)
+        await pilot.pause()
+
+        assert showing(app, LeaveScreen).period.start == date(2026, 1, 1)
+
+        moved = showing(app, LeaveScreen).period
+        app.refresh_open_screens(Scope.ABSENCE)
+        await pilot.pause()
+
+        assert showing(app, LeaveScreen).period == moved, (
+            "a booking redraws the year; it does not re-read where it starts"
+        )

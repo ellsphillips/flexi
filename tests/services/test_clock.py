@@ -8,20 +8,27 @@ nothing at all.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
-from unittest.mock import patch
+from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import AbsenceType, Portion
-from flexi.models.database.db import BankHolidayCache, ClockEvent, WorkSession
+from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
+from flexi.models.database.db import (
+    BankHolidayCache,
+    BankHolidayRefresh,
+    ClockEvent,
+    WorkSession,
+)
+from flexi.models.database.moment import punched
 from flexi.services.absence import AbsenceResult
 from flexi.services.adjustments import AdjustmentResult
 from flexi.services.clock import ClockResult, ClockService
 from flexi.services.outcome import Outcome
-from flexi.services.registry import Services
+from flexi.services.registry import Services, build_services
+from flexi.services.settings import parse_settings
 
 SCOTTISH_HOLIDAY = date(2027, 1, 4)
 """2 January, observed. Scotland only."""
@@ -32,7 +39,7 @@ ENGLISH_HOLIDAY = date(2027, 5, 3)
 
 @pytest.fixture
 def svc(session: Session) -> ClockService:
-    return Services.build(session).clock
+    return build_services(session).clock
 
 
 # ---------- accepted actions persist ----------
@@ -106,22 +113,54 @@ class TestRejections:
         result = svc.clock_in()
         assert result.success is True
 
+    def test_voided_open_rows_are_not_live_sessions(
+        self, svc: ClockService, session: Session
+    ) -> None:
+        """Discarded history may be open without joining the active clock."""
+        active = svc.clock_in(now=datetime(2026, 8, 10, 9, tzinfo=UTC))
+        assert active.session is not None
+        discarded_event = punched(
+            ClockAction.IN,
+            datetime(2026, 8, 9, 9, tzinfo=UTC),
+            source=EventSource.USER,
+        )
+        session.add(discarded_event)
+        session.flush()
+        discarded = WorkSession(
+            clock_in_id=discarded_event.id,
+            work_date=date(2026, 8, 9),
+            voided=True,
+        )
+        session.add(discarded)
+        session.commit()
+
+        assert svc.get_open_session() is active.session
+        assert svc.clock_out(now=datetime(2026, 8, 10, 17, tzinfo=UTC)).success
+        session.refresh(discarded)
+        assert discarded.clock_out_id is None
+
 
 # ---------- rollback leaves no partial state ----------
 
 
 class TestRollback:
-    def test_flush_failure_leaves_no_event(
-        self, svc: ClockService, session: Session
+    def test_commit_failure_is_rolled_back_without_partial_state(
+        self,
+        svc: ClockService,
+        session: Session,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """If commit fails after flush, no partial state should remain."""
-        with (
-            patch.object(session, "commit", side_effect=RuntimeError("boom")),
-            pytest.raises(RuntimeError, match="boom"),
-        ):
+        rollback = Mock(wraps=session.rollback)
+        monkeypatch.setattr(session, "commit", Mock(side_effect=RuntimeError("boom")))
+        monkeypatch.setattr(session, "rollback", rollback)
+
+        with pytest.raises(RuntimeError, match="boom"):
             svc.clock_in()
 
-        session.rollback()
+        # One rollback ends the read-only preflight transaction before the
+        # write reservation; the second recovers the failed commit.
+        assert rollback.call_count == 2
         events = session.execute(select(ClockEvent)).scalars().all()
         sessions = session.execute(select(WorkSession)).scalars().all()
         assert len(events) == 0
@@ -150,25 +189,28 @@ class TestBankHolidayDivision:
 
     @staticmethod
     def _configured(session: Session, division: str) -> Services:
-        built = Services.build(session)
+        built = build_services(session)
         built.settings.save_settings(
-            leave_year_start="04-06",
-            working_days="0,1,2,3,4,5,6",
-            bank_holiday_division=division,
-            auto_close_time="18:00",
+            parse_settings(
+                leave_year_start="04-06",
+                working_days="0,1,2,3,4,5,6",
+                bank_holiday_division=division,
+                auto_close_time="18:00",
+            )
         )
         stamped = datetime.now(UTC).replace(tzinfo=None)
         for when, owner in (
             (SCOTTISH_HOLIDAY, "scotland"),
             (ENGLISH_HOLIDAY, "england-and-wales"),
         ):
-            session.add(
-                BankHolidayCache(
-                    date=when, title="test", division=owner, fetched_at=stamped
+            session.add_all(
+                (
+                    BankHolidayRefresh(division=owner, fetched_at=stamped),
+                    BankHolidayCache(date=when, title="test", division=owner),
                 )
             )
         session.commit()
-        return Services.build(session)
+        return build_services(session)
 
     def test_a_scottish_user_is_blocked_on_a_scottish_holiday(
         self, session: Session
@@ -228,23 +270,30 @@ def test_every_result_the_status_bar_sees_satisfies_the_protocol() -> None:
 @pytest.fixture
 def ready(session: Session) -> Services:
     """A configured install with a calendar, so absences can be booked at all."""
-    built = Services.build(session)
+    built = build_services(session)
     built.settings.save_settings(
-        leave_year_start="04-06",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=date(2026, 8, 31),
-            title="Summer bank holiday",
-            fetched_at=datetime(2026, 1, 1, 9, 0),
+    session.add_all(
+        (
+            BankHolidayRefresh(
+                division="england-and-wales",
+                fetched_at=datetime(2026, 1, 1, 9, 0),
+            ),
+            BankHolidayCache(
+                division="england-and-wales",
+                date=date(2026, 8, 31),
+                title="Summer bank holiday",
+            ),
         )
     )
     session.commit()
-    rebuilt = Services.build(session)
+    rebuilt = build_services(session)
     rebuilt.settings.save_entitlement(rebuilt.settings.active_leave_year(), 25.0)
     return rebuilt
 
@@ -293,3 +342,59 @@ def test_half_a_day_off_still_leaves_the_other_half_to_work(ready: Services) -> 
 
     assert result.success is True, result.message
     assert ready.clock.get_open_session() is not None
+
+
+# ---------- losing a race to another writer ----------
+
+
+class TestConcurrentWriters:
+    """The stale-read arms, which only a second writer can reach.
+
+    Both actions read the open session, decide, and then write. The read is not
+    a lock -- SQLite has no row lock suitable for it -- so the write is
+    conditional and the database is the authority. These are the two paths
+    where the conditional write declines.
+    """
+
+    def test_a_clock_in_that_loses_the_insert_is_refused_not_raised(
+        self, svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The partial unique index is what actually admits one open session.
+
+        Reaching it means the open-session read came back empty and a session
+        existed by the time the insert ran. `ON CONFLICT DO NOTHING` turns the
+        loser into `None`; without this arm it is an `IntegrityError` out of a
+        service whose entire contract is a result object.
+        """
+        assert svc.clock_in().success is True
+        monkeypatch.setattr(ClockService, "get_open_session", lambda _self: None)
+
+        result = svc.clock_in()
+
+        assert result.success is False
+        assert result.message == "Already clocked in"
+        assert len(session.execute(select(WorkSession)).scalars().all()) == 1
+        assert len(session.execute(select(ClockEvent)).scalars().all()) == 1, (
+            "the speculative IN event goes with the session it could not open"
+        )
+
+    def test_a_clock_out_that_loses_the_update_is_refused_not_raised(
+        self, svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The conditional UPDATE is what actually closes a session.
+
+        Reaching this means the session read as open and was closed before the
+        update ran. The candidate OUT event is discarded with it, so committing
+        cannot leave an audit row belonging to nothing.
+        """
+        opened = svc.clock_in()
+        assert opened.session is not None
+        stale = opened.session
+        assert svc.clock_out().success is True
+        monkeypatch.setattr(ClockService, "get_open_session", lambda _self: stale)
+
+        result = svc.clock_out()
+
+        assert result.success is False
+        assert result.message == "Not clocked in"
+        assert len(session.execute(select(ClockEvent)).scalars().all()) == 2

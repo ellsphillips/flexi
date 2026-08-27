@@ -24,9 +24,6 @@ SEARCHED = ("src", "tests", "scripts")
 OPENS_TEXT = frozenset({"open", "read_text", "write_text"})
 """Calls that take an ``encoding`` and quietly use the locale's without one."""
 
-BINARY = frozenset({"rb", "wb", "ab", "xb", "rb+", "wb+", "ab+", "br", "bw"})
-"""Modes that have no encoding to declare."""
-
 
 def _files() -> Iterator[Path]:
     for directory in SEARCHED:
@@ -39,13 +36,39 @@ def _called(node: ast.Call) -> str:
     return node.func.id if isinstance(node.func, ast.Name) else ""
 
 
-def _is_binary(node: ast.Call) -> bool:
-    """`open(path, "rb")` has no text to decode, positionally or by keyword."""
-    modes = list(node.args[1:2])
-    modes += [word.value for word in node.keywords if word.arg == "mode"]
-    return any(
-        isinstance(mode, ast.Constant) and str(mode.value) in BINARY for mode in modes
+def _mode(node: ast.Call) -> str | None:
+    """The mode an ``open`` call was given, positionally or by keyword.
+
+    ``open(path, mode)`` carries it second and ``path.open(mode)`` carries it
+    first. Reading the second argument for both meant every binary `Path.open`
+    read as text. Only `open` is asked: `write_text(data)`'s first argument is
+    the data.
+    """
+    if _called(node) != "open":
+        return None
+    at = 1 if isinstance(node.func, ast.Name) else 0
+    given = [*node.args[at : at + 1]]
+    given += [word.value for word in node.keywords if word.arg == "mode"]
+    return next(
+        (
+            arg.value
+            for arg in given
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+        ),
+        None,
     )
+
+
+def _is_binary(node: ast.Call) -> bool:
+    """A mode with a ``b`` in it has no text to decode.
+
+    Asked the way Python asks it, rather than against a list of the spellings
+    somebody thought of: that list had nine entries and no ``a+b``, so the
+    database lease -- which opens its lock file binary, where `encoding` would
+    be a `TypeError` -- was reported as a Windows decoding bug.
+    """
+    mode = _mode(node)
+    return mode is not None and "b" in mode
 
 
 def _unencoded(source: Path) -> Iterator[str]:

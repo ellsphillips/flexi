@@ -36,6 +36,34 @@ from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
+from flexi.services.transactions import write_transaction
+
+__all__ = (
+    "PLAN_CHANGED",
+    "AbsencePlan",
+    "AbsenceResult",
+    "AbsenceService",
+    "AnnualBalance",
+    "DayFacts",
+    "PlannedDay",
+    "RangeResult",
+    "RemovalBooking",
+    "RemovalPlan",
+    "Span",
+    "Tally",
+    "clash_reason",
+    "covers_the_whole_day",
+    "deficit",
+    "overdraw",
+    "plan_removal",
+    "snapshot_booking",
+    "span_of",
+    "still_bookable",
+    "verdict_for",
+)
+
+PLAN_CHANGED = "The booking changed; review it and confirm again"
+"""Why a once-valid preview is refused instead of being partly persisted."""
 
 type Span = tuple[datetime, datetime]
 """A stretch of recorded work, resolved: an open session ends at midnight."""
@@ -327,6 +355,15 @@ def still_bookable(
 
 
 @dataclass(frozen=True, slots=True)
+class AnnualBalance:
+    """One leave year's allowance before and after a proposed plan."""
+
+    year: int
+    before: float | None
+    after: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class AbsencePlan:
     """What booking a span would do, decided without writing anything.
 
@@ -341,7 +378,7 @@ class AbsencePlan:
     start: date
     end: date
     days: tuple[PlannedDay, ...]
-    annual_remaining: float | None = None
+    annual_balances: tuple[AnnualBalance, ...] = ()
     toil_available: float | None = None
 
     @property
@@ -384,11 +421,15 @@ class AbsencePlan:
 
     @property
     def annual_after(self) -> float | None:
-        if self.annual_remaining is None:
-            return None
-        if not self.absence_type.draws_down_entitlement:
-            return self.annual_remaining
-        return self.annual_remaining - self.cost
+        """The resulting allowance when this plan touches exactly one leave year."""
+        return self.annual_balances[0].after if len(self.annual_balances) == 1 else None
+
+    @property
+    def annual_remaining(self) -> float | None:
+        """The opening allowance when this plan touches exactly one leave year."""
+        return (
+            self.annual_balances[0].before if len(self.annual_balances) == 1 else None
+        )
 
     @property
     def toil_after(self) -> float | None:
@@ -412,6 +453,17 @@ class AbsencePlan:
 
 
 @dataclass(frozen=True, slots=True)
+class RemovalBooking:
+    """The immutable identity and content of one confirmed booking removal."""
+
+    absence_id: int
+    date: date
+    absence_type: AbsenceType
+    portion: Portion
+    note: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class RemovalPlan:
     """What clearing a span would take back, decided without deleting anything.
 
@@ -423,17 +475,29 @@ class RemovalPlan:
 
     start: date
     end: date
-    lots: tuple[tuple[AbsenceType, Portion, int], ...]
-    """Each kind and portion present, with how many of it, in booking order."""
+    bookings: tuple[RemovalBooking, ...]
+    """The exact rows whose removal was previewed and confirmed."""
+    portion: Portion | None = None
+    """The portion selected for removal, or ``None`` for every booking."""
+
+    @property
+    def lots(self) -> tuple[tuple[AbsenceType, Portion, int], ...]:
+        """Each kind and portion present, with how many of it, in booking order."""
+        counted = Counter(
+            (booking.absence_type, booking.portion) for booking in self.bookings
+        )
+        return tuple(
+            (kind, portion, count) for (kind, portion), count in counted.items()
+        )
 
     @property
     def count(self) -> int:
         """How many bookings would go."""
-        return sum(count for _kind, _portion, count in self.lots)
+        return len(self.bookings)
 
     @property
     def is_empty(self) -> bool:
-        return not self.lots
+        return not self.bookings
 
     @property
     def summary(self) -> str:
@@ -442,6 +506,42 @@ class RemovalPlan:
             f"  {count} {plural(count, portion.noun)} of {kind.phrase}"
             for kind, portion, count in self.lots
         )
+
+
+def snapshot_booking(booking: AbsenceDay) -> RemovalBooking:
+    """Copy one mutable persistence row into a confirmation-safe value."""
+    return RemovalBooking(
+        absence_id=booking.id,
+        date=booking.date,
+        absence_type=booking.absence_type,
+        portion=booking.portion,
+        note=booking.note,
+    )
+
+
+def plan_removal(
+    start: date,
+    end: date,
+    bookings: Iterable[AbsenceDay],
+    *,
+    portion: Portion | None = None,
+) -> RemovalPlan:
+    """Freeze the exact bookings a removal preview asks someone to approve.
+
+    The immutable values deliberately include more than the database key. If a
+    booking is edited in place after the preview, the wording that was approved
+    is stale just as surely as when another booking is added to the span.
+    """
+    return RemovalPlan(
+        start,
+        end,
+        tuple(
+            snapshot_booking(booking)
+            for booking in bookings
+            if portion is None or booking.portion is portion
+        ),
+        portion,
+    )
 
 
 class AbsenceService:
@@ -557,12 +657,55 @@ class AbsenceService:
         ``None`` means no entitlement has been recorded — which is not the same
         as none remaining, and the interface must not draw it as zero.
         """
-        entitlement = self._settings.get_active_entitlement_days(ref)
-        if entitlement is None:
-            return None
-        start, end = self.leave_year_bounds(ref)
-        booked = self.count_days(AbsenceType.ANNUAL, start, end, valid_only=True)
-        return entitlement - booked
+        when = ref or wallclock.today()
+        year = self._settings.active_leave_year(when)
+        return self.get_remaining_annual_leave_by_year((year,))[year]
+
+    def get_remaining_annual_leave_by_year(
+        self, years: Iterable[int]
+    ) -> dict[int, float | None]:
+        """Remaining allowances for distinct leave years, in one bounded read.
+
+        Planning a span can cross any number of allowance boundaries. Reading
+        one entitlement from its first date and carrying it through the whole
+        span lets the old year spend the new year's allowance—or refuses valid
+        dates after the boundary. This batch preserves one independent running
+        balance per leave year without turning a long plan into per-day queries.
+        """
+        requested = tuple(dict.fromkeys(years))
+        if not requested:
+            return {}
+
+        settings = self._settings.resolved()
+        month, day = settings.leave_year_start
+        first = leaveyear.clamp(min(requested), month, day)
+        last = leaveyear.clamp(max(requested) + 1, month, day)
+        stmt = select(AbsenceDay).where(
+            AbsenceDay.absence_type == AbsenceType.ANNUAL,
+            AbsenceDay.date >= first,
+            AbsenceDay.date < last,
+        )
+        rows = list(self._session.execute(stmt).scalars())
+        holidays = self._bank_holidays.get_dates()
+        known = None if holidays is None else frozenset(holidays)
+        used: defaultdict[int, float] = defaultdict(float)
+        for row in rows:
+            if still_bookable(row.date, settings.working_days, known):
+                active = leaveyear.active_year(row.date, month, day)
+                used[active] += row.portion.days
+
+        entitlements = {
+            entitlement.year: entitlement.days
+            for entitlement in self._settings.all_entitlements()
+        }
+        return {
+            year: (
+                None
+                if (entitlement := entitlements.get(year)) is None
+                else entitlement - used[year]
+            )
+            for year in requested
+        }
 
     # -- writing -----------------------------------------------------------
 
@@ -580,33 +723,33 @@ class AbsenceService:
         ``available_toil_days`` only warns on a TOIL booking that would overdraw; it
         never refuses one.
         """
-        decided = verdict_for(
-            self.facts_between(day, day)[0],
-            absence_type,
-            portion,
-            note,
-            remaining_annual=(
-                self.get_remaining_annual_leave(day)
-                if absence_type.draws_down_entitlement
-                else None
-            ),
-        )
-        if decided.verdict is not Verdict.BOOK:
-            return AbsenceResult(False, decided.reason)
+        with write_transaction(self._session):
+            decided = verdict_for(
+                self.facts_between(day, day)[0],
+                absence_type,
+                portion,
+                note,
+                remaining_annual=(
+                    self.get_remaining_annual_leave(day)
+                    if absence_type.draws_down_entitlement
+                    else None
+                ),
+            )
+            if decided.verdict is not Verdict.BOOK:
+                return AbsenceResult(False, decided.reason)
 
-        after = (
-            available_toil_days - portion.days
-            if absence_type.draws_down_balance and available_toil_days is not None
-            else None
-        )
-        absence = AbsenceDay(
-            date=day,
-            absence_type=absence_type,
-            portion=portion,
-            note=note,
-        )
-        self._session.add(absence)
-        self._session.commit()
+            after = (
+                available_toil_days - portion.days
+                if absence_type.draws_down_balance and available_toil_days is not None
+                else None
+            )
+            absence = AbsenceDay(
+                date=day,
+                absence_type=absence_type,
+                portion=portion,
+                note=note,
+            )
+            self._session.add(absence)
 
         return AbsenceResult(
             success=True,
@@ -635,7 +778,7 @@ class AbsenceService:
             booked[row.date].append(row.portion)
         worked: defaultdict[date, list[Span]] = defaultdict(list)
         for session in self._sessions_between(start, end):
-            worked[session.work_date].append(_span_of(session))
+            worked[session.work_date].append(span_of(session))
 
         return [
             DayFacts(
@@ -688,21 +831,34 @@ class AbsenceService:
         each day: booking ten days against five left has to refuse the sixth,
         and the database has not seen the first five yet.
         """
-        entitlement = self.get_remaining_annual_leave(start)
-        remaining = entitlement
+        span_facts = self.facts_between(start, end)
+        month, day = self._settings.get_leave_year_start()
+        years = tuple(
+            dict.fromkeys(
+                leaveyear.active_year(fact.date, month, day) for fact in span_facts
+            )
+        )
+        opening = self.get_remaining_annual_leave_by_year(years)
+        remaining = dict(opening)
         days: list[PlannedDay] = []
 
-        for facts in self.facts_between(start, end):
+        for facts in span_facts:
+            active_year = leaveyear.active_year(facts.date, month, day)
+            available = remaining[active_year]
             decided = verdict_for(
-                facts, absence_type, portion, note, remaining_annual=remaining
+                facts,
+                absence_type,
+                portion,
+                note,
+                remaining_annual=available,
             )
             days.append(decided)
             if (
                 decided.verdict is Verdict.BOOK
                 and absence_type.draws_down_entitlement
-                and remaining is not None
+                and available is not None
             ):
-                remaining -= portion.days
+                remaining[active_year] = available - portion.days
 
         return AbsencePlan(
             absence_type=absence_type,
@@ -711,32 +867,47 @@ class AbsenceService:
             start=start,
             end=end,
             days=tuple(days),
-            annual_remaining=entitlement,
+            annual_balances=tuple(
+                AnnualBalance(year, opening[year], remaining[year]) for year in years
+            ),
             toil_available=available_toil_days,
         )
 
     def book_plan(self, plan: AbsencePlan) -> RangeResult:
-        """Write exactly what the plan decided, and nothing it did not."""
-        booked: list[date] = []
-        skipped: list[tuple[date, str]] = []
+        """Write the confirmed plan only while the facts behind it still hold."""
+        with write_transaction(self._session):
+            current = self.plan(
+                plan.start,
+                plan.end,
+                plan.absence_type,
+                plan.portion,
+                note=plan.note,
+                available_toil_days=plan.toil_available,
+            )
+            if current != plan:
+                return RangeResult(skipped=((plan.start, PLAN_CHANGED),))
 
-        for day in plan.days:
-            if day.verdict is Verdict.BOOK:
-                self._session.add(
-                    AbsenceDay(
-                        date=day.date,
-                        absence_type=plan.absence_type,
-                        portion=plan.portion,
-                        note=plan.note,
+            booked: list[date] = []
+            rows: list[AbsenceDay] = []
+            skipped: list[tuple[date, str]] = []
+
+            for day in current.days:
+                if day.verdict is Verdict.BOOK:
+                    rows.append(
+                        AbsenceDay(
+                            date=day.date,
+                            absence_type=current.absence_type,
+                            portion=current.portion,
+                            note=current.note,
+                        )
                     )
-                )
-                booked.append(day.date)
-            elif day.verdict.is_refusal:
-                skipped.append((day.date, day.reason))
+                    booked.append(day.date)
+                elif day.verdict.is_refusal:
+                    skipped.append((day.date, day.reason))
 
-        if booked:
-            self._session.commit()
-        return RangeResult(tuple(booked), tuple(skipped), plan.warning)
+            if rows:
+                self._session.add_all(rows)
+            return RangeResult(tuple(booked), tuple(skipped), current.warning)
 
     def book_range(
         self,
@@ -766,15 +937,44 @@ class AbsenceService:
             )
         )
 
-    def removal_plan(self, start: date, end: date) -> RemovalPlan:
+    def removal_plan(
+        self,
+        start: date,
+        end: date,
+        *,
+        portion: Portion | None = None,
+    ) -> RemovalPlan:
         """What clearing a span would take back, without taking any of it back."""
-        counted = Counter(
-            (row.absence_type, row.portion) for row in self.in_range(start, end)
+        return plan_removal(
+            start,
+            end,
+            self.in_range(start, end),
+            portion=portion,
         )
-        lots = tuple(
-            (kind, portion, count) for (kind, portion), count in counted.items()
-        )
-        return RemovalPlan(start, end, lots)
+
+    def remove_plan(self, plan: RemovalPlan) -> RangeResult:
+        """Remove a confirmed plan only while its exact bookings are unchanged."""
+        with write_transaction(self._session):
+            rows = [
+                row
+                for row in self.in_range(plan.start, plan.end)
+                if plan.portion is None or row.portion is plan.portion
+            ]
+            if (
+                plan_removal(
+                    plan.start,
+                    plan.end,
+                    rows,
+                    portion=plan.portion,
+                )
+                != plan
+            ):
+                return RangeResult(skipped=((plan.start, PLAN_CHANGED),))
+
+            removed = tuple(dict.fromkeys(row.date for row in rows))
+            for row in rows:
+                self._session.delete(row)
+            return RangeResult(removed)
 
     def clear_range(self, start: date, end: date) -> RangeResult:
         """Remove every booking in a span.
@@ -783,37 +983,43 @@ class AbsenceService:
         happens to be half empty should report what it removed, not five
         complaints about the days that were already free.
 
-        One read and one commit for the whole span. Walking the dates and
-        calling `remove` per date read every date twice -- `remove` opens by
-        re-reading what the guard had just read -- and committed once per
-        booking: 415 queries and 25 commits to clear a year.
+        Two bounded reads and one commit for the whole span: one freezes the
+        intended rows and the other revalidates them while holding SQLite's
+        writer reservation. Walking the dates and calling `remove` per date
+        made the work grow with the span and committed once per booking: 415
+        queries and 25 commits to clear a year.
         """
-        rows = self.in_range(start, end)
-        if not rows:
-            return RangeResult()
-        for row in rows:
-            self._session.delete(row)
-        self._session.commit()
-        # Distinct dates, in order: `in_range` orders by date, and a date
-        # holding both halves is one date cleared, not two.
-        return RangeResult(tuple(dict.fromkeys(row.date for row in rows)))
+        return self.remove_plan(self.removal_plan(start, end))
+
+    def remove_booking(self, booking: RemovalBooking) -> AbsenceResult:
+        """Remove one confirmed booking only while its identity is unchanged."""
+        with write_transaction(self._session):
+            current = self._session.get(AbsenceDay, booking.absence_id)
+            if current is None or snapshot_booking(current) != booking:
+                return AbsenceResult(False, PLAN_CHANGED)
+            self._session.delete(current)
+
+        return AbsenceResult(
+            True,
+            f"{booking.absence_type.label} removed from {short_date(booking.date)}",
+        )
 
     def remove(self, day: date, portion: Portion | None = None) -> AbsenceResult:
         """Remove one portion's booking, or everything booked on the date."""
-        booked = self.for_date(day)
-        if portion is not None:
-            booked = [absence for absence in booked if absence.portion is portion]
-        if not booked:
-            return AbsenceResult(False, "Nothing is booked on that date")
+        with write_transaction(self._session):
+            booked = self.for_date(day)
+            if portion is not None:
+                booked = [absence for absence in booked if absence.portion is portion]
+            if not booked:
+                return AbsenceResult(False, "Nothing is booked on that date")
 
-        removed = booked[0].absence_type.label if len(booked) == 1 else "Absence"
-        for absence in booked:
-            self._session.delete(absence)
-        self._session.commit()
+            removed = booked[0].absence_type.label if len(booked) == 1 else "Absence"
+            for absence in booked:
+                self._session.delete(absence)
         return AbsenceResult(True, f"{removed} removed from {short_date(day)}")
 
 
-def _span_of(session: WorkSession) -> Span:
+def span_of(session: WorkSession) -> Span:
     """When a session ran, resolved.
 
     A session nobody closed is worth the rest of its own day: `LedgerService`

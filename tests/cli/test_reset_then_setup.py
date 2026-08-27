@@ -7,7 +7,7 @@ screen is drawn -- so between the delete and the form there has to be a
 migration, or the command dies with `no such table: settings` having already
 destroyed everything it was asked to destroy.
 
-It shipped like that. `_ask_the_questions` opened the application and left every
+It shipped like that. `ask_the_questions` opened the application and left every
 caller to have migrated first; there were four callers and the reset path,
 added last, did not. The invariant is now established where it is needed rather
 than asserted in the places that happen to remember.
@@ -26,7 +26,7 @@ from flexi.cli import init as init_cli
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services import setup
-from flexi.services.settings import SettingsService
+from flexi.services.settings import SettingsService, parse_settings
 
 LOCATIONS = (
     "flexi.locations",
@@ -51,15 +51,17 @@ def erased(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     engine = create_db_engine(db)
     session = get_session(engine)
     SettingsService(session).save_settings(
-        leave_year_start="04-06",
-        working_days="Mon-Fri",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     session.close()
     engine.dispose()
 
-    setup._INITIALISED.clear()
+    setup.clear_initialisation_cache()
     assert setup.is_initialised(db), "the fixture must start from a set-up machine"
 
     init_cli.reset(db)
@@ -74,7 +76,7 @@ def test_the_records_really_are_gone(erased: Path) -> None:
 
 def test_the_setup_form_opens_after_the_records_are_erased(erased: Path) -> None:
     """The crash somebody hit: erase, then straight into the five questions."""
-    app = main._launch(splash=True)
+    app = main.launch(splash=True)
     try:
         assert app.show_splash, "the first run after a reset earns the animation"
     finally:
@@ -109,7 +111,7 @@ def test_every_way_into_the_application_migrates_first(
 ) -> None:
     """Four callers, one forgot. Assert the seam rather than the callers.
 
-    `_launch` is the only place in `__main__` that constructs the application,
+    `launch` is the only place in `__main__` that constructs the application,
     so this is the one place the invariant has to hold.
 
     Patched at the source modules rather than on `__main__`: neither name is
@@ -128,7 +130,7 @@ def test_every_way_into_the_application_migrates_first(
     monkeypatch.setattr("flexi.models.database.migrate.run_migrations", migrated)
     monkeypatch.setattr("flexi.app.FlexiApp", opened)
 
-    main._launch()
+    main.launch()
 
     assert order == ["migrated", "opened"], "the schema must exist before the app"
 

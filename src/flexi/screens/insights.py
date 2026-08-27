@@ -8,7 +8,7 @@ answers "where am I"; this answers "how did I get here".
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -26,11 +26,22 @@ from flexi.components.charts import (
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import mark_width
 from flexi.components.modules.base import Module
+from flexi.components.options import ModuleOptions, ScreenOptions
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
+from flexi.context import service_app
 from flexi.domain.format import day_month, delta, hm, short_date
 from flexi.domain.period import Period
 from flexi.messages import Scope
+
+__all__ = (
+    "RIBBON_DAYS",
+    "BalanceHistory",
+    "InsightsScreen",
+    "LeaveBurndown",
+    "ShapeOfTheWeeks",
+    "YearAtAGlance",
+)
 
 RIBBON_DAYS = 21
 """Three weeks of strips. Enough to see a pattern, few enough to fit above the
@@ -42,7 +53,7 @@ class BalanceHistory(Module):
 
     WATCHES: ClassVar[Scope] = Scope.ALL
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="balance-history", title="Balance by week", **kwargs)
 
     def compose(self) -> ComposeResult:
@@ -74,7 +85,7 @@ class LeaveBurndown(Module):
 
     WATCHES: ClassVar[Scope] = Scope.ABSENCE | Scope.SETTINGS | Scope.PERIOD
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="leave-burndown", title="Annual leave", **kwargs)
 
     def compose(self) -> ComposeResult:
@@ -101,7 +112,7 @@ class ShapeOfTheWeeks(Module):
 
     WATCHES: ClassVar[Scope] = Scope.ALL
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="week-ribbon", title="Shape of the days", **kwargs)
 
     def compose(self) -> ComposeResult:
@@ -129,7 +140,7 @@ class YearAtAGlance(Module):
 
     WATCHES: ClassVar[Scope] = Scope.ALL
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="year-heatmap", title="The leave year", **kwargs)
 
     def compose(self) -> ComposeResult:
@@ -162,7 +173,7 @@ class InsightsScreen(Screen[None]):
         Binding("escape", "back", "Back", show=True),
     ]
 
-    def __init__(self, period: Period, **kwargs: Any) -> None:
+    def __init__(self, period: Period, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
         # Opens on the leave year rather than inheriting a week: a chart of one
         # week's four bars is a worse answer than the table it came from.
@@ -204,6 +215,14 @@ class InsightsScreen(Screen[None]):
         `LeaveScreen` said that and the app called it on neither, singling the
         dashboard out instead; this screen did not have the method at all.
         """
+        if scope & Scope.SETTINGS:
+            self.period = self.period.with_year_start(
+                service_app(self.app).services.settings.get_leave_year_start()
+            )
+            for header in self.query(AppHeader):
+                header.context = (
+                    f"{short_date(wallclock.today())} · {self.period.label}"
+                )
         for module in self.query(Module):
             module.rebuild_if(scope)
 

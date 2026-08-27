@@ -15,7 +15,9 @@ from flexi import wallclock
 from flexi.cli import report
 from flexi.domain.format import delta, hm, long_date, stamp
 from flexi.services.adjustments import OPENING_BALANCE
-from flexi.services.registry import Services
+from flexi.services.registry import Services, settlement_date, zero_balance
+
+__all__ = ("NO_CALENDAR", "log", "show", "undo", "zero")
 
 NO_CALENDAR = (
     "\nNo bank holiday calendar: days off are counted as working days.\n"
@@ -65,7 +67,7 @@ def zero(
     events that produced the balance stay exactly where they are, and the line
     can be taken back with `flexi balance undo`.
     """
-    when = services.settles_to(as_of)
+    when = settlement_date(as_of)
     standing = services.ledger.balance(when).delta
 
     click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
@@ -73,7 +75,7 @@ def zero(
         click.echo("Left alone.")
         return 0
 
-    result = services.zero_balance(when, reason=reason or OPENING_BALANCE)
+    result = zero_balance(services, when, reason=reason or OPENING_BALANCE)
     if report(result):
         return 1
 

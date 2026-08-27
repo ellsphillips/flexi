@@ -1,22 +1,24 @@
-"""clock events carry the offset that was in force when they were punched
+"""Clock events carry the offset that was in force when they were punched.
 
 Revision ID: 0010
 Revises: 0009
 Create Date: 2026-08-09
 """
 
+from __future__ import annotations
+
 import os
+from collections.abc import Sequence
 from datetime import UTC, datetime, time, timedelta, timezone
-from typing import Sequence, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0010"
-down_revision: Union[str, None] = "0009"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "0009"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 LEGACY_ZONE = "FLEXI_LEGACY_TZ"
 LEGACY_CLOCK = "FLEXI_LEGACY_CLOCK"
@@ -39,7 +41,7 @@ sessions = sa.table(
 )
 
 
-def _zone():
+def _zone() -> ZoneInfo | None:
     name = os.environ.get(LEGACY_ZONE)
     if not name:
         return None
@@ -50,23 +52,31 @@ def _zone():
         raise RuntimeError(msg) from error
 
 
-def _localise(naive, zone):
+def _localise(naive: datetime, zone: ZoneInfo | None) -> datetime:
     if zone is None:
         return naive.astimezone()
     # Pinned to the offset that was in force at that wall time, rather than
     # left carrying the zone: the instant is the same either way, and a fixed
     # offset is what the column stores.
     attached = naive.replace(tzinfo=zone)
-    return attached.astimezone(timezone(attached.utcoffset()))
+    offset = attached.utcoffset()
+    if offset is None:
+        message = f"{naive!r} has no UTC offset in {zone!s}"
+        raise ValueError(message)
+    return attached.astimezone(timezone(offset))
 
 
-def _from_instant(naive_utc, zone):
+def _from_instant(naive_utc: datetime, zone: ZoneInfo | None) -> datetime:
     aware = naive_utc.replace(tzinfo=UTC)
     return aware.astimezone(zone) if zone is not None else aware.astimezone()
 
 
-def _offset_minutes(aware):
-    return int(aware.utcoffset().total_seconds() // 60)
+def _offset_minutes(aware: datetime) -> int:
+    offset = aware.utcoffset()
+    if offset is None:
+        message = f"{aware!r} has no UTC offset"
+        raise ValueError(message)
+    return int(offset.total_seconds() // 60)
 
 
 def upgrade() -> None:
@@ -100,7 +110,7 @@ def upgrade() -> None:
     _repair_auto_closes(zone)
 
 
-def _repair_auto_closes(zone) -> None:
+def _repair_auto_closes(zone: ZoneInfo | None) -> None:
     started = events.alias("started")
     ended = events.alias("ended")
     query = (
@@ -136,12 +146,19 @@ def _repair_auto_closes(zone) -> None:
 
 
 def downgrade() -> None:
-    """Wall back to the instant, for rows a person clocked. Lossy for the
-    repeated hour only when the offset column is missing, which it is not."""
+    """Wall a person's rows back to the instant.
+
+    This is lossy for the repeated hour only when the offset column is missing,
+    which it is not.
+    """
     connection = op.get_bind()
     rows = connection.execute(
-        sa.select(events.c.id, events.c.timestamp, events.c.source,
-                  events.c.utc_offset_minutes)
+        sa.select(
+            events.c.id,
+            events.c.timestamp,
+            events.c.source,
+            events.c.utc_offset_minutes,
+        )
     ).all()
     for row in rows:
         if row.source == SYSTEM or row.timestamp is None:

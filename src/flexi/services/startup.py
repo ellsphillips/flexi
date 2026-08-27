@@ -15,9 +15,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import ClockAction, EventSource
+from flexi.constants import EventSource
 from flexi.models.database.db import WorkSession
-from flexi.models.database.moment import moment_of, punched
+from flexi.models.database.moment import moment_of
+from flexi.services.transactions import atomic
+from flexi.services.work_sessions import stage_clock_out
+
+__all__ = ("close_stale_sessions",)
 
 
 def close_stale_sessions(
@@ -37,28 +41,32 @@ def close_stale_sessions(
 
     stmt = select(WorkSession).where(
         WorkSession.clock_out_id.is_(None),
+        WorkSession.voided.is_(False),
         WorkSession.work_date < today,
     )
     stale = list(session.execute(stmt).scalars())
 
+    if not stale:
+        return []
+
     closed: list[WorkSession] = []
-    for ws in stale:
-        opened = moment_of(ws.clock_in_event)
+    with atomic(session):
+        for ws in stale:
+            opened = moment_of(ws.clock_in_event)
 
-        # If configured close is before clock-in, use 23:59
-        effective_close = auto_close_time
-        if effective_close <= opened.time():
-            effective_close = time(23, 59)
+            # If configured close is before clock-in, use 23:59
+            effective_close = auto_close_time
+            if effective_close < opened.time():
+                effective_close = time(23, 59)
 
-        closed_at = wallclock.local(datetime.combine(ws.work_date, effective_close))
-        event = punched(ClockAction.OUT, closed_at, source=EventSource.SYSTEM)
-        session.add(event)
-        session.flush()
-        ws.clock_out_id = event.id
-        ws.auto_closed = True
-        closed.append(ws)
-
-    if closed:
-        session.commit()
+            closed_at = wallclock.local(datetime.combine(ws.work_date, effective_close))
+            if stage_clock_out(
+                session,
+                ws.id,
+                closed_at,
+                source=EventSource.SYSTEM,
+                auto_closed=True,
+            ):
+                closed.append(ws)
 
     return closed

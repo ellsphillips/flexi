@@ -1,7 +1,7 @@
 """A session left open overnight, seen from the application.
 
 The CLI sweeps stale sessions when it opens the database, in
-`__main__._open_database`. The application never did. So a Tuesday somebody
+`__main__.open_database`. The application never did. So a Tuesday somebody
 forgot to close was still drawn as running when they opened Flexi on Thursday,
 and pressing `/` closed Tuesday's session at Thursday's time -- one work session,
 dated Tuesday, fifty-one hours long, and about forty-three hours of overtime
@@ -31,7 +31,8 @@ from flexi.models.database.db import Base, ClockEvent, WorkSession
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.moment import moment_of
 from flexi.screens.dashboard import DashboardScreen
-from flexi.services.registry import Services
+from flexi.services.registry import build_services
+from flexi.services.settings import parse_settings
 from tests.conftest import sessions_on
 from tests.tui.conftest import WIDE, showing
 
@@ -50,11 +51,13 @@ def left_open(tmp_path: Path) -> Path:
     Base.metadata.create_all(engine)
     session = get_session(engine)
 
-    Services.build(session).settings.save_settings(
-        leave_year_start="04-06",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+    build_services(session).settings.save_settings(
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     event = ClockEvent(
         action=ClockAction.IN, timestamp=MONDAY_NINE.replace(tzinfo=None), source="user"
@@ -77,7 +80,7 @@ async def test_opening_the_application_closes_monday_at_its_own_evening(
             await pilot.pause()
             showing(app, DashboardScreen)
 
-            monday = sessions_on(app.services.session, MONDAY)
+            monday = sessions_on(app._session, MONDAY)
             assert len(monday) == 1
             assert monday[0].clock_out_event is not None, "still running on Tuesday"
             assert monday[0].auto_closed is True
@@ -94,7 +97,7 @@ async def test_pressing_the_clock_key_starts_tuesday_rather_than_ending_monday(
             await pilot.press("slash")
             await pilot.pause()
 
-            monday = sessions_on(app.services.session, MONDAY)
+            monday = sessions_on(app._session, MONDAY)
             assert len(monday) == 1
             assert monday[0].clock_out_event is not None
             worked = moment_of(monday[0].clock_out_event) - moment_of(
@@ -103,5 +106,5 @@ async def test_pressing_the_clock_key_starts_tuesday_rather_than_ending_monday(
             assert worked < timedelta(hours=24), f"Monday was recorded as {worked}"
             assert monday[0].auto_closed is True, "closed by the sweep, not by the key"
 
-            tuesday = sessions_on(app.services.session, TUESDAY_TEN.date())
+            tuesday = sessions_on(app._session, TUESDAY_TEN.date())
             assert len(tuesday) == 1, "the key should have started a new day"

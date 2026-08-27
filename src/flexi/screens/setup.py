@@ -19,9 +19,10 @@ marker has a position on it, and a position is a thing that can be moved.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical
@@ -30,12 +31,34 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Input, Label, Select, Static
 
+from flexi import wallclock
+from flexi.components.options import ScreenOptions, StaticOptions, WidgetOptions
 from flexi.components.wordmark import Wordmark
 from flexi.constants import DEFAULT_DIVISION, Division
-from flexi.screens.settings import ALL_REQUIRED, save_answers
+from flexi.domain import leaveyear
+from flexi.screens.settings import ALL_REQUIRED, parse_answers
 from flexi.services.registry import Services
-from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS
+from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS, parse_entitlement_days
 from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
+
+__all__ = (
+    "ASK_WIDTH",
+    "FIELD_WIDTH",
+    "FORM_WIDTH",
+    "GUTTER",
+    "HEADING_ROWS",
+    "NOTE_WIDTH",
+    "QUESTION_ROWS",
+    "RAIL_WIDTH",
+    "RISE",
+    "SLIDE",
+    "TAIL_ROWS",
+    "Question",
+    "Rail",
+    "SetupScreen",
+    "form_rows",
+    "sized",
+)
 
 GUTTER = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
@@ -71,7 +94,7 @@ exactly as wide as its widest child, so a narrower wordmark sat against its left
 edge -- correctly centred as a block, visibly off-centre as a logo."""
 
 
-def _sized(css: str) -> str:
+def sized(css: str) -> str:
     """Fill the column widths into a stylesheet.
 
     The widths have to be known in Python -- the wordmark is told to be as wide
@@ -92,7 +115,7 @@ def _sized(css: str) -> str:
 class Rail(Static):
     """The line down the left of the form, and the marker travelling on it."""
 
-    DEFAULT_CSS = _sized("""
+    DEFAULT_CSS = sized("""
     Rail { width: RAIL_W; height: auto; }
     """)
 
@@ -100,7 +123,7 @@ class Rail(Static):
     """Which row the marker is on. A float, because it is animated between rows
     and Textual can only interpolate numbers."""
 
-    def __init__(self, rows: int, **kwargs: Any) -> None:
+    def __init__(self, rows: int, **kwargs: Unpack[StaticOptions]) -> None:
         super().__init__(**kwargs)
         self._rows = rows
 
@@ -145,7 +168,7 @@ class Rail(Static):
 class Question(Horizontal):
     """One moment on the rail: a label, a field and a note beyond it."""
 
-    DEFAULT_CSS = _sized("""
+    DEFAULT_CSS = sized("""
     Question {
         height: 1;
         width: auto;
@@ -170,7 +193,13 @@ class Question(Horizontal):
     Question.-live .note { color: $c-muted; }
     """)
 
-    def __init__(self, ask: str, field: Widget, note: str, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        ask: str,
+        field: Widget,
+        note: str,
+        **kwargs: Unpack[WidgetOptions],
+    ) -> None:
         super().__init__(**kwargs)
         self._ask = ask
         self._field = field
@@ -192,7 +221,7 @@ class SetupScreen(Screen[bool]):
         Binding("ctrl+s", "save", "Save"),
     ]
 
-    DEFAULT_CSS = _sized("""
+    DEFAULT_CSS = sized("""
     SetupScreen { align: center middle; background: $c-ink; }
 
     #setup { width: FORM_W; height: auto; }
@@ -215,7 +244,11 @@ class SetupScreen(Screen[bool]):
     """)
 
     def __init__(
-        self, services: Services, *, animate: bool = False, **kwargs: Any
+        self,
+        services: Services,
+        *,
+        animate: bool = False,
+        **kwargs: Unpack[ScreenOptions],
     ) -> None:
         super().__init__(**kwargs)
         self._settings_svc = services.settings
@@ -317,7 +350,7 @@ class SetupScreen(Screen[bool]):
         questions.styles.animate("opacity", value=1.0, duration=RISE, delay=RISE / 2)
         self.query_one("#input-leave-start", Input).focus()
 
-    def on_key(self, event: object) -> None:
+    def on_key(self, event: events.Key) -> None:
         """Any key during the animation cuts to the end of it.
 
         Somebody setting Flexi up a second time should not have to watch it
@@ -326,9 +359,9 @@ class SetupScreen(Screen[bool]):
         """
         if not self.query_one("#setup-questions").has_class("-arrived"):
             self.query_one("#setup-wordmark", Wordmark).skip()
-            event.stop()  # type: ignore[attr-defined]
+            event.stop()
 
-    def on_descendant_focus(self, _event: object) -> None:
+    def on_descendant_focus(self, _event: events.DescendantFocus) -> None:
         self._mark_the_live_question()
 
     def _mark_the_live_question(self) -> None:
@@ -348,29 +381,31 @@ class SetupScreen(Screen[bool]):
     def action_save(self) -> None:
         """Write the answers, or say which one is not an answer yet.
 
-        The entitlement is parsed before anything is written, so a number
-        somebody cannot type does not leave the working pattern committed and
-        the form still open -- the same ordering `SettingsScreen._save` keeps.
+        Every answer is parsed before anything is written, then settings and
+        entitlement commit together -- the same boundary `SettingsScreen._save`
+        uses.
         """
         entitlement_str = self.query_one("#input-entitlement", Input).value.strip()
         if not entitlement_str:
             self.notify(ALL_REQUIRED, severity="error")
             return
         try:
-            entitlement = float(entitlement_str)
-        except ValueError:
-            self.notify("Entitlement must be a number of days", severity="error")
+            entitlement = parse_entitlement_days(entitlement_str)
+        except ValueError as error:
+            self.notify(str(error), severity="error")
             return
 
-        if refusal := save_answers(self, self._settings_svc):
-            self.notify(refusal, severity="error")
+        try:
+            update = parse_answers(self)
+        except ValueError as error:
+            self.notify(str(error), severity="error")
             return
 
         # The leave year, not the calendar year. Setting Flexi up in February
         # against an April leave year files the allowance under the year that
         # has not started, and get_active_entitlement_days then finds nothing.
-        year = self._settings_svc.active_leave_year()
-        self._settings_svc.save_entitlement(year, entitlement)
+        year = leaveyear.active_year(wallclock.today(), *update.leave_year_start)
+        self._settings_svc.save_settings_and_entitlements(update, {year: entitlement})
 
         self.dismiss(True)
 

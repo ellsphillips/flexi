@@ -18,7 +18,12 @@ from sqlalchemy import Engine, text
 from flexi.locations import backups_directory, database_file
 from flexi.models.database.backup import verify
 from flexi.models.database.engine import create_db_engine, get_session
-from flexi.models.database.migrate import backup_database, run_migrations
+from flexi.models.database.migrate import (
+    DatabaseRevision,
+    RevisionState,
+    backup_database,
+    run_migrations,
+)
 
 
 @pytest.fixture
@@ -165,7 +170,7 @@ class TestBackupFailure:
             # rather than starting Alembic up to find out.
             patch(
                 "flexi.models.database.migrate.current_revision",
-                return_value="fake_old",
+                return_value=DatabaseRevision(RevisionState.STAMPED, "fake_old"),
             ),
             pytest.raises(RuntimeError, match="backup failed"),
         ):

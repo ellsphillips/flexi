@@ -101,7 +101,8 @@ started.
 in and straight back out is a slip of the finger, and it is voided rather than
 deleted — the events stay, because they are immutable and the audit trail is the
 point, but the session is absent from the table and from every figure derived
-from it.
+from it. The preference is bounded to 0–3600 seconds and is evaluated only when
+the session is closed, so a later config change never rewrites history.
 
 ### `absence_days`
 

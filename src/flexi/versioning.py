@@ -7,6 +7,8 @@ from packaging.version import InvalidVersion, Version
 
 import flexi
 
+__all__ = ("PYPI_URL", "TIMEOUT_SECONDS", "available_update", "get_pypi_version")
+
 PYPI_URL = "https://pypi.org/pypi/flexi/json"
 TIMEOUT_SECONDS = 5.0
 

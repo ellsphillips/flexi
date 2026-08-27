@@ -211,7 +211,7 @@ def _targets(statement: ast.stmt) -> Iterator[ast.expr]:
 def test_every_class_with_keys_says_what_to_call_it(path: Path) -> None:
     """A binding is filed in the help modal under its owner's `HELP_LABEL`.
 
-    `_label_for` used to look the class name up in a table and fall back to the
+    `label_for` used to look the class name up in a table and fall back to the
     class name itself, so a screen missing from the table filed its keys under
     `LeaveScreen` — which is what the leave screen and its calendar did, for
     eleven keys, silently. A fallback that looks like an answer needs something

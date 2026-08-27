@@ -10,13 +10,13 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, ClassVar, Final
+from typing import ClassVar, Final, Unpack
 
 from rich.style import Style
 from rich.text import Text
-from textual.app import RenderResult
 from textual.widget import Widget
 
+from flexi.components.options import WidgetOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.domain.dates import week_start
 from flexi.domain.format import MINUS, delta, hm
@@ -24,6 +24,21 @@ from flexi.domain.format import days as fmt_days
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window
 from flexi.domain.stitch import weekday_initials
+
+__all__ = (
+    "BASELINE",
+    "BLOCK",
+    "DIVERGING_STEPS",
+    "EMPTY",
+    "FULL",
+    "HEAT",
+    "Burndown",
+    "Column",
+    "DivergingBars",
+    "WeekRibbon",
+    "YearHeatmap",
+    "week_columns",
+)
 
 BLOCK: Final = "█"
 BASELINE: Final = "─"
@@ -69,7 +84,7 @@ class DivergingBars(Widget):
         "chart--figure",
     }
 
-    def __init__(self, *, height: int = 7, **kwargs: Any) -> None:
+    def __init__(self, *, height: int = 7, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self.columns: tuple[Column, ...] = ()
         self.rows = max(3, height)
@@ -78,7 +93,7 @@ class DivergingBars(Widget):
         self.columns = tuple(columns)
         self.refresh()
 
-    def render(self) -> RenderResult:
+    def render(self) -> Text:
         label = self.get_component_rich_style("chart--label")
         if not self.columns:
             return Text("Nothing recorded yet", style=label)
@@ -205,7 +220,7 @@ class Burndown(Widget):
         "chart--figure",
     }
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self.remaining: float | None = None
         self.total: float = 0.0
@@ -215,7 +230,7 @@ class Burndown(Widget):
         self.remaining, self.total, self.pace = remaining, total, pace
         self.refresh()
 
-    def render(self) -> RenderResult:
+    def render(self) -> Text:
         label = self.get_component_rich_style("chart--label")
         if self.remaining is None or self.total <= 0:
             return Text("No entitlement recorded", style=label)
@@ -264,7 +279,11 @@ class WeekRibbon(Widget):
     COMPONENT_CLASSES: ClassVar[set[str]] = {*PUNCH_CLASSES, "chart--label"}
 
     def __init__(
-        self, *, window: Window | None = None, now: datetime, **kwargs: Any
+        self,
+        *,
+        window: Window | None = None,
+        now: datetime,
+        **kwargs: Unpack[WidgetOptions],
     ) -> None:
         super().__init__(**kwargs)
         self.ledgers: tuple[DayLedger, ...] = ()
@@ -284,7 +303,7 @@ class WeekRibbon(Widget):
         self.now = now
         self.refresh()
 
-    def render(self) -> RenderResult:
+    def render(self) -> Text:
         label = self.get_component_rich_style("chart--label")
         if not self.ledgers:
             return Text("Nothing recorded yet", style=label)
@@ -324,7 +343,7 @@ class YearHeatmap(Widget):
         *(f"chart--deficit-{step}" for step in range(1, DIVERGING_STEPS + 1)),
     }
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self.ledgers: dict[date, DayLedger] = {}
         self.scale = timedelta(hours=2)
@@ -343,7 +362,7 @@ class YearHeatmap(Widget):
         self.scale = max(worst, timedelta(hours=2))
         self.refresh()
 
-    def render(self) -> RenderResult:
+    def render(self) -> Text:
         label = self.get_component_rich_style("chart--label")
         if not self.ledgers:
             return Text("Nothing recorded yet", style=label)

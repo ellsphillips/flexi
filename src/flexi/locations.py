@@ -17,13 +17,29 @@ import os
 import sys
 from pathlib import Path
 
+__all__ = (
+    "APP_NAME",
+    "BACKUPS_DIRNAME",
+    "CONFIG_FILENAME",
+    "DATABASE_FILENAME",
+    "absolute_from_env",
+    "backups_directory",
+    "config_directory",
+    "config_file",
+    "config_home",
+    "data_directory",
+    "data_home",
+    "database_file",
+    "ensure",
+)
+
 APP_NAME = "flexi"
 CONFIG_FILENAME = "config.yaml"
 DATABASE_FILENAME = "db.db"
 BACKUPS_DIRNAME = "backups"
 
 
-def _absolute_from_env(variable: str) -> Path | None:
+def absolute_from_env(variable: str) -> Path | None:
     """An absolute path from the environment, or ``None``.
 
     A relative value is ignored rather than resolved against the working
@@ -40,20 +56,20 @@ def _absolute_from_env(variable: str) -> Path | None:
 
 def data_home() -> Path:
     """The root this machine puts application data under."""
-    if (configured := _absolute_from_env("XDG_DATA_HOME")) is not None:
+    if (configured := absolute_from_env("XDG_DATA_HOME")) is not None:
         return configured
     if sys.platform == "win32":
-        local = _absolute_from_env("LOCALAPPDATA")
+        local = absolute_from_env("LOCALAPPDATA")
         return local if local is not None else Path.home() / "AppData" / "Local"
     return Path.home() / ".local" / "share"
 
 
 def config_home() -> Path:
     """The root this machine puts application preferences under."""
-    if (configured := _absolute_from_env("XDG_CONFIG_HOME")) is not None:
+    if (configured := absolute_from_env("XDG_CONFIG_HOME")) is not None:
         return configured
     if sys.platform == "win32":
-        roaming = _absolute_from_env("APPDATA")
+        roaming = absolute_from_env("APPDATA")
         return roaming if roaming is not None else Path.home() / "AppData" / "Roaming"
     return Path.home() / ".config"
 

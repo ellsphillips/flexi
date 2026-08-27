@@ -13,8 +13,19 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
-from flexi.config import CONFIG, Config, Defaults, Hotkeys, load_config
+from flexi.config import (
+    CONFIG,
+    MAXIMUM_MINIMUM_SESSION_SECONDS,
+    MAXIMUM_TICK_SECONDS,
+    Config,
+    Defaults,
+    Hotkeys,
+    load_config,
+    normalise_hotkey,
+    section,
+)
 from flexi.constants import AbsenceType
 
 
@@ -45,6 +56,25 @@ def test_toil_is_booked_under_the_name_it_is_shown_by() -> None:
     `book_flexi`, which does not exist.
     """
     assert Hotkeys().book(AbsenceType.FLEXI) == Hotkeys().book_toil
+
+
+def test_a_list_of_hotkeys_is_canonicalised_before_textual_reads_it() -> None:
+    assert normalise_hotkey(" ctrl+a, shift+b ") == "ctrl+a,shift+b"
+    assert Hotkeys(clock_toggle=" ctrl+a, shift+b ").clock_toggle == ("ctrl+a,shift+b")
+
+
+@pytest.mark.parametrize("value", ["", "   ", ",", "c,", ",c", "ctrl++c", "c d"])
+def test_an_incomplete_hotkey_is_rejected_before_app_import(value: str) -> None:
+    with pytest.raises(ValidationError, match="complete key names"):
+        Hotkeys(clock_toggle=value)
+
+
+def test_a_malformed_hotkey_section_falls_back_to_safe_defaults(
+    tmp_path: Path,
+) -> None:
+    path = written(tmp_path / "config.yaml", "hotkeys:\n  clock_toggle: ','\n")
+
+    assert load_config(path).hotkeys == Hotkeys()
 
 
 # -- reading the file --------------------------------------------------------
@@ -102,6 +132,61 @@ def test_a_value_of_the_wrong_shape_gets_the_defaults(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        pytest.param("minimum_session_seconds", 0, id="zero-length-session"),
+        pytest.param(
+            "minimum_session_seconds",
+            MAXIMUM_MINIMUM_SESSION_SECONDS,
+            id="maximum-session-threshold",
+        ),
+        pytest.param("tick_seconds", 2, id="positive-tick-interval"),
+        pytest.param("tick_seconds", MAXIMUM_TICK_SECONDS, id="maximum-tick-interval"),
+    ],
+)
+def test_timing_boundaries_accept_valid_values(
+    tmp_path: Path, name: str, value: int
+) -> None:
+    """Zero disables only the short-session threshold, never the live clock."""
+    path = written(tmp_path / "config.yaml", f"defaults:\n  {name}: {value}\n")
+
+    assert getattr(load_config(path).defaults, name) == value
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        pytest.param("minimum_session_seconds", -1, id="negative-session-threshold"),
+        pytest.param(
+            "minimum_session_seconds",
+            MAXIMUM_MINIMUM_SESSION_SECONDS + 1,
+            id="excessive-session-threshold",
+        ),
+        pytest.param("tick_seconds", 0, id="zero-tick-interval"),
+        pytest.param("tick_seconds", -1, id="negative-tick-interval"),
+        pytest.param(
+            "tick_seconds",
+            MAXIMUM_TICK_SECONDS + 1,
+            id="excessive-tick-interval",
+        ),
+    ],
+)
+def test_invalid_timing_boundaries_fall_back_only_their_section(
+    tmp_path: Path, name: str, value: int
+) -> None:
+    """Invalid intervals cannot reach Textual or discard every real session."""
+    path = written(
+        tmp_path / "config.yaml",
+        f"hotkeys:\n  clock_toggle: c\ndefaults:\n  {name}: {value}\n",
+    )
+
+    config = load_config(path)
+
+    assert config.hotkeys.clock_toggle == "c"
+    assert config.defaults == Defaults()
+
+
+@pytest.mark.parametrize(
     "line",
     ["  period: fortnight\n", "  first_day_of_week: 9\n"],
 )
@@ -140,6 +225,21 @@ def test_a_bad_section_does_not_take_the_good_one_with_it(tmp_path: Path) -> Non
     assert config.defaults == Defaults(), "and the one that did not falls back"
 
 
+def test_an_unexpected_validator_failure_is_not_hidden_as_bad_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fallback is for invalid preferences, not defects in their validators."""
+
+    def fail(_raw: object) -> Hotkeys:
+        message = "validator defect"
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(Hotkeys, "model_validate", staticmethod(fail))
+
+    with pytest.raises(RuntimeError, match="validator defect"):
+        section(Hotkeys, {})
+
+
 def test_what_the_file_says_is_what_is_used(tmp_path: Path) -> None:
     """The other half of the bargain: a valid file is honoured, field by field."""
     path = written(
@@ -165,3 +265,26 @@ def test_the_module_level_config_is_the_one_the_bindings_read() -> None:
     """
     assert isinstance(CONFIG, Config)
     assert CONFIG.hotkeys.clock_toggle != ""
+
+
+@pytest.mark.parametrize(
+    ("target_name", "attribute", "replacement"),
+    [
+        pytest.param("config", "defaults", Defaults(tick_seconds=2), id="config"),
+        pytest.param("hotkeys", "clock_toggle", "c", id="nested-hotkeys"),
+        pytest.param("defaults", "tick_seconds", 2, id="nested-defaults"),
+    ],
+)
+def test_loaded_config_is_deeply_immutable(
+    tmp_path: Path, target_name: str, attribute: str, replacement: object
+) -> None:
+    """Shared module preferences cannot drift after bindings have read them."""
+    config = load_config(tmp_path / "never-written.yaml")
+    targets = {
+        "config": config,
+        "hotkeys": config.hotkeys,
+        "defaults": config.defaults,
+    }
+
+    with pytest.raises(ValidationError, match="Instance is frozen"):
+        setattr(targets[target_name], attribute, replacement)

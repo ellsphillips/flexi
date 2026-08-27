@@ -26,14 +26,65 @@ from __future__ import annotations
 
 import enum
 import re
-from datetime import date, datetime, timedelta
+from collections.abc import Mapping
+from datetime import date, timedelta
+from types import MappingProxyType
 from typing import Final
 
 from flexi.domain import leaveyear
 from flexi.domain.format import stamp
 
+__all__ = (
+    "DATE_HELP",
+    "DATE_RANGE_ERROR",
+    "DAYS_IN_WEEK",
+    "DAY_NAMES",
+    "FORMATS",
+    "LEAP_SENTINEL_YEAR",
+    "MONTHS_IN_YEAR",
+    "MONTH_NAMES",
+    "OFFSET_UNITS",
+    "RELATIVE_DAYS",
+    "SEPARATORS",
+    "SHORTEST_DAY_NAME",
+    "Preference",
+    "add_days",
+    "add_months",
+    "days_between",
+    "forward_if_passed",
+    "month_index",
+    "parse_date",
+    "parse_day_of_month",
+    "parse_offset",
+    "parse_span",
+    "parse_weekday",
+    "parse_written",
+    "relative_to",
+    "resolve_month_day",
+    "week_start",
+    "weekday_index",
+)
+
 DAYS_IN_WEEK: Final = 7
 MONTHS_IN_YEAR: Final = 12
+LEAP_SENTINEL_YEAR: Final = 2000
+"""A leap year used only to validate a month-and-day pair."""
+
+MONTH_NAMES: Final[tuple[str, ...]] = (
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+)
+"""English month names, independent of the process locale."""
 
 DAY_NAMES: Final[tuple[str, ...]] = (
     "monday",
@@ -52,20 +103,22 @@ decide the answer has changed."""
 SHORTEST_DAY_NAME: Final = 3
 """Mon, Tue, Wed -- shorter than that and Tue and Thu are the same word."""
 
-OFFSET_UNITS: Final[dict[str, int]] = {"d": 1, "w": 7}
+OFFSET_UNITS: Final[Mapping[str, int]] = MappingProxyType({"d": 1, "w": 7})
 
-RELATIVE_DAYS: Final[dict[str, int]] = {
-    "today": 0,
-    "tomorrow": 1,
-    "yesterday": -1,
-    "next week": DAYS_IN_WEEK,
-    "last week": -DAYS_IN_WEEK,
-}
+RELATIVE_DAYS: Final[Mapping[str, int]] = MappingProxyType(
+    {
+        "today": 0,
+        "tomorrow": 1,
+        "yesterday": -1,
+        "next week": DAYS_IN_WEEK,
+        "last week": -DAYS_IN_WEEK,
+    }
+)
 """Dates named by their distance from the reference day, in words."""
 
 SEPARATORS: Final[tuple[str, ...]] = (" to ", " until ", " through ", "..")
 
-_FORMATS: Final[tuple[str, ...]] = (
+FORMATS: Final[tuple[str, ...]] = (
     "%d %b %Y",
     "%d %B %Y",
     "%d %b",
@@ -79,7 +132,10 @@ _FORMATS: Final[tuple[str, ...]] = (
     "%d-%m-%Y",
 )
 
-_HELP: Final = "Try 2026-06-12, 12 Jun, friday, next monday, tomorrow, 12, or +3d"
+DATE_HELP: Final = "Try 2026-06-12, 12 Jun, friday, next monday, tomorrow, 12, or +3d"
+DATE_RANGE_ERROR: Final = (
+    f"Date falls outside {date.min.isoformat()} to {date.max.isoformat()}"
+)
 
 
 class Preference(enum.Enum):
@@ -122,6 +178,10 @@ def parse_date(
     # first that answers wins and the rest are never called -- and each reader
     # keeps the signature it deserves instead of a uniform one that had three
     # of them `del` an argument they never read.
+    # No `OverflowError` guard here: every reader converts its own, so one
+    # wrapped around all five could not fire. The range error a caller sees
+    # comes from the reader that computed the date, which is the one that knows
+    # what was being asked for.
     found = (
         relative_to(text, reference)
         or parse_weekday(text, reference)
@@ -130,7 +190,7 @@ def parse_date(
         or parse_day_of_month(text, reference, prefer)
     )
     if found is None:
-        raise ValueError(_HELP)
+        raise ValueError(DATE_HELP)
     return found
 
 
@@ -190,7 +250,7 @@ def relative_to(text: str, reference: date) -> date | None:
         True
     """
     offset = RELATIVE_DAYS.get(text)
-    return None if offset is None else reference + timedelta(days=offset)
+    return None if offset is None else add_days(reference, offset)
 
 
 def weekday_index(name: str) -> int | None:
@@ -218,6 +278,32 @@ def weekday_index(name: str) -> int | None:
     )
 
 
+def month_index(name: str) -> int | None:
+    """An English month number, from its full name or three-letter form.
+
+    The vocabulary is data owned by Flexi rather than ``strptime`` state owned
+    by the process locale. A date saved or typed in English therefore means the
+    same thing on every machine.
+
+    Examples:
+        >>> month_index("June")
+        6
+        >>> month_index("sep")
+        9
+        >>> month_index("juin") is None
+        True
+    """
+    token = name.strip().lower()
+    return next(
+        (
+            index
+            for index, month in enumerate(MONTH_NAMES, start=1)
+            if token == month or token == month[:3]
+        ),
+        None,
+    )
+
+
 def parse_weekday(text: str, reference: date) -> date | None:
     """A weekday name, optionally with ``next`` or ``last`` in front of it.
 
@@ -236,15 +322,15 @@ def parse_weekday(text: str, reference: date) -> date | None:
         if word == "next":
             # Never the same day: "next friday" on a Friday means the one coming.
             ahead = (target - reference.weekday()) % DAYS_IN_WEEK
-            return reference + timedelta(days=ahead or DAYS_IN_WEEK)
+            return add_days(reference, ahead or DAYS_IN_WEEK)
         # And "last friday" said on a Friday means the one just gone.
         behind = (reference.weekday() - target) % DAYS_IN_WEEK
-        return reference - timedelta(days=behind or DAYS_IN_WEEK)
+        return add_days(reference, -(behind or DAYS_IN_WEEK))
 
     bare = weekday_index(text)
     if bare is not None:
         # A bare weekday is the next one, and the reference day counts as itself.
-        return reference + timedelta(days=(bare - reference.weekday()) % DAYS_IN_WEEK)
+        return add_days(reference, (bare - reference.weekday()) % DAYS_IN_WEEK)
     return None
 
 
@@ -265,7 +351,7 @@ def parse_offset(text: str, reference: date) -> date | None:
         return None
     unit, count = text[-1], int(text[:-1])
     if unit in OFFSET_UNITS:
-        return reference + timedelta(days=count * OFFSET_UNITS[unit])
+        return add_days(reference, count * OFFSET_UNITS[unit])
     if unit == "m":
         return add_months(reference, count)
     return add_months(reference, count * MONTHS_IN_YEAR)
@@ -289,23 +375,38 @@ def parse_written(
     except ValueError:
         pass
 
-    for pattern in _FORMATS:
-        dated, dated_pattern = (
-            (text, pattern)
-            if "%Y" in pattern
-            # A year-less pattern defaults to 1900, which is not a leap year, so
-            # "29 feb" raises rather than parsing. Python 3.15 changes the
-            # default besides. Supplying a year takes the question away.
-            else (f"{text} {reference.year}", f"{pattern} %Y")
-        )
+    numeric = re.fullmatch(
+        r"(?P<day>\d{1,2})/(?P<month>\d{1,2})(?:/(?P<year>\d{4}))?", text
+    ) or re.fullmatch(r"(?P<day>\d{1,2})-(?P<month>\d{1,2})-(?P<year>\d{4})", text)
+    if numeric is not None:
+        day = int(numeric["day"])
+        month = int(numeric["month"])
+        year = int(numeric["year"]) if numeric["year"] is not None else None
+    else:
+        year_text: str | None
+        match text.split():
+            case [first, second]:
+                year_text = None
+            case [first, second, candidate] if re.fullmatch(r"\d{4}", candidate):
+                year_text = candidate
+            case _:
+                return None
+        first_month = month_index(first)
+        second_month = month_index(second)
+        if first_month is not None and second.isdigit():
+            day, month = int(second), first_month
+        elif first.isdigit() and second_month is not None:
+            day, month = int(first), second_month
+        else:
+            return None
+        year = int(year_text) if year_text is not None else None
+
+    if year is not None:
         try:
-            parsed = datetime.strptime(dated, dated_pattern).date()  # noqa: DTZ007
+            return date(year, month, day)
         except ValueError:
-            continue
-        if "%Y" in pattern:
-            return parsed
-        return forward_if_passed(parsed, reference, prefer)
-    return None
+            return None
+    return resolve_month_day(month, day, reference, prefer)
 
 
 def parse_day_of_month(
@@ -352,7 +453,7 @@ def parse_day_of_month(
     try:
         return reference.replace(day=day)
     except ValueError as error:
-        msg = f"{reference:%B} has no day {day}"
+        msg = f"{MONTH_NAMES[reference.month - 1].title()} has no day {day}"
         raise ValueError(msg) from error
 
 
@@ -376,7 +477,27 @@ def add_months(when: date, count: int) -> date:
     """
     total = when.year * MONTHS_IN_YEAR + (when.month - 1) + count
     year, month = divmod(total, MONTHS_IN_YEAR)
-    return leaveyear.clamp(year, month + 1, when.day)
+    try:
+        return leaveyear.clamp(year, month + 1, when.day)
+    except (OverflowError, ValueError) as error:
+        raise ValueError(DATE_RANGE_ERROR) from error
+
+
+def add_days(when: date, count: int) -> date:
+    """Move a date by whole days, reporting the supported range intentionally.
+
+    ``timedelta`` and date addition both raise ``OverflowError`` for an enormous
+    offset. User-input boundaries catch ``ValueError``; normalising here keeps
+    every public reader on that one deliberate failure contract.
+
+    Examples:
+        >>> add_days(date(2026, 8, 10), 3)
+        datetime.date(2026, 8, 13)
+    """
+    try:
+        return when + timedelta(days=count)
+    except OverflowError as error:
+        raise ValueError(DATE_RANGE_ERROR) from error
 
 
 def week_start(when: date, *, first_weekday: int) -> date:
@@ -399,7 +520,7 @@ def week_start(when: date, *, first_weekday: int) -> date:
         >>> week_start(date(2026, 6, 8), first_weekday=0)
         datetime.date(2026, 6, 8)
     """
-    return when - timedelta(days=(when.weekday() - first_weekday) % DAYS_IN_WEEK)
+    return add_days(when, -((when.weekday() - first_weekday) % DAYS_IN_WEEK))
 
 
 def days_between(start: date, end: date) -> list[date]:
@@ -439,5 +560,48 @@ def forward_if_passed(
         datetime.date(2027, 6, 12)
     """
     if prefer is Preference.FORWARD and parsed < reference:
-        return add_months(parsed, MONTHS_IN_YEAR)
+        return resolve_month_day(
+            parsed.month, parsed.day, reference, Preference.FORWARD
+        )
     return parsed
+
+
+def resolve_month_day(
+    month: int,
+    day: int,
+    reference: date,
+    prefer: Preference = Preference.CURRENT,
+) -> date:
+    """Resolve an exact month and day against a reference date.
+
+    ``CURRENT`` uses the reference year. ``FORWARD`` finds the next exact
+    occurrence, never clamping an explicit ``29 February`` to the 28th.
+
+    Examples:
+        >>> resolve_month_day(2, 29, date(2026, 8, 10), Preference.FORWARD)
+        datetime.date(2028, 2, 29)
+        >>> resolve_month_day(2, 29, date(2028, 3, 1), Preference.FORWARD)
+        datetime.date(2032, 2, 29)
+    """
+    try:
+        date(LEAP_SENTINEL_YEAR, month, day)
+    except ValueError as error:
+        msg = f"{day}/{month} is not a valid calendar day"
+        raise ValueError(msg) from error
+
+    if prefer is Preference.CURRENT:
+        try:
+            return date(reference.year, month, day)
+        except ValueError as error:
+            msg = f"{MONTH_NAMES[month - 1].title()} {reference.year} has no day {day}"
+            raise ValueError(msg) from error
+
+    for year in range(reference.year, date.max.year + 1):
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if candidate >= reference:
+            return candidate
+
+    raise ValueError(DATE_RANGE_ERROR)

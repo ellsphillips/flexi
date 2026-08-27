@@ -11,12 +11,13 @@ the point of the figure is that there is not one.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.widgets import Digits, Static
 
 from flexi.components.modules.base import Module
+from flexi.components.options import ModuleOptions
 from flexi.domain.format import (
     delta,
     digits,
@@ -28,6 +29,8 @@ from flexi.domain.format import (
 )
 from flexi.messages import Scope
 
+__all__ = ("STATE_CLASSES", "BalanceModule", "lean_class")
+
 STATE_CLASSES = ("surplus", "deficit", "muted")
 
 
@@ -36,7 +39,7 @@ class BalanceModule(Module):
 
     WATCHES: ClassVar[Scope] = Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="balance-module", title="Balance", **kwargs)
 
     def compose(self) -> ComposeResult:

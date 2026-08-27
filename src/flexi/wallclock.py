@@ -23,16 +23,31 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
+from typing import Final
 
+__all__ = (
+    "advance",
+    "elapsed",
+    "local",
+    "now",
+    "pinned",
+    "require_aware",
+    "today",
+    "utc_now",
+)
 
-class _Pin:
-    """The zone every reading is taken in, or ``None`` for the machine's own."""
+_PINNED_ZONE: Final[ContextVar[tzinfo | None]] = ContextVar(
+    "flexi.wallclock.pinned_zone", default=None
+)
+"""The context-local zone every reading uses, or ``None`` for the machine's.
 
-    zone: tzinfo | None = None
-
-
-_PIN = _Pin()
+Private because a public handle on it is a way for anything to move the clock
+out from under everything else. `pinned` is the seam; this is where it keeps
+its state. Context-local rather than process-global so overlapping async tasks
+and threads cannot change one another's reading.
+"""
 
 
 @contextmanager
@@ -50,11 +65,11 @@ def pinned(zone: tzinfo | None) -> Iterator[None]:
     name. This works the same everywhere, because it is the one function that
     reads the zone rather than the environment underneath it.
     """
-    previous, _PIN.zone = _PIN.zone, zone
+    token = _PINNED_ZONE.set(zone)
     try:
         yield
     finally:
-        _PIN.zone = previous
+        _PINNED_ZONE.reset(token)
 
 
 def now() -> datetime:
@@ -102,7 +117,7 @@ def local(moment: datetime) -> datetime:
     Either way the result carries a fixed offset rather than a zone, which is
     what makes it subtract through UTC instead of as wall time.
     """
-    zone = _PIN.zone
+    zone = _PINNED_ZONE.get()
     if zone is None:
         return moment.astimezone()
     # The same two readings as above, taken against the pinned zone instead of
@@ -112,3 +127,38 @@ def local(moment: datetime) -> datetime:
     anchored = moment.replace(tzinfo=zone) if moment.tzinfo is None else moment
     settled = anchored.astimezone(zone)
     return settled.replace(tzinfo=timezone(settled.utcoffset() or timedelta()))
+
+
+def require_aware(moment: datetime, *, name: str = "moment") -> datetime:
+    """Return an aware moment, or reject a wall reading with no instant.
+
+    Elapsed-time arithmetic cannot guess which zone a naive reading belongs to,
+    particularly in the hour that happens twice. Conversion of a deliberate
+    wall reading belongs at :func:`local`; elapsed operations use this boundary.
+    """
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        msg = f"{name} must be timezone-aware"
+        raise ValueError(msg)
+    return moment
+
+
+def elapsed(start: datetime, end: datetime) -> timedelta:
+    """Real elapsed time between two aware moments.
+
+    Converting each end to UTC avoids Python's wall-time subtraction rule for
+    two datetimes carrying the same ``ZoneInfo`` object across a transition.
+    """
+    beginning = require_aware(start, name="start")
+    finish = require_aware(end, name="end")
+    return finish.astimezone(UTC) - beginning.astimezone(UTC)
+
+
+def advance(moment: datetime, duration: timedelta) -> datetime:
+    """Advance an aware moment by elapsed time and return its new local reading.
+
+    A fixed-offset reading deliberately forgets the zone's future rules. Adding
+    in UTC and passing the resulting instant through :func:`local` restores the
+    offset in force at the destination, including either side of DST.
+    """
+    instant = require_aware(moment).astimezone(UTC) + duration
+    return local(instant)

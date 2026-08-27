@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, event, pool
+from sqlalchemy.engine import Engine
 
 from flexi.models.database.db import Base
 from flexi.models.database.engine import enforce_foreign_keys
@@ -37,9 +40,12 @@ def run_migrations_online() -> None:
     Running `alembic` from the command line passes no engine and still reads
     `alembic.ini` as it always did.
     """
-    connectable = config.attributes.get("engine")
-    if connectable is not None:
-        with connectable.connect() as connection:
+    provided_engine = config.attributes.get("engine")
+    if provided_engine is not None:
+        if not isinstance(provided_engine, Engine):
+            message = "Alembic's injected 'engine' attribute must be an Engine"
+            raise TypeError(message)
+        with provided_engine.connect() as connection:
             context.configure(connection=connection, target_metadata=target_metadata)
             with context.begin_transaction():
                 context.run_migrations()

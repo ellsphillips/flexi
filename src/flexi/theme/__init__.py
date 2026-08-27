@@ -16,12 +16,24 @@ from collections.abc import Mapping
 from functools import cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Protocol
 
 from flexi.domain.punch import Cell
 
 if TYPE_CHECKING:
     from textual.theme import Theme
+else:
+
+    class Theme(Protocol):
+        """Runtime shape of the Textual theme returned by :func:`flexi_theme`.
+
+        Static consumers see :class:`textual.theme.Theme`; runtime annotation
+        tools see this lightweight protocol, so reading the shared palette does
+        not import the widget toolkit merely to resolve a return annotation.
+        """
+
+        name: str
+
 
 # The rail. Flexi's structural vocabulary, kept beside the palette because it
 # is part of the same design system: a line down the left margin, heavy through
@@ -62,38 +74,40 @@ THEME_PATH: Final[Path] = Path(__file__).with_name("flexi.tcss")
 # Matches only top-level `$name: value;` declarations holding a literal. A value
 # containing `$` is skipped deliberately: the parser does no substitution, and a
 # half-resolved colour would be worse than an absent one.
-_PALETTE_DECLARATION: Final = re.compile(
+PALETTE_DECLARATION: Final = re.compile(
     r"^\s*\$([a-z0-9-]+)\s*:\s*([^;${}]+);", re.MULTILINE
 )
 
 # Fallbacks, used only if the stylesheet cannot be read. They are the same
 # values as the PALETTE block; a mismatch here is a bug, and
 # `tests/test_theme.py` asserts the two agree.
-_FALLBACK: Final[dict[str, str]] = {
-    # Every colour Python asks for by name. The other twenty-six declarations
-    # in the stylesheet are only ever read as `$c-...` from the stylesheet
-    # itself, which could not be read at all if it could not be parsed -- so a
-    # fallback for one of those would answer a question nobody could ask.
-    #
-    # Five of these were also written out as literal `fallback=` arguments at
-    # call sites, where three were unreachable, so the module that says there
-    # is "exactly one place where a colour is written down" had three.
-    "c-ink": "#0F0E0D",
-    "c-surface": "#171614",
-    "c-raised": "#201E1B",
-    "c-line": "#2E2B27",
-    "c-line-soft": "#232019",
-    "c-ash": "#7A736A",
-    "c-paper": "#EDE9E3",
-    "c-cream": "#FAF8F4",
-    "c-muted": "#9C948A",
-    "c-accent": "#00AAAD",
-    "c-accent-lift": "#4CDCDF",
-    "c-accent-deep": "#003031",
-    "c-surplus": "#2E9E52",
-    "c-deficit": "#CE3E5D",
-    "c-warning": "#C38406",
-}
+FALLBACK: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        # Every colour Python asks for by name. The other twenty-six declarations
+        # in the stylesheet are only ever read as `$c-...` from the stylesheet
+        # itself, which could not be read at all if it could not be parsed -- so a
+        # fallback for one of those would answer a question nobody could ask.
+        #
+        # Five of these were also written out as literal `fallback=` arguments at
+        # call sites, where three were unreachable, so the module that says there
+        # is "exactly one place where a colour is written down" had three.
+        "c-ink": "#0F0E0D",
+        "c-surface": "#171614",
+        "c-raised": "#201E1B",
+        "c-line": "#2E2B27",
+        "c-line-soft": "#232019",
+        "c-ash": "#7A736A",
+        "c-paper": "#EDE9E3",
+        "c-cream": "#FAF8F4",
+        "c-muted": "#9C948A",
+        "c-accent": "#00AAAD",
+        "c-accent-lift": "#4CDCDF",
+        "c-accent-deep": "#003031",
+        "c-surplus": "#2E9E52",
+        "c-deficit": "#CE3E5D",
+        "c-warning": "#C38406",
+    }
+)
 
 
 @cache
@@ -113,11 +127,9 @@ def palette(path: Path = THEME_PATH) -> Mapping[str, str]:
     try:
         source = path.read_text(encoding="utf-8")
     except OSError:
-        return MappingProxyType(dict(_FALLBACK))
-    found = {
-        name: value.strip() for name, value in _PALETTE_DECLARATION.findall(source)
-    }
-    return MappingProxyType(found or dict(_FALLBACK))
+        return MappingProxyType(dict(FALLBACK))
+    found = {name: value.strip() for name, value in PALETTE_DECLARATION.findall(source)}
+    return MappingProxyType(found or dict(FALLBACK))
 
 
 def colour(name: str, fallback: str = "#FF00FF") -> str:
@@ -126,7 +138,7 @@ def colour(name: str, fallback: str = "#FF00FF") -> str:
     The default is magenta on purpose: a colour that fell through to it is
     meant to be found in the first screenshot, not to blend in.
     """
-    return palette().get(name, _FALLBACK.get(name, fallback))
+    return palette().get(name, FALLBACK.get(name, fallback))
 
 
 def theme_variables() -> dict[str, str]:
@@ -186,9 +198,9 @@ def flexi_theme() -> Theme:
     green, so a Textual-native widget reporting state lands on the same two
     colours the balance uses.
     """
-    from textual.theme import Theme
+    from textual.theme import Theme as TextualTheme
 
-    return Theme(
+    return TextualTheme(
         name=THEME_NAME,
         primary=colour("c-accent"),
         # Green: Textual reaches for `secondary` on a handful of widget accents,
@@ -207,19 +219,22 @@ def flexi_theme() -> Theme:
     )
 
 
-__all__ = [
+__all__ = (
     "CELL_GLYPHS",
     "CURSOR",
+    "FALLBACK",
     "MARK_DONE",
     "MARK_GRAVE",
     "MARK_LIVE",
+    "PALETTE_DECLARATION",
     "RAIL_LIVE",
     "RAIL_SETTLED",
     "TAIL",
     "THEME_NAME",
     "THEME_PATH",
+    "Theme",
     "colour",
     "flexi_theme",
     "palette",
     "theme_variables",
-]
+)

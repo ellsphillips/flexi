@@ -23,6 +23,8 @@ from enum import Enum
 from flexi.constants import AbsenceType
 from flexi.domain.balance import BalanceSummary
 
+__all__ = ("PACE_TOLERANCE", "Allowance", "Pace", "WalletData")
+
 PACE_TOLERANCE = 0.15
 """How far ahead of an even spread an allowance may run before it is flagged.
 

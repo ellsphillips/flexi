@@ -25,7 +25,7 @@ def _elsewhere(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "flexi.services.setup.database_file", lambda: tmp_path / "db.db"
     )
-    setup._INITIALISED.clear()
+    setup.clear_initialisation_cache()
 
 
 def _run(*args: str) -> click.testing.Result:
@@ -107,11 +107,16 @@ def test_a_half_filled_settings_row_is_not_ready(tmp_path: Path) -> None:
     assert setup.is_initialised(db) is False
 
 
-def test_the_answer_is_remembered_but_only_when_it_is_yes(tmp_path: Path) -> None:
+def test_the_answer_is_remembered_but_only_when_it_is_yes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """False can become true at any moment; nothing should have to invalidate it."""
     db = tmp_path / "db.db"
     assert setup.is_initialised(db) is False
-    assert db not in setup._INITIALISED
+    db.touch()
+    monkeypatch.setattr(setup, "stamped_and_configured", lambda _path: True)
+
+    assert setup.is_initialised(db) is True
 
 
 def test_the_bare_command_sets_itself_up_rather_than_refusing(
@@ -125,7 +130,7 @@ def test_the_bare_command_sets_itself_up_rather_than_refusing(
     """
     opened: list[str] = []
     monkeypatch.setattr(
-        "flexi.__main__._ask_the_questions",
+        "flexi.__main__.ask_the_questions",
         lambda *_args, **_kwargs: opened.append("setup"),
     )
     monkeypatch.setattr("flexi.models.database.migrate.run_migrations", lambda: None)

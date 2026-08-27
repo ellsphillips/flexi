@@ -6,6 +6,8 @@ difference between "no holidays" and "could not tell" has to survive the cache.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, TypedDict
@@ -16,8 +18,13 @@ import pytest
 from sqlalchemy.orm import Session
 
 from flexi.constants import Division
-from flexi.models.database.db import BankHolidayCache
-from flexi.services.bank_holidays import BankHolidayService
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
+from flexi.services.bank_holidays import (
+    BankHolidayService,
+    ParsedBankHoliday,
+    fetch_bank_holiday_index,
+    parse_bank_holidays,
+)
 
 
 def reading(division: Division) -> Callable[[], Division]:
@@ -54,6 +61,23 @@ SAMPLE_RESPONSE: dict[str, DivisionPayload] = {
 }
 
 
+def test_importing_the_service_does_not_import_the_http_client() -> None:
+    """Cache-only commands keep the network stack off their startup path."""
+    script = """
+import sys
+
+before = set(sys.modules)
+import flexi.services.bank_holidays
+introduced = set(sys.modules) - before
+if "httpx" in introduced:
+    raise AssertionError("importing bank_holidays eagerly imported httpx")
+"""
+    subprocess.run(  # noqa: S603 - fixed interpreter and in-repository script
+        [sys.executable, "-c", script],
+        check=True,
+    )
+
+
 def _answering(payload: object, status: int = 200) -> Callable[..., httpx.Response]:
     """A stand-in for GOV.UK, shaped like the real index.
 
@@ -72,6 +96,7 @@ def _answering(payload: object, status: int = 200) -> Callable[..., httpx.Respon
 def _seed_cache(session: Session, division: str = "england-and-wales") -> None:
     """Insert sample bank holidays directly into the cache table."""
     now = datetime.now(tz=UTC).replace(tzinfo=None)
+    session.add(BankHolidayRefresh(division=division, fetched_at=now))
     known = SAMPLE_RESPONSE.get(division)
     for ev in known["events"] if known else ():
         session.add(
@@ -79,7 +104,6 @@ def _seed_cache(session: Session, division: str = "england-and-wales") -> None:
                 division=division,
                 date=date.fromisoformat(ev["date"]),
                 title=ev["title"],
-                fetched_at=now,
             )
         )
     session.commit()
@@ -112,12 +136,17 @@ class TestStaleRefresh:
     def test_stale_cache_triggers_refresh(self, session: Session) -> None:
         # Insert old entries
         old = datetime.now(tz=UTC) - timedelta(days=10)
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2026, 1, 1),
-                title="Old",
-                fetched_at=old.replace(tzinfo=None),
+        session.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=old.replace(tzinfo=None),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2026, 1, 1),
+                    title="Old",
+                ),
             )
         )
         session.commit()
@@ -191,12 +220,17 @@ class TestFetchingTheIndex:
         refresh that merged would leave the withdrawn date behind for ever and
         the calendar would slowly fill with holidays that are not holidays.
         """
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2026, 7, 4),
-                title="Withdrawn",
-                fetched_at=datetime(2020, 1, 1),
+        session.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=datetime(2020, 1, 1),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2026, 7, 4),
+                    title="Withdrawn",
+                ),
             )
         )
         session.commit()
@@ -228,45 +262,65 @@ class TestFetchingTheIndex:
             is None
         )
 
-    def test_a_division_the_index_does_not_carry_caches_nothing(
-        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param([], id="the root is a list"),
+            pytest.param({"england-and-wales": []}, id="the division is a list"),
+            pytest.param(
+                {"england-and-wales": {"events": None}},
+                id="events is not a list",
+            ),
+            pytest.param(
+                {"england-and-wales": {"events": [None]}}, id="an event is null"
+            ),
+            pytest.param(
+                {
+                    "england-and-wales": {
+                        "events": [{"title": "Nonsense", "date": "someday"}]
+                    }
+                },
+                id="a date is malformed",
+            ),
+            pytest.param(
+                {
+                    "england-and-wales": {
+                        "events": [{"title": None, "date": "2026-01-01"}]
+                    }
+                },
+                id="a title is malformed",
+            ),
+            pytest.param(
+                {
+                    "england-and-wales": {
+                        "events": [
+                            {"title": "First name", "date": "2026-01-01"},
+                            {"title": "Second name", "date": "2026-01-01"},
+                        ]
+                    }
+                },
+                id="two events claim the same date",
+            ),
+            pytest.param({}, id="the configured division is missing"),
+        ],
+    )
+    def test_a_malformed_response_leaves_the_old_calendar_standing(
+        self,
+        session: Session,
+        monkeypatch: pytest.MonkeyPatch,
+        payload: object,
     ) -> None:
-        """Northern Ireland is missing from this payload, so there is no calendar.
-
-        `is_available` must still say no, because "fetched successfully and
-        found nothing" is exactly the state that makes the ledger charge a full
-        day against every bank holiday.
-        """
-        svc = BankHolidayService(session, reading(Division.NORTHERN_IRELAND))
-        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
-
-        assert svc.fetch_and_cache() is True
-        assert svc.is_available() is False
-
-    def test_an_event_that_cannot_be_read_costs_only_itself(
-        self, session: Session, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """One malformed entry must not cost the year.
-
-        The whole payload is parsed in one pass, so a date GOV.UK writes in a
-        shape `date.fromisoformat` cannot read — or an entry with no date at
-        all — would otherwise take every holiday after it down with it.
-        """
-        payload = {
-            "england-and-wales": {
-                "events": [
-                    {"title": "New Year's Day", "date": "2026-01-01"},
-                    {"title": "Nonsense", "date": "the third of June"},
-                    {"title": "Dateless"},
-                    {"title": "Christmas Day", "date": "2026-12-25"},
-                ]
-            }
-        }
+        """A partial new calendar is less trustworthy than the complete old one."""
+        _seed_cache(session)
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         monkeypatch.setattr(httpx.Client, "get", _answering(payload))
 
-        assert svc.fetch_and_cache() is True
-        assert svc.get_dates() == {date(2026, 1, 1), date(2026, 12, 25)}
+        assert svc.fetch_and_cache() is False
+        assert svc.get_dates() == {
+            date(2026, 1, 1),
+            date(2026, 4, 3),
+            date(2026, 12, 25),
+        }
 
     def test_an_event_with_no_title_is_still_a_day_off(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
@@ -279,6 +333,98 @@ class TestFetchingTheIndex:
         assert svc.fetch_and_cache() is True
         assert svc.holiday_on(date(2026, 1, 1)) is not None
         assert svc.holiday_on(date(2026, 1, 1)) == ""
+
+    def test_the_public_parser_returns_typed_immutable_events(self) -> None:
+        assert parse_bank_holidays(SAMPLE_RESPONSE, Division.SCOTLAND) == (
+            ParsedBankHoliday(date=date(2026, 1, 1), title="New Year's Day"),
+            ParsedBankHoliday(date=date(2026, 11, 30), title="St Andrew's Day"),
+        )
+
+    def test_the_fetch_boundary_is_a_free_injectable_function(
+        self, session: Session
+    ) -> None:
+        """Persistence depends on a callable, not on an HTTP client class."""
+        asked = 0
+
+        def fetch() -> object:
+            nonlocal asked
+            asked += 1
+            return SAMPLE_RESPONSE
+
+        service = BankHolidayService(
+            session,
+            reading(Division.SCOTLAND),
+            fetch,
+        )
+
+        assert service.fetch_and_cache() is True
+        assert asked == 1
+        assert service.get_dates() == {date(2026, 1, 1), date(2026, 11, 30)}
+
+    def test_a_supplied_payload_can_be_cached_without_fetching(
+        self, session: Session
+    ) -> None:
+        """Hosts may separate network I/O from their persistence context."""
+
+        def unexpected_fetch() -> object:
+            pytest.fail("cache_payload must not invoke the fetch boundary")
+
+        service = BankHolidayService(
+            session,
+            reading(Division.SCOTLAND),
+            unexpected_fetch,
+        )
+
+        assert service.cache_payload(SAMPLE_RESPONSE) is True
+        assert service.get_dates() == {date(2026, 1, 1), date(2026, 11, 30)}
+
+    def test_an_invalid_supplied_payload_preserves_the_existing_calendar(
+        self, session: Session
+    ) -> None:
+        _seed_cache(session, "scotland")
+        service = BankHolidayService(session, reading(Division.SCOTLAND))
+        before = service.get_dates()
+
+        assert service.cache_payload(None) is False
+        assert service.get_dates() == before
+
+    def test_the_default_fetch_boundary_is_public(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        assert fetch_bank_holiday_index() == SAMPLE_RESPONSE
+
+    def test_an_explicitly_empty_calendar_is_valid(self) -> None:
+        assert (
+            parse_bank_holidays({"scotland": {"events": []}}, Division.SCOTLAND) == ()
+        )
+
+    def test_a_successful_empty_calendar_has_persisted_cache_state(
+        self, session: Session
+    ) -> None:
+        """No event rows is a known empty calendar, not an unavailable one."""
+        _seed_cache(session, "scotland")
+        fetches = 0
+
+        def empty_index() -> object:
+            nonlocal fetches
+            fetches += 1
+            return {"scotland": {"events": []}}
+
+        svc = BankHolidayService(
+            session,
+            reading(Division.SCOTLAND),
+            empty_index,
+        )
+
+        assert svc.fetch_and_cache() is True
+        assert session.get(BankHolidayRefresh, Division.SCOTLAND.value) is not None
+        assert svc.is_available() is True
+        assert svc.is_fresh() is True
+        assert svc.get_dates() == set()
+        assert svc.titles_between(date(2026, 1, 1), date(2026, 12, 31)) == {}
+        assert svc.fill_if_empty() is True
+        assert fetches == 1, "known-empty metadata must prevent a second fetch"
 
     def test_an_empty_cache_is_filled_from_the_index(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
@@ -294,7 +440,7 @@ class TestFetchingTheIndex:
 class TestRefreshingOnlyWhenItIsStale:
     """The two halves the launch worker composes.
 
-    `app.FlexiApp._refresh_holidays` asks `is_fresh` and only then fetches, so
+    `app.FlexiApp.refresh_holidays` asks `is_fresh` and only then fetches, so
     that a fresh cache costs no round trip and a stale one is replaced. That
     composition is asserted in `tests/tui/test_app.py`; what is asserted here
     is that each half answers correctly on its own.
@@ -335,13 +481,14 @@ class TestRefreshingOnlyWhenItIsStale:
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Stale means a substitute day may have moved since it was written."""
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2026, 7, 4),
-                title="Withdrawn",
-                fetched_at=(datetime.now(tz=UTC) - timedelta(days=10)).replace(
-                    tzinfo=None
+        stale = (datetime.now(tz=UTC) - timedelta(days=10)).replace(tzinfo=None)
+        session.add_all(
+            (
+                BankHolidayRefresh(division="england-and-wales", fetched_at=stale),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2026, 7, 4),
+                    title="Withdrawn",
                 ),
             )
         )
@@ -362,7 +509,7 @@ class TestRefreshingOnlyWhenItIsStale:
     ) -> None:
         """Last year's list beats no list at all when the train goes into a tunnel."""
         _seed_cache(session)
-        session.query(BankHolidayCache).update(
+        session.query(BankHolidayRefresh).update(
             {"fetched_at": datetime(2020, 1, 1)},
         )
         session.commit()
@@ -426,12 +573,17 @@ class TestFillingTheCache:
         it on the command line would put a network timeout in front of `flexi
         clock in` once a week.
         """
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2020, 1, 1),
-                title="ancient",
-                fetched_at=datetime(2020, 1, 1),
+        session.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=datetime(2020, 1, 1),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2020, 1, 1),
+                    title="ancient",
+                ),
             )
         )
         session.commit()
@@ -452,12 +604,17 @@ class TestTellingEmptyFromAbsent:
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         assert svc.titles_between(date(2026, 1, 1), date(2026, 12, 31)) is None
 
-        session.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=date(2026, 12, 25),
-                title="Christmas Day",
-                fetched_at=datetime(2026, 1, 1),
+        session.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=datetime(2026, 1, 1),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=date(2026, 12, 25),
+                    title="Christmas Day",
+                ),
             )
         )
         session.commit()

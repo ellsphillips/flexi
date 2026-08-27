@@ -12,15 +12,28 @@ from pathlib import Path
 
 import pytest
 import time_machine
+from sqlalchemy import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Division, Portion
-from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base
+from flexi.domain import leaveyear
+from flexi.models.database.db import (
+    AbsenceDay,
+    BankHolidayCache,
+    BankHolidayRefresh,
+    Base,
+)
 from flexi.models.database.engine import create_db_engine, get_session
-from flexi.services.absence import AbsenceService, covers_the_whole_day
+from flexi.services.absence import (
+    PLAN_CHANGED,
+    AbsenceService,
+    covers_the_whole_day,
+    snapshot_booking,
+)
 from flexi.services.bank_holidays import BankHolidayService
-from flexi.services.registry import Services
-from flexi.services.settings import SettingsService
+from flexi.services.registry import build_services
+from flexi.services.settings import SettingsService, SettingsUpdate, parse_settings
 
 
 def _next_weekday(start: date, weekday: int) -> date:
@@ -35,10 +48,12 @@ def _next_weekday(start: date, weekday: int) -> date:
 def settings(session: Session) -> SettingsService:
     svc = SettingsService(session)
     svc.save_settings(
-        leave_year_start="01-01",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="01-01",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     # The active leave year, not a fixed one. A hardcoded 2026 here is compared
     # against the real clock by get_active_entitlement_days, so the test would
@@ -67,12 +82,14 @@ def _midsummer() -> Iterator[None]:
 @pytest.fixture
 def bank_holidays(session: Session) -> BankHolidayService:
     now = datetime.now(tz=UTC).replace(tzinfo=None)
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=date(2026, 12, 25),
-            title="Christmas Day",
-            fetched_at=now,
+    session.add_all(
+        (
+            BankHolidayRefresh(division="england-and-wales", fetched_at=now),
+            BankHolidayCache(
+                division="england-and-wales",
+                date=date(2026, 12, 25),
+                title="Christmas Day",
+            ),
         )
     )
     session.commit()
@@ -139,10 +156,12 @@ class TestRejections:
         try:
             settings = SettingsService(session)
             settings.save_settings(
-                leave_year_start="01-01",
-                working_days="0,1,2,3,4",
-                bank_holiday_division="england-and-wales",
-                auto_close_time="18:00",
+                parse_settings(
+                    leave_year_start="01-01",
+                    working_days="0,1,2,3,4",
+                    bank_holiday_division="england-and-wales",
+                    auto_close_time="18:00",
+                )
             )
             svc = AbsenceService(
                 session,
@@ -161,7 +180,7 @@ class TestRejections:
         self, absence: AbsenceService, session: Session
     ) -> None:
         d = _next_weekday(date(2026, 7, 6), 0)  # A Monday in future
-        clock = Services.build(session).clock
+        clock = build_services(session).clock
         now = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
         clock.clock_in(now=now)
         clock.clock_out(now=now + timedelta(hours=8))
@@ -195,7 +214,7 @@ class TestRejections:
         for every half day booked against a day with work on it.
         """
         d = _next_weekday(date(2026, 7, 6), 0)
-        clock = Services.build(session).clock
+        clock = build_services(session).clock
         midnight = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
         clock.clock_in(now=midnight.replace(hour=worked_from))
         clock.clock_out(now=midnight.replace(hour=worked_to))
@@ -318,6 +337,61 @@ class TestRemoval:
         result = absence.remove(date(2026, 1, 2))
         assert result.success is False
 
+    def test_confirmed_removal_refuses_a_changed_booking(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """A modal approves one immutable row, not its date-and-portion slot."""
+        when = _next_weekday(date(2026, 6, 8), 0)
+        created = absence.book(when, AbsenceType.ANNUAL)
+        assert created.absence is not None
+        confirmed = snapshot_booking(created.absence)
+
+        created.absence.absence_type = AbsenceType.SICK
+        session.commit()
+        result = absence.remove_booking(confirmed)
+
+        assert result.message == PLAN_CHANGED
+        assert [row.absence_type for row in absence.for_date(when)] == [
+            AbsenceType.SICK
+        ]
+
+    def test_immediate_removal_reserves_the_target_before_reading_it(
+        self,
+        absence: AbsenceService,
+        engine: Engine,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A concurrent replacement cannot inherit the row being deleted."""
+        when = _next_weekday(date(2026, 6, 8), 0)
+        assert absence.book(when, AbsenceType.ANNUAL).success
+        read = absence.for_date
+        writer_was_blocked = False
+
+        with get_session(engine) as competing:
+            competing.connection().exec_driver_sql("PRAGMA busy_timeout=0")
+
+            def interleave(day: date) -> list[AbsenceDay]:
+                nonlocal writer_was_blocked
+                rows = read(day)
+                current = competing.get(AbsenceDay, rows[0].id)
+                assert current is not None
+                try:
+                    competing.delete(current)
+                    competing.commit()
+                    competing.add(AbsenceDay(date=day, absence_type=AbsenceType.SICK))
+                    competing.commit()
+                except OperationalError:
+                    competing.rollback()
+                    writer_was_blocked = True
+                return rows
+
+            monkeypatch.setattr(absence, "for_date", interleave)
+            result = absence.remove(when)
+
+        assert writer_was_blocked
+        assert result.success
+        assert read(when) == []
+
 
 # ---------- type change ----------
 
@@ -362,3 +436,90 @@ class TestCounts:
         counted = absence.tally(d1, d2)
         assert counted[AbsenceType.SICK] == (2.0, 2)
         assert counted[AbsenceType.ANNUAL] == (0.0, 0)
+
+    def test_counting_valid_days_only_drops_what_is_no_longer_bookable(
+        self, absence: AbsenceService, settings: SettingsService
+    ) -> None:
+        """An allowance is spent on days that could be booked, not days that were.
+
+        Someone books a Friday, then drops Friday from their working pattern.
+        The marker stays -- it is a record of a decision -- but it no longer
+        costs a day of leave, because it no longer costs a day of work.
+        """
+        friday = _next_weekday(date(2026, 6, 8), 4)
+        assert absence.book(friday, AbsenceType.ANNUAL).success
+        current = settings.resolved()
+        settings.save_settings(
+            SettingsUpdate(
+                leave_year_start=current.leave_year_start,
+                working_days=(0, 1, 2, 3),
+                division=current.division,
+                auto_close=current.auto_close,
+            )
+        )
+
+        counted = absence.count_days(AbsenceType.ANNUAL, friday, friday)
+        spent = absence.count_days(AbsenceType.ANNUAL, friday, friday, valid_only=True)
+
+        assert counted == 1.0, "the booking is still on record"
+        assert spent == 0.0, "and no longer drawn against the allowance"
+
+    def test_remaining_allowances_for_no_years_reads_nothing(
+        self, absence: AbsenceService
+    ) -> None:
+        """Planning an empty span asks for no years, and must not scan the table.
+
+        The bounded read is built from the lowest and highest year requested;
+        with none there is no range to build and nothing to answer.
+        """
+        assert absence.get_remaining_annual_leave_by_year(()) == {}
+
+    def test_a_booking_the_pattern_no_longer_covers_is_not_charged_to_its_year(
+        self, absence: AbsenceService, settings: SettingsService
+    ) -> None:
+        """The same rule as `valid_only`, applied where the allowance is read.
+
+        Both sides have to agree: a day that stops counting against the balance
+        has to stop counting against the entitlement, or the wallet reports
+        leave spent that the planner will happily let you book again.
+        """
+        friday = _next_weekday(date(2026, 6, 8), 4)
+        assert absence.book(friday, AbsenceType.ANNUAL).success
+        year = leaveyear.active_year(friday, *settings.resolved().leave_year_start)
+        before = absence.get_remaining_annual_leave_by_year((year,))[year]
+
+        current = settings.resolved()
+        settings.save_settings(
+            SettingsUpdate(
+                leave_year_start=current.leave_year_start,
+                working_days=(0, 1, 2, 3),
+                division=current.division,
+                auto_close=current.auto_close,
+            )
+        )
+
+        after = absence.get_remaining_annual_leave_by_year((year,))[year]
+        assert before is not None
+        assert after is not None
+        assert after == before + 1.0, "the day came back to the allowance"
+
+    def test_removing_one_portion_leaves_the_other_half_of_the_day(
+        self, absence: AbsenceService
+    ) -> None:
+        """A sick morning and an annual afternoon are two bookings, not one day.
+
+        `remove(day)` clears the date; naming a portion clears that half. With
+        the filter untested, removing a morning could take the afternoon with
+        it and nothing would have said so.
+        """
+        when = _next_weekday(date(2026, 6, 8), 0)
+        assert absence.book(when, AbsenceType.SICK, Portion.AM).success
+        assert absence.book(when, AbsenceType.ANNUAL, Portion.PM).success
+
+        result = absence.remove(when, Portion.AM)
+
+        assert result.success is True
+        kept = absence.for_date(when)
+        assert [(row.absence_type, row.portion) for row in kept] == [
+            (AbsenceType.ANNUAL, Portion.PM)
+        ]

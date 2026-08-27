@@ -39,8 +39,21 @@ from flexi.screens.modals import (
     ConfirmModal,
     GoToDateModal,
 )
-from flexi.services.absence import AbsencePlan
-from flexi.services.registry import Services
+from flexi.services.absence import AbsencePlan, RemovalPlan
+from flexi.services.registry import (
+    Services,
+    available_toil_days,
+    invalidate_services,
+)
+
+__all__ = (
+    "PORTION_CYCLE",
+    "REMOVE_THRESHOLD",
+    "SIDEBAR",
+    "LeaveScreen",
+    "nothing_doing",
+    "preview",
+)
 
 SIDEBAR: tuple[AbsenceType, ...] = (
     AbsenceType.ANNUAL,
@@ -84,9 +97,15 @@ class LeaveScreen(Screen[None]):
     ]
 
     def __init__(
-        self, services: Services, anchor: date | None = None, **kwargs: object
+        self,
+        services: Services,
+        anchor: date | None = None,
+        *,
+        name: str | None = None,
+        id: str | None = None,  # noqa: A002 - Textual's parameter name
+        classes: str | None = None,
     ) -> None:
-        super().__init__(**kwargs)  # type: ignore[arg-type]
+        super().__init__(name=name, id=id, classes=classes)
         self._services = services
         self.now = wallclock.now()
         self.portion = Portion.FULL
@@ -246,6 +265,11 @@ class LeaveScreen(Screen[None]):
         self, event: YearCalendar.SelectionChanged
     ) -> None:
         event.stop()
+        if not self.period.contains(event.selection.head):
+            self.period = self.period.go_to(event.selection.head)
+            self.rebuild()
+            self.calendar.scroll_to_day(event.selection.head)
+            return
         self._draw_selection()
 
     # -- booking -----------------------------------------------------------
@@ -285,11 +309,11 @@ class LeaveScreen(Screen[None]):
             selection.end,
             absence_type,
             self.portion,
-            available_toil_days=self._services.toil_days(),
+            available_toil_days=available_toil_days(self._services),
         )
 
         if plan.is_empty:
-            self._after_write(_nothing_doing(plan), ok=False)
+            self._after_write(nothing_doing(plan), ok=False)
             return
 
         if selection.start == selection.end:
@@ -331,12 +355,12 @@ class LeaveScreen(Screen[None]):
             return
 
         if plan.count <= REMOVE_THRESHOLD:
-            self._clear(selection)
+            self._clear(plan)
             return
 
         def confirm(answer: bool | None) -> None:
             if answer:
-                self._clear(selection)
+                self._clear(plan)
 
         self.app.push_screen(
             ConfirmModal(
@@ -346,8 +370,8 @@ class LeaveScreen(Screen[None]):
             callback=confirm,
         )
 
-    def _clear(self, selection: Selection) -> None:
-        result = self._services.absence.clear_range(selection.start, selection.end)
+    def _clear(self, plan: RemovalPlan) -> None:
+        result = self._services.absence.remove_plan(plan)
         self._after_write(result.message("removed"), ok=result.success)
 
     def action_edit(self) -> None:
@@ -363,7 +387,7 @@ class LeaveScreen(Screen[None]):
                 booking.kind,
                 booking.portion,
                 note=booking.note,
-                available_toil_days=self._services.toil_days(),
+                available_toil_days=available_toil_days(self._services),
             )
             self._after_write(
                 result.message(f"of {booking.kind.phrase} booked"),
@@ -377,7 +401,7 @@ class LeaveScreen(Screen[None]):
                 AbsenceType.ANNUAL,
                 until=None if selection.single else selection.end,
                 remaining=self._services.absence.get_remaining_annual_leave(),
-                toil_days=self._services.toil_days(),
+                toil_days=available_toil_days(self._services),
             ),
             callback=book,
         )
@@ -385,7 +409,7 @@ class LeaveScreen(Screen[None]):
     def _after_write(
         self, message: str, *, ok: bool, warning: str | None = None
     ) -> None:
-        self._services.invalidate()
+        invalidate_services(self._services)
         self.rebuild()
         self.status(
             warning or message, Tone.WARN if warning else (Tone.OK if ok else Tone.ERR)
@@ -418,7 +442,10 @@ class LeaveScreen(Screen[None]):
 
     def refresh_modules(self, scope: Scope) -> None:
         """Redraw on an external change, so the app can treat every screen alike."""
-        del scope
+        if scope & Scope.SETTINGS:
+            self.period = self.period.with_year_start(
+                self._services.settings.get_leave_year_start()
+            )
         self.rebuild()
 
 
@@ -443,17 +470,26 @@ def preview(plan: AbsencePlan) -> str:
     if holidays:
         lines.append(f"  — {holidays} {plural(holidays, 'bank holiday')}")
 
-    if plan.absence_type.draws_down_entitlement and plan.annual_after is not None:
+    balances = tuple(
+        balance
+        for balance in plan.annual_balances
+        if balance.before is not None and balance.after is not None
+    )
+    if plan.absence_type.draws_down_entitlement and balances:
         lines.append("")
-        lines.append(
-            f"Annual leave: {fmt_days(plan.annual_remaining or 0)}"
-            f" → {fmt_days(plan.annual_after)} left"
-        )
+        for balance in balances:
+            label = (
+                "Annual leave" if len(balances) == 1 else f"Annual leave {balance.year}"
+            )
+            lines.append(
+                f"{label}: {fmt_days(balance.before or 0)}"
+                f" → {fmt_days(balance.after or 0)} left"
+            )
     if plan.warning:
         lines.append(plan.warning)
     return "\n".join(lines)
 
 
-def _nothing_doing(plan: AbsencePlan) -> str:
+def nothing_doing(plan: AbsencePlan) -> str:
     """Why an empty plan is empty, in one line."""
     return plan.reasons[0] if plan.reasons else "Nothing to book in that selection"

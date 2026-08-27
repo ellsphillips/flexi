@@ -23,6 +23,15 @@ from flexi.components.common import Gauge, Tone
 from flexi.domain.format import days, delta, plural, signed_days
 from flexi.domain.wallet import Allowance, Pace, WalletData
 
+__all__ = (
+    "TOIL_SCALE",
+    "pace_tone",
+    "paint_allowance",
+    "paint_balance",
+    "paint_entitlement",
+    "paint_tally",
+)
+
 TOIL_SCALE = 5.0
 """Days either side of zero the TOIL track spans.
 

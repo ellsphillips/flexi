@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -19,20 +19,129 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from sqlalchemy.exc import DatabaseError
 
 from flexi.constants import AbsenceType, Portion
 from flexi.locations import backups_directory, ensure
-from flexi.models.database.db import AbsenceDay, Base, Settings
-from flexi.models.database.engine import create_db_engine, get_session
+from flexi.models.database.db import (
+    AbsenceDay,
+    BankHolidayCache,
+    BankHolidayRefresh,
+    Base,
+    Settings,
+    WorkSession,
+)
+from flexi.models.database.engine import create_db_engine, database_scope, get_session
+from flexi.models.database.lease import DatabaseBusyError
 from flexi.models.database.migrate import HEAD as RECORDED_HEAD
 from flexi.models.database.migrate import (
     MAX_BACKUPS,
+    DatabaseRevision,
+    RevisionState,
     alembic_config,
+    current_revision,
     run_migrations,
 )
 
 BEFORE_HALF_DAYS = "0006"
+BEFORE_INVARIANTS = "0010"
+BEFORE_BANK_HOLIDAY_REFRESHES = "0012"
+BEFORE_CLOCK_SESSION_INVARIANTS = "0013"
 HEAD = "head"
+
+
+def test_revision_result_rejects_contradictory_states() -> None:
+    """A caller cannot manufacture a result whose state disagrees with its data."""
+    with pytest.raises(ValueError, match="must carry a revision"):
+        DatabaseRevision(RevisionState.STAMPED)
+    with pytest.raises(ValueError, match="cannot carry a revision"):
+        DatabaseRevision(RevisionState.ABSENT, "0001")
+
+
+def test_revision_inspection_distinguishes_missing_and_empty_databases(
+    db: Path,
+) -> None:
+    assert current_revision(db) == DatabaseRevision(RevisionState.ABSENT)
+
+    sqlite3.connect(db).close()
+
+    assert current_revision(db) == DatabaseRevision(RevisionState.EMPTY)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "CREATE TABLE records (id INTEGER PRIMARY KEY)",
+        "CREATE VIEW records AS SELECT 1 AS id",
+    ],
+)
+def test_revision_inspection_identifies_an_unstamped_schema(
+    db: Path, schema: str
+) -> None:
+    with sqlite3.connect(db) as connection:
+        connection.execute(schema)
+
+    assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
+
+
+def test_revision_inspection_identifies_an_empty_stamp_table(db: Path) -> None:
+    with sqlite3.connect(db) as connection:
+        connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+
+    assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
+
+
+def test_revision_inspection_carries_the_database_stamp(db: Path) -> None:
+    upgrade(db, BEFORE_HALF_DAYS)
+
+    assert current_revision(db) == DatabaseRevision(
+        RevisionState.STAMPED, BEFORE_HALF_DAYS
+    )
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        (("0001", "0002"), "multiple migration revisions"),
+        ((None,), "invalid migration revision"),
+    ],
+)
+def test_revision_inspection_refuses_ambiguous_stamps(
+    db: Path, rows: tuple[str | None, ...], message: str
+) -> None:
+    with sqlite3.connect(db) as connection:
+        connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+        connection.executemany(
+            "INSERT INTO alembic_version VALUES (?)", ((row,) for row in rows)
+        )
+
+    with pytest.raises(RuntimeError, match=message):
+        current_revision(db)
+
+
+def test_a_corrupt_database_is_not_mistaken_for_a_fresh_one(db: Path) -> None:
+    db.write_bytes(b"not a sqlite database")
+
+    with pytest.raises(DatabaseError, match="not a database"):
+        run_migrations(db)
+
+    assert db.read_bytes() == b"not a sqlite database"
+
+
+def test_an_unstamped_existing_schema_is_not_assumed_to_belong_to_flexi(
+    db: Path,
+) -> None:
+    with sqlite3.connect(db) as connection:
+        connection.execute("CREATE TABLE somebody_elses_data (value TEXT)")
+        connection.execute("INSERT INTO somebody_elses_data VALUES ('kept')")
+
+    with pytest.raises(RuntimeError, match="unstamped schema"):
+        run_migrations(db)
+
+    with sqlite3.connect(db) as connection:
+        assert connection.execute(
+            "SELECT value FROM somebody_elses_data"
+        ).fetchone() == ("kept",)
 
 
 def test_the_recorded_head_is_the_head_alembic_would_find(db: Path) -> None:
@@ -50,17 +159,17 @@ def test_the_recorded_head_is_the_head_alembic_would_find(db: Path) -> None:
 def test_a_file_that_was_never_migrated_is_migrated_rather_than_refused(
     db: Path,
 ) -> None:
-    """An interrupted first run leaves a database with no `alembic_version`.
+    """A schema-empty file is fresh even though the filesystem entry exists.
 
-    The cheap revision check queries that table directly, so the case has to
-    read as "never migrated" rather than raise -- otherwise the one file that
-    needs the migration most is the one that cannot get it.
+    It has nothing for a recovery copy to protect, so it follows the same path
+    as an absent file rather than the unsafe unstamped-schema path.
     """
     db.touch()
 
     run_migrations(db)
 
     assert revision_of(db) == RECORDED_HEAD
+    assert not list(backups_directory().glob("*.bak"))
 
 
 @pytest.fixture
@@ -166,6 +275,48 @@ def test_the_new_columns_are_backfilled(db: Path) -> None:
         session.close()
 
 
+def test_bank_holiday_refresh_metadata_is_backfilled(db: Path) -> None:
+    """Each legacy division keeps its latest complete-cache timestamp."""
+    upgrade(db, BEFORE_BANK_HOLIDAY_REFRESHES)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO bank_holiday_cache"
+                " (id, division, date, title, fetched_at) VALUES"
+                " (1, 'england-and-wales', '2026-01-01', 'New Year',"
+                "  '2026-01-02 09:00:00'),"
+                " (2, 'england-and-wales', '2026-12-25', 'Christmas',"
+                "  '2026-01-03 09:00:00'),"
+                " (3, 'scotland', '2026-11-30', 'St Andrew',"
+                "  '2026-02-01 10:30:00')"
+            )
+        )
+        connection.commit()
+    engine.dispose()
+
+    upgrade(db, HEAD)
+
+    engine = create_db_engine(db)
+    session = get_session(engine)
+    try:
+        refreshes = session.query(BankHolidayRefresh).order_by(
+            BankHolidayRefresh.division
+        )
+        assert [(refresh.division, refresh.fetched_at) for refresh in refreshes] == [
+            ("england-and-wales", datetime(2026, 1, 3, 9, 0)),
+            ("scotland", datetime(2026, 2, 1, 10, 30)),
+        ]
+        assert session.query(BankHolidayCache).count() == 3
+        assert "fetched_at" not in {
+            column["name"]
+            for column in sa.inspect(engine).get_columns("bank_holiday_cache")
+        }
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def test_half_days_of_different_types_share_a_date(db: Path) -> None:
     """It moves uniqueness from the date to the pair, which is the point of 0007."""
     upgrade(db, HEAD)
@@ -249,6 +400,269 @@ def test_work_sessions_keep_their_events_across_the_upgrade(db: Path) -> None:
     assert len(rows(db, "clock_events")) == 1
 
 
+def test_valid_legacy_states_survive_the_invariant_upgrade(db: Path) -> None:
+    """0011 adds enforcement without rewriting any valid user record."""
+    upgrade(db, BEFORE_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO settings"
+                " (id, leave_year_start, working_days, bank_holiday_division,"
+                "  auto_close_time)"
+                " VALUES (41, '04-06', '0,1,2,3,4',"
+                " 'england-and-wales', '18:00')"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes)"
+                " VALUES (51, 'IN', '2026-06-10 09:00:00', 'user', 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (61, 51, NULL, '2026-06-10', 0, 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO absence_days (id, date, absence_type, portion)"
+                " VALUES"
+                " (71, '2026-06-11', 'SICK', 'AM'),"
+                " (72, '2026-06-11', 'ANNUAL', 'PM')"
+            )
+        )
+        connection.commit()
+    engine.dispose()
+
+    upgrade(db, HEAD)
+
+    session = get_session(create_db_engine(db))
+    try:
+        settings = session.query(Settings).one()
+        assert settings.id == 41
+        assert settings.singleton_key == 1
+        assert session.query(WorkSession).one().id == 61
+        assert [
+            item.id for item in session.query(AbsenceDay).order_by(AbsenceDay.id)
+        ] == [
+            71,
+            72,
+        ]
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize(
+    ("statements", "expected"),
+    [
+        (
+            (
+                "INSERT INTO settings"
+                " (id, leave_year_start, working_days, bank_holiday_division,"
+                " auto_close_time) VALUES"
+                " (1, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00'),"
+                " (2, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00')",
+            ),
+            "settings has 2 rows",
+        ),
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'IN', '2026-06-10 10:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES"
+                " (1, 1, NULL, '2026-06-10', 0, 0),"
+                " (2, 2, NULL, '2026-06-10', 0, 0)",
+            ),
+            "work_sessions has 2 non-voided open rows",
+        ),
+        (
+            (
+                "INSERT INTO absence_days (id, date, absence_type, portion)"
+                " VALUES"
+                " (1, '2026-06-10', 'ANNUAL', 'FULL'),"
+                " (2, '2026-06-10', 'SICK', 'AM')",
+            ),
+            "absence_days mixes FULL with a half on: 2026-06-10",
+        ),
+    ],
+)
+def test_ambiguous_legacy_states_fail_before_the_schema_changes(
+    db: Path,
+    statements: tuple[str, ...],
+    expected: str,
+) -> None:
+    """The migration names records a person must resolve instead of choosing."""
+    upgrade(db, BEFORE_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        for statement in statements:
+            connection.execute(sa.text(statement))
+        connection.commit()
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match=expected):
+        upgrade(db, HEAD)
+
+    assert revision_of(db) == BEFORE_INVARIANTS
+
+
+@pytest.mark.parametrize(
+    ("statements", "expected"),
+    [
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0),"
+                " (3, 'OUT', '2026-06-10 11:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES"
+                " (11, 1, 2, '2026-06-10', 0, 0),"
+                " (12, 1, 3, '2026-06-11', 0, 0)",
+            ),
+            "work_sessions reuses clock_in_id values: 1",
+        ),
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 08:00:00', 'user', 0),"
+                " (2, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (3, 'OUT', '2026-06-10 10:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES"
+                " (11, 1, 3, '2026-06-10', 0, 0),"
+                " (12, 2, 3, '2026-06-11', 0, 0)",
+            ),
+            "work_sessions reuses clock_out_id values: 3",
+        ),
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'OUT', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (11, 1, 2, '2026-06-10', 0, 0)",
+            ),
+            "work_sessions has non-IN clock_in rows: 11",
+        ),
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'IN', '2026-06-10 10:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (11, 1, 2, '2026-06-10', 0, 0)",
+            ),
+            "work_sessions has non-OUT clock_out rows: 11",
+        ),
+    ],
+    ids=("duplicate-in", "duplicate-out", "wrong-in-role", "wrong-out-role"),
+)
+def test_clock_session_conflicts_fail_before_revision_0014_changes_anything(
+    db: Path,
+    statements: tuple[str, ...],
+    expected: str,
+) -> None:
+    """0014 reports ambiguous history and leaves its rows and schema untouched."""
+    upgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(sa.text(statement))
+    engine.dispose()
+    before = rows(db, "work_sessions")
+
+    with pytest.raises(RuntimeError, match=expected):
+        upgrade(db, HEAD)
+
+    assert revision_of(db) == BEFORE_CLOCK_SESSION_INVARIANTS
+    assert rows(db, "work_sessions") == before
+    with sqlite3.connect(db) as connection:
+        indexes = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        triggers = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+    assert "uq_work_sessions_clock_in_id" not in indexes
+    assert "uq_work_sessions_clock_out_id" not in indexes
+    assert "trg_work_sessions_clock_actions_insert" not in triggers
+    assert "trg_work_sessions_clock_actions_update" not in triggers
+
+
+def test_clock_session_invariant_downgrade_preserves_history(db: Path) -> None:
+    """Removing and restoring 0014 changes enforcement, never user records."""
+    upgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (11, 1, 2, '2026-06-10', 0, 0)"
+            )
+        )
+    engine.dispose()
+    before = rows(db, "work_sessions")
+
+    upgrade(db, HEAD)
+    downgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
+
+    assert revision_of(db) == BEFORE_CLOCK_SESSION_INVARIANTS
+    assert rows(db, "work_sessions") == before
+    with sqlite3.connect(db) as connection:
+        indexes = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        triggers = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+    assert "uq_work_sessions_clock_in_id" not in indexes
+    assert "uq_work_sessions_clock_out_id" not in indexes
+    assert "trg_work_sessions_clock_actions_insert" not in triggers
+    assert "trg_work_sessions_clock_actions_update" not in triggers
+
+    upgrade(db, HEAD)
+    assert rows(db, "work_sessions") == before
+
+
 def test_head_downgrades_and_upgrades_again(db: Path) -> None:
     """A downgrade is a deliberate act, and it has to be survivable.
 
@@ -314,6 +728,35 @@ def test_upgrading_an_existing_database_snapshots_it_as_it_was(db: Path) -> None
     assert revision_of(db) == head
 
 
+def test_a_migration_refuses_an_application_using_the_old_schema(db: Path) -> None:
+    """DDL cannot run beneath an engine whose mappings assume the old schema."""
+    upgrade(db, BEFORE_HALF_DAYS)
+
+    with (
+        database_scope(db),
+        pytest.raises(DatabaseBusyError, match="in use"),
+    ):
+        run_migrations(db)
+
+    assert revision_of(db) == BEFORE_HALF_DAYS
+    run_migrations(db)
+    assert revision_of(db) == RECORDED_HEAD
+
+
+def test_an_upgrade_refuses_a_backup_that_does_not_verify(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Alembic never sees a stamped database without a proven way back."""
+    upgrade(db, BEFORE_HALF_DAYS)
+    monkeypatch.setattr("flexi.models.database.migrate.verify", lambda _path: False)
+
+    with pytest.raises(RuntimeError, match="backup did not verify"):
+        run_migrations(db)
+
+    assert revision_of(db) == BEFORE_HALF_DAYS
+    assert len(list(backups_directory().glob("*.bak"))) == 1
+
+
 def test_the_backup_an_upgrade_takes_ages_out_the_oldest_one(db: Path) -> None:
     """Ten is the whole allowance, and an upgrade is what fills it.
 
@@ -368,3 +811,59 @@ def test_the_migrations_build_the_schema_the_models_describe(db: Path) -> None:
         if "alembic_version" not in str(difference)
     ]
     assert real == [], f"the migrations and the models disagree: {real}"
+
+
+# ---- the gap between the shared check and the exclusive one ----
+
+
+def _answers(monkeypatch: pytest.MonkeyPatch, *revisions: DatabaseRevision) -> None:
+    """Make successive revision reads disagree, which is the race being guarded."""
+    replies = iter(revisions)
+    monkeypatch.setattr(
+        "flexi.models.database.migrate.current_revision",
+        lambda _path: next(replies),
+    )
+
+
+def test_a_migration_another_starter_finished_in_the_gap_is_not_repeated(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cheap check runs shared; the authoritative one runs exclusive.
+
+    Two applications starting together both see work to do, both queue for the
+    exclusive lease, and only one of them does it. The second must find head on
+    its own re-read and stop -- without taking a backup for a migration it is
+    not going to run.
+    """
+    upgrade(db, BEFORE_HALF_DAYS)
+    before = sorted(backups_directory().glob("*.bak"))
+    _answers(
+        monkeypatch,
+        DatabaseRevision(RevisionState.STAMPED, BEFORE_HALF_DAYS),
+        DatabaseRevision(RevisionState.STAMPED, RECORDED_HEAD),
+    )
+
+    run_migrations(db)
+
+    assert revision_of(db) == BEFORE_HALF_DAYS, "it did not migrate"
+    assert sorted(backups_directory().glob("*.bak")) == before, "nor back up"
+
+
+def test_the_exclusive_re_read_is_the_authority_on_an_unstamped_schema(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The shared read is a fast path, not a verdict.
+
+    Whatever it saw, the schema is only migrated on the strength of the read
+    taken while nothing else can write. A schema that has lost its stamp by
+    then is refused there, exactly as it would have been on the way in.
+    """
+    upgrade(db, BEFORE_HALF_DAYS)
+    _answers(
+        monkeypatch,
+        DatabaseRevision(RevisionState.STAMPED, BEFORE_HALF_DAYS),
+        DatabaseRevision(RevisionState.UNSTAMPED),
+    )
+
+    with pytest.raises(RuntimeError, match="unstamped schema"):
+        run_migrations(db)

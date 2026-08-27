@@ -1,24 +1,122 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import UTC, date, timedelta
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import Division
-from flexi.models.database.db import BankHolidayCache
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
+from flexi.services.transactions import atomic
+
+__all__ = (
+    "CACHE_MAX_AGE",
+    "GOVUK_URL",
+    "REQUEST_TIMEOUT",
+    "BankHolidayFetcher",
+    "BankHolidayService",
+    "ParsedBankHoliday",
+    "fetch_bank_holiday_index",
+    "parse_bank_holidays",
+)
 
 GOVUK_URL = "https://www.gov.uk/bank-holidays.json"
 CACHE_MAX_AGE = timedelta(days=7)
 REQUEST_TIMEOUT = 5.0
 
+type BankHolidayFetcher = Callable[[], object | None]
+"""A source of an untrusted bank-holiday index, or ``None`` on failure."""
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedBankHoliday:
+    """One validated event from the GOV.UK bank-holiday index."""
+
+    date: date
+    title: str
+
+
+def parse_bank_holidays(
+    payload: object, division: Division
+) -> tuple[ParsedBankHoliday, ...] | None:
+    """Validate one division of the GOV.UK response without side effects.
+
+    ``None`` means the response cannot be trusted. Validation is deliberately
+    atomic: replacing a complete cached calendar with a partial response would
+    silently turn every omitted holiday into a working day. An empty tuple is a
+    valid, explicitly empty ``events`` list and remains distinct from failure.
+
+    A missing title is accepted as an empty label because the date is the fact
+    the ledger needs. A title that is present but is not text is malformed.
+    """
+    if not isinstance(payload, Mapping):
+        return None
+
+    division_payload: object = payload.get(division.value)
+    if not isinstance(division_payload, Mapping):
+        return None
+
+    raw_events: object = division_payload.get("events")
+    if not isinstance(raw_events, list):
+        return None
+
+    parsed: list[ParsedBankHoliday] = []
+    seen_dates: set[date] = set()
+    for raw_event in raw_events:
+        event: object = raw_event
+        if not isinstance(event, Mapping):
+            return None
+
+        raw_date: object = event.get("date")
+        raw_title: object = event.get("title", "")
+        if not isinstance(raw_date, str) or not isinstance(raw_title, str):
+            return None
+        try:
+            when = date.fromisoformat(raw_date)
+        except ValueError:
+            return None
+        if when in seen_dates:
+            return None
+        seen_dates.add(when)
+        parsed.append(ParsedBankHoliday(date=when, title=raw_title))
+
+    return tuple(parsed)
+
+
+def fetch_bank_holiday_index() -> object | None:
+    """Fetch the GOV.UK index, returning ``None`` for an unusable response.
+
+    This is the concrete network edge. Keeping it as a free function makes the
+    service depend on the typed :data:`BankHolidayFetcher` abstraction, and the
+    local import keeps ``httpx`` off every command that only reads the cache.
+    Payload validation remains the pure responsibility of
+    :func:`parse_bank_holidays`.
+    """
+    import httpx
+
+    try:
+        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            response = client.get(GOVUK_URL)
+            response.raise_for_status()
+            payload: object = response.json()
+            return payload
+    except (httpx.HTTPError, ValueError, OSError):
+        return None
+
 
 class BankHolidayService:
     """Fetch, cache (in DB), and validate GOV.UK bank holidays."""
 
-    def __init__(self, session: Session, division: Callable[[], Division]) -> None:
+    def __init__(
+        self,
+        session: Session,
+        division: Callable[[], Division],
+        fetcher: BankHolidayFetcher = fetch_bank_holiday_index,
+    ) -> None:
         """Takes a way to find the division out, rather than the division.
 
         Required either way: it once defaulted to England & Wales, and every
@@ -35,6 +133,7 @@ class BankHolidayService:
         """
         self._session = session
         self._division = division
+        self._fetcher = fetcher
 
     @property
     def division(self) -> Division:
@@ -50,61 +149,78 @@ class BankHolidayService:
         holds, so this is what keeps a GOV.UK timeout off the launch path six
         days out of seven.
         """
-        stmt = (
-            select(BankHolidayCache.fetched_at)
-            .where(BankHolidayCache.division == self.division)
-            .limit(1)
-        )
-        row = self._session.execute(stmt).scalar_one_or_none()
-        if row is None:
+        fetched_at = self.last_refresh()
+        if fetched_at is None:
             return False
-        age = wallclock.utc_now() - row.replace(tzinfo=UTC)
+        age = wallclock.utc_now() - fetched_at
         return age < CACHE_MAX_AGE
+
+    def last_refresh(self, division: Division | None = None) -> datetime | None:
+        """Return the last successful complete fetch as an aware UTC moment.
+
+        A refresh is first-class state rather than inferred from event rows, so
+        a valid response with no holidays is still available and fresh.  The
+        optional explicit division lets a compound query hold one division
+        stable even if settings change concurrently.
+        """
+        selected = self.division if division is None else division
+        stmt = select(BankHolidayRefresh.fetched_at).where(
+            BankHolidayRefresh.division == selected
+        )
+        fetched_at = self._session.execute(stmt).scalar_one_or_none()
+        if fetched_at is None:
+            return None
+        return fetched_at.replace(tzinfo=UTC)
 
     # ---- fetch ----
 
     def fetch_and_cache(self) -> bool:
         """Fetch from GOV.UK and replace the DB cache. Returns True on success.
 
-        `httpx` is imported here rather than at module scope. It costs sixty
-        milliseconds to import and this is the only method that needs it, so
-        every `flexi clock in` -- which opens this service to *read* the cache
-        and never touches the network -- was paying for an HTTP client.
+        Fetching is injected, so this service owns validation and persistence
+        without constructing a concrete HTTP client. The default free-function
+        boundary still imports ``httpx`` only when a fetch is requested.
         """
-        import httpx
+        data = self._fetcher()
+        return self.cache_payload(data)
 
-        try:
-            with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-                response = client.get(GOVUK_URL)
-                response.raise_for_status()
-                data = response.json()
-        except (httpx.HTTPError, ValueError, OSError):
-            return False
+    def cache_payload(self, payload: object) -> bool:
+        """Validate and atomically cache a supplied bank-holiday index.
 
+        This is the persistence half of :meth:`fetch_and_cache`, exposed so a
+        host can keep the concrete network call outside its database-owning
+        execution context. In the Textual application the worker thread fetches
+        only this untrusted payload; the message loop hands it here after the
+        worker completes. ``False`` means validation failed, including a
+        fetcher returning ``None``, and leaves the existing calendar intact.
+        """
         division = self.division
-        events = data.get(division, {}).get("events", [])
+        events = parse_bank_holidays(payload, division)
+        if events is None:
+            return False
         now = wallclock.utc_now().replace(tzinfo=None)
 
-        # Clear old cache for this division
-        self._session.execute(
-            delete(BankHolidayCache).where(BankHolidayCache.division == division)
-        )
-
-        for event in events:
-            try:
-                when = date.fromisoformat(event["date"])
-                title = event.get("title", "")
-            except (KeyError, ValueError):
-                continue
-            self._session.add(
-                BankHolidayCache(
-                    division=division,
-                    date=when,
-                    title=title,
-                    fetched_at=now,
+        with atomic(self._session):
+            self._session.execute(
+                delete(BankHolidayCache).where(BankHolidayCache.division == division)
+            )
+            self._session.execute(
+                insert(BankHolidayRefresh)
+                .values(division=division.value, fetched_at=now)
+                .on_conflict_do_update(
+                    index_elements=(BankHolidayRefresh.division,),
+                    set_={"fetched_at": now},
                 )
             )
-        self._session.commit()
+
+            for event in events:
+                self._session.add(
+                    BankHolidayCache(
+                        division=division,
+                        date=event.date,
+                        title=event.title,
+                    )
+                )
         return True
 
     def fill_if_empty(self) -> bool:
@@ -126,7 +242,7 @@ class BankHolidayService:
         book a full day's deficit against every bank holiday without saying so.
         """
         division = self.division
-        if not self._has_any(division):
+        if self.last_refresh(division) is None:
             return None
         stmt = select(BankHolidayCache.date, BankHolidayCache.title).where(
             BankHolidayCache.division == division,
@@ -138,16 +254,8 @@ class BankHolidayService:
     # ---- validation helpers ----
 
     def is_available(self) -> bool:
-        """Return True if any cached data exists for this division."""
-        return self._has_any(self.division)
-
-    def _has_any(self, division: Division) -> bool:
-        stmt = (
-            select(BankHolidayCache.id)
-            .where(BankHolidayCache.division == division)
-            .limit(1)
-        )
-        return self._session.execute(stmt).scalar_one_or_none() is not None
+        """Return whether a complete calendar is cached for this division."""
+        return self.last_refresh() is not None
 
     def holiday_on(self, day: date) -> str | None:
         """What this date is a bank holiday for, or ``None``.
@@ -168,7 +276,7 @@ class BankHolidayService:
     def get_dates(self) -> set[date] | None:
         """Every cached bank holiday, or None when there is no calendar at all."""
         division = self.division
-        if not self._has_any(division):
+        if self.last_refresh(division) is None:
             return None
         stmt = select(BankHolidayCache.date).where(
             BankHolidayCache.division == division

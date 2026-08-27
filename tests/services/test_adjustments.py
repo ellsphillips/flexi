@@ -6,10 +6,20 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import time_machine
+from sqlalchemy import Engine
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.models.database.db import BalanceAdjustment
+from flexi.models.database.engine import get_session
 from flexi.services.adjustments import OPENING_BALANCE
-from flexi.services.registry import Services
+from flexi.services.registry import (
+    Services,
+    build_services,
+    invalidate_services,
+    zero_balance,
+)
 from tests.conftest import sessions_on
 from tests.services.conftest import CONTRACTED, Configured, work
 
@@ -35,14 +45,25 @@ def test_an_adjustment_moves_the_balance(services: Services) -> None:
     """It is counted like any other term in the sum."""
     work(services, MONDAY, hours=7.4)
     services.adjustments.record(MONDAY, timedelta(hours=3), "carried over")
-    services.invalidate()
+    invalidate_services(services)
     assert services.ledger.balance(MONDAY).delta == timedelta(hours=3)
+
+
+def test_a_committed_adjustment_invalidates_a_cached_balance(
+    services: Services,
+) -> None:
+    """A caller cannot accidentally keep reading a pre-write derivation."""
+    before = services.ledger.balance(MONDAY).delta
+
+    services.adjustments.record(MONDAY, timedelta(hours=3), "carried over")
+
+    assert services.ledger.balance(MONDAY).delta == before + timedelta(hours=3)
 
 
 def test_it_only_counts_from_the_date_it_takes_effect(services: Services) -> None:
     """A correction dated Friday does not move Monday's balance."""
     services.adjustments.record(FRIDAY, timedelta(hours=5), "carried over")
-    services.invalidate()
+    invalidate_services(services)
     assert services.ledger.balance(MONDAY).adjustment == timedelta()
     assert services.ledger.balance(FRIDAY).adjustment == timedelta(hours=5)
 
@@ -50,7 +71,7 @@ def test_it_only_counts_from_the_date_it_takes_effect(services: Services) -> Non
 def test_the_summary_reports_it_separately(services: Services) -> None:
     """A settled balance has to be able to say it was settled."""
     services.adjustments.record(MONDAY, timedelta(hours=2), "carried over")
-    services.invalidate()
+    invalidate_services(services)
     summary = services.ledger.summary(MONDAY, FRIDAY)
     assert summary.adjustment == timedelta(hours=2)
     assert summary.worked == timedelta()
@@ -60,7 +81,7 @@ def test_adjustments_add_up(services: Services) -> None:
     """Two corrections on one day are one correction."""
     services.adjustments.record(MONDAY, timedelta(hours=2), "carried over")
     services.adjustments.record(MONDAY, timedelta(hours=-1), "and back again")
-    services.invalidate()
+    invalidate_services(services)
     assert services.ledger.balance(MONDAY).adjustment == timedelta(hours=1)
 
 
@@ -92,12 +113,63 @@ def test_removing_one_puts_the_balance_back(services: Services) -> None:
     """One row in, one row out."""
     recorded = services.adjustments.record(MONDAY, timedelta(hours=4), "carried over")
     assert recorded.adjustment is not None
-    services.invalidate()
+    invalidate_services(services)
     assert services.ledger.balance(MONDAY).adjustment == timedelta(hours=4)
 
     services.adjustments.remove(recorded.adjustment.id)
-    services.invalidate()
+    invalidate_services(services)
     assert services.ledger.balance(MONDAY).adjustment == timedelta()
+
+
+def test_removal_reserves_an_adjustment_before_reading_it(
+    services: Services,
+    session: Session,
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A concurrent replacement cannot reuse the identity being removed."""
+    recorded = services.adjustments.record(
+        MONDAY, timedelta(hours=4), "original correction"
+    )
+    assert recorded.adjustment is not None
+    adjustment_id = recorded.adjustment.id
+    get = session.get
+    writer_was_blocked = False
+
+    with get_session(engine) as competing:
+        competing.connection().exec_driver_sql("PRAGMA busy_timeout=0")
+
+        def interleave(
+            model: type[BalanceAdjustment], ident: int
+        ) -> BalanceAdjustment | None:
+            nonlocal writer_was_blocked
+            row = get(model, ident)
+            assert row is not None
+            current = competing.get(BalanceAdjustment, ident)
+            assert current is not None
+            try:
+                competing.delete(current)
+                competing.commit()
+                competing.add(
+                    BalanceAdjustment(
+                        date=FRIDAY,
+                        minutes=30,
+                        reason="replacement correction",
+                        created_at=datetime(2026, 6, 12, 12),
+                    )
+                )
+                competing.commit()
+            except OperationalError:
+                competing.rollback()
+                writer_was_blocked = True
+            return row
+
+        monkeypatch.setattr(session, "get", interleave)
+        result = services.adjustments.remove(adjustment_id)
+
+    assert writer_was_blocked
+    assert result.success
+    assert services.adjustments.all() == []
 
 
 # -- reading them back -----------------------------------------------------
@@ -122,10 +194,10 @@ def test_every_correction_ever_made_is_listed_newest_first(
 def test_zeroing_settles_the_balance_to_the_given_date(services: Services) -> None:
     """It leaves the balance reading nothing at the end of that day."""
     work(services, MONDAY, hours=2)  # a short day: 2h worked against 7h24
-    services.invalidate()
+    invalidate_services(services)
     assert services.ledger.balance(MONDAY).delta != timedelta()
 
-    result = services.zero_balance(MONDAY)
+    result = zero_balance(services, MONDAY)
     assert result.success
     assert services.ledger.balance(MONDAY).delta == timedelta()
 
@@ -133,12 +205,12 @@ def test_zeroing_settles_the_balance_to_the_given_date(services: Services) -> No
 def test_zeroing_leaves_the_next_day_behaving_normally(services: Services) -> None:
     """Settling is a line under the past, not a change to how days are counted."""
     work(services, MONDAY, hours=2)
-    services.zero_balance(MONDAY)
-    services.invalidate()
+    zero_balance(services, MONDAY)
+    invalidate_services(services)
 
     tuesday = MONDAY + timedelta(days=1)
     work(services, tuesday, hours=9.4)
-    services.invalidate()
+    invalidate_services(services)
     assert services.ledger.balance(tuesday).delta == timedelta(hours=9.4) - CONTRACTED
 
 
@@ -155,10 +227,10 @@ def test_zeroing_defaults_to_yesterday(services: Services) -> None:
     tuesday = MONDAY + timedelta(days=1)
     work(services, MONDAY, hours=9)
     work(services, tuesday, hours=9)
-    services.invalidate()
+    invalidate_services(services)
 
     with time_machine.travel(datetime(2026, 6, 10, 11, 0, tzinfo=UTC), tick=False):
-        result = services.zero_balance()
+        result = zero_balance(services)
 
         assert result.success, result.message
         assert result.adjustment is not None
@@ -169,17 +241,38 @@ def test_zeroing_defaults_to_yesterday(services: Services) -> None:
 def test_zeroing_twice_is_refused_the_second_time(services: Services) -> None:
     """It says so rather than writing a row that does nothing."""
     work(services, MONDAY, hours=2)
-    assert services.zero_balance(MONDAY).success
+    assert zero_balance(services, MONDAY).success
 
-    again = services.zero_balance(MONDAY)
+    again = zero_balance(services, MONDAY)
     assert not again.success
     assert "already zero" in again.message
+
+
+def test_zeroing_recomputes_after_an_external_commit(
+    services: Services, engine: Engine
+) -> None:
+    """A cached preview cannot make settlement leave another writer's delta."""
+    work(services, MONDAY, hours=2)
+    preview = services.ledger.balance(MONDAY).delta
+
+    with get_session(engine) as competing_session:
+        competing = build_services(competing_session)
+        competing.adjustments.record(
+            MONDAY, timedelta(minutes=30), "external correction"
+        )
+
+    assert services.ledger.balance(MONDAY).delta == preview + timedelta(minutes=30)
+    assert zero_balance(services, MONDAY).success
+
+    with get_session(engine) as fresh_session:
+        fresh = build_services(fresh_session)
+        assert fresh.ledger.balance(MONDAY).delta == timedelta()
 
 
 def test_zeroing_records_why(services: Services) -> None:
     """A year from now the row has to explain itself."""
     work(services, MONDAY, hours=2)
-    result = services.zero_balance(MONDAY)
+    result = zero_balance(services, MONDAY)
     assert result.adjustment is not None
     assert result.adjustment.reason == OPENING_BALANCE
 
@@ -194,7 +287,7 @@ def test_zeroing_without_a_reason_writes_nothing(services: Services) -> None:
     """
     work(services, MONDAY, hours=2)
 
-    result = services.zero_balance(MONDAY, reason="   ")
+    result = zero_balance(services, MONDAY, reason="   ")
 
     assert not result.success
     assert "reason" in result.message
@@ -202,10 +295,10 @@ def test_zeroing_without_a_reason_writes_nothing(services: Services) -> None:
     assert services.ledger.balance(MONDAY).delta != timedelta()
 
 
-def test_the_records_survive_it(services: Services) -> None:
+def test_the_records_survive_it(services: Services, session: Session) -> None:
     """Settling never deletes the evidence of what actually happened."""
     work(services, MONDAY, hours=2)
-    services.zero_balance(MONDAY)
-    services.invalidate()
-    assert len(sessions_on(services.session, MONDAY)) == 1
+    zero_balance(services, MONDAY)
+    invalidate_services(services)
+    assert len(sessions_on(session, MONDAY)) == 1
     assert services.ledger.day(MONDAY).worked == timedelta(hours=2)

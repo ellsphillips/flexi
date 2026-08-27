@@ -9,8 +9,10 @@ which leaves colour free to carry the day type.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, timedelta
-from typing import Any, ClassVar
+from types import MappingProxyType
+from typing import ClassVar, Final, Unpack
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -20,6 +22,7 @@ from textual.widgets import Button, Label
 
 from flexi import wallclock
 from flexi.components.modules.base import Module
+from flexi.components.options import ModuleOptions
 from flexi.config import CONFIG
 from flexi.constants import DayKind, Granularity
 from flexi.domain.dates import DAYS_IN_WEEK, add_months, week_start
@@ -29,15 +32,19 @@ from flexi.domain.period import Period
 from flexi.domain.stitch import weekday_initials
 from flexi.messages import DateSelected, Scope
 
+__all__ = ("KIND_CLASSES", "WEEKS", "MonthView", "month_grid")
+
 WEEKS = 6
 
-KIND_CLASSES: dict[DayKind, str] = {
-    DayKind.HOLIDAY: "day-holiday",
-    DayKind.ABSENT: "day-absent",
-    DayKind.PARTIAL: "day-partial",
-    DayKind.WEEKEND: "day-weekend",
-    DayKind.WORKING: "day-working",
-}
+KIND_CLASSES: Final[Mapping[DayKind, str]] = MappingProxyType(
+    {
+        DayKind.HOLIDAY: "day-holiday",
+        DayKind.ABSENT: "day-absent",
+        DayKind.PARTIAL: "day-partial",
+        DayKind.WEEKEND: "day-weekend",
+        DayKind.WORKING: "day-working",
+    }
+)
 
 
 class MonthView(Module):
@@ -57,7 +64,7 @@ class MonthView(Module):
         Binding("enter", "select", "Go to day", show=False),
     ]
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(
             id="month-view",
             title="Calendar",

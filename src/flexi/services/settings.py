@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, time, timedelta
+from math import isfinite
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,13 +12,54 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
-from flexi.domain.dates import DAY_NAMES, MONTHS_IN_YEAR, weekday_index
+from flexi.domain.dates import (
+    DAY_NAMES,
+    LEAP_SENTINEL_YEAR,
+    MONTHS_IN_YEAR,
+    weekday_index,
+)
+from flexi.domain.punch import Window
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
     DEFAULT_WINDOW_END,
     DEFAULT_WINDOW_START,
     LeaveEntitlement,
     Settings,
+)
+from flexi.services.transactions import atomic
+
+__all__ = (
+    "CLOCK_PATTERN",
+    "DEFAULT_AUTO_CLOSE",
+    "DEFAULT_ENTITLEMENT_DAYS",
+    "DEFAULT_LEAVE_YEAR_START",
+    "DEFAULT_WORKING_DAYS",
+    "HOURS_IN_DAY",
+    "INVALID_ENTITLEMENT",
+    "LONGEST_MONTH",
+    "MINUTES_IN_HOUR",
+    "NOON",
+    "LeaveYearStart",
+    "ResolvedSettings",
+    "SettingsService",
+    "SettingsUpdate",
+    "WorkingDays",
+    "duration_minutes",
+    "format_clock_time",
+    "format_leave_year_start",
+    "format_window",
+    "format_working_days",
+    "named_weekday",
+    "parse_clock_time",
+    "parse_entitlement_days",
+    "parse_month_day",
+    "parse_settings",
+    "parse_working_days",
+    "read_or",
+    "readable_window",
+    "resolve_settings",
+    "validate_entitlement_days",
+    "validate_window",
 )
 
 LONGEST_MONTH = 31
@@ -38,8 +80,56 @@ Named because the setup form, the settings screen and the demo data each typed
 it out, so the number a new install sees was three numbers that happened to
 agree."""
 
+INVALID_ENTITLEMENT = "Entitlement must be a number of days (finite and zero or more)"
+"""The shared user-facing contract for an invalid leave allowance."""
 
-@dataclass(frozen=True, slots=True)
+type LeaveYearStart = tuple[int, int]
+"""The month and day on which a leave year begins."""
+
+type WorkingDays = tuple[int, ...]
+"""Ordered weekday indices, where Monday is zero and Sunday is six."""
+
+
+def validate_entitlement_days(days: float) -> float:
+    """Return a finite non-negative allowance, or reject it.
+
+    ``nan`` is especially dangerous here: SQLite's driver turns it into
+    ``NULL``, so without an explicit domain boundary the error arrives as an
+    unrelated persistence failure during commit.
+    """
+    if not isfinite(days) or days < 0:
+        raise ValueError(INVALID_ENTITLEMENT)
+    return days
+
+
+def parse_entitlement_days(raw: str) -> float:
+    """Parse a user-entered allowance under the entitlement domain rule."""
+    try:
+        days = float(raw)
+    except ValueError as error:
+        raise ValueError(INVALID_ENTITLEMENT) from error
+    return validate_entitlement_days(days)
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SettingsUpdate:
+    """A typed settings write, expressed entirely in domain values.
+
+    ``contracted`` and ``day_window`` are updates rather than nullable stored
+    values. Omitting either preserves the value already persisted; on the first
+    write, the database defaults are used. A zero contracted duration remains
+    an explicit update because absence is represented only by ``None``.
+    """
+
+    leave_year_start: LeaveYearStart
+    working_days: WorkingDays
+    division: Division
+    auto_close: time
+    contracted: timedelta | None = None
+    day_window: Window | None = None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedSettings:
     """The settings row, read once, with every fallback already applied.
 
@@ -54,64 +144,62 @@ class ResolvedSettings:
     """
 
     contracted: timedelta
-    day_window: tuple[str, str]
-    working_days: tuple[int, ...]
+    day_window: Window
+    working_days: WorkingDays
     auto_close: time
     division: Division
-    leave_year_start: tuple[int, int]
+    leave_year_start: LeaveYearStart
 
-    @classmethod
-    def of(cls, settings: Settings | None) -> ResolvedSettings:
-        """Read a row, or answer for the absence of one."""
-        if settings is None:
-            return cls(
-                contracted=timedelta(minutes=DEFAULT_CONTRACTED_MINUTES),
-                day_window=(DEFAULT_WINDOW_START, DEFAULT_WINDOW_END),
-                working_days=DEFAULT_WORKING_DAYS,
-                auto_close=DEFAULT_AUTO_CLOSE,
-                division=DEFAULT_DIVISION,
-                leave_year_start=parse_month_day(DEFAULT_LEAVE_YEAR_START),
-            )
-        return cls(
-            contracted=timedelta(minutes=settings.contracted_minutes),
-            day_window=_read(
-                lambda: _readable_window(
-                    settings.day_window_start, settings.day_window_end
-                ),
-                (DEFAULT_WINDOW_START, DEFAULT_WINDOW_END),
-            ),
-            working_days=_read(
-                lambda: tuple(parse_working_days(settings.working_days)),
-                DEFAULT_WORKING_DAYS,
-            ),
-            auto_close=_read(
-                lambda: time(*parse_clock_time(settings.auto_close_time)),
-                DEFAULT_AUTO_CLOSE,
-            ),
-            division=_read(
-                lambda: Division(settings.bank_holiday_division), DEFAULT_DIVISION
-            ),
-            leave_year_start=_read(
-                lambda: parse_month_day(settings.leave_year_start),
-                parse_month_day(DEFAULT_LEAVE_YEAR_START),
-            ),
+
+def resolve_settings(settings: Settings | None) -> ResolvedSettings:
+    """Resolve one stored row, or the complete set of application defaults."""
+    default_window = Window.parse(DEFAULT_WINDOW_START, DEFAULT_WINDOW_END)
+    if settings is None:
+        return ResolvedSettings(
+            contracted=timedelta(minutes=DEFAULT_CONTRACTED_MINUTES),
+            day_window=default_window,
+            working_days=DEFAULT_WORKING_DAYS,
+            auto_close=DEFAULT_AUTO_CLOSE,
+            division=DEFAULT_DIVISION,
+            leave_year_start=parse_month_day(DEFAULT_LEAVE_YEAR_START),
         )
+    return ResolvedSettings(
+        contracted=timedelta(minutes=settings.contracted_minutes),
+        day_window=read_or(
+            lambda: readable_window(settings.day_window_start, settings.day_window_end),
+            default_window,
+        ),
+        working_days=read_or(
+            lambda: tuple(parse_working_days(settings.working_days)),
+            DEFAULT_WORKING_DAYS,
+        ),
+        auto_close=read_or(
+            lambda: time(*parse_clock_time(settings.auto_close_time)),
+            DEFAULT_AUTO_CLOSE,
+        ),
+        division=read_or(
+            lambda: Division(settings.bank_holiday_division), DEFAULT_DIVISION
+        ),
+        leave_year_start=read_or(
+            lambda: parse_month_day(settings.leave_year_start),
+            parse_month_day(DEFAULT_LEAVE_YEAR_START),
+        ),
+    )
 
 
-def _readable_window(start: str, end: str) -> tuple[str, str]:
+def readable_window(start: str, end: str) -> Window:
     """The stored day window, checked before anything tries to draw in it.
 
-    `save_settings` normalises the leave year and the auto-close time and does
-    not normalise these two, so an unreadable pair could reach `Window.parse`
-    and raise inside a widget's `render` -- which Textual logs and swallows,
-    leaving a blank panel and no message.
+    Older databases may contain an unreadable or backwards pair. Refusing it
+    here lets :func:`resolve_settings` choose the safe default before a widget
+    tries to draw the window inside Textual's render loop.
     """
-    parse_clock_time(start)
-    parse_clock_time(end)
-    return start, end
+    return validate_window(
+        Window(time(*parse_clock_time(start)), time(*parse_clock_time(end)))
+    )
 
 
-def _read[T](value: Callable[[], T], fallback: T) -> T:
+def read_or[T](value: Callable[[], T], fallback: T) -> T:
     """A stored field, or the default when it cannot be read.
 
     The bargain the module strikes, in one place rather than in four of the six
@@ -148,51 +236,70 @@ class SettingsService:
             and s.auto_close_time
         )
 
-    def save_settings(
-        self,
-        *,
-        leave_year_start: str,
-        working_days: str,
-        bank_holiday_division: str,
-        auto_close_time: str,
-        contracted_minutes: int | None = None,
-        day_window_start: str | None = None,
-        day_window_end: str | None = None,
-    ) -> Settings:
-        # Every parseable field is normalised here rather than at the call
-        # sites, so nothing unreadable can reach the database whichever screen
-        # wrote it. `auto_close_time` was the one that was not, and a stored
-        # "6pm" made every later launch die reading it back.
-        month, day = parse_month_day(leave_year_start)
-        normalised_start = f"{month:02d}-{day:02d}"
-        working_days = ",".join(str(i) for i in parse_working_days(working_days))
-        hour, minute = parse_clock_time(auto_close_time)
-        auto_close_time = f"{hour:02d}:{minute:02d}"
+    def save_settings(self, update: SettingsUpdate) -> Settings:
+        """Persist and commit one typed settings update."""
+        with atomic(self._session):
+            return self.stage_settings(update)
 
+    def stage_settings(self, update: SettingsUpdate) -> Settings:
+        """Apply a typed update to this transaction without committing it.
+
+        This is the composable persistence primitive used when settings and
+        entitlements must succeed or fail together. Application callers will
+        normally prefer :meth:`save_settings` or
+        :meth:`save_settings_and_entitlements`.
+        """
+        leave_year_start = format_leave_year_start(update.leave_year_start)
+        working_days = format_working_days(update.working_days)
+        division = update.division.value
+        auto_close = format_clock_time(update.auto_close)
+        contracted_minutes = (
+            duration_minutes(update.contracted)
+            if update.contracted is not None
+            else None
+        )
+        day_window = (
+            format_window(update.day_window) if update.day_window is not None else None
+        )
         settings = self.get_settings()
         if settings is None:
             settings = Settings(
-                leave_year_start=normalised_start,
+                leave_year_start=leave_year_start,
                 working_days=working_days,
-                bank_holiday_division=bank_holiday_division,
-                auto_close_time=auto_close_time,
-                contracted_minutes=contracted_minutes or DEFAULT_CONTRACTED_MINUTES,
-                day_window_start=day_window_start or DEFAULT_WINDOW_START,
-                day_window_end=day_window_end or DEFAULT_WINDOW_END,
+                bank_holiday_division=division,
+                auto_close_time=auto_close,
+                contracted_minutes=(
+                    contracted_minutes
+                    if contracted_minutes is not None
+                    else DEFAULT_CONTRACTED_MINUTES
+                ),
+                day_window_start=(
+                    day_window[0] if day_window is not None else DEFAULT_WINDOW_START
+                ),
+                day_window_end=(
+                    day_window[1] if day_window is not None else DEFAULT_WINDOW_END
+                ),
             )
             self._session.add(settings)
         else:
-            settings.leave_year_start = normalised_start
+            settings.leave_year_start = leave_year_start
             settings.working_days = working_days
-            settings.bank_holiday_division = bank_holiday_division
-            settings.auto_close_time = auto_close_time
+            settings.bank_holiday_division = division
+            settings.auto_close_time = auto_close
             if contracted_minutes is not None:
                 settings.contracted_minutes = contracted_minutes
-            if day_window_start is not None:
-                settings.day_window_start = day_window_start
-            if day_window_end is not None:
-                settings.day_window_end = day_window_end
-        self._session.commit()
+            if day_window is not None:
+                settings.day_window_start, settings.day_window_end = day_window
+        return settings
+
+    def save_settings_and_entitlements(
+        self, update: SettingsUpdate, entitlements: Mapping[int, float]
+    ) -> Settings:
+        """Commit settings and their entitlement edits as one transaction."""
+        with atomic(self._session):
+            settings = self.stage_settings(update)
+            for year, days in entitlements.items():
+                self.stage_entitlement(year, days)
         return settings
 
     # ---- helpers ----
@@ -203,7 +310,7 @@ class SettingsService:
         What a caller that needs more than one of them should ask for. The
         accessors below are for the callers that need exactly one.
         """
-        return ResolvedSettings.of(self.get_settings())
+        return resolve_settings(self.get_settings())
 
     def get_contracted(self) -> timedelta:
         """How long a standard working day is.
@@ -214,8 +321,8 @@ class SettingsService:
         """
         return self.resolved().contracted
 
-    def get_day_window(self) -> tuple[str, str]:
-        """The span of the day the punch strip draws, as ``HH:MM`` strings."""
+    def get_day_window(self) -> Window:
+        """The span of the day the punch strip draws."""
         return self.resolved().day_window
 
     def get_working_day_indices(self) -> list[int]:
@@ -251,13 +358,18 @@ class SettingsService:
         return ent.days if ent else None
 
     def save_entitlement(self, year: int, days: float) -> LeaveEntitlement:
+        with atomic(self._session):
+            return self.stage_entitlement(year, days)
+
+    def stage_entitlement(self, year: int, days: float) -> LeaveEntitlement:
+        """Apply one entitlement to this transaction without committing it."""
+        days = validate_entitlement_days(days)
         ent = self.get_entitlement(year)
         if ent is None:
             ent = LeaveEntitlement(year=year, days=days)
             self._session.add(ent)
         else:
             ent.days = days
-        self._session.commit()
         return ent
 
     def all_entitlements(self) -> list[LeaveEntitlement]:
@@ -331,7 +443,7 @@ def parse_working_days(raw: str) -> list[int]:
     return sorted(days)
 
 
-_CLOCK = re.compile(r"^(\d{1,2})(?:[:.](\d{1,2}))?\s*([ap]m?)?$", re.IGNORECASE)
+CLOCK_PATTERN = re.compile(r"^(\d{1,2})(?:[:.](\d{1,2}))?\s*([ap]m?)?$", re.IGNORECASE)
 
 
 def parse_clock_time(raw: str) -> tuple[int, int]:
@@ -353,7 +465,7 @@ def parse_clock_time(raw: str) -> tuple[int, int]:
         >>> parse_clock_time("12am")
         (0, 0)
     """
-    found = _CLOCK.match(raw.strip())
+    found = CLOCK_PATTERN.match(raw.strip())
     if found is None:
         msg = f"'{raw}' is not a time: use HH:MM, like 18:00"
         raise ValueError(msg)
@@ -391,4 +503,103 @@ def parse_month_day(raw: str) -> tuple[int, int]:
     if not (1 <= day <= LONGEST_MONTH):
         msg = f"Day {day} out of range 1-31"
         raise ValueError(msg)
+    try:
+        date(LEAP_SENTINEL_YEAR, month, day)
+    except ValueError as error:
+        msg = f"Day {day} is not valid for month {month}"
+        raise ValueError(msg) from error
     return month, day
+
+
+def format_leave_year_start(start: LeaveYearStart) -> str:
+    """Serialise a typed leave-year boundary as canonical ``MM-DD``."""
+    month, day = start
+    validated_month, validated_day = parse_month_day(f"{month}-{day}")
+    return f"{validated_month:02d}-{validated_day:02d}"
+
+
+def format_working_days(days: WorkingDays) -> str:
+    """Serialise weekday indices in canonical ascending order."""
+    if not days:
+        msg = "Choose at least one working day"
+        raise ValueError(msg)
+    normalised = tuple(sorted(set(days)))
+    for day in normalised:
+        named_weekday(str(day))
+    return ",".join(str(day) for day in normalised)
+
+
+def format_clock_time(value: time) -> str:
+    """Serialise a clock time at the database's minute precision."""
+    if value.second or value.microsecond:
+        msg = "Clock times must use whole minutes"
+        raise ValueError(msg)
+    return value.strftime("%H:%M")
+
+
+def duration_minutes(value: timedelta) -> int:
+    """Serialise a non-negative duration without losing sub-minute data."""
+    if value < timedelta(0):
+        msg = "Contracted duration cannot be negative"
+        raise ValueError(msg)
+    minutes, remainder = divmod(value, timedelta(minutes=1))
+    if remainder:
+        msg = "Contracted duration must use whole minutes"
+        raise ValueError(msg)
+    return minutes
+
+
+def validate_window(window: Window) -> Window:
+    """Return a minute-precise window whose end follows its start."""
+    format_clock_time(window.start)
+    format_clock_time(window.end)
+    if window.end <= window.start:
+        msg = "Day window end must be after its start"
+        raise ValueError(msg)
+    return window
+
+
+def format_window(window: Window) -> tuple[str, str]:
+    """Serialise a validated window as canonical ``HH:MM`` endpoints."""
+    validated = validate_window(window)
+    return format_clock_time(validated.start), format_clock_time(validated.end)
+
+
+def parse_settings(
+    *,
+    leave_year_start: str,
+    working_days: str,
+    bank_holiday_division: str,
+    auto_close_time: str,
+    contracted_minutes: int | None = None,
+    day_window_start: str | None = None,
+    day_window_end: str | None = None,
+) -> SettingsUpdate:
+    """Parse raw form or CLI values into one immutable settings update.
+
+    The persistence service never accepts strings. This function is the one
+    boundary at which permissive human input such as ``Mon-Fri`` and ``6pm``
+    is interpreted and normalised. A day window is one value, so its two raw
+    endpoints must either both be supplied or both be omitted.
+    """
+    if (day_window_start is None) != (day_window_end is None):
+        msg = "Day window start and end must be provided together"
+        raise ValueError(msg)
+
+    window = (
+        readable_window(day_window_start, day_window_end)
+        if day_window_start is not None and day_window_end is not None
+        else None
+    )
+    return SettingsUpdate(
+        leave_year_start=parse_month_day(leave_year_start),
+        working_days=tuple(parse_working_days(working_days)),
+        division=Division(bank_holiday_division),
+        auto_close=time(*parse_clock_time(auto_close_time)),
+        contracted=(
+            timedelta(minutes=contracted_minutes)
+            if contracted_minutes is not None
+            else None
+        ),
+        day_window=window,
+    )

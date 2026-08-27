@@ -19,6 +19,8 @@ from flexi.domain import leaveyear
 from flexi.domain.dates import add_months, days_between, week_start
 from flexi.domain.format import day_month, long_date, month_title
 
+__all__ = ("Period",)
+
 
 @dataclass(frozen=True, slots=True)
 class Period:
@@ -137,6 +139,10 @@ class Period:
     def go_to(self, moment: date) -> Period:
         """The same width, anchored on a different date."""
         return replace(self, anchor=moment)
+
+    def with_year_start(self, year_start: tuple[int, int]) -> Period:
+        """Use a new leave-year boundary without moving the period's anchor."""
+        return replace(self, year_start=year_start)
 
     # -- presentation ------------------------------------------------------
 

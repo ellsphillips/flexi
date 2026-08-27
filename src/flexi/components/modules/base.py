@@ -8,17 +8,17 @@ kinds of change are worth redrawing for. It never calls another module's
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import ClassVar, Unpack
 
 from textual.widget import Widget
 from textual.widgets import Static
 
-from flexi.context import flexi_app, module_host
+from flexi.components.options import ModuleOptions
+from flexi.context import ServiceRegistry, module_host, service_app
 from flexi.domain.period import Period
 from flexi.messages import Scope
 
-if TYPE_CHECKING:
-    from flexi.services.registry import Services
+__all__ = ("Module",)
 
 
 class Module(Static):
@@ -39,7 +39,7 @@ class Module(Static):
         id: str,  # noqa: A002 - Textual's own parameter name
         title: str,
         subtitle: str = "",
-        **kwargs: Any,
+        **kwargs: Unpack[ModuleOptions],
     ) -> None:
         super().__init__(id=id, classes="module", **kwargs)
         # Plain assignment routes through Static's reactive machinery before the
@@ -50,9 +50,9 @@ class Module(Static):
     # -- context -----------------------------------------------------------
 
     @property
-    def services(self) -> Services:
+    def services(self) -> ServiceRegistry:
         """The application's service registry."""
-        return flexi_app(self.app).services
+        return service_app(self.app).services
 
     @property
     def period(self) -> Period:
@@ -68,6 +68,7 @@ class Module(Static):
 
     def rebuild(self) -> None:
         """Redraw from the current data. Overridden by every module."""
+        raise NotImplementedError
 
     def rebuild_if(self, scope: Scope) -> None:
         """Redraw only when the change was one this module cares about."""

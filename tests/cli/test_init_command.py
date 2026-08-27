@@ -9,16 +9,20 @@ the entire safety net.
 from __future__ import annotations
 
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+from click import ClickException
+from sqlalchemy import text
 
 from flexi.cli import init as init_cli
 from flexi.cli import ui
 from flexi.models.database.backup import snapshot, verify
 from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine, get_session
-from flexi.services.registry import Services
+from flexi.services.registry import build_services
 
 
 @pytest.fixture
@@ -44,7 +48,7 @@ def populated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             __import__("sqlalchemy").text("INSERT INTO alembic_version VALUES ('0010')")
         )
         session.commit()
-        clock = Services.build(session).clock
+        clock = build_services(session).clock
         clock.clock_in()
     engine.dispose()
     return db
@@ -79,6 +83,52 @@ def test_a_reset_removes_the_database_and_keeps_the_snapshot(populated: Path) ->
     assert taken is not None
     assert taken.is_file(), "the snapshot is not"
     assert verify(taken)
+
+
+def test_reset_refuses_a_live_process_then_snapshots_its_commit(
+    populated: Path,
+) -> None:
+    """Every row a reset erases is present in its verified recovery copy."""
+    engine = create_db_engine(populated)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE lease_commits (value INTEGER)"))
+    engine.dispose()
+
+    script = """
+import sys
+from pathlib import Path
+
+from sqlalchemy import text
+
+from flexi.models.database.engine import database_scope
+
+with database_scope(Path(sys.argv[1])) as (_engine, session):
+    session.execute(text("INSERT INTO lease_commits VALUES (42)"))
+    session.commit()
+    print("ready", flush=True)
+    sys.stdin.readline()
+"""
+    process = subprocess.Popen(  # noqa: S603 - fixed interpreter and source code
+        [sys.executable, "-c", script, str(populated)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout is not None
+    assert process.stdout.readline() == "ready\n"
+    try:
+        with pytest.raises(ClickException, match="in use"):
+            init_cli.reset(populated)
+        assert populated.is_file()
+    finally:
+        output, error = process.communicate("\n", timeout=10)
+        assert process.returncode == 0, output + error
+
+    taken = init_cli.reset(populated)
+    assert taken is not None
+    with sqlite3.connect(f"file:{taken}?mode=ro", uri=True) as copy:
+        assert copy.execute("SELECT value FROM lease_commits").fetchall() == [(42,)]
 
 
 def test_a_reset_does_not_touch_the_backups_directory(populated: Path) -> None:
@@ -153,8 +203,8 @@ def test_an_absent_database_is_empty_rather_than_unreadable(tmp_path: Path) -> N
     assert not contents.unreadable
 
 
-def erase_option(contents: init_cli.Contents) -> ui.Option:
-    options = init_cli._options(contents)
+def erase_option(contents: init_cli.Contents) -> ui.Option[init_cli.Choice]:
+    options = init_cli.options(contents)
     return next(o for o in options if o.value == init_cli.Choice.RESET)
 
 
@@ -171,7 +221,7 @@ def test_the_destructive_row_is_drawn_in_the_deficit_red(populated: Path) -> Non
 
 def test_the_safe_option_is_first(populated: Path) -> None:
     """Enter on arrival must never be the keystroke that erases anything."""
-    first = init_cli._options(init_cli.describe(populated))[0]
+    first = init_cli.options(init_cli.describe(populated))[0]
     assert first.value == init_cli.Choice.OPEN
     assert not first.grave
 
@@ -252,7 +302,10 @@ def test_choosing_from_the_menu_returns_what_was_chosen(
     """
     asked: list[str] = []
 
-    def picking(question: str, options: list[ui.Option]) -> ui.Option:
+    def picking(
+        question: str,
+        options: list[ui.Option[init_cli.Choice]],
+    ) -> ui.Option[init_cli.Choice]:
         asked.append(question)
         return next(o for o in options if o.value == init_cli.Choice.SETTINGS)
 

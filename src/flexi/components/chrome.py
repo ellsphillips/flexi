@@ -9,19 +9,41 @@ widgets need it and the app imports the widgets.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import ClassVar, Final
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Footer, Static
-from textual.widgets._footer import FooterKey, FooterLabel
+from textual.widget import Widget
+from textual.widgets import Footer, Label, Static
 
 from flexi.components.common import Pill, Tone
+
+__all__ = (
+    "NAV_BY_SCREEN",
+    "NAV_ITEMS",
+    "OVERFLOW_TEMPLATE",
+    "AppFooter",
+    "AppHeader",
+    "BindingHint",
+    "KeyStrip",
+    "Lockup",
+    "NavBar",
+    "NavItem",
+    "NavItemLabel",
+    "OverflowLabel",
+    "StatusBar",
+    "StripEntry",
+    "footer_key_cost",
+    "keys_that_fit",
+    "strip_entries",
+)
 
 OVERFLOW_TEMPLATE: Final = "+{count} more"
 """Written as a template so the strip can price the marker before it knows the
@@ -46,7 +68,9 @@ NAV_ITEMS: Final[tuple[NavItem, ...]] = (
     NavItem("f4", "settings", "Settings", "Hours, leave year, bank holidays"),
 )
 
-NAV_BY_SCREEN: Final[dict[str, NavItem]] = {item.screen: item for item in NAV_ITEMS}
+NAV_BY_SCREEN: Final[Mapping[str, NavItem]] = MappingProxyType(
+    {item.screen: item for item in NAV_ITEMS}
+)
 
 
 class Lockup(Horizontal):
@@ -156,7 +180,7 @@ class StatusBar(Horizontal):
 def footer_key_cost(key_display: str, description: str) -> int:
     """Columns one compact footer entry occupies, including its right margin.
 
-    Textual's compact ``FooterKey`` drops the key's padding and puts a single
+    A compact :class:`BindingHint` drops the key's padding and puts a single
     space before the description, and the strip gives every entry one column of
     right margin. So an entry is its two strings plus two columns — a formula the
     tests check against measured regions rather than trust.
@@ -224,7 +248,121 @@ def strip_entries(screen: Screen[object]) -> list[StripEntry]:
     return list(seen.values())
 
 
-class OverflowLabel(FooterLabel):
+class BindingHint(Widget):
+    """One clickable key binding in the footer.
+
+    Textual deliberately exposes :class:`~textual.widgets.Footer` without
+    exposing the private widget it uses for each binding.  Keeping this small
+    public widget in Flexi preserves the footer's rendering and pointer
+    behaviour without tying the package to Textual's private module layout.
+    """
+
+    ALLOW_SELECT: ClassVar[bool] = False
+    COMPONENT_CLASSES: ClassVar[set[str]] = {
+        "binding-hint--key",
+        "binding-hint--description",
+    }
+    DEFAULT_CSS: ClassVar[str] = """
+    BindingHint {
+        width: auto;
+        height: 1;
+        text-wrap: nowrap;
+        background: $footer-item-background;
+
+        .binding-hint--key {
+            color: $footer-key-foreground;
+            background: $footer-key-background;
+            text-style: bold;
+            padding: 0 1;
+        }
+
+        .binding-hint--description {
+            padding: 0 1 0 0;
+            color: $footer-description-foreground;
+            background: $footer-description-background;
+        }
+
+        &:hover {
+            pointer: pointer;
+            color: $footer-key-foreground;
+            background: $block-hover-background;
+        }
+
+        &.-disabled {
+            text-style: dim;
+        }
+
+        &.-compact {
+            .binding-hint--key {
+                padding: 0;
+            }
+            .binding-hint--description {
+                padding: 0 0 0 1;
+            }
+        }
+    }
+    """
+
+    compact: reactive[bool] = reactive(True, toggle_class="-compact")
+    """Whether to render without padding around the key."""
+
+    def __init__(
+        self,
+        key: str,
+        key_display: str,
+        description: str,
+        action: str,
+        *,
+        disabled: bool = False,
+        tooltip: str = "",
+        classes: str = "",
+    ) -> None:
+        self.key = key
+        self.key_display = key_display
+        self.description = description
+        self.action = action
+        self.binding_enabled = not disabled
+        if disabled:
+            classes += " -disabled"
+        super().__init__(classes=classes)
+        self.set_reactive(Widget.shrink, False)
+        if tooltip:
+            self.tooltip = tooltip
+
+    def render(self) -> Text:
+        """Render the key and its description using independently styled parts."""
+        key_style = self.get_component_rich_style("binding-hint--key")
+        description_style = self.get_component_rich_style("binding-hint--description")
+        key_padding = self.get_component_styles("binding-hint--key").padding
+        description_padding = self.get_component_styles(
+            "binding-hint--description"
+        ).padding
+
+        key_text = " " * key_padding.left + self.key_display + " " * key_padding.right
+        if self.description:
+            description_text = (
+                " " * description_padding.left
+                + self.description
+                + " " * description_padding.right
+            )
+            rendered = Text.assemble(
+                (key_text, key_style),
+                (description_text, description_style),
+            )
+        else:
+            rendered = Text(self.key_display, style=key_style)
+        rendered.stylize_before(self.rich_style)
+        return rendered
+
+    def on_mouse_down(self) -> None:
+        """Run the advertised binding, or ring the bell when it is disabled."""
+        if self.binding_enabled:
+            self.app.simulate_key(self.key)
+        else:
+            self.app.bell()
+
+
+class OverflowLabel(Label):
     """The ``+3 more`` at the end of a strip that could not show everything."""
 
 
@@ -237,8 +375,17 @@ class KeyStrip(Footer):
     dropped.
     """
 
+    DEFAULT_CSS: ClassVar[str] = """
+    KeyStrip.-compact BindingHint {
+        margin-right: 1;
+    }
+    """
+
+    bindings_ready: reactive[bool] = reactive(False, repaint=False)
+    """Whether Textual has calculated the active bindings for this screen."""
+
     def compose(self) -> ComposeResult:
-        if not self._bindings_ready:
+        if not self.bindings_ready:
             return
         entries = strip_entries(self.screen)
         # `self.size` is zero until the first layout; the strip is full width, so
@@ -247,7 +394,7 @@ class KeyStrip(Footer):
         marker = footer_key_cost("", OVERFLOW_TEMPLATE.format(count=len(entries)))
         shown = keys_that_fit([entry.cost for entry in entries], budget, marker)
         for entry in entries[:shown]:
-            yield FooterKey(
+            yield BindingHint(
                 entry.key,
                 entry.display,
                 entry.description,
@@ -266,6 +413,14 @@ class KeyStrip(Footer):
         width.
         """
         self.call_after_refresh(self.recompose)
+
+    def bindings_changed(self, screen: Screen[object]) -> None:
+        """Recompose after Textual publishes a fresh active-binding map."""
+        self.bindings_ready = True
+        if not screen.app.app_focus:
+            return
+        if self.is_attached and screen is self.screen:
+            self.call_after_refresh(self.recompose)
 
 
 class AppFooter(Vertical):

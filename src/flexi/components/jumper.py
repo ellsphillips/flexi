@@ -10,14 +10,32 @@ dict, so a target can only ever name something that is mounted.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any, NamedTuple, Protocol, runtime_checkable
+from typing import NamedTuple, Protocol, runtime_checkable
 
 from textual.errors import NoWidget
 from textual.geometry import Offset
-from textual.screen import Screen
 from textual.widget import Widget
 
 from flexi.messages import Scope
+
+__all__ = (
+    "HasFocusTarget",
+    "HasJumpOverlays",
+    "HasJumpTargets",
+    "JumpInfo",
+    "JumpScreen",
+    "Jumpable",
+    "Jumper",
+    "Refreshable",
+)
+
+
+class JumpScreen(Protocol):
+    """The geometry operations jump mode needs from a Textual screen."""
+
+    def walk_children(self, filter_type: type[Widget]) -> list[Widget]: ...
+
+    def get_offset(self, widget: Widget) -> Offset: ...
 
 
 @runtime_checkable
@@ -76,7 +94,7 @@ class Jumper:
     def __init__(
         self,
         ids_to_keys: Mapping[str, str],
-        screen: Screen[Any],
+        screen: JumpScreen,
         extra: Callable[[], dict[Offset, JumpInfo]] | None = None,
     ) -> None:
         self.ids_to_keys = dict(ids_to_keys)

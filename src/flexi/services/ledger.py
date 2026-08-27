@@ -9,9 +9,10 @@ cache, so a redraw provoked by a resize costs nothing.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
@@ -36,6 +37,43 @@ from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 
+__all__ = (
+    "LedgerRevision",
+    "LedgerService",
+    "day_kind",
+    "end_of_day",
+    "ledger_revision",
+    "segment_of",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class LedgerRevision:
+    """The SQLite connection and external-commit counter behind a derivation."""
+
+    connection: object
+    data_version: int
+
+
+def ledger_revision(session: Session) -> LedgerRevision:
+    """Identify the source state against which ledger rows are cached.
+
+    ``PRAGMA data_version`` changes when another SQLite connection commits.
+    Its number is meaningful only on the connection that returned it, so the
+    connection identity travels with the value; a session checking out a
+    different pooled connection is conservatively treated as a new revision.
+    """
+    connection = session.connection()
+    driver = connection.connection.dbapi_connection
+    if driver is None:
+        msg = "A ledger revision requires an active database connection"
+        raise RuntimeError(msg)
+    version = connection.exec_driver_sql("PRAGMA data_version").scalar_one()
+    if not isinstance(version, int):
+        msg = "SQLite returned an invalid data_version"
+        raise TypeError(msg)
+    return LedgerRevision(driver, version)
+
 
 class LedgerService:
     """Turn stored rows into :class:`~flexi.domain.ledger.DayLedger` values."""
@@ -50,6 +88,9 @@ class LedgerService:
         self._settings = settings
         self._holidays_service = holidays
         self._cache: dict[date, DayLedger] = {}
+        self._revision: LedgerRevision | None = None
+        event.listen(session, "after_commit", self.invalidate_after_transaction)
+        event.listen(session, "after_rollback", self.invalidate_after_transaction)
 
     # -- cache -------------------------------------------------------------
 
@@ -57,12 +98,32 @@ class LedgerService:
         """Forget every ledger built so far."""
         self._cache.clear()
 
+    def invalidate_after_transaction(self, completed: Session) -> None:
+        """Forget derived values after the source session commits or rolls back.
+
+        Cache correctness belongs beside the cache. Requiring every screen,
+        command, and future service caller to remember ``invalidate`` after a
+        write made a stale balance the default failure mode. Rollback matters
+        too: it may release the connection whose ``data_version`` is being
+        compared, and it must also discard derivations built over flushed rows
+        that did not commit.
+        """
+        if completed is self._session:
+            self.invalidate()
+
+    def refresh_revision(self) -> None:
+        """Invalidate when another connection committed since the last read."""
+        current = ledger_revision(self._session)
+        if self._revision is not None and current != self._revision:
+            self.invalidate()
+        self._revision = current
+
     # -- reading -----------------------------------------------------------
 
     @property
     def window(self) -> Window:
         """The span of the day the punch strip should draw."""
-        return Window.parse(*self._settings.get_day_window())
+        return self._settings.get_day_window()
 
     def day(self, when: date, *, now: datetime | None = None) -> DayLedger:
         """One day's ledger."""
@@ -77,6 +138,7 @@ class LedgerService:
         ledger contains any open session, whose length changes every second, so
         caching it would freeze the live readout.
         """
+        self.refresh_revision()
         moment = wallclock.local(now) if now is not None else wallclock.now()
         today = moment.date()
 

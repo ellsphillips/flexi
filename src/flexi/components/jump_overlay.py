@@ -9,18 +9,20 @@ keep using on purpose.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar, Protocol
 
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Center
+from textual.geometry import Offset
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Label
 
-if TYPE_CHECKING:
-    from flexi.components.jumper import Jumper
+from flexi.components.jumper import JumpInfo
+
+__all__ = ("SWALLOWED_KEYS", "JumpOverlay", "JumpOverlayProvider")
 
 SWALLOWED_KEYS: frozenset[str] = frozenset({"tab", "shift+tab"})
 """Keys stopped rather than let through.
@@ -29,6 +31,12 @@ If these reach the parent after the overlay closes, the parent handles them and
 focus shifts again — unexpectedly, and after the jump target was already
 focused, which reads as the jump having gone to the wrong place.
 """
+
+
+class JumpOverlayProvider(Protocol):
+    """A collaborator that resolves the badges visible on the current screen."""
+
+    def get_overlays(self) -> dict[Offset, JumpInfo]: ...
 
 
 class JumpOverlay(ModalScreen[str | Widget | None]):
@@ -42,7 +50,7 @@ class JumpOverlay(ModalScreen[str | Widget | None]):
 
     def __init__(
         self,
-        jumper: Jumper,
+        jumper: JumpOverlayProvider,
         name: str | None = None,
         id: str | None = None,  # noqa: A002 - Textual's own parameter name
         classes: str | None = None,

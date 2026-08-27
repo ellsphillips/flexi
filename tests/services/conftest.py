@@ -20,8 +20,9 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
-from flexi.models.database.db import BankHolidayCache
-from flexi.services.registry import Services
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
+from flexi.services.registry import Services, build_services, invalidate_services
+from flexi.services.settings import parse_settings
 
 CONTRACTED = timedelta(minutes=444)
 """7:24, the default working day. Named because a test asserting `444` is a test
@@ -49,22 +50,23 @@ def configure(session: Session) -> Configured:
             (DEFAULT_HOLIDAY, "Summer bank holiday"),
         ),
     ) -> Services:
-        built = Services.build(session)
+        built = build_services(session)
         built.settings.save_settings(
-            leave_year_start=leave_year_start,
-            working_days=working_days,
-            bank_holiday_division=division,
-            auto_close_time=auto_close_time,
+            parse_settings(
+                leave_year_start=leave_year_start,
+                working_days=working_days,
+                bank_holiday_division=division,
+                auto_close_time=auto_close_time,
+            )
         )
+        fetched_at = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).replace(tzinfo=None)
+        session.add(BankHolidayRefresh(division=division, fetched_at=fetched_at))
         for when, title in holidays:
             session.add(
                 BankHolidayCache(
                     division=division,
                     date=when,
                     title=title,
-                    fetched_at=datetime(2026, 1, 1, 9, 0, tzinfo=UTC).replace(
-                        tzinfo=None
-                    ),
                 )
             )
         session.commit()
@@ -93,4 +95,4 @@ def work(services: Services, when: date, hours: float, *, start_hour: int = 9) -
     )
     services.clock.clock_in(now=start)
     services.clock.clock_out(now=start + timedelta(hours=hours))
-    services.invalidate()
+    invalidate_services(services)

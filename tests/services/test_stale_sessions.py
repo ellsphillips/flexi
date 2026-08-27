@@ -8,7 +8,9 @@ import pytest
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import ClockAction
+from flexi.constants import ClockAction, EventSource
+from flexi.models.database.db import WorkSession
+from flexi.models.database.moment import punched
 from flexi.services.clock import ClockService
 from flexi.services.startup import close_stale_sessions
 from tests.services.conftest import Configured
@@ -65,6 +67,28 @@ class TestStaleSessionClose:
     def test_noop_when_no_stale(self, svc: ClockService, session: Session) -> None:
         assert close_stale_sessions(session, time(18, 0)) == []
 
+    def test_does_not_auto_close_voided_history(self, session: Session) -> None:
+        """A discarded open row is history, not unfinished current work."""
+        yesterday = wallclock.today() - timedelta(days=1)
+        event = punched(
+            ClockAction.IN,
+            datetime.combine(yesterday, time(9), tzinfo=UTC),
+            source=EventSource.USER,
+        )
+        session.add(event)
+        session.flush()
+        discarded = WorkSession(
+            clock_in_id=event.id,
+            work_date=yesterday,
+            voided=True,
+        )
+        session.add(discarded)
+        session.commit()
+
+        assert close_stale_sessions(session, time(18, 0)) == []
+        session.refresh(discarded)
+        assert discarded.clock_out_id is None
+
 
 class TestFallbackTo2359:
     def test_close_before_clock_in_uses_2359(
@@ -83,6 +107,22 @@ class TestFallbackTo2359:
         assert closing is not None
         close_time = closing.timestamp.replace(tzinfo=None).time()
         assert close_time == time(23, 59)
+
+    def test_clock_in_at_auto_close_closes_at_that_time(
+        self, svc: ClockService, session: Session
+    ) -> None:
+        yesterday_6pm = datetime.combine(
+            wallclock.today() - timedelta(days=1),
+            time(18, 0),
+            tzinfo=UTC,
+        )
+        svc.clock_in(now=yesterday_6pm)
+
+        closed = close_stale_sessions(session, time(18, 0))
+
+        closing = closed[0].clock_out_event
+        assert closing is not None
+        assert closing.timestamp.time() == time(18, 0)
 
 
 class TestCountsTowardWorkedTime:
@@ -128,3 +168,23 @@ def test_the_sweep_can_be_told_what_day_it_is(
 
     assert len(closed) == 1
     assert closed[0].auto_closed is True
+
+
+def test_a_session_closed_under_the_sweep_is_not_reported_as_swept(
+    svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sweep reads the stale sessions, then closes them one at a time.
+
+    Between the read and the update another writer can close the same session
+    -- the application starting twice is the ordinary way. The conditional
+    update declines, and the sweep must leave it out of what it says it did
+    rather than claim a clock-out it did not write.
+    """
+    yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+    svc.clock_in(now=yesterday)
+    monkeypatch.setattr(
+        "flexi.services.startup.stage_clock_out",
+        lambda *_args, **_kwargs: False,
+    )
+
+    assert close_stale_sessions(session, time(18, 0)) == []

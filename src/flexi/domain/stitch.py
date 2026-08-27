@@ -17,6 +17,15 @@ from datetime import date, timedelta
 from flexi.domain.dates import add_months, days_between
 from flexi.domain.format import long_date, month_title, short_date, stamp
 
+__all__ = (
+    "Cell",
+    "MonthBlock",
+    "Selection",
+    "month_block",
+    "stitch",
+    "weekday_initials",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Cell:

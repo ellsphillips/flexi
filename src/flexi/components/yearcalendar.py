@@ -11,8 +11,10 @@ so nothing here is colour alone.
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections.abc import Mapping
 from datetime import date
 from itertools import accumulate
+from types import MappingProxyType
 from typing import ClassVar, Final
 
 from rich.segment import Segment
@@ -34,6 +36,24 @@ from flexi.domain.stitch import (
     Selection,
     stitch,
     weekday_initials,
+)
+
+__all__ = (
+    "AFTERNOON",
+    "BLANK",
+    "FULL",
+    "HEADING_ROW",
+    "HOLIDAY",
+    "LABELLED_CELL",
+    "MIN_CELL",
+    "MORNING",
+    "PORTION_GLYPH",
+    "SPLIT",
+    "TITLE_ROW",
+    "TOKEN",
+    "YearCalendar",
+    "legend",
+    "units_column",
 )
 
 TOKEN: Final = 3
@@ -67,7 +87,7 @@ HOLIDAY: Final = "·"
 BLANK: Final = " "
 
 
-def _units_column(width: int) -> int:
+def units_column(width: int) -> int:
     """Where the day's units digit sits inside a cell of this width.
 
     One answer, asked by the tile that draws the number and by the heading that
@@ -75,19 +95,21 @@ def _units_column(width: int) -> int:
     initials came to sit three cells right of the dates.
 
     Examples:
-        >>> _units_column(12)  # " 13 annual"
+        >>> units_column(12)  # " 13 annual"
         2
-        >>> _units_column(6)  # "  13 "
+        >>> units_column(6)  # "  13 "
         3
     """
     return 2 if width >= LABELLED_CELL else width - 3
 
 
-PORTION_GLYPH: Final[dict[Portion, str]] = {
-    Portion.FULL: FULL,
-    Portion.AM: MORNING,
-    Portion.PM: AFTERNOON,
-}
+PORTION_GLYPH: Final[Mapping[Portion, str]] = MappingProxyType(
+    {
+        Portion.FULL: FULL,
+        Portion.AM: MORNING,
+        Portion.PM: AFTERNOON,
+    }
+)
 
 
 class YearCalendar(ScrollView, can_focus=True):
@@ -136,8 +158,15 @@ class YearCalendar(ScrollView, can_focus=True):
             super().__init__()
             self.selection = selection
 
-    def __init__(self, **kwargs: object) -> None:
-        super().__init__(**kwargs)  # type: ignore[arg-type]
+    def __init__(
+        self,
+        *,
+        name: str | None = None,
+        id: str | None = None,  # noqa: A002 - Textual's parameter name
+        classes: str | None = None,
+        disabled: bool = False,
+    ) -> None:
+        super().__init__(name=name, id=id, classes=classes, disabled=disabled)
         self.blocks: tuple[MonthBlock, ...] = ()
         self.ledgers: dict[date, DayLedger] = {}
         self.selection = Selection.at(wallclock.today())
@@ -276,7 +305,7 @@ class YearCalendar(ScrollView, can_focus=True):
     def render_line(self, y: int) -> Strip:
         line = y + int(self.scroll_offset.y)
         if line >= len(self._rows):
-            return Strip.blank(self.size.width)
+            return Strip.blank(self.size.width, self.visual_style.rich_style)
         block, row = self._rows[line]
 
         if row == HEADING_ROW:
@@ -285,7 +314,7 @@ class YearCalendar(ScrollView, can_focus=True):
         # one `None` block it produces is paired with `HEADING_ROW`, which
         # returns two lines above. Kept because `_rows` is typed to allow it.
         if block is None:  # pragma: no cover
-            return Strip.blank(self.size.width)
+            return Strip.blank(self.size.width, self.visual_style.rich_style)
         if row == TITLE_ROW:
             return self._title_strip(block)
         return self._week_strip(block, row)
@@ -301,7 +330,7 @@ class YearCalendar(ScrollView, can_focus=True):
         style = self.get_component_rich_style("cal--weekday")
         initials = weekday_initials(self.first_weekday)
         text = "".join(
-            initial.rjust(_units_column(width) + 1).ljust(width)
+            initial.rjust(units_column(width) + 1).ljust(width)
             for initial, width in zip(initials, self.columns, strict=False)
         )
         return Strip([Segment(text, style)], self.grid_width)

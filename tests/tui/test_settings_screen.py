@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import pytest
 from textual.pilot import Pilot
 from textual.widgets import Button, Input, Select
 
@@ -172,10 +173,11 @@ async def test_a_changed_entitlement_is_written(app_factory: AppFactory) -> None
         assert kept.days == 27.5
 
 
-async def test_an_entitlement_that_is_not_a_number_is_refused(
-    app_factory: AppFactory,
+@pytest.mark.parametrize("allowance", ["loads", "-1", "nan", "inf"])
+async def test_an_invalid_entitlement_is_refused(
+    app_factory: AppFactory, allowance: str
 ) -> None:
-    """A year somebody could not type stops the whole save.
+    """A year outside the allowance domain stops the whole save.
 
     `_save` used to commit the four settings fields first and parse the
     entitlements after, so a rejection left the working pattern and the region
@@ -192,7 +194,7 @@ async def test_an_entitlement_that_is_not_a_number_is_refused(
         await open_settings(pilot)
         screen = showing(app, SettingsScreen)
         screen.query_one("#input-leave-start", Input).value = "07-07"
-        screen.query_one(f"#ent-{year}", Input).value = "loads"
+        screen.query_one(f"#ent-{year}", Input).value = allowance
 
         await pilot.click("#btn-save")
         await pilot.pause()
@@ -207,6 +209,12 @@ async def test_an_entitlement_that_is_not_a_number_is_refused(
 async def test_adding_next_year_carries_this_year_forward(
     app_factory: AppFactory,
 ) -> None:
+    """And it is a draft until Save, like every other field on the form.
+
+    The button used to write the row the moment it was pressed, so Back
+    discarded the leave year and the working pattern and kept the allowance --
+    half a form, silently.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         year = app.services.settings.active_leave_year()
@@ -214,6 +222,13 @@ async def test_adding_next_year_carries_this_year_forward(
 
         await open_settings(pilot)
         await pilot.click("#btn-add-year")
+        await pilot.pause()
+
+        assert app.services.settings.get_entitlement(year + 1) is None, (
+            "nothing is written until Save"
+        )
+
+        await pilot.click("#btn-save")
         await pilot.pause()
 
         added = app.services.settings.get_entitlement(year + 1)
@@ -228,11 +243,13 @@ async def test_adding_a_year_with_none_on_record_uses_the_default(
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         for row in app.services.settings.all_entitlements():
-            app.services.session.delete(row)
-        app.services.session.commit()
+            app._session.delete(row)
+        app._session.commit()
 
         await open_settings(pilot)
         await pilot.click("#btn-add-year")
+        await pilot.pause()
+        await pilot.click("#btn-save")
         await pilot.pause()
 
         year = app.services.settings.active_leave_year()

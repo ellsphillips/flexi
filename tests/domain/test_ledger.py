@@ -1,14 +1,19 @@
 from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
+import pytest
+
+from flexi import wallclock
 from flexi.constants import AbsenceType, DayKind, Portion
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 
 DAY = date(2026, 6, 11)
 CONTRACTED = timedelta(hours=7, minutes=24)
+LONDON = ZoneInfo("Europe/London")
 
 
 def at(hour: int, minute: int = 0) -> datetime:
-    return datetime.combine(DAY, time(hour, minute))
+    return datetime.combine(DAY, time(hour, minute), tzinfo=UTC)
 
 
 def ledger(**kwargs: object) -> DayLedger:
@@ -35,6 +40,26 @@ def test_a_closed_segment_ignores_now() -> None:
     """It reports what it recorded, whenever it is redrawn."""
     segment = Segment(1, at(9), at(11))
     assert segment.duration(at(23)) == timedelta(hours=2)
+
+
+def test_a_segment_requires_timezone_aware_endpoints() -> None:
+    naive = datetime.combine(DAY, time(9))
+    with pytest.raises(ValueError, match="start must be timezone-aware"):
+        Segment(1, naive)
+    with pytest.raises(ValueError, match="end must be timezone-aware"):
+        Segment(1, at(9), naive)
+
+
+def test_an_open_segment_requires_an_aware_now() -> None:
+    with pytest.raises(ValueError, match="now must be timezone-aware"):
+        Segment(1, at(9)).duration(datetime.combine(DAY, time(10)))
+
+
+def test_zone_aware_endpoints_measure_real_time_across_fallback() -> None:
+    start = datetime(2026, 10, 24, 22, 0, tzinfo=LONDON)
+    end = datetime(2026, 10, 25, 6, 0, tzinfo=LONDON)
+
+    assert Segment(1, start, end).duration(end) == timedelta(hours=9)
 
 
 def test_breaks_are_only_between_sessions() -> None:
@@ -85,9 +110,30 @@ def test_leave_at_allows_for_breaks() -> None:
     assert day.leave_at == at(17, 24)
 
 
+def test_leave_at_reenters_local_time_after_a_dst_transition() -> None:
+    with wallclock.pinned(LONDON):
+        start = wallclock.local(datetime(2026, 3, 29, 0, 30))
+        day = ledger(
+            date=start.date(),
+            segments=(Segment(1, start),),
+            expected=CONTRACTED,
+        )
+        leave_at = day.leave_at
+
+    assert leave_at is not None
+    assert (leave_at.hour, leave_at.minute) == (8, 54)
+    assert leave_at.utcoffset() == timedelta(hours=1)
+
+
 def test_leave_at_is_unknown_before_arriving() -> None:
     """It has no answer before the first clock-in."""
     assert ledger().leave_at is None
+
+
+def test_leave_at_is_unknown_when_the_day_expects_no_work() -> None:
+    day = ledger(segments=(Segment(1, at(9)),), expected=timedelta())
+
+    assert day.leave_at is None
 
 
 def test_first_in_and_last_out() -> None:

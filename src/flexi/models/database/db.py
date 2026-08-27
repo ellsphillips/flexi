@@ -5,11 +5,13 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -18,6 +20,28 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
+from flexi.models.database.invariants import (
+    register_clock_event_immutability as _register_clock_event_immutability,
+)
+from flexi.models.database.invariants import (
+    register_work_session_action_invariants as _register_work_session_action_invariants,
+)
+
+__all__ = (
+    "DEFAULT_CONTRACTED_MINUTES",
+    "DEFAULT_WINDOW_END",
+    "DEFAULT_WINDOW_START",
+    "SETTINGS_SINGLETON_KEY",
+    "AbsenceDay",
+    "BalanceAdjustment",
+    "BankHolidayCache",
+    "BankHolidayRefresh",
+    "Base",
+    "ClockEvent",
+    "LeaveEntitlement",
+    "Settings",
+    "WorkSession",
+)
 
 DEFAULT_CONTRACTED_MINUTES = 444
 """7h24 — the standard day these figures are all measured against.
@@ -29,6 +53,13 @@ the sum of its own rows.
 
 DEFAULT_WINDOW_START = "07:00"
 DEFAULT_WINDOW_END = "19:00"
+SETTINGS_SINGLETON_KEY = 1
+"""The single value accepted by :class:`Settings.singleton_key`.
+
+A constrained constant key turns the application's one-row settings convention
+into a database invariant.  The unique constraint limits the table to one row;
+the check constraint prevents a second row from choosing a different key.
+"""
 
 
 class Base(DeclarativeBase):
@@ -45,8 +76,21 @@ class Settings(Base):
     """
 
     __tablename__ = "settings"
+    __table_args__ = (
+        CheckConstraint(
+            f"singleton_key = {SETTINGS_SINGLETON_KEY}",
+            name="ck_settings_singleton_key",
+        ),
+        UniqueConstraint("singleton_key", name="uq_settings_singleton_key"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    singleton_key: Mapped[int] = mapped_column(
+        Integer(),
+        default=SETTINGS_SINGLETON_KEY,
+        server_default=text(str(SETTINGS_SINGLETON_KEY)),
+    )
+    """Constant database key that makes this a true singleton table."""
     leave_year_start: Mapped[str] = mapped_column(String(5))  # "MM-DD"
     working_days: Mapped[str] = mapped_column(String(27))  # "0,1,2,3,4"
     bank_holiday_division: Mapped[str] = mapped_column(String(30))
@@ -74,17 +118,43 @@ class LeaveEntitlement(Base):
     days: Mapped[float] = mapped_column(Float())
 
 
+class BankHolidayRefresh(Base):
+    """A complete cached division calendar, including an empty one.
+
+    Freshness belongs to the response as a whole, not to each event in it.  A
+    row therefore records that one division was fetched successfully even when
+    GOV.UK returned no events.  The division is the natural key because only
+    the latest complete response is retained.
+    """
+
+    __tablename__ = "bank_holiday_refreshes"
+
+    division: Mapped[str] = mapped_column(String(30), primary_key=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime())
+    events: Mapped[list[BankHolidayCache]] = relationship(
+        back_populates="refresh",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
 class BankHolidayCache(Base):
-    """Cached bank holiday entries from GOV.UK."""
+    """One event in a successfully fetched GOV.UK division calendar."""
 
     __tablename__ = "bank_holiday_cache"
     __table_args__ = (UniqueConstraint("division", "date", name="uq_division_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    division: Mapped[str] = mapped_column(String(30))
+    division: Mapped[str] = mapped_column(
+        ForeignKey(
+            "bank_holiday_refreshes.division",
+            name="fk_bank_holiday_cache_division_refresh",
+            ondelete="CASCADE",
+        )
+    )
     date: Mapped[date_type] = mapped_column(Date())
     title: Mapped[str] = mapped_column(String(100))
-    fetched_at: Mapped[datetime] = mapped_column(DateTime())
+    refresh: Mapped[BankHolidayRefresh] = relationship(back_populates="events")
 
 
 class ClockEvent(Base):
@@ -129,6 +199,9 @@ class ClockEvent(Base):
     keeps `create_all` from building a schema the migrations never did."""
 
 
+_register_clock_event_immutability(ClockEvent.__table__)
+
+
 class WorkSession(Base):
     """A work session linking a clock-in to an optional clock-out.
 
@@ -138,6 +211,16 @@ class WorkSession(Base):
     """
 
     __tablename__ = "work_sessions"
+    __table_args__ = (
+        UniqueConstraint("clock_in_id", name="uq_work_sessions_clock_in_id"),
+        UniqueConstraint("clock_out_id", name="uq_work_sessions_clock_out_id"),
+        Index(
+            "uq_work_sessions_one_open",
+            "voided",
+            unique=True,
+            sqlite_where=text("clock_out_id IS NULL AND voided = 0"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     clock_in_id: Mapped[int] = mapped_column(ForeignKey("clock_events.id"))
@@ -159,18 +242,35 @@ class WorkSession(Base):
     )
 
 
+_register_work_session_action_invariants(WorkSession.__table__)
+
+
 class AbsenceDay(Base):
     """An absence covering a whole day, or one half of one.
 
     Two half-days of *different* types may share a date — a sick morning and an
-    annual afternoon is a real thing that happens — so the uniqueness constraint
-    is on the pair. A full day cannot coexist with either half; that rule is
-    enforced in :class:`~flexi.services.absence.AbsenceService`, because SQLite
-    cannot express it as a constraint.
+    annual afternoon is a real thing that happens. Two partial unique indexes
+    treat ``FULL`` as conflicting once with ``AM`` and once with ``PM``. This
+    admits the useful ``AM + PM`` pair while making every full/half collision a
+    database error, including writes that bypass the service layer.
     """
 
     __tablename__ = "absence_days"
-    __table_args__ = (UniqueConstraint("date", "portion", name="uq_date_portion"),)
+    __table_args__ = (
+        UniqueConstraint("date", "portion", name="uq_date_portion"),
+        Index(
+            "uq_absence_date_full_am",
+            "date",
+            unique=True,
+            sqlite_where=text("portion IN ('FULL', 'AM')"),
+        ),
+        Index(
+            "uq_absence_date_full_pm",
+            "date",
+            unique=True,
+            sqlite_where=text("portion IN ('FULL', 'PM')"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     date: Mapped[date_type] = mapped_column(Date())

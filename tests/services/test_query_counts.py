@@ -68,34 +68,38 @@ def booked(configure: Configured) -> Services:
 
 
 def test_planning_a_year_costs_no_more_than_planning_a_fortnight(
-    booked: Services,
+    booked: Services, session: Session
 ) -> None:
     """The whole point: the cost is the number of *questions*, not of dates."""
-    with counting(booked.session) as fortnight:
+    with counting(session) as fortnight:
         booked.absence.plan(YEAR_START, FORTNIGHT_END, AbsenceType.ANNUAL)
-    with counting(booked.session) as year:
+    with counting(session) as year:
         booked.absence.plan(YEAR_START, YEAR_END, AbsenceType.ANNUAL)
 
     assert len(year) == len(fortnight), "the span is being walked a query at a time"
     assert len(year) <= PLAN_CEILING, "\n".join(year)
 
 
-def test_the_wallet_reads_the_leave_year_once(booked: Services) -> None:
+def test_the_wallet_reads_the_leave_year_once(
+    booked: Services, session: Session
+) -> None:
     """It asked for days and occurrences separately, per type: ten scans.
 
     Each of those then validated every row it had read with three queries of
     its own, so the twenty-five rows here cost 162 round trips to produce ten
     pairs of numbers.
     """
-    with counting(booked.session) as seen:
+    with counting(session) as seen:
         booked.wallet.compute(YEAR_START, FORTNIGHT_END, today=YEAR_START)
 
     assert len(seen) <= WALLET_CEILING, "\n".join(seen)
 
 
-def test_clearing_a_year_is_one_read_and_one_commit(booked: Services) -> None:
-    """It walked the dates, and `remove` re-read each one it had just read."""
-    with counting(booked.session) as seen:
+def test_clearing_a_year_uses_bounded_reads_and_one_commit(
+    booked: Services, session: Session
+) -> None:
+    """Planning and locked revalidation stay constant however long the span."""
+    with counting(session) as seen:
         cleared = booked.absence.clear_range(YEAR_START, YEAR_END)
 
     assert len(cleared.booked) == 25

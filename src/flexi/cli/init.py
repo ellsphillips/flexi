@@ -31,22 +31,27 @@ from rich.text import Text
 from flexi.cli import ui
 from flexi.domain.format import plural
 from flexi.models.database.backup import snapshot, verify
+from flexi.models.database.lease import (
+    DatabaseBusyError,
+    LeaseMode,
+    database_lease,
+)
 
-__all__ = [
+__all__ = (
+    "CONFIRM_WORD",
+    "COUNTED",
+    "READ_TIMEOUT",
     "Choice",
     "Contents",
     "ask",
     "confirm_reset",
     "describe",
+    "options",
     "overview",
     "reset",
     "settled",
-]
-"""What `__main__` reaches for.
-
-It omitted `confirm_reset`, which `__main__` calls, and published `interactive`
--- a re-export of `flexi.cli.ui.prompt.interactive` that gave one function two
-public paths, and `_already_set_up` used both of them within nine lines."""
+)
+"""The module's complete setup and reset vocabulary."""
 
 CONFIRM_WORD = "reset"
 
@@ -160,7 +165,7 @@ def overview(db_path: Path, contents: Contents) -> list[Text]:
     return lines
 
 
-def _options(contents: Contents) -> list[ui.Option]:
+def options(contents: Contents) -> list[ui.Option[Choice]]:
     total = contents.total
     erase = (
         "erase everything"
@@ -177,8 +182,8 @@ def _options(contents: Contents) -> list[ui.Option]:
 def ask(db_path: Path, contents: Contents) -> Choice | None:
     """Show what is there, and return what was chosen about it."""
     ui.write(overview(db_path, contents))
-    picked = ui.choose("What would you like to do?", _options(contents))
-    return Choice(picked.value) if picked is not None else None
+    picked = ui.choose("What would you like to do?", options(contents))
+    return picked.value if picked is not None else None
 
 
 def confirm_reset(contents: Contents) -> bool:
@@ -226,11 +231,17 @@ def reset(db_path: Path) -> Path | None:
     deleting the directory would take every snapshot ever made -- including the
     one taken a moment earlier, which is the whole safety net.
     """
-    taken: Path | None = None
-    if db_path.is_file():
-        taken = snapshot(db_path)
-        if not verify(taken):
-            msg = f"The snapshot at {taken} did not verify. Nothing was deleted."
-            raise click.ClickException(msg)
-        db_path.unlink()
-    return taken
+    try:
+        with database_lease(db_path, LeaseMode.EXCLUSIVE):
+            taken: Path | None = None
+            if db_path.is_file():
+                taken = snapshot(db_path)
+                if not verify(taken):
+                    msg = (
+                        f"The snapshot at {taken} did not verify. Nothing was deleted."
+                    )
+                    raise click.ClickException(msg)
+                db_path.unlink()
+            return taken
+    except DatabaseBusyError as error:
+        raise click.ClickException(str(error)) from error

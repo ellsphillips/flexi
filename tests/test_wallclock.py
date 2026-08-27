@@ -9,6 +9,7 @@ because the run still carries the zone in its name.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -34,13 +35,52 @@ def test_the_suite_runs_on_the_zone_it_says_it_does() -> None:
         assert wallclock.now() == datetime(2026, 6, 11, 12, 0, tzinfo=UTC)
 
 
-def test_the_pin_can_be_moved_and_puts_itself_back() -> None:
-    """Nested, because the London fixture nests inside the autouse UTC one."""
+def test_nested_pins_restore_the_zone_at_each_level() -> None:
+    """The London fixture nests inside the autouse UTC pin in the same way."""
     with time_machine.travel(MIDSUMMER, tick=False):
         with wallclock.pinned(LONDON):
             assert wallclock.now().hour == 13
+            with wallclock.pinned(UTC):
+                assert wallclock.now().hour == 12
+            assert wallclock.now().hour == 13
 
         assert wallclock.now().hour == 12
+
+
+def test_utc_readings_do_not_take_the_wall_time_pin() -> None:
+    with time_machine.travel(MIDSUMMER, tick=False), wallclock.pinned(LONDON):
+        assert wallclock.utc_now() == MIDSUMMER
+
+
+async def test_overlapping_tasks_cannot_move_each_others_pin() -> None:
+    """A pin belongs to an execution context, not to the whole process.
+
+    London reads while the UTC task's pin is still open. With mutable global
+    state that second pin moves both tasks to UTC; a ContextVar leaves each task
+    on the zone it chose.
+    """
+    london_ready = asyncio.Event()
+    utc_ready = asyncio.Event()
+    london_read = asyncio.Event()
+
+    async def read_london() -> int:
+        with wallclock.pinned(LONDON):
+            london_ready.set()
+            await utc_ready.wait()
+            hour = wallclock.local(MIDSUMMER).hour
+            london_read.set()
+            return hour
+
+    async def read_utc() -> int:
+        await london_ready.wait()
+        with wallclock.pinned(UTC):
+            utc_ready.set()
+            await london_read.wait()
+            return wallclock.local(MIDSUMMER).hour
+
+    london_hour, utc_hour = await asyncio.gather(read_london(), read_utc())
+
+    assert (london_hour, utc_hour) == (13, 12)
 
 
 def test_a_reading_carries_a_number_and_never_a_zone() -> None:
@@ -83,6 +123,54 @@ def test_an_aware_moment_is_converted_to_the_pinned_zone() -> None:
         moment = wallclock.local(MIDSUMMER)
 
     assert (moment.hour, moment.utcoffset()) == (13, timedelta(hours=1))
+
+
+def test_elapsed_time_uses_instants_across_a_zone_transition() -> None:
+    start = datetime(2026, 10, 24, 22, 0, tzinfo=LONDON)
+    end = datetime(2026, 10, 25, 6, 0, tzinfo=LONDON)
+
+    assert wallclock.elapsed(start, end) == timedelta(hours=9)
+
+
+@pytest.mark.parametrize(
+    ("start", "duration", "expected_hour", "expected_minute", "expected_offset"),
+    [
+        (
+            datetime(2026, 3, 29, 0, 30),
+            timedelta(hours=7, minutes=24),
+            8,
+            54,
+            timedelta(hours=1),
+        ),
+        (
+            datetime(2026, 10, 25, 0, 30),
+            timedelta(hours=7, minutes=24),
+            6,
+            54,
+            timedelta(),
+        ),
+    ],
+)
+def test_advancing_elapsed_time_restores_the_destination_offset(
+    start: datetime,
+    duration: timedelta,
+    expected_hour: int,
+    expected_minute: int,
+    expected_offset: timedelta,
+) -> None:
+    with wallclock.pinned(LONDON):
+        advanced = wallclock.advance(wallclock.local(start), duration)
+
+    assert (advanced.hour, advanced.minute) == (expected_hour, expected_minute)
+    assert advanced.utcoffset() == expected_offset
+
+
+def test_elapsed_operations_refuse_naive_moments() -> None:
+    naive = datetime(2026, 6, 11, 9, 0)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        wallclock.elapsed(naive, MIDSUMMER)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        wallclock.advance(naive, timedelta(hours=1))
 
 
 def test_unpinned_it_asks_the_machine() -> None:

@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from types import MappingProxyType
 from typing import Final
 
 from rich.console import Console
@@ -31,6 +32,24 @@ from rich.text import Text
 from flexi.cli.ui import rail
 from flexi.cli.ui.keys import Key, decode, incomplete
 from flexi.cli.ui.menu import Menu, Option
+
+__all__ = (
+    "ESCAPE_WAIT",
+    "WINDOWS_PREFIXES",
+    "WINDOWS_SCANCODES",
+    "Surface",
+    "abandon",
+    "choose",
+    "console",
+    "interactive",
+    "more_coming",
+    "read_key",
+    "read_posix",
+    "read_windows",
+    "type_the_word",
+    "unbuffered",
+    "write",
+)
 
 ESCAPE_WAIT: Final = 0.05
 """Seconds to wait for the rest of an escape sequence.
@@ -58,7 +77,7 @@ def interactive() -> bool:
 
 
 @contextmanager
-def _unbuffered() -> Iterator[int]:
+def unbuffered() -> Iterator[int]:
     """The terminal delivering keys as they are struck.
 
     ``cbreak`` rather than ``raw``: it leaves signal handling on, so ctrl-c
@@ -85,16 +104,16 @@ def _unbuffered() -> Iterator[int]:
         termios.tcsetattr(descriptor, termios.TCSADRAIN, saved)
 
 
-def _more_coming(descriptor: int) -> bool:
+def more_coming(descriptor: int) -> bool:
     import select
 
     ready, _, _ = select.select([descriptor], [], [], ESCAPE_WAIT)
     return bool(ready)
 
 
-def _read_posix(descriptor: int) -> Key:
+def read_posix(descriptor: int) -> Key:
     sequence = os.read(descriptor, 1).decode("utf-8", errors="ignore")
-    while incomplete(sequence) and _more_coming(descriptor):
+    while incomplete(sequence) and more_coming(descriptor):
         sequence += os.read(descriptor, 1).decode("utf-8", errors="ignore")
     return decode(sequence)
 
@@ -102,11 +121,13 @@ def _read_posix(descriptor: int) -> Key:
 WINDOWS_PREFIXES: Final = ("\x00", "\xe0")
 """What the Windows console sends ahead of a scan code, rather than an escape."""
 
-WINDOWS_SCANCODES: Final[dict[str, Key]] = {"H": Key.UP, "P": Key.DOWN}
+WINDOWS_SCANCODES: Final[Mapping[str, Key]] = MappingProxyType(
+    {"H": Key.UP, "P": Key.DOWN}
+)
 """The scan codes for the two keys a menu moves on."""
 
 
-def _read_windows(getwch: Callable[[], str]) -> Key:
+def read_windows(getwch: Callable[[], str]) -> Key:
     """One key press, as the Windows console delivers it.
 
     An arrow comes as two reads -- a prefix saying a scan code follows, then the
@@ -131,8 +152,8 @@ def read_key(descriptor: int) -> Key:
     if sys.platform == "win32":  # pragma: no cover - POSIX takes the branch below
         import msvcrt
 
-        return _read_windows(msvcrt.getwch)
-    return _read_posix(descriptor)
+        return read_windows(msvcrt.getwch)
+    return read_posix(descriptor)
 
 
 # -- drawing -----------------------------------------------------------------
@@ -186,12 +207,12 @@ def write(lines: Sequence[Text], out: Console | None = None) -> None:
 # -- components --------------------------------------------------------------
 
 
-def choose(
+def choose[ValueT](
     question: str,
-    options: Sequence[Option],
+    options: Sequence[Option[ValueT]],
     *,
     out: Console | None = None,
-) -> Option | None:
+) -> Option[ValueT] | None:
     """Ask, and return what was picked -- or ``None`` if it was not.
 
     The finished step collapses to two settled lines, so a transcript of the
@@ -201,7 +222,7 @@ def choose(
     surface = Surface(out)
     menu = Menu(question, tuple(options))
 
-    with _unbuffered() as descriptor, surface.without_cursor():
+    with unbuffered() as descriptor, surface.without_cursor():
         surface.draw(menu.render())
         while True:
             try:

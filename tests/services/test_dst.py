@@ -16,9 +16,10 @@ import pytest
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent
 from flexi.models.database.moment import moment_of
-from flexi.services.registry import Services
+from flexi.services.registry import build_services
 
 pytestmark = pytest.mark.usefixtures("in_london")
 
@@ -33,7 +34,7 @@ def _at(iso: str) -> datetime:
 
 def _worked(session: Session, opened: datetime, closed: datetime) -> timedelta:
     """Real elapsed time between the two punches, as the database holds them."""
-    service = Services.build(session).clock
+    service = build_services(session).clock
     assert service.clock_in(now=opened).success
     assert service.clock_out(now=closed).success
     punches = sorted(
@@ -90,7 +91,7 @@ def test_a_session_in_the_hour_that_happens_twice_is_not_discarded(
     The wall span is minus twenty minutes, which tripped the finger-slip guard
     and voided the row with a message blaming the user. There is no unvoid path.
     """
-    service = Services.build(session).clock
+    service = build_services(session).clock
     service.clock_in(now=_at(f"{FALLBACK}T00:30"))
     result = service.clock_out(now=_at(f"{FALLBACK}T01:10"))
 
@@ -102,7 +103,7 @@ def test_a_session_in_the_hour_that_happens_twice_is_not_discarded(
 
 def test_the_two_readings_of_half_past_one_are_stored_apart(session: Session) -> None:
     """The structural claim. Nothing downstream can recover this if it is lost."""
-    service = Services.build(session).clock
+    service = build_services(session).clock
     service.clock_in(now=_at(f"{FALLBACK}T00:30"))  # 01:30 BST
     service.clock_out(now=_at(f"{FALLBACK}T01:30"))  # 01:30 GMT
 
@@ -124,7 +125,7 @@ def test_an_open_session_ticks_forward_through_the_fallback_hour(
     from flexi.domain.balance import worked_from
     from flexi.services.ledger import segment_of
 
-    service = Services.build(session).clock
+    service = build_services(session).clock
     service.clock_in(now=_at(f"{FALLBACK}T00:30"))
     open_session = service.get_open_session()
     assert open_session is not None
@@ -135,8 +136,8 @@ def test_an_open_session_ticks_forward_through_the_fallback_hour(
 
 
 def test_a_backwards_session_is_refused_rather_than_voided(session: Session) -> None:
-    """A negative span is a fault in the data, not a slip of the finger."""
-    service = Services.build(session).clock
+    """A negative span is rejected without closing or adding to the audit trail."""
+    service = build_services(session).clock
     service.clock_in(now=_at(f"{FALLBACK}T10:00"))
     result = service.clock_out(now=_at(f"{FALLBACK}T09:00"))
 
@@ -144,3 +145,8 @@ def test_a_backwards_session_is_refused_rather_than_voided(session: Session) -> 
     assert "earlier than the clock-in" in result.message
     assert result.session is not None
     assert result.session.voided is False
+    assert result.session.clock_out_id is None
+    assert service.get_open_session() is result.session
+    assert [event.action for event in session.query(ClockEvent).all()] == [
+        ClockAction.IN
+    ]

@@ -17,6 +17,8 @@ from flexi.cli.ui.onclock import on_the_clock
 from flexi.models.database.moment import moment_of
 from flexi.services.registry import Services
 
+__all__ = ("already_on", "clock_in", "clock_out")
+
 
 def clock_in(services: Services) -> int:
     """Start a work session."""

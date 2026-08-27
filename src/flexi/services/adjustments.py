@@ -20,6 +20,9 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.domain.format import stamp
 from flexi.models.database.db import BalanceAdjustment
+from flexi.services.transactions import atomic, write_transaction
+
+__all__ = ("OPENING_BALANCE", "AdjustmentResult", "AdjustmentService")
 
 OPENING_BALANCE = "opening balance"
 """The reason a zeroing adjustment is recorded under."""
@@ -53,11 +56,22 @@ class AdjustmentService:
     # -- writing -----------------------------------------------------------
 
     def record(self, when: date, amount: timedelta, reason: str) -> AdjustmentResult:
-        """Store a correction.
+        """Validate, store and commit one correction."""
+        with atomic(self._session):
+            return self.stage_record(when, amount, reason)
+
+    def stage_record(
+        self, when: date, amount: timedelta, reason: str
+    ) -> AdjustmentResult:
+        """Validate and stage one correction in a caller-owned transaction.
 
         Rounded to whole minutes, because that is the resolution every figure in
         the interface is shown at and a correction that reads as ``+0:00`` while
         moving the balance by forty seconds is worse than no correction at all.
+
+        This composable boundary deliberately does not commit. Cross-service
+        decisions can therefore read and stage their consequence beneath one
+        writer reservation instead of introducing a stale-read window.
         """
         if not reason.strip():
             return AdjustmentResult(False, "An adjustment needs a reason")
@@ -73,7 +87,6 @@ class AdjustmentService:
             created_at=wallclock.utc_now().replace(tzinfo=None),
         )
         self._session.add(row)
-        self._session.commit()
         return AdjustmentResult(
             True,
             f"Balance adjusted by {minutes:+d} minutes on {stamp(when, '%-d %b %Y')}",
@@ -82,9 +95,9 @@ class AdjustmentService:
 
     def remove(self, adjustment_id: int) -> AdjustmentResult:
         """Undo a correction. It is one row, so it can simply go."""
-        row = self._session.get(BalanceAdjustment, adjustment_id)
-        if row is None:
-            return AdjustmentResult(False, "No such adjustment")
-        self._session.delete(row)
-        self._session.commit()
+        with write_transaction(self._session):
+            row = self._session.get(BalanceAdjustment, adjustment_id)
+            if row is None:
+                return AdjustmentResult(False, "No such adjustment")
+            self._session.delete(row)
         return AdjustmentResult(True, "Adjustment removed")

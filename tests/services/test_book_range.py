@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from flexi.constants import AbsenceType, Portion
+from flexi.services.absence import PLAN_CHANGED, RemovalBooking
 from flexi.services.registry import Services
 from tests.services.conftest import DEFAULT_HOLIDAY
 
@@ -149,9 +150,20 @@ def test_a_removal_plan_names_what_would_go(services: Services) -> None:
     )
 
     plan = services.absence.removal_plan(MONDAY, FRIDAY)
+    rows = services.absence.in_range(MONDAY, FRIDAY)
 
     assert plan.count == 5
     assert not plan.is_empty
+    assert plan.bookings == tuple(
+        RemovalBooking(
+            absence_id=row.id,
+            date=row.date,
+            absence_type=row.absence_type,
+            portion=row.portion,
+            note=row.note,
+        )
+        for row in rows
+    )
     assert plan.summary == ("  3 days of annual leave\n  2 mornings of TOIL")
 
 
@@ -162,6 +174,24 @@ def test_a_removal_plan_removes_nothing(services: Services) -> None:
     services.absence.removal_plan(MONDAY, FRIDAY)
 
     assert len(services.absence.in_range(MONDAY, FRIDAY)) == 5
+
+
+def test_a_portion_specific_removal_plan_preserves_the_other_half(
+    services: Services,
+) -> None:
+    services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM)
+    services.absence.book(MONDAY, AbsenceType.SICK, Portion.PM)
+
+    plan = services.absence.removal_plan(MONDAY, MONDAY, portion=Portion.PM)
+    result = services.absence.remove_plan(plan)
+
+    assert result.success
+    assert plan.portion is Portion.PM
+    assert plan.summary == "  1 afternoon of sickness"
+    assert [
+        (row.absence_type, row.portion)
+        for row in services.absence.in_range(MONDAY, MONDAY)
+    ] == [(AbsenceType.ANNUAL, Portion.AM)]
 
 
 def test_an_empty_removal_plan_is_empty(services: Services) -> None:
@@ -178,3 +208,23 @@ def test_one_of_a_kind_reads_in_the_singular(services: Services) -> None:
     plan = services.absence.removal_plan(MONDAY, FRIDAY)
 
     assert plan.summary == ("  1 day of sickness\n  1 afternoon of TOIL")
+
+
+def test_a_booking_added_after_confirmation_is_not_removed(
+    services: Services,
+) -> None:
+    """The confirmed snapshot is all-or-nothing, not permission to clear a span."""
+    services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM)
+    confirmed = services.absence.removal_plan(MONDAY, FRIDAY)
+    services.absence.book(MONDAY, AbsenceType.SICK, Portion.PM)
+
+    result = services.absence.remove_plan(confirmed)
+
+    assert result.skipped == ((MONDAY, PLAN_CHANGED),)
+    assert [
+        (row.absence_type, row.portion)
+        for row in services.absence.in_range(MONDAY, FRIDAY)
+    ] == [
+        (AbsenceType.ANNUAL, Portion.AM),
+        (AbsenceType.SICK, Portion.PM),
+    ]

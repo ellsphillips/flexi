@@ -14,8 +14,11 @@ already knew.
 from __future__ import annotations
 
 import functools
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar
+from datetime import date
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 import click
 
@@ -25,18 +28,65 @@ from flexi.locations import database_file
 from flexi.services.setup import is_initialised
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from datetime import date
-    from pathlib import Path
+    from sqlalchemy import Engine as DatabaseEngine
+    from sqlalchemy.orm import Session as DatabaseSession
 
-    from sqlalchemy import Engine
-    from sqlalchemy.orm import Session
+    from flexi.app import FlexiApp as FlexiApplication
+    from flexi.services.registry import Services as ServiceRegistry
+else:
 
-    from flexi.app import FlexiApp
-    from flexi.services.registry import Services
+    class DatabaseEngine(Protocol):
+        """The engine lifecycle retained by an open command."""
+
+        def dispose(self) -> None:
+            """Release pooled database connections."""
+
+    class DatabaseSession(Protocol):
+        """The session lifecycle retained by an open command."""
+
+        def close(self) -> None:
+            """Release the command's database session."""
+
+    class FlexiApplication(Protocol):
+        """Runtime-resolvable application result without an eager Textual import."""
+
+        def run(self) -> object:
+            """Run the application."""
+
+    class ServiceRegistry(Protocol):
+        """Runtime annotation for the lazily imported concrete registry."""
 
 
-T = TypeVar("T")
+__all__ = (
+    "NOT_INITIALISED",
+    "DatabaseEngine",
+    "DatabaseSession",
+    "FlexiApplication",
+    "Handles",
+    "ServiceRegistry",
+    "already_set_up",
+    "as_of_option",
+    "ask_the_questions",
+    "balance",
+    "balance_log",
+    "balance_show",
+    "balance_undo",
+    "balance_zero",
+    "cli",
+    "clock",
+    "clock_in",
+    "clock_out",
+    "erase",
+    "holidays",
+    "holidays_refresh",
+    "init",
+    "launch",
+    "leave",
+    "open_app",
+    "open_database",
+    "requires_setup",
+    "run_demo",
+)
 
 
 @click.group(invoke_without_command=True)
@@ -58,7 +108,7 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
         msg = "--demo opens the sample application; it does not take a command."
         raise click.UsageError(msg)
     if demo:
-        _run_demo()
+        run_demo()
         return
 
     ctx.ensure_object(dict)
@@ -77,9 +127,9 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
 
     run_migrations()
     if not is_initialised():
-        _ask_the_questions(ctx, database_file())
+        ask_the_questions(ctx, database_file())
         return
-    _launch().run()
+    launch().run()
 
 
 NOT_INITIALISED = (
@@ -90,24 +140,23 @@ NOT_INITIALISED = (
 
 @dataclass(frozen=True, slots=True)
 class Handles:
-    """An open database, and the means to let go of it.
+    """The open database values handed to one command.
 
     Handed to the command by :func:`requires_setup` rather than fished back out
     of ``ctx.obj``, which Click types as ``Any`` -- thirteen accesses that
     ``mypy --strict`` could not check, and a rename away from failing at
-    runtime. It stays on the context for ``ctx.call_on_close``.
+    runtime. The Click context owns their lifetime through ``database_scope``;
+    this class only models the values and cannot accidentally close them twice.
     """
 
-    engine: Engine
-    session: Session
-    services: Services
-
-    def close(self) -> None:
-        self.session.close()
-        self.engine.dispose()
+    engine: DatabaseEngine
+    session: DatabaseSession
+    services: ServiceRegistry
 
 
-def as_of_option(help_text: str) -> Callable[[Callable[..., T]], Callable[..., T]]:
+def as_of_option[ReturnT](
+    help_text: str,
+) -> Callable[[Callable[..., ReturnT]], Callable[..., ReturnT]]:
     """The ``--as-of`` option, declared once for the two commands that take it.
 
     It was written out twice, differing only in the help string, and both
@@ -129,7 +178,7 @@ def requires_setup(command: Callable[..., int]) -> Callable[..., None]:
     -- the shape every module in `flexi.cli` already has. It used to open the
     database and hand back nothing, so all eight commands repeated the same
     four lines to fish the registry back out of the context and turn a code
-    into an exit, and `_open_database`'s return value was dead.
+    into an exit, and `open_database`'s return value was dead.
     """
 
     @functools.wraps(command)
@@ -138,12 +187,12 @@ def requires_setup(command: Callable[..., int]) -> Callable[..., None]:
         if not is_initialised():
             click.secho(NOT_INITIALISED, fg="yellow", err=True)
             ctx.exit(1)
-        ctx.exit(command(_open_database(ctx).services, *args, **kwargs))
+        ctx.exit(command(open_database(ctx).services, *args, **kwargs))
 
     return guarded
 
 
-def _launch(*, settings: bool = False, splash: bool = False) -> FlexiApp:
+def launch(*, settings: bool = False, splash: bool = False) -> FlexiApplication:
     """Every way into the application goes through here.
 
     ``FlexiApp.__init__`` builds an engine, opens a session and reads the settings
@@ -166,7 +215,7 @@ def _launch(*, settings: bool = False, splash: bool = False) -> FlexiApp:
     return app
 
 
-def _open_database(ctx: click.Context) -> Handles:
+def open_database(ctx: click.Context) -> Handles:
     """Migrate, connect, sweep, and hand back an open database.
 
     Closing is registered on the context rather than written at the end of each
@@ -174,20 +223,18 @@ def _open_database(ctx: click.Context) -> Handles:
     failure was unreachable -- which is to say the session and the engine leaked
     on exactly the paths where something had already gone wrong.
     """
-    from flexi.models.database.engine import create_db_engine, get_session
+    from flexi.models.database.engine import database_scope
     from flexi.models.database.migrate import run_migrations
-    from flexi.services.registry import Services
+    from flexi.services.registry import build_services
 
     run_migrations()
-    engine = create_db_engine()
-    session = get_session(engine)
-    services = Services.build(session)
+    engine, session = ctx.with_resource(database_scope())
+    services = build_services(session)
     services.clock.sweep()
     services.bank_holidays.fill_if_empty()
 
     handles = Handles(engine=engine, session=session, services=services)
     ctx.obj = handles
-    ctx.call_on_close(handles.close)
     return handles
 
 
@@ -198,14 +245,14 @@ def holidays() -> None:
 
 @holidays.command(name="refresh")
 @requires_setup
-def holidays_refresh(services: Services) -> int:
+def holidays_refresh(services: ServiceRegistry) -> int:
     """Fetch the calendar for the configured region from GOV.UK."""
     from flexi.cli import holidays as holidays_cli
 
     return holidays_cli.run(services)
 
 
-def _run_demo() -> None:
+def run_demo() -> None:
     """Launch against a temporary database holding the sample data.
 
     The same seed the screenshots and the regression tests use, so what a new
@@ -223,25 +270,14 @@ def _run_demo() -> None:
 
     from flexi.app import FlexiApp
     from flexi.models.database.db import Base
-    from flexi.models.database.engine import create_db_engine, get_session
+    from flexi.models.database.engine import database_scope
     from flexi.services.samples import seed_demo
 
-    # `ignore_cleanup_errors`, because the last thing a demo may do is fail to
-    # tidy up after itself. Flexi asks GOV.UK and PyPI from worker threads, and
-    # one still finishing as the application closes will have reopened the
-    # database -- which Windows then refuses to delete, so quitting the demo
-    # ended in a PermissionError traceback rather than a prompt. The file is a
-    # throwaway in the system temporary directory either way.
-    with tempfile.TemporaryDirectory(
-        prefix="flexi-demo-", ignore_cleanup_errors=True
-    ) as directory:
+    with tempfile.TemporaryDirectory(prefix="flexi-demo-") as directory:
         path = Path(directory) / "demo.db"
-        engine = create_db_engine(path)
-        Base.metadata.create_all(engine)
-        session = get_session(engine)
-        seed_demo(session, anchor=wallclock.today())
-        session.close()
-        engine.dispose()
+        with database_scope(path) as (engine, session):
+            Base.metadata.create_all(engine)
+            seed_demo(session, anchor=wallclock.today())
         FlexiApp(db_path=path).run()
 
 
@@ -256,7 +292,7 @@ def init(ctx: click.Context) -> None:
     db_path = database_file()
 
     if is_initialised():
-        _already_set_up(ctx, db_path)
+        already_set_up(ctx, db_path)
         return
 
     from flexi.models.database.migrate import run_migrations
@@ -265,10 +301,10 @@ def init(ctx: click.Context) -> None:
     if is_initialised():
         click.secho("Flexi is set up.", fg="green")
         return
-    _ask_the_questions(ctx, db_path, then_open=False)
+    ask_the_questions(ctx, db_path, then_open=False)
 
 
-def _already_set_up(ctx: click.Context, db_path: Path) -> None:
+def already_set_up(ctx: click.Context, db_path: Path) -> None:
     """Show what is recorded, and do what is chosen about it."""
     from flexi.cli import init as init_cli
     from flexi.cli import ui
@@ -286,24 +322,24 @@ def _already_set_up(ctx: click.Context, db_path: Path) -> None:
     if choice is None:
         return
     if choice is init_cli.Choice.OPEN:
-        _open_app()
+        open_app()
         return
     if choice is init_cli.Choice.SETTINGS:
-        _open_app(settings=True)
+        open_app(settings=True)
         return
 
     if not init_cli.confirm_reset(contents):
         ui.abandon("Nothing was erased.")
         return
-    _erase(db_path)
-    _ask_the_questions(ctx, db_path, then_open=False)
+    erase(db_path)
+    ask_the_questions(ctx, db_path, then_open=False)
 
 
-def _open_app(*, settings: bool = False) -> None:
-    _launch(settings=settings).run()
+def open_app(*, settings: bool = False) -> None:
+    launch(settings=settings).run()
 
 
-def _erase(db_path: Path) -> None:
+def erase(db_path: Path) -> None:
     """Snapshot, remove the records, and forget that this path was ever set up."""
     from flexi.cli import init as init_cli
     from flexi.services import setup as setup_service
@@ -314,7 +350,7 @@ def _erase(db_path: Path) -> None:
         init_cli.settled(f"Erased. Snapshot kept at {taken}")
 
 
-def _ask_the_questions(
+def ask_the_questions(
     ctx: click.Context, db_path: Path, *, then_open: bool = True
 ) -> None:
     """Open the setup form, which is a full screen and needs a terminal.
@@ -334,7 +370,7 @@ def _ask_the_questions(
         )
         ctx.exit(1)
 
-    _launch(splash=True).run()
+    launch(splash=True).run()
 
     if not is_initialised():
         click.echo("Setup was not completed.")
@@ -350,7 +386,7 @@ def clock() -> None:
 
 @clock.command(name="in")
 @requires_setup
-def clock_in(services: Services) -> int:
+def clock_in(services: ServiceRegistry) -> int:
     """Clock in to start a work session."""
     from flexi.cli import clock as clock_cli
 
@@ -359,7 +395,7 @@ def clock_in(services: Services) -> int:
 
 @clock.command(name="out")
 @requires_setup
-def clock_out(services: Services) -> int:
+def clock_out(services: ServiceRegistry) -> int:
     """Clock out to end the current work session."""
     from flexi.cli import clock as clock_cli
 
@@ -376,7 +412,7 @@ def clock_out(services: Services) -> int:
 @click.option("--dry-run", is_flag=True, help="Show the plan and stop.")
 @requires_setup
 def leave(
-    services: Services,
+    services: ServiceRegistry,
     words: tuple[str, ...],
     note: str | None,
     *,
@@ -414,7 +450,7 @@ def balance() -> None:
 @balance.command(name="show")
 @as_of_option("Report the balance as at the end of this date. Defaults to today.")
 @requires_setup
-def balance_show(services: Services, as_of: date | None) -> int:
+def balance_show(services: ServiceRegistry, as_of: date | None) -> int:
     """Print the running balance and what it is made of."""
     from flexi.cli import balance as balance_cli
 
@@ -427,7 +463,7 @@ def balance_show(services: Services, as_of: date | None) -> int:
 @click.option("--yes", is_flag=True, help="Do not ask.")
 @requires_setup
 def balance_zero(
-    services: Services,
+    services: ServiceRegistry,
     as_of: date | None,
     reason: str | None,
     *,
@@ -441,7 +477,7 @@ def balance_zero(
 
 @balance.command(name="log")
 @requires_setup
-def balance_log(services: Services) -> int:
+def balance_log(services: ServiceRegistry) -> int:
     """List every correction ever recorded."""
     from flexi.cli import balance as balance_cli
 
@@ -451,7 +487,7 @@ def balance_log(services: Services) -> int:
 @balance.command(name="undo")
 @click.argument("adjustment_id", type=int)
 @requires_setup
-def balance_undo(services: Services, adjustment_id: int) -> int:
+def balance_undo(services: ServiceRegistry, adjustment_id: int) -> int:
     """Remove a correction by its id, as listed by `flexi balance log`."""
     from flexi.cli import balance as balance_cli
 

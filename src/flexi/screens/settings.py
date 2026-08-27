@@ -1,14 +1,14 @@
 """Changing the four answers given at setup, and the leave for each year.
 
 The four shared questions are asked here and again on the first-run form, of the
-same four widget ids -- so reading and writing them lives in :func:`save_answers`
-rather than in each screen, which is where the two wordings of the same refusal
-came from.
+same four widget ids -- so parsing them lives in :func:`parse_answers` rather
+than in each screen, which is where the two wordings of the same refusal came
+from.
 """
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -17,27 +17,36 @@ from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
+from flexi.components.options import ScreenOptions
 from flexi.constants import Division
-from flexi.domain.format import days as fmt_days
-from flexi.domain.format import plural
 from flexi.services.registry import Services
-from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS, SettingsService
+from flexi.services.settings import (
+    DEFAULT_ENTITLEMENT_DAYS,
+    SettingsUpdate,
+    parse_entitlement_days,
+    parse_settings,
+)
+
+__all__ = (
+    "ALL_REQUIRED",
+    "NO_DIVISION",
+    "SettingsScreen",
+    "parse_answers",
+)
 
 ALL_REQUIRED = "All fields are required"
 NO_DIVISION = "Select a bank holiday region"
 
 
-def save_answers(node: Widget, settings: SettingsService) -> str | None:
-    """Read the four questions both forms ask, and write them.
+def parse_answers(node: Widget) -> SettingsUpdate:
+    """Parse the four answers shared by setup and settings forms.
 
-    Answers the refusal to show, or ``None`` once written -- so a caller reads
-    ``if refusal := save_answers(...)``. The two screens put the same questions
-    to the same widget ids and had drifted into two wordings of the same
-    refusal, only one of which any test ever looked at.
+    No persistence happens here. Both forms can therefore validate all of
+    their other fields before opening one settings transaction.
 
-    A ``Select`` with nothing chosen answers ``NoSelection`` rather than a
-    string, which is why the division is checked by type where the rest are
-    checked for emptiness.
+    A ``Select`` with nothing chosen answers its ``NULL`` sentinel rather than
+    a string, which is why the division is checked separately from the text
+    fields.
     """
     leave_start = node.query_one("#input-leave-start", Input).value.strip()
     working_days = node.query_one("#input-working-days", Input).value.strip()
@@ -45,19 +54,15 @@ def save_answers(node: Widget, settings: SettingsService) -> str | None:
     auto_close = node.query_one("#input-auto-close", Input).value.strip()
 
     if not all([leave_start, working_days, auto_close]):
-        return ALL_REQUIRED
+        raise ValueError(ALL_REQUIRED)
     if not isinstance(division, str):
-        return NO_DIVISION
-    try:
-        settings.save_settings(
-            leave_year_start=leave_start,
-            working_days=working_days,
-            bank_holiday_division=division,
-            auto_close_time=auto_close,
-        )
-    except ValueError as error:
-        return str(error)
-    return None
+        raise ValueError(NO_DIVISION)  # noqa: TRY004 - invalid user selection
+    return parse_settings(
+        leave_year_start=leave_start,
+        working_days=working_days,
+        bank_holiday_division=division,
+        auto_close_time=auto_close,
+    )
 
 
 class SettingsScreen(Screen[bool]):
@@ -101,9 +106,14 @@ class SettingsScreen(Screen[bool]):
     }
     """
 
-    def __init__(self, services: Services, **kwargs: Any) -> None:
+    def __init__(self, services: Services, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
         self._svc = services.settings
+        self.entitlement_drafts = {
+            entitlement.year: str(entitlement.days)
+            for entitlement in self._svc.all_entitlements()
+        }
+        """Displayed entitlement years and their initial, uncommitted text."""
 
     def compose(self) -> ComposeResult:
         # Every field through the service's own accessor, which is where each
@@ -137,12 +147,12 @@ class SettingsScreen(Screen[bool]):
 
             yield Static("\nEntitlements by year:")
             with Vertical(id="entitlements-list"):
-                for ent in self._svc.all_entitlements():
+                for year, days in self.entitlement_drafts.items():
                     with Horizontal(classes="entitlement-row"):
-                        yield Label(str(ent.year))
+                        yield Label(str(year))
                         yield Input(
-                            str(ent.days),
-                            id=f"ent-{ent.year}",
+                            days,
+                            id=f"ent-{year}",
                         )
 
             with Horizontal(classes="settings-buttons"):
@@ -161,32 +171,33 @@ class SettingsScreen(Screen[bool]):
             self._add_next_year()
 
     def _add_next_year(self) -> None:
-        """Add a year to the list, and stay on the screen.
+        """Add an uncommitted year to the list, and stay on the screen.
 
         It used to dismiss, which looked like a refresh and was an exit: every
         field typed into the form above went with it, unsaved and unmentioned,
         and dismissing with ``True`` told the application settings had been
-        changed. Mounting the row is what "refresh screen" meant.
+        changed. It later committed the allowance immediately, so Back only
+        discarded some of the form. The row is now a draft like every other
+        field and the existing atomic Save owns all persistence.
         """
-        years = self._svc.all_entitlements()
-        if years:
-            next_year = years[-1].year + 1
-            default_days = years[-1].days
+        if self.entitlement_drafts:
+            latest = max(self.entitlement_drafts)
+            next_year = latest + 1
+            default_days = self.query_one(f"#ent-{latest}", Input).value
         else:
             next_year = self._svc.active_leave_year()
-            default_days = DEFAULT_ENTITLEMENT_DAYS
+            default_days = str(DEFAULT_ENTITLEMENT_DAYS)
 
-        self._svc.save_entitlement(next_year, default_days)
+        self.entitlement_drafts[next_year] = default_days
         self.query_one("#entitlements-list", Vertical).mount(
             Horizontal(
                 Label(str(next_year)),
-                Input(str(default_days), id=f"ent-{next_year}"),
+                Input(default_days, id=f"ent-{next_year}"),
                 classes="entitlement-row",
             )
         )
         self.notify(
-            f"Added {next_year} with {fmt_days(default_days)}"
-            f" {plural(default_days, 'day')}"
+            f"Added {next_year}; save to keep it",
         )
 
     def _save(self) -> None:
@@ -201,26 +212,28 @@ class SettingsScreen(Screen[bool]):
         """
         allowances: dict[int, float] = {}
         rejected: list[str] = []
-        for entitlement in self._svc.all_entitlements():
-            field = self.query_one(f"#ent-{entitlement.year}", Input)
+        for year in self.entitlement_drafts:
+            field = self.query_one(f"#ent-{year}", Input)
             try:
-                allowances[entitlement.year] = float(field.value)
+                allowances[year] = parse_entitlement_days(field.value)
             except ValueError:
-                rejected.append(str(entitlement.year))
+                rejected.append(str(year))
 
         if rejected:
             self.notify(
-                f"Leave for {', '.join(rejected)} must be a number of days",
+                f"Leave for {', '.join(rejected)} must be finite, "
+                "non-negative numbers of days",
                 severity="error",
             )
             return
 
-        if refusal := save_answers(self, self._svc):
-            self.notify(refusal, severity="error")
+        try:
+            update = parse_answers(self)
+        except ValueError as error:
+            self.notify(str(error), severity="error")
             return
 
-        for year, days in allowances.items():
-            self._svc.save_entitlement(year, days)
+        self._svc.save_settings_and_entitlements(update, allowances)
 
         self.dismiss(True)
 

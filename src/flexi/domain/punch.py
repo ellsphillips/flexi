@@ -37,6 +37,26 @@ from itertools import pairwise
 from flexi import wallclock
 from flexi.domain.ledger import AbsenceSlice, DayLedger
 
+__all__ = (
+    "BUCKET_SIZES",
+    "COARSE_CELLS",
+    "MIN_CELLS",
+    "Cell",
+    "Window",
+    "bucket_minutes",
+    "cell_count",
+    "cell_holding",
+    "covering_slices",
+    "edges",
+    "overlaps",
+    "paint_absences",
+    "paint_breaks",
+    "paint_live",
+    "paint_sessions",
+    "paint_target",
+    "strip",
+)
+
 BUCKET_SIZES: tuple[int, ...] = (5, 10, 15, 20, 30, 60)
 """Bucket widths in minutes, finest first. The strip takes the first that fits."""
 

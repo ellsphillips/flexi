@@ -10,28 +10,40 @@ so a sick morning and an annual afternoon draw as two colours in one row.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
-from typing import Any, ClassVar, Final
+from types import MappingProxyType
+from typing import ClassVar, Final, Unpack
 
 from rich.style import Style
 from rich.text import Text
-from textual.app import RenderResult
 from textual.widget import Widget
 
+from flexi.components.options import WidgetOptions
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Cell, Window, covering_slices, edges, strip
 from flexi.theme import CELL_GLYPHS
 
-BASE_STYLES: Final[dict[Cell, str]] = {
-    Cell.OFF: "punch--off",
-    Cell.BREAK: "punch--break",
-    Cell.TARGET: "punch--target",
-    Cell.ABSENCE: "punch--annual",
-    Cell.HOLIDAY: "punch--holiday",
-    Cell.ON: "punch--on",
-    Cell.LIVE: "punch--live",
-}
+__all__ = (
+    "BASE_STYLES",
+    "PUNCH_CLASSES",
+    "PunchStrip",
+    "StyleLookup",
+    "absence_tokens",
+    "render_strip",
+)
+
+BASE_STYLES: Final[Mapping[Cell, str]] = MappingProxyType(
+    {
+        Cell.OFF: "punch--off",
+        Cell.BREAK: "punch--break",
+        Cell.TARGET: "punch--target",
+        Cell.ABSENCE: "punch--annual",
+        Cell.HOLIDAY: "punch--holiday",
+        Cell.ON: "punch--on",
+        Cell.LIVE: "punch--live",
+    }
+)
 
 PUNCH_CLASSES: Final[frozenset[str]] = frozenset(
     {
@@ -105,7 +117,7 @@ class PunchStrip(Widget):
         *,
         window: Window | None = None,
         now: datetime,
-        **kwargs: Any,
+        **kwargs: Unpack[WidgetOptions],
     ) -> None:
         super().__init__(**kwargs)
         self.ledger = ledger
@@ -126,7 +138,7 @@ class PunchStrip(Widget):
         self.now = now
         self.refresh()
 
-    def render(self) -> RenderResult:
+    def render(self) -> Text:
         if self.ledger is None:
             return Text("")
         return render_strip(

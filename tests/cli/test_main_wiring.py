@@ -34,10 +34,11 @@ from flexi.__main__ import cli
 from flexi.cli import init as init_cli
 from flexi.cli import ui
 from flexi.locations import backups_directory, database_file
-from flexi.models.database.db import AbsenceDay, BankHolidayCache
+from flexi.models.database.db import AbsenceDay, BankHolidayCache, BankHolidayRefresh
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
-from flexi.services.registry import Services
+from flexi.services.registry import build_services
+from flexi.services.settings import parse_settings
 
 MONDAY = datetime(2026, 8, 10, 12, 0)
 """The clock every test in this file runs against.
@@ -61,20 +62,25 @@ def set_up(db_path: Path) -> None:
     """Answer the five questions against an already-migrated database."""
     engine = create_db_engine(db_path)
     session = get_session(engine)
-    services = Services.build(session)
+    services = build_services(session)
     services.settings.save_settings(
-        leave_year_start="04-06",
-        working_days="Mon-Fri",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     services.settings.save_entitlement(2026, 25.0)
-    session.add(
-        BankHolidayCache(
-            division="england-and-wales",
-            date=BANK_HOLIDAY,
-            title="Summer bank holiday",
-            fetched_at=datetime(2026, 1, 1, 9, 0, tzinfo=UTC).replace(tzinfo=None),
+    fetched_at = datetime(2026, 1, 1, 9, 0, tzinfo=UTC).replace(tzinfo=None)
+    session.add_all(
+        (
+            BankHolidayRefresh(division="england-and-wales", fetched_at=fetched_at),
+            BankHolidayCache(
+                division="england-and-wales",
+                date=BANK_HOLIDAY,
+                title="Summer bank holiday",
+            ),
         )
     )
     session.commit()
@@ -136,7 +142,7 @@ def instead_of_the_application(
     """Record every application `__main__` builds, and draw none of them.
 
     Patched at `flexi.app.FlexiApp`, not on `__main__`: the name is imported inside
-    `_launch` and `_run_demo` so that `flexi --version` does not load six
+    `launch` and `run_demo` so that `flexi --version` does not load six
     Textual screens, which means there is nothing bound here to replace.
     """
     opened: list[_Opened] = []
@@ -153,7 +159,7 @@ def instead_of_the_application(
 def answering_the_questions(app: _Opened) -> None:
     """What the setup screen does when somebody actually fills it in.
 
-    `_ask_the_questions` asks the database whether setup finished, never the
+    `ask_the_questions` asks the database whether setup finished, never the
     form, so this has to write the row rather than merely return.
     """
     set_up(app.db_path or database_file())
@@ -163,7 +169,10 @@ def choosing(monkeypatch: pytest.MonkeyPatch, choice: init_cli.Choice | None) ->
     """Stand at the `flexi init` menu and pick something, or escape."""
     monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
-    def picking(question: str, options: Sequence[ui.Option]) -> ui.Option | None:
+    def picking(
+        question: str,
+        options: Sequence[ui.Option[init_cli.Choice]],
+    ) -> ui.Option[init_cli.Choice] | None:
         if choice is None:
             return None
         return next(option for option in options if option.value == choice)
@@ -213,7 +222,7 @@ def test_the_demo_opens_a_working_life_rather_than_an_empty_week(
     """An empty demo is a worse advertisement than no demo.
 
     The seed is read while the application is up, because that is the only
-    moment it exists: the temporary directory goes as `_run_demo` returns.
+    moment it exists: the temporary directory goes as `run_demo` returns.
     """
     counted: list[int] = []
 
@@ -644,7 +653,7 @@ def test_erasing_a_database_that_is_not_there_promises_no_snapshot(
     The rail must not then close with "Snapshot kept at None", pointing at a
     backup nobody has on the one path where the safety net is the whole point.
     """
-    main._erase(tmp_path / "absent.db")
+    main.erase(tmp_path / "absent.db")
 
     assert "Snapshot" not in capsys.readouterr().err
 

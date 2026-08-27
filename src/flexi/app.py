@@ -11,15 +11,19 @@ allowed to contain one.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import ExitStack
 from functools import partial
-from pathlib import PurePath
-from typing import Any, ClassVar
+from pathlib import Path, PurePath
+from threading import Event, Lock
+from typing import ClassVar
 
 from textual import events, log
 from textual import work as textual_work
 from textual.app import App as TextualApp
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
+from textual.command import Provider
 from textual.css.query import NoMatches
 from textual.reactive import Reactive, reactive
 from textual.screen import Screen
@@ -37,8 +41,8 @@ from flexi.components.jumper import (
     Refreshable,
 )
 from flexi.config import CONFIG
-from flexi.messages import Scope
-from flexi.models.database.engine import create_db_engine, get_session
+from flexi.messages import BankHolidayRefreshCompleted, Scope
+from flexi.models.database.engine import database_scope
 from flexi.provider import FlexiCommands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings
@@ -46,11 +50,15 @@ from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
-from flexi.services.bank_holidays import BankHolidayService
-from flexi.services.registry import Services
-from flexi.services.settings import SettingsService
+from flexi.services.bank_holidays import (
+    BankHolidayFetcher,
+    fetch_bank_holiday_index,
+)
+from flexi.services.registry import build_services, invalidate_services
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import available_update
+
+__all__ = ("UPDATE_NOTICE_SECONDS", "FlexiApp")
 
 UPDATE_NOTICE_SECONDS = 10
 
@@ -68,7 +76,9 @@ class FlexiApp(TextualApp[None]):
         "styles/leave.tcss",
     ]
 
-    COMMANDS: ClassVar[set[Any]] = {FlexiCommands}
+    COMMANDS: ClassVar[set[type[Provider] | Callable[[], type[Provider]]]] = {
+        FlexiCommands
+    }
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(
@@ -93,27 +103,38 @@ class FlexiApp(TextualApp[None]):
     _jumping: Reactive[bool] = reactive(False, init=False, bindings=True)
     """True while the jump overlay is open."""
 
-    def __init__(self, *, db_path: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        db_path: Path | None = None,
+        bank_holiday_fetcher: BankHolidayFetcher = fetch_bank_holiday_index,
+    ) -> None:
         super().__init__()
-        self._engine = create_db_engine(db_path) if db_path else create_db_engine()
-        self._session = get_session(self._engine)
-        self.services = Services.build(self._session)
-        # Before anything can be pushed: `App.theme = x` raises if the theme has
-        # not been registered, and setup is pushed from `on_mount`.
-        self.register_theme(flexi_theme())
-        self.theme = THEME_NAME
-        self.jumper: Jumper | None = None
-        self.show_splash = False
-        """Set by `flexi init`. Only the first run earns the animation."""
-        self.open_settings = False
-        """Set by `flexi init` when the answer chosen there was to change them."""
-        self._pushed: Screen[None] | None = None
-        """The one destination open on top of the dashboard, if any."""
-        """The screen `action_go_to` pushed, so `f1` can dismiss it.
+        with ExitStack() as construction:
+            self._engine, self._session = construction.enter_context(
+                database_scope(db_path)
+            )
+            self.services = build_services(self._session)
+            # Before anything can be pushed: `App.theme = x` raises if the theme has
+            # not been registered, and setup is pushed from `on_mount`.
+            self.register_theme(flexi_theme())
+            self.theme = THEME_NAME
+            self.jumper: Jumper | None = None
+            self.show_splash = False
+            """Set by `flexi init`. Only the first run earns the animation."""
+            self.open_settings = False
+            """Set by `flexi init` when the answer chosen there was to change them."""
+            self._pushed: Screen[None] | None = None
+            """The one destination open on top of the dashboard, if any."""
+            """The screen `action_go_to` pushed, so `f1` can dismiss it.
 
-        Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
-        is typed as `Screen[object]` and narrowing it against a `Screen[None]`
-        gives mypy `Never`."""
+            Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
+            is typed as `Screen[object]` and narrowing it against a `Screen[None]`
+            gives mypy `Never`."""
+            self._bank_holiday_fetcher = bank_holiday_fetcher
+            self._holiday_refresh_lock = Lock()
+            self._shutdown_event = Event()
+            self._database_lifetime = construction.pop_all()
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -145,7 +166,7 @@ class FlexiApp(TextualApp[None]):
                 callback=self._on_setup_done,
             )
         self._check_for_updates()
-        self._refresh_holidays()
+        self.refresh_holidays()
 
     def _on_setup_done(self, completed: bool | None) -> None:
         if not completed:
@@ -154,46 +175,76 @@ class FlexiApp(TextualApp[None]):
         self.push_screen(DashboardScreen(self.services, id="dashboard"))
 
     def on_unmount(self) -> None:
-        self._session.close()
-        self._engine.dispose()
+        # Textual cannot stop a synchronous request already inside a worker
+        # thread. Mark shutdown first so a queued or late completion can never
+        # reach the database after its lifetime has closed.
+        self._shutdown_event.set()
+        self._database_lifetime.close()
+
+    def refresh_holidays(self, *, force: bool = False) -> None:
+        """Request a holiday refresh without blocking Textual's message loop.
+
+        Freshness is database state, so it is checked here on the message loop.
+        Only the concrete network call is delegated to a worker. This split
+        keeps the SQLAlchemy session and the engine's database lease inside the
+        application lifetime and on their owning thread.
+
+        ``force`` is the explicit command-palette path. Normal startup respects
+        a fresh cache; an explicit refresh always asks GOV.UK. The network lock
+        serialises repeated requests, while their completion messages serialize
+        validation and replacement naturally on the message loop.
+        """
+        if self._shutdown_event.is_set():
+            return
+        if not force and self.services.bank_holidays.is_fresh():
+            # Nothing changed, so nothing needs redrawing -- and refetching
+            # would put a GOV.UK timeout in front of a current calendar.
+            return
+        self.fetch_holiday_payload(forced=force)
 
     @textual_work(thread=True)
-    def _refresh_holidays(self) -> None:
-        """Keep the bank holiday calendar current, off the message loop.
+    def fetch_holiday_payload(self, *, forced: bool) -> None:
+        """Fetch one untrusted calendar payload without touching persistence."""
+        with self._holiday_refresh_lock:
+            payload = self._bank_holiday_fetcher()
 
-        A worker rather than a blocking call at mount: this is a network round
-        trip, and the dashboard should not wait on GOV.UK to draw. Nothing in
-        the application refreshed it at all before -- the only route was a
-        command-palette entry somebody had to know about.
+        # ``post_message`` is thread-safe and declines a closed message pump.
+        # The event closes the smaller race where unmount begins immediately
+        # before this check; the handler repeats it before touching services.
+        if not self._shutdown_event.is_set():
+            self.post_message(
+                BankHolidayRefreshCompleted(payload, forced=forced),
+            )
 
-        On its own session, on the shared engine. A SQLAlchemy ``Session`` is
-        not thread-safe, and this ran ``SELECT``, ``DELETE``, ``INSERT`` and
-        ``commit`` on the one the message loop owns -- started, in ``on_mount``,
-        in the statement after the one that pushes the dashboard, whose modules
-        then read the same session to draw. Two interleavings show up: SQLite
-        answers ``database is locked``, or the reader finds the session
-        ``inactive`` because the writer's transaction was rolled back under it.
-        Neither is caught anywhere, and both surface as a dead application on
-        the first launch of the week -- the only launch that refetches.
-        """
-        with get_session(self._engine) as scratch:
-            settings = SettingsService(scratch)
-            holidays = BankHolidayService(scratch, settings.get_division)
-            if holidays.is_fresh():
-                # Nothing changed, so nothing needs redrawing -- and refetching
-                # would put a GOV.UK timeout in front of the dashboard once a
-                # week for a calendar that already answers every question
-                # correctly for the year it holds.
-                return
-            fetched = holidays.fetch_and_cache()
-        if fetched:
-            self.call_from_thread(self.holidays_refreshed)
+    def on_bank_holiday_refresh_completed(
+        self, message: BankHolidayRefreshCompleted
+    ) -> None:
+        """Persist a worker result while the message-loop database is alive."""
+        if self._shutdown_event.is_set():
             return
-        self.notify(
-            "No bank holiday calendar. Days off will count as working days.",
-            severity="warning",
-            timeout=UPDATE_NOTICE_SECONDS,
-        )
+        fetched = self.services.bank_holidays.cache_payload(message.payload)
+        self.finish_holiday_refresh(fetched=fetched, forced=message.forced)
+
+    def finish_holiday_refresh(self, *, fetched: bool, forced: bool) -> None:
+        """Apply one holiday worker result on Textual's message loop.
+
+        Public because the worker/message-loop hand-off is a reusable app
+        boundary, not an implementation detail hidden behind the palette.
+        """
+        if fetched:
+            self.holidays_refreshed()
+        if forced:
+            self.notify(
+                "Bank holidays refreshed" if fetched else "Could not reach gov.uk",
+                severity="information" if fetched else "warning",
+                timeout=4,
+            )
+        elif not fetched:
+            self.notify(
+                "No bank holiday calendar. Days off will count as working days.",
+                severity="warning",
+                timeout=UPDATE_NOTICE_SECONDS,
+            )
 
     def holidays_refreshed(self) -> None:
         """The calendar changed under the application. Show the new one.
@@ -206,13 +257,9 @@ class FlexiApp(TextualApp[None]):
         ledger cache without asking anything to redraw, so the correction
         appeared on the next unrelated keystroke.
 
-        The rollback is what lets this session see the worker's rows. It reads
-        on the message loop and every write it makes is committed by the
-        service that made it, so there is never anything pending to lose --
-        but its read transaction is open, and a transaction that began before
-        the fetch cannot see what the fetch committed.
+        Persistence now happens on this session and this message loop before
+        the redraw, so there is no cross-session snapshot to reconcile.
         """
-        self._session.rollback()
         self.refresh_open_screens()
 
     @textual_work(thread=True)
@@ -322,16 +369,16 @@ class FlexiApp(TextualApp[None]):
         carried a `refresh_modules` written "so the app can treat every screen
         alike" that the app never called.
         """
-        self.services.invalidate()
+        invalidate_services(self.services)
         for screen in self.screen_stack:
             if isinstance(screen, Refreshable):
                 try:
                     screen.refresh_modules(scope)
                 except NoMatches:
                     # Still being built. Widgets compose depth by depth, so a
-                    # redraw arriving from off the message loop -- the bank
-                    # holiday worker's -- can land on a module whose own cells
-                    # are not in the tree yet.
+                    # completion message arriving while the dashboard mounts
+                    # can land on a module whose own cells are not in the tree
+                    # yet.
                     #
                     # Caught here rather than guarded at each widget: there is
                     # no flag that means "my whole subtree is composed"

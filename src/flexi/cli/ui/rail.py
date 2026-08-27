@@ -35,6 +35,24 @@ from flexi.theme import (
     colour,
 )
 
+__all__ = (
+    "ACTIVE",
+    "ALERT",
+    "GUTTER",
+    "HAIRLINE",
+    "HEAVY",
+    "LABEL_WIDTH",
+    "SETTLED",
+    "Tone",
+    "body",
+    "measure",
+    "option",
+    "rail_line",
+    "step",
+    "tail",
+    "wordmark",
+)
+
 # Named for what they do here; defined once, in the design system, so the setup
 # screen draws the same rail as the prompt that precedes it.
 HEAVY: Final = RAIL_LIVE
@@ -70,7 +88,7 @@ class Tone(Enum):
         return colour(self.value)
 
 
-def _rail(tone: Tone) -> Text:
+def rail_line(tone: Tone) -> Text:
     """A line beginning with the rail, and nothing else styled.
 
     ``QUIET`` draws the hairline and everything else draws heavy, so a section
@@ -107,7 +125,7 @@ def step(title: str, *, tone: Tone = Tone.LIVE, marker: str = ACTIVE) -> Text:
 
 def body(text: str = "", *, tone: Tone = Tone.QUIET, style: str = "") -> Text:
     """A line of content hanging off the rail."""
-    line = _rail(tone)
+    line = rail_line(tone)
     if text:
         line.append("  ")
         line.append(text, style=style)
@@ -116,7 +134,7 @@ def body(text: str = "", *, tone: Tone = Tone.QUIET, style: str = "") -> Text:
 
 def measure(count: int, label: str, *, tone: Tone = Tone.QUIET) -> Text:
     """One row of a count, right-aligned so the figures form a column."""
-    line = _rail(tone)
+    line = rail_line(tone)
     line.append(f"  {count:>6}  ", style="bold")
     line.append(label, style=Tone.QUIET.style)
     return line
@@ -131,7 +149,7 @@ def option(label: str, hint: str, *, picked: bool, grave: bool = False) -> Text:
     landing on it is one keystroke too late to be useful.
     """
     tone = Tone.GRAVE if grave else Tone.LIVE
-    line = _rail(Tone.LIVE)
+    line = rail_line(Tone.LIVE)
     line.append("  ")
     line.append(f"{CURSOR} " if picked else "  ", style=tone.style)
 

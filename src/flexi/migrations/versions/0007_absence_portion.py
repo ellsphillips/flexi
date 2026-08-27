@@ -1,4 +1,4 @@
-"""half-day absences, notes, and the two new absence types
+"""Half-day absences, notes, and the two new absence types.
 
 Three changes that have to happen together:
 
@@ -23,15 +23,17 @@ Create Date: 2026-08-08
 
 """
 
-from typing import Sequence, Union
+from __future__ import annotations
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0007"
-down_revision: Union[str, None] = "0006"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "0006"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 ABSENCE_TYPES = ("ANNUAL", "SICK", "FLEXI", "UNPAID", "OTHER")
 LEGACY_TYPES = ("ANNUAL", "SICK", "FLEXI")

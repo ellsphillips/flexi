@@ -38,11 +38,18 @@ from hypothesis.stateful import (
 from sqlalchemy import func, select
 
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base, WorkSession
+from flexi.models.database.db import (
+    AbsenceDay,
+    BankHolidayCache,
+    BankHolidayRefresh,
+    Base,
+    WorkSession,
+)
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
-from flexi.services.registry import Services
+from flexi.services.registry import build_services, invalidate_services
+from flexi.services.settings import parse_settings
 
 START = datetime(2026, 6, 1, 8, 0)
 """A Monday morning, early in a leave year that starts on 6 April."""
@@ -77,22 +84,29 @@ class TimesheetModel(RuleBasedStateMachine):
         Base.metadata.create_all(self.engine)
         self.db = get_session(self.engine)
 
-        Services.build(self.db).settings.save_settings(
-            leave_year_start="04-06",
-            working_days="0,1,2,3,4",
-            bank_holiday_division="england-and-wales",
-            auto_close_time=AUTO_CLOSE.strftime("%H:%M"),
+        build_services(self.db).settings.save_settings(
+            parse_settings(
+                leave_year_start="04-06",
+                working_days="0,1,2,3,4",
+                bank_holiday_division="england-and-wales",
+                auto_close_time=AUTO_CLOSE.strftime("%H:%M"),
+            )
         )
-        self.db.add(
-            BankHolidayCache(
-                division="england-and-wales",
-                date=HOLIDAY,
-                title="Summer bank holiday",
-                fetched_at=datetime(2026, 1, 1, 9, 0),
+        self.db.add_all(
+            (
+                BankHolidayRefresh(
+                    division="england-and-wales",
+                    fetched_at=datetime(2026, 1, 1, 9, 0),
+                ),
+                BankHolidayCache(
+                    division="england-and-wales",
+                    date=HOLIDAY,
+                    title="Summer bank holiday",
+                ),
             )
         )
         self.db.commit()
-        self.services = Services.build(self.db)
+        self.services = build_services(self.db)
         self.services.settings.save_entitlement(
             self.services.settings.active_leave_year(), 25.0
         )
@@ -140,7 +154,7 @@ class TimesheetModel(RuleBasedStateMachine):
         """
         if self.open_since is None or self.open_since.date() >= self.now.date():
             return
-        closing = AUTO_CLOSE if self.open_since.time() < AUTO_CLOSE else time(23, 59)
+        closing = AUTO_CLOSE if self.open_since.time() <= AUTO_CLOSE else time(23, 59)
         closed_at = datetime.combine(self.open_since.date(), closing)
         length = closed_at - self.open_since
         self.sessions.append((self.open_since, closed_at, length < self.minimum))
@@ -189,7 +203,7 @@ class TimesheetModel(RuleBasedStateMachine):
         with time_machine.travel(self.now, tick=False):
             self.services.absence.book(when, kind, portion)
         self._reread(when)
-        self.services.invalidate()
+        invalidate_services(self.services)
 
     @rule(offset=st.integers(min_value=0, max_value=DAYS))
     def remove(self, offset: int) -> None:
@@ -197,7 +211,7 @@ class TimesheetModel(RuleBasedStateMachine):
         with time_machine.travel(self.now, tick=False):
             self.services.absence.remove(when)
         self._reread(when)
-        self.services.invalidate()
+        invalidate_services(self.services)
 
     def _reread(self, when: date) -> None:
         """Take what is booked on a date from the service, not from a guess.

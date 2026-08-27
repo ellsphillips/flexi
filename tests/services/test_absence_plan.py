@@ -13,12 +13,14 @@ from __future__ import annotations
 
 from datetime import date
 
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion, Verdict
-from flexi.models.database.db import AbsenceDay
+from flexi.models.database.db import AbsenceDay, BankHolidayRefresh
+from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import Services
-from tests.services.conftest import Configured
+from tests.services.conftest import Configured, work
 
 MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
@@ -86,13 +88,17 @@ def test_a_bank_holiday_is_typed_not_pattern_matched(services: Services) -> None
     assert plan.refused == ()
 
 
-def test_missing_calendar_data_is_a_refusal_not_a_skip(configure: Configured) -> None:
+def test_missing_calendar_data_is_a_refusal_not_a_skip(
+    configure: Configured, session: Session
+) -> None:
     """The case the substring match missed, on a capital B.
 
     "Bank holiday data unavailable" means we do not know whether the day is
     bookable. Passing over it silently would lose the day without saying so.
     """
     services = _configure(configure, holidays=False)
+    session.execute(delete(BankHolidayRefresh))
+    session.commit()
     plan = services.absence.plan(MONDAY, MONDAY, AbsenceType.ANNUAL)
 
     assert plan.days[0].verdict is Verdict.NO_CALENDAR
@@ -122,6 +128,39 @@ def test_the_plan_says_what_it_would_cost(services: Services) -> None:
     assert plan.cost == 5.0
     assert plan.annual_remaining == 25.0
     assert plan.annual_after == 20.0
+
+
+def test_each_leave_year_spends_only_its_own_entitlement(
+    configure: Configured,
+) -> None:
+    """A range crossing New Year carries two independent allowances."""
+    services = configure(
+        leave_year_start="01-01",
+        holidays=((BANK_HOLIDAY, "Summer bank holiday"),),
+    )
+    services.settings.save_entitlement(2026, 1.0)
+    services.settings.save_entitlement(2027, 2.0)
+
+    plan = services.absence.plan(
+        date(2026, 12, 30), date(2027, 1, 5), AbsenceType.ANNUAL
+    )
+
+    assert [
+        (balance.year, balance.before, balance.after)
+        for balance in plan.annual_balances
+    ] == [
+        (2026, 1.0, 0.0),
+        (2027, 2.0, 0.0),
+    ]
+    assert [day.date for day in plan.bookable] == [
+        date(2026, 12, 30),
+        date(2027, 1, 1),
+        date(2027, 1, 4),
+    ]
+    assert [day.date for day in plan.refused] == [
+        date(2026, 12, 31),
+        date(2027, 1, 5),
+    ]
 
 
 def test_half_days_cost_a_half(services: Services) -> None:
@@ -169,6 +208,32 @@ def test_book_range_still_behaves_as_it_did(
     assert len(result.booked) == 5
     assert not result.skipped
     assert _rows(session) == 5
+
+
+def test_a_confirmation_is_refused_when_work_was_recorded_after_preview(
+    services: Services, session: Session
+) -> None:
+    plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+    work(services, MONDAY, 8)
+
+    result = services.absence.book_plan(plan)
+
+    assert result.booked == ()
+    assert result.skipped == ((MONDAY, PLAN_CHANGED),)
+    assert _rows(session) == 0
+
+
+def test_a_confirmation_is_refused_when_entitlement_changed_after_preview(
+    services: Services, session: Session
+) -> None:
+    plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+    services.settings.save_entitlement(2025, 0.0)
+
+    result = services.absence.book_plan(plan)
+
+    assert result.booked == ()
+    assert result.skipped == ((MONDAY, PLAN_CHANGED),)
+    assert _rows(session) == 0
 
 
 def test_a_span_across_a_bank_holiday_books_the_rest(

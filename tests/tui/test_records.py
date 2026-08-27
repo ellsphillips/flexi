@@ -21,6 +21,7 @@ from flexi.domain.format import delta
 from flexi.messages import Scope
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
+from flexi.services.absence import PLAN_CHANGED
 from tests.conftest import sessions_on, settled
 from tests.tui.conftest import (
     WIDE,
@@ -166,7 +167,7 @@ async def test_loading_a_period_costs_the_same_whatever_its_length(
                 if statement.lstrip().upper().startswith("SELECT"):
                     statements.append(statement)
 
-            engine = services.session.get_bind()
+            engine = app._session.get_bind()
             event.listen(engine, "before_cursor_execute", record)
             try:
                 services.ledger.invalidate()
@@ -395,6 +396,35 @@ async def test_declining_the_question_leaves_the_booking_alone(
         assert [row.date for row in after] == [row.date for row in before]
 
 
+async def test_confirming_does_not_delete_a_booking_changed_under_the_modal(
+    app_factory: AppFactory,
+) -> None:
+    """The accepted question identifies the row it described, not its slot."""
+    app = app_factory()
+    toil = date(2026, 6, 12)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        widget.focus()
+        widget.toggle(f"{RowKind.DAY}{toil}")
+        await pilot.pause()
+        widget.focus_key(absence_key(app, toil))
+        await pilot.press("x")
+        await pilot.pause()
+        showing(app, ConfirmModal)
+
+        replacement = app.services.absence.in_range(toil, toil)[0]
+        replacement.absence_type = AbsenceType.SICK
+        app._session.commit()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert [
+            row.absence_type for row in app.services.absence.in_range(toil, toil)
+        ] == [AbsenceType.SICK]
+        assert status_text(app) == PLAN_CHANGED
+
+
 async def test_x_on_a_worked_day_says_sessions_cannot_be_deleted_yet(
     app_factory: AppFactory,
 ) -> None:
@@ -415,7 +445,7 @@ async def test_x_on_a_worked_day_says_sessions_cannot_be_deleted_yet(
         await pilot.pause()
 
         assert status_text(app) == "Deleting sessions is not implemented yet"
-        assert sessions_on(app.services.session, date(2026, 6, 10))
+        assert sessions_on(app._session, date(2026, 6, 10))
 
 
 async def test_x_where_there_is_nothing_to_delete_says_nothing(

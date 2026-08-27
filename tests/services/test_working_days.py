@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from flexi.services.settings import SettingsService, parse_working_days
+from flexi.services.settings import SettingsService, parse_settings, parse_working_days
 
 
 @pytest.mark.parametrize(
@@ -49,10 +49,12 @@ def test_the_refusal_says_what_to_do_instead() -> None:
 def test_saving_normalises_whatever_was_typed(session: Session) -> None:
     settings = SettingsService(session)
     settings.save_settings(
-        leave_year_start="01-01",
-        working_days="Mon-Fri",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="01-01",
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     stored = settings.get_settings()
     assert stored is not None
@@ -64,10 +66,12 @@ def test_saving_something_unreadable_is_refused(session: Session) -> None:
     settings = SettingsService(session)
     with pytest.raises(ValueError, match="not a day"):
         settings.save_settings(
-            leave_year_start="01-01",
-            working_days="whenever I feel like it",
-            bank_holiday_division="england-and-wales",
-            auto_close_time="18:00",
+            parse_settings(
+                leave_year_start="01-01",
+                working_days="whenever I feel like it",
+                bank_holiday_division="england-and-wales",
+                auto_close_time="18:00",
+            )
         )
     assert settings.get_settings() is None
 
@@ -76,10 +80,12 @@ def test_an_unreadable_stored_value_does_not_stop_the_app(session: Session) -> N
     """Databases predate validation. Falling back beats refusing to open."""
     settings = SettingsService(session)
     settings.save_settings(
-        leave_year_start="01-01",
-        working_days="Mon-Fri",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
+        parse_settings(
+            leave_year_start="01-01",
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
     )
     stored = settings.get_settings()
     assert stored is not None

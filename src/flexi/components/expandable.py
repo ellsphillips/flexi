@@ -11,13 +11,24 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from rich.console import RenderableType
 from textual.binding import Binding, BindingType
 from textual.message import Message
 from textual.widgets import DataTable
-from textual.widgets.data_table import RowDoesNotExist
+from textual.widgets.data_table import CellDoesNotExist, RowDoesNotExist
+
+from flexi.components.options import DataTableOptions
+
+__all__ = (
+    "ExpandableTable",
+    "Row",
+    "RowGroup",
+    "RowKind",
+    "row_ident",
+    "row_key",
+)
 
 
 class RowKind(StrEnum):
@@ -107,7 +118,7 @@ class ExpandableTable(DataTable[RenderableType]):
             super().__init__()
             self.key = key
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[DataTableOptions]) -> None:
         super().__init__(**kwargs)
         self.cursor_type = "row"
         self._expanded: set[str] = set()
@@ -215,7 +226,7 @@ class ExpandableTable(DataTable[RenderableType]):
             return None
         try:
             key = self.coordinate_to_cell_key(self.cursor_coordinate).row_key
-        except Exception:  # noqa: BLE001 - Textual raises several lookup errors
+        except CellDoesNotExist:
             return None
         return None if key.value is None else str(key.value)
 

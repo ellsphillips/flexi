@@ -13,6 +13,8 @@ from flexi import wallclock
 from flexi.constants import ClockAction, EventSource
 from flexi.models.database.db import ClockEvent
 
+__all__ = ("moment_of", "punched")
+
 
 def punched(
     action: ClockAction,

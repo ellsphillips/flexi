@@ -11,7 +11,7 @@ a layout pass per redraw, on the one widget that redraws every second.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -31,6 +31,7 @@ from flexi.components.expandable import (
 )
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.base import Module
+from flexi.components.options import ModuleOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.config import CONFIG
 from flexi.constants import DayKind, Granularity
@@ -39,6 +40,21 @@ from flexi.domain.format import clock, delta, hm
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window, cell_count
 from flexi.messages import Scope
+
+__all__ = (
+    "BADGE_WIDTH",
+    "BRANCH",
+    "CELL_PADDING",
+    "COLUMNS",
+    "FIXED_COLUMNS",
+    "LAST",
+    "MAX_JUMP_ROWS",
+    "STRIP_WIDTH_FLOOR",
+    "BookHere",
+    "DeleteHere",
+    "RecordsModule",
+    "totals_subtitle",
+)
 
 COLUMNS: tuple[tuple[str, int] | str, ...] = (
     ("Day", 7),
@@ -102,7 +118,7 @@ class RecordsModule(Module):
         Binding(CONFIG.hotkeys.delete, "delete_here", "Delete", show=False),
     ]
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="records-module", title="Records", **kwargs)
         self._strip_width = 24
 
@@ -175,7 +191,7 @@ class RecordsModule(Module):
         empty = self.query_one("#records-empty", Static)
         empty.display = not ledgers
         table.display = bool(ledgers)
-        self.set_subtitle(_totals_subtitle(total))
+        self.set_subtitle(totals_subtitle(total))
 
     def _group(self, ledger: DayLedger, window: Window) -> RowGroup:
         parent = Row(
@@ -391,6 +407,6 @@ class RecordsModule(Module):
         self.post_message(DeleteHere(self.table.cursor_key))
 
 
-def _totals_subtitle(total: BalanceSummary) -> str:
+def totals_subtitle(total: BalanceSummary) -> str:
     """Worked against expected for the whole period, in the module's live slot."""
     return f"{hm(total.worked)} of {hm(total.expected)}"

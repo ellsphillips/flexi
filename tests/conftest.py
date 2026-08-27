@@ -17,6 +17,11 @@ import os
 import tempfile
 
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="flexi-config-")
+# Rich and Textual honour this at construction time. Ordinary colour and cursor
+# assertions state a full-colour terminal; dedicated tests set NO_COLOR after
+# collection when exercising the supported monochrome path.
+os.environ.pop("NO_COLOR", None)
+os.environ["TERM"] = "xterm-256color"
 
 import asyncio
 import inspect
@@ -189,7 +194,7 @@ def _never_the_real_home(
     home = tmp_path_factory.mktemp("xdg")
     monkeypatch.setenv("XDG_DATA_HOME", str(home / "data"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "config"))
-    setup._INITIALISED.clear()
+    setup.clear_initialisation_cache()
 
 
 @pytest.fixture(autouse=True)

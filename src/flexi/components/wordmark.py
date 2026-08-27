@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sys
 from itertools import groupby
-from typing import Any, Final
+from typing import Final, Unpack
 
 from rich.text import Text
 from textual.message import Message
@@ -23,7 +23,17 @@ from textual.timer import Timer
 from textual.widgets import Static
 
 from flexi.components import splash
+from flexi.components.options import StaticOptions
 from flexi.theme import colour
+
+__all__ = (
+    "BACKGROUND",
+    "FRAME_SECONDS",
+    "Wordmark",
+    "blend",
+    "shade",
+    "wanted",
+)
 
 FRAME_SECONDS: Final = 1 / 30
 """Thirty frames a second. Sixty buys nothing over a terminal and costs a lot
@@ -36,7 +46,7 @@ Read rather than restated: this file already takes two other colours through
 `colour`, and the third was the same hex as `$c-ink` typed out again."""
 
 
-def _blend(start: str, end: str, amount: float) -> str:
+def blend(start: str, end: str, amount: float) -> str:
     """A colour part of the way between two others."""
     first = tuple(int(start[at : at + 2], 16) for at in (1, 3, 5))
     second = tuple(int(end[at : at + 2], 16) for at in (1, 3, 5))
@@ -47,7 +57,7 @@ def _blend(start: str, end: str, amount: float) -> str:
     return "#{:02X}{:02X}{:02X}".format(*mixed)
 
 
-def _shade(level: int) -> str:
+def shade(level: int) -> str:
     """The colour of one step of the luminance ramp.
 
     Out of the background, through the accent, up to its lift -- so the lighting
@@ -55,8 +65,8 @@ def _shade(level: int) -> str:
     """
     half = (len(splash.RAMP) - 1) / 2
     if level <= half:
-        return _blend(BACKGROUND, colour("c-accent"), level / half)
-    return _blend(colour("c-accent"), colour("c-accent-lift"), (level - half) / half)
+        return blend(BACKGROUND, colour("c-accent"), level / half)
+    return blend(colour("c-accent"), colour("c-accent-lift"), (level - half) / half)
 
 
 def wanted(*, animation_level: str) -> bool:
@@ -84,7 +94,9 @@ class Wordmark(Static):
     class Landed(Message):
         """The word has stopped moving. Whatever waits beneath it may arrive."""
 
-    def __init__(self, *, animate: bool = True, **kwargs: Any) -> None:
+    def __init__(
+        self, *, animate: bool = True, **kwargs: Unpack[StaticOptions]
+    ) -> None:
         super().__init__(**kwargs)
         self._plays = animate
         self._elapsed = 0.0 if animate else splash.DURATION
@@ -157,7 +169,7 @@ class Wordmark(Static):
         # it. By the time it is visible the word has settled and that row is
         # empty; the rows left under it are the gap before whatever comes next.
         strapline_row = splash.settled_rows()[1] + self.STRAPLINE_GAP
-        faded = _blend(
+        faded = blend(
             BACKGROUND, colour("c-muted"), splash.strapline_fade(self._elapsed)
         )
 
@@ -176,7 +188,7 @@ class Wordmark(Static):
                     art.append(" " * length)
                 else:
                     art.append(
-                        splash.RAMP[level] * length, style=f"bold {_shade(level)}"
+                        splash.RAMP[level] * length, style=f"bold {shade(level)}"
                     )
             art.append("\n")
         self.update(art)
