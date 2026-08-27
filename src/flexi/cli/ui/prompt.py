@@ -33,6 +33,24 @@ from flexi.cli.ui import rail
 from flexi.cli.ui.keys import Key, decode, incomplete
 from flexi.cli.ui.menu import Menu, Option
 
+__all__ = (
+    "ESCAPE_WAIT",
+    "WINDOWS_PREFIXES",
+    "WINDOWS_SCANCODES",
+    "Surface",
+    "abandon",
+    "choose",
+    "console",
+    "interactive",
+    "more_coming",
+    "read_key",
+    "read_posix",
+    "read_windows",
+    "type_the_word",
+    "unbuffered",
+    "write",
+)
+
 ESCAPE_WAIT: Final = 0.05
 """Seconds to wait for the rest of an escape sequence.
 

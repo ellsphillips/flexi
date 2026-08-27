@@ -32,21 +32,21 @@ from flexi.cli import ui
 from flexi.domain.format import plural
 from flexi.models.database.backup import snapshot, verify
 
-__all__ = [
+__all__ = (
+    "CONFIRM_WORD",
+    "COUNTED",
+    "READ_TIMEOUT",
     "Choice",
     "Contents",
     "ask",
     "confirm_reset",
     "describe",
+    "options",
     "overview",
     "reset",
     "settled",
-]
-"""What `__main__` reaches for.
-
-It omitted `confirm_reset`, which `__main__` calls, and published `interactive`
--- a re-export of `flexi.cli.ui.prompt.interactive` that gave one function two
-public paths, and `already_set_up` used both of them within nine lines."""
+)
+"""The module's complete setup and reset vocabulary."""
 
 CONFIRM_WORD = "reset"
 

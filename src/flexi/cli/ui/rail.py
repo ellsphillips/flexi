@@ -35,6 +35,24 @@ from flexi.theme import (
     colour,
 )
 
+__all__ = (
+    "ACTIVE",
+    "ALERT",
+    "GUTTER",
+    "HAIRLINE",
+    "HEAVY",
+    "LABEL_WIDTH",
+    "SETTLED",
+    "Tone",
+    "body",
+    "measure",
+    "option",
+    "rail_line",
+    "step",
+    "tail",
+    "wordmark",
+)
+
 # Named for what they do here; defined once, in the design system, so the setup
 # screen draws the same rail as the prompt that precedes it.
 HEAVY: Final = RAIL_LIVE

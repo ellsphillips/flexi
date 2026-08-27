@@ -15,6 +15,8 @@ from enum import Enum, unique
 from types import MappingProxyType
 from typing import Final
 
+__all__ = ("ESCAPE", "KEYS", "PREFIXES", "Key", "decode", "incomplete")
+
 ESCAPE: Final = "\x1b"
 
 

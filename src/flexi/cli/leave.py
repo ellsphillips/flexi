@@ -37,6 +37,16 @@ from flexi.domain.format import long_date, plural, short_date
 from flexi.services.absence import AbsencePlan
 from flexi.services.registry import Services
 
+__all__ = (
+    "PORTION_WORDS",
+    "VERDICT_NOTE",
+    "Request",
+    "cancel",
+    "parse_request",
+    "render",
+    "run",
+)
+
 PORTION_WORDS: Final[Mapping[str, Portion]] = MappingProxyType(
     {
         "am": Portion.AM,

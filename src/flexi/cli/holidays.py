@@ -16,6 +16,8 @@ import click
 
 from flexi.services.registry import Services
 
+__all__ = ("run",)
+
 
 def run(services: Services) -> int:
     """Fetch the calendar for the configured division. Returns an exit code."""

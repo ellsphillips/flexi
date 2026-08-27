@@ -17,6 +17,8 @@ from flexi.domain.format import delta, hm, long_date, stamp
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services
 
+__all__ = ("NO_CALENDAR", "log", "show", "undo", "zero")
+
 NO_CALENDAR = (
     "\nNo bank holiday calendar: days off are counted as working days.\n"
     "Run `flexi holidays refresh` to fetch it."

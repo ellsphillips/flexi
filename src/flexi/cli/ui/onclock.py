@@ -20,6 +20,14 @@ from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window, strip
 from flexi.theme import CELL_GLYPHS, TAIL, colour
 
+__all__ = (
+    "CELL_TONES",
+    "STRIP_CELLS",
+    "elapsed_since",
+    "on_the_clock",
+    "punch_line",
+)
+
 STRIP_CELLS = 44
 """Fixed, not measured: a pure function cannot ask the terminal its width, and
 this leaves both window labels room inside eighty columns."""
