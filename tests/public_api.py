@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import sys
 from collections.abc import Iterator, Mapping
 from types import ModuleType
 from typing import Any, TypeAliasType, get_args, get_type_hints
@@ -46,7 +47,17 @@ def class_type_hints(
         return
     seen.add(identity)
 
-    fields = inspect.get_annotations(value, eval_str=True)
+    module_globals = vars(sys.modules[value.__module__])
+    type_parameters = {
+        parameter.__name__: parameter
+        for parameter in getattr(value, "__type_params__", ())
+    }
+    fields = inspect.get_annotations(
+        value,
+        globals=module_globals,
+        locals=module_globals | type_parameters,
+        eval_str=True,
+    )
     if fields:
         yield qualified, fields
 

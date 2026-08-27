@@ -21,6 +21,7 @@ from flexi.domain import (
     wallet,
 )
 from flexi.domain import stitch as stitch_module
+from tests.public_api import contains_any, public_type_hints
 
 LEAF_MODULES = (
     balance,
@@ -94,6 +95,23 @@ def test_the_domain_facade_resolves_ambiguous_leaf_names() -> None:
     assert domain.CalendarCell is stitch_module.Cell
     assert domain.ZERO_DURATION is balance.ZERO
     assert domain.ZERO_TEXT is formatting.ZERO
+
+
+def test_the_domain_facade_publishes_date_time_contracts() -> None:
+    """The flat functional API routes each new calendar operation exactly once."""
+    assert domain.add_days is dates.add_days
+    assert domain.month_index is dates.month_index
+    assert domain.resolve_month_day is dates.resolve_month_day
+
+
+@pytest.mark.parametrize("module", LEAF_MODULES, ids=lambda module: module.__name__)
+def test_public_annotations_resolve_without_any(module: ModuleType) -> None:
+    checked = list(public_type_hints(module))
+
+    assert checked
+    for qualified, hints in checked:
+        assert hints, f"{qualified} has no annotations"
+        assert not any(map(contains_any, hints.values())), qualified
 
 
 def test_imported_implementation_dependencies_are_not_public() -> None:

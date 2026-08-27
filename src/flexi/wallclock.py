@@ -27,7 +27,16 @@ from contextvars import ContextVar
 from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
 from typing import Final
 
-__all__ = ("local", "now", "pinned", "today", "utc_now")
+__all__ = (
+    "advance",
+    "elapsed",
+    "local",
+    "now",
+    "pinned",
+    "require_aware",
+    "today",
+    "utc_now",
+)
 
 _PINNED_ZONE: Final[ContextVar[tzinfo | None]] = ContextVar(
     "flexi.wallclock.pinned_zone", default=None
@@ -118,3 +127,38 @@ def local(moment: datetime) -> datetime:
     anchored = moment.replace(tzinfo=zone) if moment.tzinfo is None else moment
     settled = anchored.astimezone(zone)
     return settled.replace(tzinfo=timezone(settled.utcoffset() or timedelta()))
+
+
+def require_aware(moment: datetime, *, name: str = "moment") -> datetime:
+    """Return an aware moment, or reject a wall reading with no instant.
+
+    Elapsed-time arithmetic cannot guess which zone a naive reading belongs to,
+    particularly in the hour that happens twice. Conversion of a deliberate
+    wall reading belongs at :func:`local`; elapsed operations use this boundary.
+    """
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        msg = f"{name} must be timezone-aware"
+        raise ValueError(msg)
+    return moment
+
+
+def elapsed(start: datetime, end: datetime) -> timedelta:
+    """Real elapsed time between two aware moments.
+
+    Converting each end to UTC avoids Python's wall-time subtraction rule for
+    two datetimes carrying the same ``ZoneInfo`` object across a transition.
+    """
+    beginning = require_aware(start, name="start")
+    finish = require_aware(end, name="end")
+    return finish.astimezone(UTC) - beginning.astimezone(UTC)
+
+
+def advance(moment: datetime, duration: timedelta) -> datetime:
+    """Advance an aware moment by elapsed time and return its new local reading.
+
+    A fixed-offset reading deliberately forgets the zone's future rules. Adding
+    in UTC and passing the resulting instant through :func:`local` restores the
+    offset in force at the destination, including either side of DST.
+    """
+    instant = require_aware(moment).astimezone(UTC) + duration
+    return local(instant)

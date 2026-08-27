@@ -125,6 +125,54 @@ def test_an_aware_moment_is_converted_to_the_pinned_zone() -> None:
     assert (moment.hour, moment.utcoffset()) == (13, timedelta(hours=1))
 
 
+def test_elapsed_time_uses_instants_across_a_zone_transition() -> None:
+    start = datetime(2026, 10, 24, 22, 0, tzinfo=LONDON)
+    end = datetime(2026, 10, 25, 6, 0, tzinfo=LONDON)
+
+    assert wallclock.elapsed(start, end) == timedelta(hours=9)
+
+
+@pytest.mark.parametrize(
+    ("start", "duration", "expected_hour", "expected_minute", "expected_offset"),
+    [
+        (
+            datetime(2026, 3, 29, 0, 30),
+            timedelta(hours=7, minutes=24),
+            8,
+            54,
+            timedelta(hours=1),
+        ),
+        (
+            datetime(2026, 10, 25, 0, 30),
+            timedelta(hours=7, minutes=24),
+            6,
+            54,
+            timedelta(),
+        ),
+    ],
+)
+def test_advancing_elapsed_time_restores_the_destination_offset(
+    start: datetime,
+    duration: timedelta,
+    expected_hour: int,
+    expected_minute: int,
+    expected_offset: timedelta,
+) -> None:
+    with wallclock.pinned(LONDON):
+        advanced = wallclock.advance(wallclock.local(start), duration)
+
+    assert (advanced.hour, advanced.minute) == (expected_hour, expected_minute)
+    assert advanced.utcoffset() == expected_offset
+
+
+def test_elapsed_operations_refuse_naive_moments() -> None:
+    naive = datetime(2026, 6, 11, 9, 0)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        wallclock.elapsed(naive, MIDSUMMER)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        wallclock.advance(naive, timedelta(hours=1))
+
+
 def test_unpinned_it_asks_the_machine() -> None:
     """The production path: no pin, and `astimezone` answers from the platform.
 

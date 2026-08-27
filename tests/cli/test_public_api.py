@@ -14,6 +14,7 @@ from types import ModuleType
 from typing import assert_type, get_type_hints
 from unittest.mock import call, patch
 
+import click
 import pytest
 
 import flexi.cli as cli_api
@@ -214,6 +215,12 @@ def test_facades_are_static_and_runtime_typed() -> None:
     assert assert_type(FacadeContents, type[Contents]) is Contents
     assert assert_type(FacadeKey, type[Key]) is Key
     assert refresh is holidays_run
+
+
+@pytest.mark.parametrize("typed", ["+999999999d", "-999999999w"])
+def test_typed_dates_report_extreme_offsets_as_usage_errors(typed: str) -> None:
+    with pytest.raises(click.BadParameter, match="outside"):
+        cli_api.TypedDate().convert(typed, None, None)
 
 
 def test_public_annotations_resolve_at_runtime() -> None:

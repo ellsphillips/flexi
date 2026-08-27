@@ -10,16 +10,28 @@ clamping a short month, and a span that runs backwards -- are pinned below.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 
 import pytest
 
 from flexi.domain.dates import (
+    DATE_RANGE_ERROR,
+    MONTH_NAMES,
     Preference,
+    add_days,
     add_months,
     days_between,
+    forward_if_passed,
+    month_index,
     parse_date,
+    parse_day_of_month,
+    parse_offset,
     parse_span,
+    parse_weekday,
+    parse_written,
+    relative_to,
+    resolve_month_day,
 )
 
 MONDAY = date(2026, 8, 10)
@@ -80,6 +92,14 @@ def test_last_weekday_means_the_one_just_gone() -> None:
 )
 def test_the_written_forms(typed: str, expected: date) -> None:
     assert parse_date(typed, reference=MONDAY) == expected
+
+
+def test_english_month_names_do_not_come_from_the_process_locale() -> None:
+    assert MONTH_NAMES[5] == "june"
+    assert month_index("jun") == month_index("June") == 6
+    assert month_index("juin") is None
+    with pytest.raises(ValueError, match="Try 2026"):
+        parse_date("12 juin", reference=MONDAY)
 
 
 @pytest.mark.parametrize(
@@ -156,6 +176,30 @@ def test_a_month_still_to_come_stays_this_year() -> None:
     )
 
 
+@pytest.mark.parametrize("typed", ["29 feb", "feb 29", "29/02"])
+def test_a_yearless_leap_day_finds_the_next_real_occurrence(typed: str) -> None:
+    assert parse_date(
+        typed, reference=date(2026, 8, 10), prefer=Preference.FORWARD
+    ) == date(2028, 2, 29)
+    assert parse_date(
+        typed, reference=date(2028, 2, 29), prefer=Preference.FORWARD
+    ) == date(2028, 2, 29)
+    assert parse_date(
+        typed, reference=date(2028, 3, 1), prefer=Preference.FORWARD
+    ) == date(2032, 2, 29)
+
+
+def test_a_leap_day_in_the_current_common_year_is_not_clamped() -> None:
+    with pytest.raises(ValueError, match="February 2026 has no day 29"):
+        parse_date("29 feb", reference=date(2026, 8, 10))
+
+
+def test_an_explicit_leap_year_is_not_moved_by_a_forward_preference() -> None:
+    assert parse_date(
+        "29 feb 2028", reference=date(2030, 1, 1), prefer=Preference.FORWARD
+    ) == date(2028, 2, 29)
+
+
 # -- spans -------------------------------------------------------------------
 
 
@@ -218,6 +262,47 @@ def test_a_day_the_month_does_not_have() -> None:
     """Reading a date, not booking one: February has no 30th and that is that."""
     with pytest.raises(ValueError, match="February has no day 30"):
         parse_date("30", reference=date(2026, 2, 10))
+
+
+@pytest.mark.parametrize(
+    "read",
+    [
+        pytest.param(lambda: add_days(date.max, 1), id="add-days"),
+        pytest.param(lambda: add_months(date.max, 1), id="add-months"),
+        pytest.param(lambda: relative_to("tomorrow", date.max), id="relative"),
+        pytest.param(lambda: parse_weekday("next monday", date.max), id="weekday"),
+        pytest.param(lambda: parse_offset("+999999999d", MONDAY), id="positive-offset"),
+        pytest.param(lambda: parse_offset("-999999999w", MONDAY), id="negative-offset"),
+        pytest.param(lambda: parse_date("+999999999d", reference=MONDAY), id="date"),
+        pytest.param(
+            lambda: parse_span("today to +999999999d", reference=MONDAY),
+            id="span",
+        ),
+        pytest.param(
+            lambda: parse_written("1 jan", date.max, Preference.FORWARD),
+            id="written",
+        ),
+        pytest.param(
+            lambda: parse_day_of_month("1", date.max, Preference.FORWARD),
+            id="day-of-month",
+        ),
+        pytest.param(
+            lambda: forward_if_passed(date(9999, 1, 1), date.max, Preference.FORWARD),
+            id="forward-if-passed",
+        ),
+        pytest.param(
+            lambda: resolve_month_day(1, 1, date.max, Preference.FORWARD),
+            id="month-day",
+        ),
+    ],
+)
+def test_public_date_arithmetic_reports_range_errors_as_values(
+    read: Callable[[], object],
+) -> None:
+    with pytest.raises(ValueError, match="outside") as raised:
+        read()
+
+    assert str(raised.value) == DATE_RANGE_ERROR
 
 
 # -- arithmetic --------------------------------------------------------------
