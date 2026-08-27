@@ -12,12 +12,19 @@ from pathlib import Path
 
 import pytest
 import time_machine
+from sqlalchemy import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Division, Portion
 from flexi.models.database.db import AbsenceDay, BankHolidayCache, Base
 from flexi.models.database.engine import create_db_engine, get_session
-from flexi.services.absence import AbsenceService, covers_the_whole_day
+from flexi.services.absence import (
+    PLAN_CHANGED,
+    AbsenceService,
+    covers_the_whole_day,
+    snapshot_booking,
+)
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.registry import build_services
 from flexi.services.settings import SettingsService, parse_settings
@@ -321,6 +328,61 @@ class TestRemoval:
     def test_remove_nonexistent(self, absence: AbsenceService) -> None:
         result = absence.remove(date(2026, 1, 2))
         assert result.success is False
+
+    def test_confirmed_removal_refuses_a_changed_booking(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """A modal approves one immutable row, not its date-and-portion slot."""
+        when = _next_weekday(date(2026, 6, 8), 0)
+        created = absence.book(when, AbsenceType.ANNUAL)
+        assert created.absence is not None
+        confirmed = snapshot_booking(created.absence)
+
+        created.absence.absence_type = AbsenceType.SICK
+        session.commit()
+        result = absence.remove_booking(confirmed)
+
+        assert result.message == PLAN_CHANGED
+        assert [row.absence_type for row in absence.for_date(when)] == [
+            AbsenceType.SICK
+        ]
+
+    def test_immediate_removal_reserves_the_target_before_reading_it(
+        self,
+        absence: AbsenceService,
+        engine: Engine,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A concurrent replacement cannot inherit the row being deleted."""
+        when = _next_weekday(date(2026, 6, 8), 0)
+        assert absence.book(when, AbsenceType.ANNUAL).success
+        read = absence.for_date
+        writer_was_blocked = False
+
+        with get_session(engine) as competing:
+            competing.connection().exec_driver_sql("PRAGMA busy_timeout=0")
+
+            def interleave(day: date) -> list[AbsenceDay]:
+                nonlocal writer_was_blocked
+                rows = read(day)
+                current = competing.get(AbsenceDay, rows[0].id)
+                assert current is not None
+                try:
+                    competing.delete(current)
+                    competing.commit()
+                    competing.add(AbsenceDay(date=day, absence_type=AbsenceType.SICK))
+                    competing.commit()
+                except OperationalError:
+                    competing.rollback()
+                    writer_was_blocked = True
+                return rows
+
+            monkeypatch.setattr(absence, "for_date", interleave)
+            result = absence.remove(when)
+
+        assert writer_was_blocked
+        assert result.success
+        assert read(when) == []
 
 
 # ---------- type change ----------

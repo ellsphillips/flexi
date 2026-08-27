@@ -48,6 +48,7 @@ from flexi.screens.modals import (
     ConfirmModal,
     GoToDateModal,
 )
+from flexi.services.absence import snapshot_booking
 from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
 from flexi.services.registry import (
@@ -326,17 +327,19 @@ class DashboardScreen(Screen[None]):
         if found is None:
             self.status("That booking has already gone", Tone.WARN)
             return
-        when, portion = found.date, found.portion
+        booking = snapshot_booking(found)
 
         def confirm(answer: bool | None) -> None:
             if answer:
                 self._report(
-                    self._services.absence.remove(when, portion), scope=Scope.ABSENCE
+                    self._services.absence.remove_booking(booking),
+                    scope=Scope.ABSENCE,
                 )
 
         self.app.push_screen(
             ConfirmModal(
-                f"Remove {found.absence_type.phrase} from {short_date(when)}?",
+                f"Remove {booking.absence_type.phrase} "
+                f"from {short_date(booking.date)}?",
                 title="Remove booking",
             ),
             callback=confirm,

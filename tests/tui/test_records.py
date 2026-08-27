@@ -21,6 +21,7 @@ from flexi.domain.format import delta
 from flexi.messages import Scope
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
+from flexi.services.absence import PLAN_CHANGED
 from tests.conftest import sessions_on, settled
 from tests.tui.conftest import (
     WIDE,
@@ -393,6 +394,35 @@ async def test_declining_the_question_leaves_the_booking_alone(
 
         after = app.services.absence.in_range(date(2026, 6, 8), date(2026, 6, 14))
         assert [row.date for row in after] == [row.date for row in before]
+
+
+async def test_confirming_does_not_delete_a_booking_changed_under_the_modal(
+    app_factory: AppFactory,
+) -> None:
+    """The accepted question identifies the row it described, not its slot."""
+    app = app_factory()
+    toil = date(2026, 6, 12)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        widget.focus()
+        widget.toggle(f"{RowKind.DAY}{toil}")
+        await pilot.pause()
+        widget.focus_key(absence_key(app, toil))
+        await pilot.press("x")
+        await pilot.pause()
+        showing(app, ConfirmModal)
+
+        replacement = app.services.absence.in_range(toil, toil)[0]
+        replacement.absence_type = AbsenceType.SICK
+        app._session.commit()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert [
+            row.absence_type for row in app.services.absence.in_range(toil, toil)
+        ] == [AbsenceType.SICK]
+        assert status_text(app) == PLAN_CHANGED
 
 
 async def test_x_on_a_worked_day_says_sessions_cannot_be_deleted_yet(

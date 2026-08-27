@@ -36,7 +36,7 @@ from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
-from flexi.services.transactions import atomic, write_transaction
+from flexi.services.transactions import write_transaction
 
 __all__ = (
     "PLAN_CHANGED",
@@ -55,6 +55,7 @@ __all__ = (
     "deficit",
     "overdraw",
     "plan_removal",
+    "snapshot_booking",
     "span_of",
     "still_bookable",
     "verdict_for",
@@ -491,6 +492,17 @@ class RemovalPlan:
         )
 
 
+def snapshot_booking(booking: AbsenceDay) -> RemovalBooking:
+    """Copy one mutable persistence row into a confirmation-safe value."""
+    return RemovalBooking(
+        absence_id=booking.id,
+        date=booking.date,
+        absence_type=booking.absence_type,
+        portion=booking.portion,
+        note=booking.note,
+    )
+
+
 def plan_removal(start: date, end: date, bookings: Iterable[AbsenceDay]) -> RemovalPlan:
     """Freeze the exact bookings a removal preview asks someone to approve.
 
@@ -501,16 +513,7 @@ def plan_removal(start: date, end: date, bookings: Iterable[AbsenceDay]) -> Remo
     return RemovalPlan(
         start,
         end,
-        tuple(
-            RemovalBooking(
-                absence_id=booking.id,
-                date=booking.date,
-                absence_type=booking.absence_type,
-                portion=booking.portion,
-                note=booking.note,
-            )
-            for booking in bookings
-        ),
+        tuple(map(snapshot_booking, bookings)),
     )
 
 
@@ -880,16 +883,29 @@ class AbsenceService:
         """
         return self.remove_plan(self.removal_plan(start, end))
 
+    def remove_booking(self, booking: RemovalBooking) -> AbsenceResult:
+        """Remove one confirmed booking only while its identity is unchanged."""
+        with write_transaction(self._session):
+            current = self._session.get(AbsenceDay, booking.absence_id)
+            if current is None or snapshot_booking(current) != booking:
+                return AbsenceResult(False, PLAN_CHANGED)
+            self._session.delete(current)
+
+        return AbsenceResult(
+            True,
+            f"{booking.absence_type.label} removed from {short_date(booking.date)}",
+        )
+
     def remove(self, day: date, portion: Portion | None = None) -> AbsenceResult:
         """Remove one portion's booking, or everything booked on the date."""
-        booked = self.for_date(day)
-        if portion is not None:
-            booked = [absence for absence in booked if absence.portion is portion]
-        if not booked:
-            return AbsenceResult(False, "Nothing is booked on that date")
+        with write_transaction(self._session):
+            booked = self.for_date(day)
+            if portion is not None:
+                booked = [absence for absence in booked if absence.portion is portion]
+            if not booked:
+                return AbsenceResult(False, "Nothing is booked on that date")
 
-        removed = booked[0].absence_type.label if len(booked) == 1 else "Absence"
-        with atomic(self._session):
+            removed = booked[0].absence_type.label if len(booked) == 1 else "Absence"
             for absence in booked:
                 self._session.delete(absence)
         return AbsenceResult(True, f"{removed} removed from {short_date(day)}")
