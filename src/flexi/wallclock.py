@@ -23,21 +23,19 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, date, datetime, timedelta, timezone, tzinfo
+from typing import Final
 
-
-class _Pin:
-    """The zone every reading is taken in, or ``None`` for the machine's own."""
-
-    zone: tzinfo | None = None
-
-
-_PIN = _Pin()
-"""The one pin every reading in this process goes through.
+_PINNED_ZONE: Final[ContextVar[tzinfo | None]] = ContextVar(
+    "flexi.wallclock.pinned_zone", default=None
+)
+"""The context-local zone every reading uses, or ``None`` for the machine's.
 
 Private because a public handle on it is a way for anything to move the clock
 out from under everything else. `pinned` is the seam; this is where it keeps
-its state.
+its state. Context-local rather than process-global so overlapping async tasks
+and threads cannot change one another's reading.
 """
 
 
@@ -56,11 +54,11 @@ def pinned(zone: tzinfo | None) -> Iterator[None]:
     name. This works the same everywhere, because it is the one function that
     reads the zone rather than the environment underneath it.
     """
-    previous, _PIN.zone = _PIN.zone, zone
+    token = _PINNED_ZONE.set(zone)
     try:
         yield
     finally:
-        _PIN.zone = previous
+        _PINNED_ZONE.reset(token)
 
 
 def now() -> datetime:
@@ -108,7 +106,7 @@ def local(moment: datetime) -> datetime:
     Either way the result carries a fixed offset rather than a zone, which is
     what makes it subtract through UTC instead of as wall time.
     """
-    zone = _PIN.zone
+    zone = _PINNED_ZONE.get()
     if zone is None:
         return moment.astimezone()
     # The same two readings as above, taken against the pinned zone instead of
