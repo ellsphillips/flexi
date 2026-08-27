@@ -36,6 +36,8 @@ from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 
+__all__ = ("LedgerService", "day_kind", "end_of_day", "segment_of")
+
 
 class LedgerService:
     """Turn stored rows into :class:`~flexi.domain.ledger.DayLedger` values."""

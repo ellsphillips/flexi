@@ -21,6 +21,8 @@ from flexi import wallclock
 from flexi.domain.format import stamp
 from flexi.models.database.db import BalanceAdjustment
 
+__all__ = ("OPENING_BALANCE", "AdjustmentResult", "AdjustmentService")
+
 OPENING_BALANCE = "opening balance"
 """The reason a zeroing adjustment is recorded under."""
 

@@ -20,6 +20,13 @@ from pathlib import Path
 
 from flexi.locations import database_file
 
+__all__ = (
+    "REQUIRED_SETTINGS",
+    "forget",
+    "is_initialised",
+    "stamped_and_configured",
+)
+
 REQUIRED_SETTINGS = (
     "leave_year_start",
     "working_days",

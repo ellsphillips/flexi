@@ -29,6 +29,8 @@ from flexi.services.ledger import LedgerService
 from flexi.services.settings import SettingsService
 from flexi.services.wallet import WalletService
 
+__all__ = ("Services", "minimum_session")
+
 
 @dataclass(slots=True)
 class Services:

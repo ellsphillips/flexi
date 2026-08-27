@@ -16,6 +16,8 @@ from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
 
+__all__ = ("ClockResult", "ClockService")
+
 
 @dataclass(frozen=True)
 class ClockResult:

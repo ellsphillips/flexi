@@ -11,6 +11,15 @@ from flexi import wallclock
 from flexi.constants import Division
 from flexi.models.database.db import BankHolidayCache
 
+__all__ = (
+    "CACHE_MAX_AGE",
+    "GOVUK_URL",
+    "REQUEST_TIMEOUT",
+    "BankHolidayService",
+    "ParsedBankHoliday",
+    "parse_bank_holidays",
+)
+
 GOVUK_URL = "https://www.gov.uk/bank-holidays.json"
 CACHE_MAX_AGE = timedelta(days=7)
 REQUEST_TIMEOUT = 5.0

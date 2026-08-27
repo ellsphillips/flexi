@@ -14,10 +14,10 @@ what stops it drifting from the real head.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import text
 from sqlalchemy.exc import DatabaseError
@@ -31,8 +31,39 @@ from flexi.models.database.backup import (
 )
 from flexi.models.database.engine import create_db_engine
 
+__all__ = (
+    "HEAD",
+    "MAX_BACKUPS",
+    "MigrationConfig",
+    "alembic_config",
+    "backup_database",
+    "current_revision",
+    "prune_backups",
+    "run_migrations",
+)
+
+
 if TYPE_CHECKING:
-    from alembic.config import Config
+    from alembic.config import Config as MigrationConfig
+else:
+
+    class MigrationConfig(Protocol):
+        """Runtime view of the config yielded by :func:`alembic_config`.
+
+        Type checkers see the concrete :class:`alembic.config.Config`; runtime
+        introspection sees this equivalent public surface without paying to
+        import Alembic on the already-at-head path.
+        """
+
+        @property
+        def attributes(self) -> MutableMapping[str, object]:
+            """Objects passed directly to Alembic's migration environment."""
+            ...
+
+        def set_main_option(self, name: str, value: str) -> None:
+            """Set one string-valued Alembic option."""
+            ...
+
 
 MAX_BACKUPS = 10
 
@@ -48,7 +79,7 @@ log = logging.getLogger(__name__)
 
 
 @contextmanager
-def alembic_config(db_path: Path) -> Iterator[Config]:
+def alembic_config(db_path: Path) -> Iterator[MigrationConfig]:
     """An Alembic config wired to an engine on ``db_path``, disposed on exit.
 
     The engine is handed over rather than a URL, because a config value is not

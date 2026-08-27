@@ -19,6 +19,20 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
 
+__all__ = (
+    "DEFAULT_CONTRACTED_MINUTES",
+    "DEFAULT_WINDOW_END",
+    "DEFAULT_WINDOW_START",
+    "AbsenceDay",
+    "BalanceAdjustment",
+    "BankHolidayCache",
+    "Base",
+    "ClockEvent",
+    "LeaveEntitlement",
+    "Settings",
+    "WorkSession",
+)
+
 DEFAULT_CONTRACTED_MINUTES = 444
 """7h24 — the standard day these figures are all measured against.
 

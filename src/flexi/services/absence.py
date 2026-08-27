@@ -37,6 +37,25 @@ from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 
+__all__ = (
+    "AbsencePlan",
+    "AbsenceResult",
+    "AbsenceService",
+    "DayFacts",
+    "PlannedDay",
+    "RangeResult",
+    "RemovalPlan",
+    "Span",
+    "Tally",
+    "clash_reason",
+    "covers_the_whole_day",
+    "deficit",
+    "overdraw",
+    "span_of",
+    "still_bookable",
+    "verdict_for",
+)
+
 type Span = tuple[datetime, datetime]
 """A stretch of recorded work, resolved: an open session ends at midnight."""
 

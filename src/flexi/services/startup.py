@@ -19,6 +19,8 @@ from flexi.constants import ClockAction, EventSource
 from flexi.models.database.db import WorkSession
 from flexi.models.database.moment import moment_of, punched
 
+__all__ = ("close_stale_sessions",)
+
 
 def close_stale_sessions(
     session: Session,

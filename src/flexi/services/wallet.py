@@ -19,6 +19,8 @@ from flexi.services.absence import AbsenceService
 from flexi.services.ledger import LedgerService
 from flexi.services.settings import SettingsService
 
+__all__ = ("WalletService",)
+
 
 class WalletService:
     """Compute the wallet's view model."""

@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+__all__ = ("Outcome",)
+
 
 @runtime_checkable
 class Outcome(Protocol):

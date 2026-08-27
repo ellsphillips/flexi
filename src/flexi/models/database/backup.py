@@ -24,6 +24,8 @@ from pathlib import Path
 from flexi import wallclock
 from flexi.locations import backups_directory, ensure
 
+__all__ = ("PROTECTED_PREFIX", "ROUTINE_PREFIX", "snapshot", "verify")
+
 PROTECTED_PREFIX = "pre-init_"
 """A snapshot taken before a reset. Never aged out by the migration pruner."""
 
