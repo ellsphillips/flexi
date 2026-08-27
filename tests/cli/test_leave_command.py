@@ -201,6 +201,59 @@ def test_the_render_shows_the_allowance_moving(services: Services) -> None:
     assert "25 → 20 days left" in render(plan)
 
 
+def test_the_render_keeps_cross_year_allowances_separate(
+    services: Services,
+) -> None:
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="01-01",
+            working_days="Mon-Fri",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
+    )
+    services.settings.save_entitlement(2026, 1.0)
+    services.settings.save_entitlement(2027, 2.0)
+
+    plan = services.absence.plan(
+        date(2026, 12, 30), date(2027, 1, 5), AbsenceType.ANNUAL
+    )
+
+    shown = render(plan)
+    assert "Annual leave 2026: 1 → 0 days left" in shown
+    assert "Annual leave 2027: 2 → 0 days left" in shown
+
+
+def test_a_stale_confirmation_is_reported_as_failure(
+    services: Services,
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A changed plan is not a green message and a successful exit code."""
+
+    def change_the_day(*_args: object, **_kwargs: object) -> bool:
+        assert services.absence.book(MONDAY, AbsenceType.SICK).success
+        return True
+
+    monkeypatch.setattr("click.confirm", change_the_day)
+
+    code = run(
+        services,
+        ("annual", "monday"),
+        note=None,
+        assume_yes=False,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    assert code == 1
+    assert "changed" in capsys.readouterr().out
+    assert [(row.date, row.absence_type) for row in _booked(session)] == [
+        (MONDAY, AbsenceType.SICK)
+    ]
+
+
 def test_annual_leave_does_not_warn_about_the_flexi_balance(
     services: Services,
 ) -> None:

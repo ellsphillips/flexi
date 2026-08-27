@@ -129,11 +129,21 @@ def render(plan: AbsencePlan) -> str:
     booked = len(plan.bookable)
     lines.append("")
     lines.append(f"{booked} {plural(booked, 'day')}, {fmt_days(plan.cost)} used")
-    if plan.annual_after is not None and plan.absence_type.draws_down_entitlement:
-        lines.append(
-            f"Annual leave: {fmt_days(plan.annual_remaining or 0)}"
-            f" → {fmt_days(plan.annual_after)} {plural(plan.annual_after, 'day')} left"
-        )
+    balances = tuple(
+        balance
+        for balance in plan.annual_balances
+        if balance.before is not None and balance.after is not None
+    )
+    if plan.absence_type.draws_down_entitlement:
+        for balance in balances:
+            label = (
+                "Annual leave" if len(balances) == 1 else f"Annual leave {balance.year}"
+            )
+            lines.append(
+                f"{label}: {fmt_days(balance.before or 0)}"
+                f" → {fmt_days(balance.after or 0)} "
+                f"{plural(balance.after or 0, 'day')} left"
+            )
     if plan.warning:
         lines.append(plan.warning)
     return "\n".join(lines)
@@ -184,8 +194,8 @@ def run(
         return 1
 
     result = services.absence.book_plan(plan)
-    click.secho(result.message("booked"), fg="green")
-    return 0
+    click.secho(result.message("booked"), fg="green" if result.success else "red")
+    return 0 if result.success else 1
 
 
 def cancel(

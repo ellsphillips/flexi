@@ -43,6 +43,7 @@ __all__ = (
     "AbsencePlan",
     "AbsenceResult",
     "AbsenceService",
+    "AnnualBalance",
     "DayFacts",
     "PlannedDay",
     "RangeResult",
@@ -354,6 +355,15 @@ def still_bookable(
 
 
 @dataclass(frozen=True, slots=True)
+class AnnualBalance:
+    """One leave year's allowance before and after a proposed plan."""
+
+    year: int
+    before: float | None
+    after: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class AbsencePlan:
     """What booking a span would do, decided without writing anything.
 
@@ -368,7 +378,7 @@ class AbsencePlan:
     start: date
     end: date
     days: tuple[PlannedDay, ...]
-    annual_remaining: float | None = None
+    annual_balances: tuple[AnnualBalance, ...] = ()
     toil_available: float | None = None
 
     @property
@@ -411,11 +421,15 @@ class AbsencePlan:
 
     @property
     def annual_after(self) -> float | None:
-        if self.annual_remaining is None:
-            return None
-        if not self.absence_type.draws_down_entitlement:
-            return self.annual_remaining
-        return self.annual_remaining - self.cost
+        """The resulting allowance when this plan touches exactly one leave year."""
+        return self.annual_balances[0].after if len(self.annual_balances) == 1 else None
+
+    @property
+    def annual_remaining(self) -> float | None:
+        """The opening allowance when this plan touches exactly one leave year."""
+        return (
+            self.annual_balances[0].before if len(self.annual_balances) == 1 else None
+        )
 
     @property
     def toil_after(self) -> float | None:
@@ -630,12 +644,55 @@ class AbsenceService:
         ``None`` means no entitlement has been recorded — which is not the same
         as none remaining, and the interface must not draw it as zero.
         """
-        entitlement = self._settings.get_active_entitlement_days(ref)
-        if entitlement is None:
-            return None
-        start, end = self.leave_year_bounds(ref)
-        booked = self.count_days(AbsenceType.ANNUAL, start, end, valid_only=True)
-        return entitlement - booked
+        when = ref or wallclock.today()
+        year = self._settings.active_leave_year(when)
+        return self.get_remaining_annual_leave_by_year((year,))[year]
+
+    def get_remaining_annual_leave_by_year(
+        self, years: Iterable[int]
+    ) -> dict[int, float | None]:
+        """Remaining allowances for distinct leave years, in one bounded read.
+
+        Planning a span can cross any number of allowance boundaries. Reading
+        one entitlement from its first date and carrying it through the whole
+        span lets the old year spend the new year's allowance—or refuses valid
+        dates after the boundary. This batch preserves one independent running
+        balance per leave year without turning a long plan into per-day queries.
+        """
+        requested = tuple(dict.fromkeys(years))
+        if not requested:
+            return {}
+
+        settings = self._settings.resolved()
+        month, day = settings.leave_year_start
+        first = leaveyear.clamp(min(requested), month, day)
+        last = leaveyear.clamp(max(requested) + 1, month, day)
+        stmt = select(AbsenceDay).where(
+            AbsenceDay.absence_type == AbsenceType.ANNUAL,
+            AbsenceDay.date >= first,
+            AbsenceDay.date < last,
+        )
+        rows = list(self._session.execute(stmt).scalars())
+        holidays = self._bank_holidays.get_dates()
+        known = None if holidays is None else frozenset(holidays)
+        used: defaultdict[int, float] = defaultdict(float)
+        for row in rows:
+            if still_bookable(row.date, settings.working_days, known):
+                active = leaveyear.active_year(row.date, month, day)
+                used[active] += row.portion.days
+
+        entitlements = {
+            entitlement.year: entitlement.days
+            for entitlement in self._settings.all_entitlements()
+        }
+        return {
+            year: (
+                None
+                if (entitlement := entitlements.get(year)) is None
+                else entitlement - used[year]
+            )
+            for year in requested
+        }
 
     # -- writing -----------------------------------------------------------
 
@@ -761,21 +818,34 @@ class AbsenceService:
         each day: booking ten days against five left has to refuse the sixth,
         and the database has not seen the first five yet.
         """
-        entitlement = self.get_remaining_annual_leave(start)
-        remaining = entitlement
+        span_facts = self.facts_between(start, end)
+        month, day = self._settings.get_leave_year_start()
+        years = tuple(
+            dict.fromkeys(
+                leaveyear.active_year(fact.date, month, day) for fact in span_facts
+            )
+        )
+        opening = self.get_remaining_annual_leave_by_year(years)
+        remaining = dict(opening)
         days: list[PlannedDay] = []
 
-        for facts in self.facts_between(start, end):
+        for facts in span_facts:
+            active_year = leaveyear.active_year(facts.date, month, day)
+            available = remaining[active_year]
             decided = verdict_for(
-                facts, absence_type, portion, note, remaining_annual=remaining
+                facts,
+                absence_type,
+                portion,
+                note,
+                remaining_annual=available,
             )
             days.append(decided)
             if (
                 decided.verdict is Verdict.BOOK
                 and absence_type.draws_down_entitlement
-                and remaining is not None
+                and available is not None
             ):
-                remaining -= portion.days
+                remaining[active_year] = available - portion.days
 
         return AbsencePlan(
             absence_type=absence_type,
@@ -784,7 +854,9 @@ class AbsenceService:
             start=start,
             end=end,
             days=tuple(days),
-            annual_remaining=entitlement,
+            annual_balances=tuple(
+                AnnualBalance(year, opening[year], remaining[year]) for year in years
+            ),
             toil_available=available_toil_days,
         )
 

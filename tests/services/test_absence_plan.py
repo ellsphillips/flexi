@@ -125,6 +125,39 @@ def test_the_plan_says_what_it_would_cost(services: Services) -> None:
     assert plan.annual_after == 20.0
 
 
+def test_each_leave_year_spends_only_its_own_entitlement(
+    configure: Configured,
+) -> None:
+    """A range crossing New Year carries two independent allowances."""
+    services = configure(
+        leave_year_start="01-01",
+        holidays=((BANK_HOLIDAY, "Summer bank holiday"),),
+    )
+    services.settings.save_entitlement(2026, 1.0)
+    services.settings.save_entitlement(2027, 2.0)
+
+    plan = services.absence.plan(
+        date(2026, 12, 30), date(2027, 1, 5), AbsenceType.ANNUAL
+    )
+
+    assert [
+        (balance.year, balance.before, balance.after)
+        for balance in plan.annual_balances
+    ] == [
+        (2026, 1.0, 0.0),
+        (2027, 2.0, 0.0),
+    ]
+    assert [day.date for day in plan.bookable] == [
+        date(2026, 12, 30),
+        date(2027, 1, 1),
+        date(2027, 1, 4),
+    ]
+    assert [day.date for day in plan.refused] == [
+        date(2026, 12, 31),
+        date(2027, 1, 5),
+    ]
+
+
 def test_half_days_cost_a_half(services: Services) -> None:
     plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL, Portion.AM)
     assert plan.cost == 2.5

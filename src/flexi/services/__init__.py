@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         AbsencePlan,
         AbsenceResult,
         AbsenceService,
+        AnnualBalance,
         DayFacts,
         PlannedDay,
         RangeResult,
@@ -168,6 +169,7 @@ _SUBMODULES: Final = (
 _EXPORTS: Final = MappingProxyType(
     {
         "AbsencePlan": ("absence", "AbsencePlan"),
+        "AnnualBalance": ("absence", "AnnualBalance"),
         "AbsenceResult": ("absence", "AbsenceResult"),
         "AbsenceService": ("absence", "AbsenceService"),
         "DayFacts": ("absence", "DayFacts"),
@@ -293,6 +295,7 @@ __all__ = (  # noqa: RUF022
     "wallet",
     "work_sessions",
     "AbsencePlan",
+    "AnnualBalance",
     "AbsenceResult",
     "AbsenceService",
     "DayFacts",

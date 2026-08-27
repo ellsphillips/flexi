@@ -14,7 +14,12 @@ from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.screens.leave import LeaveScreen, preview
 from flexi.screens.modals import AbsenceModal, ConfirmModal, GoToDateModal
-from flexi.services.absence import PLAN_CHANGED, AbsencePlan, PlannedDay
+from flexi.services.absence import (
+    PLAN_CHANGED,
+    AbsencePlan,
+    AnnualBalance,
+    PlannedDay,
+)
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
 
 TODAY = date(2026, 6, 11)  # a Thursday
@@ -766,6 +771,25 @@ def test_the_preview_names_a_bank_holiday_with_no_weekend_to_hide_behind() -> No
 
     assert "1 bank holiday" in shown
     assert "non-working" not in shown, "there was no weekend in the span"
+
+
+def test_the_preview_keeps_cross_year_allowances_separate() -> None:
+    monday = date(2026, 12, 28)
+    shown = preview(
+        _plan(
+            (
+                _day(monday, Verdict.BOOK),
+                _day(monday + timedelta(days=7), Verdict.BOOK),
+            ),
+            annual_balances=(
+                AnnualBalance(2026, 1.0, 0.0),
+                AnnualBalance(2027, 2.0, 1.0),
+            ),
+        )
+    )
+
+    assert "Annual leave 2026: 1 → 0 left" in shown
+    assert "Annual leave 2027: 2 → 1 left" in shown
 
 
 def test_the_preview_carries_the_warning_it_was_given() -> None:

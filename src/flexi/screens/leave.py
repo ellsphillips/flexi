@@ -462,12 +462,21 @@ def preview(plan: AbsencePlan) -> str:
     if holidays:
         lines.append(f"  — {holidays} {plural(holidays, 'bank holiday')}")
 
-    if plan.absence_type.draws_down_entitlement and plan.annual_after is not None:
+    balances = tuple(
+        balance
+        for balance in plan.annual_balances
+        if balance.before is not None and balance.after is not None
+    )
+    if plan.absence_type.draws_down_entitlement and balances:
         lines.append("")
-        lines.append(
-            f"Annual leave: {fmt_days(plan.annual_remaining or 0)}"
-            f" → {fmt_days(plan.annual_after)} left"
-        )
+        for balance in balances:
+            label = (
+                "Annual leave" if len(balances) == 1 else f"Annual leave {balance.year}"
+            )
+            lines.append(
+                f"{label}: {fmt_days(balance.before or 0)}"
+                f" → {fmt_days(balance.after or 0)} left"
+            )
     if plan.warning:
         lines.append(plan.warning)
     return "\n".join(lines)
