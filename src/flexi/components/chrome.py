@@ -24,6 +24,25 @@ from textual.widgets._footer import FooterKey, FooterLabel
 
 from flexi.components.common import Pill, Tone
 
+__all__ = (
+    "NAV_BY_SCREEN",
+    "NAV_ITEMS",
+    "OVERFLOW_TEMPLATE",
+    "AppFooter",
+    "AppHeader",
+    "KeyStrip",
+    "Lockup",
+    "NavBar",
+    "NavItem",
+    "NavItemLabel",
+    "OverflowLabel",
+    "StatusBar",
+    "StripEntry",
+    "footer_key_cost",
+    "keys_that_fit",
+    "strip_entries",
+)
+
 OVERFLOW_TEMPLATE: Final = "+{count} more"
 """Written as a template so the strip can price the marker before it knows the
 number: the worst case is every entry hidden, and reserving for that keeps the

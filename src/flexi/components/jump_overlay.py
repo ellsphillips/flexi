@@ -22,6 +22,8 @@ from textual.widgets import Label
 if TYPE_CHECKING:
     from flexi.components.jumper import Jumper
 
+__all__ = ("SWALLOWED_KEYS", "JumpOverlay")
+
 SWALLOWED_KEYS: frozenset[str] = frozenset({"tab", "shift+tab"})
 """Keys stopped rather than let through.
 

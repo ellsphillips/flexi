@@ -25,6 +25,15 @@ from textual.widgets import Static
 from flexi.components import splash
 from flexi.theme import colour
 
+__all__ = (
+    "BACKGROUND",
+    "FRAME_SECONDS",
+    "Wordmark",
+    "blend",
+    "shade",
+    "wanted",
+)
+
 FRAME_SECONDS: Final = 1 / 30
 """Thirty frames a second. Sixty buys nothing over a terminal and costs a lot
 over SSH."""

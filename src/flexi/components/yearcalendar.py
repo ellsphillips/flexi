@@ -38,6 +38,24 @@ from flexi.domain.stitch import (
     weekday_initials,
 )
 
+__all__ = (
+    "AFTERNOON",
+    "BLANK",
+    "FULL",
+    "HEADING_ROW",
+    "HOLIDAY",
+    "LABELLED_CELL",
+    "MIN_CELL",
+    "MORNING",
+    "PORTION_GLYPH",
+    "SPLIT",
+    "TITLE_ROW",
+    "TOKEN",
+    "YearCalendar",
+    "legend",
+    "units_column",
+)
+
 TOKEN: Final = 3
 """What a day always occupies: two columns for the number, one for the marker."""
 

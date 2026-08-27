@@ -11,18 +11,36 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import Any, ClassVar, Final
 
+from rich.style import Style
 from rich.text import Text
 from textual.app import ComposeResult, RenderResult
 from textual.containers import Horizontal, Vertical
+from textual.dom import DOMNode
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Static
 
-if TYPE_CHECKING:
-    from rich.style import Style
-    from textual.dom import DOMNode
+__all__ = (
+    "ALL_TONE_CLASSES",
+    "GAUGE_TONE_STYLES",
+    "MARKER",
+    "MIN_GAUGE_WIDTH",
+    "NARROW_COLUMNS",
+    "TINY_COLUMNS",
+    "TONE_CLASSES",
+    "TRACK",
+    "EmptyIndicator",
+    "Gauge",
+    "KeyHint",
+    "Pill",
+    "Rule",
+    "StatCard",
+    "Tone",
+    "mark_width",
+    "styled_track",
+)
 
 NARROW_COLUMNS: Final = 100
 """Columns the dashboard's two-column layout needs before both are worth reading."""

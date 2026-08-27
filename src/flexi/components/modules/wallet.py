@@ -20,6 +20,8 @@ from flexi.constants import AbsenceType
 from flexi.domain.format import delta
 from flexi.messages import Scope
 
+__all__ = ("TRACKED", "BookRequested", "WalletModule")
+
 TRACKED: tuple[AbsenceType, ...] = (
     AbsenceType.ANNUAL,
     AbsenceType.FLEXI,

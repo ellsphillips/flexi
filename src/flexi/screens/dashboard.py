@@ -51,6 +51,8 @@ from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
 from flexi.services.registry import Services
 
+__all__ = ("JUMP_TARGETS", "DashboardScreen", "with_time")
+
 JUMP_TARGETS: Final[Mapping[str, str]] = MappingProxyType(
     {
         "clock-module": "c",

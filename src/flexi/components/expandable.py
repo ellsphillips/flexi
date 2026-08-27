@@ -19,6 +19,15 @@ from textual.message import Message
 from textual.widgets import DataTable
 from textual.widgets.data_table import RowDoesNotExist
 
+__all__ = (
+    "ExpandableTable",
+    "Row",
+    "RowGroup",
+    "RowKind",
+    "row_ident",
+    "row_key",
+)
+
 
 class RowKind(StrEnum):
     """What a row is, carried in its own key.

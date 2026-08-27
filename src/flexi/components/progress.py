@@ -18,6 +18,8 @@ from textual.widget import Widget
 from flexi.components.common import styled_track
 from flexi.domain.format import hm
 
+__all__ = ("MIN_RAIL", "ProgressRail", "TimeProgress")
+
 MIN_RAIL: Final = 8
 
 

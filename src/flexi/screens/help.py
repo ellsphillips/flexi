@@ -19,6 +19,8 @@ from textual.widgets import Static
 
 from flexi.components.common import KeyHint, Rule
 
+__all__ = ("HelpScreen", "collect_bindings", "declared_by_flexi", "label_for")
+
 
 class HelpScreen(ModalScreen[None]):
     """The keyboard, written down."""

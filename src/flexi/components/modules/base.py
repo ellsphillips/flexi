@@ -20,6 +20,8 @@ from flexi.messages import Scope
 if TYPE_CHECKING:
     from flexi.services.registry import Services
 
+__all__ = ("Module",)
+
 
 class Module(Static):
     """A titled panel on the dashboard.

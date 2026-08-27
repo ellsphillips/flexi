@@ -30,6 +30,42 @@ from functools import cache
 from types import MappingProxyType
 from typing import Final
 
+__all__ = (
+    "CANVAS_HEIGHT",
+    "CANVAS_WIDTH",
+    "DEPTH",
+    "DEPTH_SAMPLES",
+    "DURATION",
+    "EDGE_ON",
+    "FACE_SAMPLES",
+    "HOLD",
+    "INK",
+    "LETTER_GLYPHS",
+    "LIGHT",
+    "RAMP",
+    "ROWS",
+    "SCALE",
+    "SPIN",
+    "STRAPLINE",
+    "STRAPLINE_IN",
+    "TILT",
+    "TRACKING",
+    "TURNS",
+    "VIEWER",
+    "WORD",
+    "cells",
+    "ease_out",
+    "extent",
+    "is_finished",
+    "luminance",
+    "pitch",
+    "settled_rows",
+    "should_play",
+    "strapline_fade",
+    "surface",
+    "yaw",
+)
+
 WORD: Final = "flexi."
 STRAPLINE: Final = "Manage your time, flexibly."
 

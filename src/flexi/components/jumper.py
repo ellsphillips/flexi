@@ -19,6 +19,16 @@ from textual.widget import Widget
 
 from flexi.messages import Scope
 
+__all__ = (
+    "HasFocusTarget",
+    "HasJumpOverlays",
+    "HasJumpTargets",
+    "JumpInfo",
+    "Jumpable",
+    "Jumper",
+    "Refreshable",
+)
+
 
 @runtime_checkable
 class Jumpable(Protocol):

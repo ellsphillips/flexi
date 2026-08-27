@@ -28,6 +28,8 @@ from flexi.domain.format import (
 )
 from flexi.messages import Scope
 
+__all__ = ("STATE_CLASSES", "BalanceModule", "lean_class")
+
 STATE_CLASSES = ("surplus", "deficit", "muted")
 
 

@@ -32,6 +32,15 @@ from flexi.domain.format import day_month, delta, hm, short_date
 from flexi.domain.period import Period
 from flexi.messages import Scope
 
+__all__ = (
+    "RIBBON_DAYS",
+    "BalanceHistory",
+    "InsightsScreen",
+    "LeaveBurndown",
+    "ShapeOfTheWeeks",
+    "YearAtAGlance",
+)
+
 RIBBON_DAYS = 21
 """Three weeks of strips. Enough to see a pattern, few enough to fit above the
 fold beside three other panels."""

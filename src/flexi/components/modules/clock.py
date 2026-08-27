@@ -24,6 +24,8 @@ from flexi.domain.format import clock, hm, hms
 from flexi.domain.ledger import DayLedger
 from flexi.messages import Scope
 
+__all__ = ("ClockModule",)
+
 
 class ClockModule(Module):
     """Clock in, clock out, and see today at a glance."""

@@ -16,12 +16,24 @@ from collections.abc import Mapping
 from functools import cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Protocol
 
 from flexi.domain.punch import Cell
 
 if TYPE_CHECKING:
     from textual.theme import Theme
+else:
+
+    class Theme(Protocol):
+        """Runtime shape of the Textual theme returned by :func:`flexi_theme`.
+
+        Static consumers see :class:`textual.theme.Theme`; runtime annotation
+        tools see this lightweight protocol, so reading the shared palette does
+        not import the widget toolkit merely to resolve a return annotation.
+        """
+
+        name: str
+
 
 # The rail. Flexi's structural vocabulary, kept beside the palette because it
 # is part of the same design system: a line down the left margin, heavy through
@@ -186,9 +198,9 @@ def flexi_theme() -> Theme:
     green, so a Textual-native widget reporting state lands on the same two
     colours the balance uses.
     """
-    from textual.theme import Theme
+    from textual.theme import Theme as TextualTheme
 
-    return Theme(
+    return TextualTheme(
         name=THEME_NAME,
         primary=colour("c-accent"),
         # Green: Textual reaches for `secondary` on a handful of widget accents,
@@ -207,19 +219,22 @@ def flexi_theme() -> Theme:
     )
 
 
-__all__ = [
+__all__ = (
     "CELL_GLYPHS",
     "CURSOR",
+    "FALLBACK",
     "MARK_DONE",
     "MARK_GRAVE",
     "MARK_LIVE",
+    "PALETTE_DECLARATION",
     "RAIL_LIVE",
     "RAIL_SETTLED",
     "TAIL",
     "THEME_NAME",
     "THEME_PATH",
+    "Theme",
     "colour",
     "flexi_theme",
     "palette",
     "theme_variables",
-]
+)

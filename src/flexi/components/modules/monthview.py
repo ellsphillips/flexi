@@ -31,6 +31,8 @@ from flexi.domain.period import Period
 from flexi.domain.stitch import weekday_initials
 from flexi.messages import DateSelected, Scope
 
+__all__ = ("KIND_CLASSES", "WEEKS", "MonthView", "month_grid")
+
 WEEKS = 6
 
 KIND_CLASSES: Final[Mapping[DayKind, str]] = MappingProxyType(

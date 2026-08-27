@@ -24,6 +24,15 @@ from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Cell, Window, covering_slices, edges, strip
 from flexi.theme import CELL_GLYPHS
 
+__all__ = (
+    "BASE_STYLES",
+    "PUNCH_CLASSES",
+    "PunchStrip",
+    "StyleLookup",
+    "absence_tokens",
+    "render_strip",
+)
+
 BASE_STYLES: Final[Mapping[Cell, str]] = MappingProxyType(
     {
         Cell.OFF: "punch--off",
