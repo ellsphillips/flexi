@@ -21,10 +21,10 @@ HINT: Final = "↑↓ move · ↵ choose · esc cancel"
 
 
 @dataclass(frozen=True, slots=True)
-class Option:
+class Option[ValueT]:
     """One row of a chooser."""
 
-    value: str
+    value: ValueT
     label: str
     hint: str = ""
     grave: bool = False
@@ -32,11 +32,11 @@ class Option:
 
 
 @dataclass(frozen=True, slots=True)
-class Menu:
+class Menu[ValueT]:
     """A question and the answers to it, with one of them under the cursor."""
 
     question: str
-    options: tuple[Option, ...]
+    options: tuple[Option[ValueT], ...]
     cursor: int = 0
 
     def __post_init__(self) -> None:
@@ -45,10 +45,10 @@ class Menu:
             raise ValueError(msg)
 
     @property
-    def picked(self) -> Option:
+    def picked(self) -> Option[ValueT]:
         return self.options[self.cursor]
 
-    def press(self, key: Key) -> Menu:
+    def press(self, key: Key) -> Menu[ValueT]:
         """The menu after a key press.
 
         Wraps at both ends. A list this short is quicker to reach round the back

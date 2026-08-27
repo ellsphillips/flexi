@@ -134,7 +134,7 @@ def test_hints_line_up_in_a_column() -> None:
 # -- the menu ----------------------------------------------------------------
 
 
-def a_menu() -> Menu:
+def a_menu() -> Menu[str]:
     return Menu(
         "What would you like to do?",
         (
@@ -467,7 +467,7 @@ def _no_terminal() -> Iterator[int]:
     yield -1
 
 
-def options() -> Sequence[Option]:
+def options() -> Sequence[Option[str]]:
     return (
         Option("open", "Open Flexi", "your records, as they are"),
         Option("settings", "Change settings", "leave year, hours, region"),

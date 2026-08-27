@@ -163,7 +163,10 @@ def choosing(monkeypatch: pytest.MonkeyPatch, choice: init_cli.Choice | None) ->
     """Stand at the `flexi init` menu and pick something, or escape."""
     monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
 
-    def picking(question: str, options: Sequence[ui.Option]) -> ui.Option | None:
+    def picking(
+        question: str,
+        options: Sequence[ui.Option[init_cli.Choice]],
+    ) -> ui.Option[init_cli.Choice] | None:
         if choice is None:
             return None
         return next(option for option in options if option.value == choice)

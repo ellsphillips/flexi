@@ -153,7 +153,7 @@ def test_an_absent_database_is_empty_rather_than_unreadable(tmp_path: Path) -> N
     assert not contents.unreadable
 
 
-def erase_option(contents: init_cli.Contents) -> ui.Option:
+def erase_option(contents: init_cli.Contents) -> ui.Option[init_cli.Choice]:
     options = init_cli.options(contents)
     return next(o for o in options if o.value == init_cli.Choice.RESET)
 
@@ -252,7 +252,10 @@ def test_choosing_from_the_menu_returns_what_was_chosen(
     """
     asked: list[str] = []
 
-    def picking(question: str, options: list[ui.Option]) -> ui.Option:
+    def picking(
+        question: str,
+        options: list[ui.Option[init_cli.Choice]],
+    ) -> ui.Option[init_cli.Choice]:
         asked.append(question)
         return next(o for o in options if o.value == init_cli.Choice.SETTINGS)
 

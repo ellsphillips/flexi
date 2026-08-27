@@ -186,12 +186,12 @@ def write(lines: Sequence[Text], out: Console | None = None) -> None:
 # -- components --------------------------------------------------------------
 
 
-def choose(
+def choose[ValueT](
     question: str,
-    options: Sequence[Option],
+    options: Sequence[Option[ValueT]],
     *,
     out: Console | None = None,
-) -> Option | None:
+) -> Option[ValueT] | None:
     """Ask, and return what was picked -- or ``None`` if it was not.
 
     The finished step collapses to two settled lines, so a transcript of the
