@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import enum
 import re
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta
+from types import MappingProxyType
 from typing import Final
 
 from flexi.domain import leaveyear
@@ -77,15 +79,17 @@ decide the answer has changed."""
 SHORTEST_DAY_NAME: Final = 3
 """Mon, Tue, Wed -- shorter than that and Tue and Thu are the same word."""
 
-OFFSET_UNITS: Final[dict[str, int]] = {"d": 1, "w": 7}
+OFFSET_UNITS: Final[Mapping[str, int]] = MappingProxyType({"d": 1, "w": 7})
 
-RELATIVE_DAYS: Final[dict[str, int]] = {
-    "today": 0,
-    "tomorrow": 1,
-    "yesterday": -1,
-    "next week": DAYS_IN_WEEK,
-    "last week": -DAYS_IN_WEEK,
-}
+RELATIVE_DAYS: Final[Mapping[str, int]] = MappingProxyType(
+    {
+        "today": 0,
+        "tomorrow": 1,
+        "yesterday": -1,
+        "next week": DAYS_IN_WEEK,
+        "last week": -DAYS_IN_WEEK,
+    }
+)
 """Dates named by their distance from the reference day, in words."""
 
 SEPARATORS: Final[tuple[str, ...]] = (" to ", " until ", " through ", "..")

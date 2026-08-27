@@ -17,8 +17,10 @@ the result was a receipt.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
-from typing import NamedTuple
+from types import MappingProxyType
+from typing import Final, NamedTuple
 
 import click
 
@@ -35,18 +37,22 @@ from flexi.domain.format import long_date, plural, short_date
 from flexi.services.absence import AbsencePlan
 from flexi.services.registry import Services
 
-PORTION_WORDS: dict[str, Portion] = {
-    "am": Portion.AM,
-    "morning": Portion.AM,
-    "pm": Portion.PM,
-    "afternoon": Portion.PM,
-    "half": Portion.AM,
-}
+PORTION_WORDS: Final[Mapping[str, Portion]] = MappingProxyType(
+    {
+        "am": Portion.AM,
+        "morning": Portion.AM,
+        "pm": Portion.PM,
+        "afternoon": Portion.PM,
+        "half": Portion.AM,
+    }
+)
 
-VERDICT_NOTE: dict[Verdict, str] = {
-    Verdict.NON_WORKING: "not a working day",
-    Verdict.BANK_HOLIDAY: "bank holiday",
-}
+VERDICT_NOTE: Final[Mapping[Verdict, str]] = MappingProxyType(
+    {
+        Verdict.NON_WORKING: "not a working day",
+        Verdict.BANK_HOLIDAY: "bank holiday",
+    }
+)
 
 
 class Request(NamedTuple):

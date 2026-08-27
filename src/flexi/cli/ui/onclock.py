@@ -7,7 +7,10 @@ I doing. Pure -- returns a Rich renderable and touches no terminal.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta
+from types import MappingProxyType
+from typing import Final
 
 from rich.text import Text
 
@@ -21,15 +24,17 @@ STRIP_CELLS = 44
 """Fixed, not measured: a pure function cannot ask the terminal its width, and
 this leaves both window labels room inside eighty columns."""
 
-CELL_TONES = {
-    "off": "c-line",
-    "break": "c-muted",
-    "target": "c-accent",
-    "absence": "c-annual",
-    "holiday": "c-muted",
-    "on": "c-surplus",
-    "live": "c-accent-lift",
-}
+CELL_TONES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "off": "c-line",
+        "break": "c-muted",
+        "target": "c-accent",
+        "absence": "c-annual",
+        "holiday": "c-muted",
+        "on": "c-surplus",
+        "live": "c-accent-lift",
+    }
+)
 
 
 def punch_line(ledger: DayLedger, window: Window, *, now: datetime) -> Text:

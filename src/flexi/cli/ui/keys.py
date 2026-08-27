@@ -10,7 +10,9 @@ mode is not something to go near in a test suite.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import Enum, unique
+from types import MappingProxyType
 from typing import Final
 
 ESCAPE: Final = "\x1b"
@@ -33,21 +35,23 @@ class Key(Enum):
 # has been open -- sends ESC O A for up, where the default mode sends ESC [ A.
 # Reading only one makes the arrows work everywhere except straight after the
 # application, which is the worst half to get.
-KEYS: Final[dict[str, Key]] = {
-    "\x1b[A": Key.UP,
-    "\x1bOA": Key.UP,
-    "\x1b[B": Key.DOWN,
-    "\x1bOB": Key.DOWN,
-    "k": Key.UP,
-    "j": Key.DOWN,
-    "\r": Key.ENTER,
-    "\n": Key.ENTER,
-    " ": Key.ENTER,
-    ESCAPE: Key.QUIT,
-    "q": Key.QUIT,
-    "\x03": Key.ABORT,
-    "\x04": Key.ABORT,
-}
+KEYS: Final[Mapping[str, Key]] = MappingProxyType(
+    {
+        "\x1b[A": Key.UP,
+        "\x1bOA": Key.UP,
+        "\x1b[B": Key.DOWN,
+        "\x1bOB": Key.DOWN,
+        "k": Key.UP,
+        "j": Key.DOWN,
+        "\r": Key.ENTER,
+        "\n": Key.ENTER,
+        " ": Key.ENTER,
+        ESCAPE: Key.QUIT,
+        "q": Key.QUIT,
+        "\x03": Key.ABORT,
+        "\x04": Key.ABORT,
+    }
+)
 
 PREFIXES: Final = (ESCAPE, ESCAPE + "[", ESCAPE + "O")
 

@@ -25,7 +25,9 @@ thirty of them a second affordable on the interface thread.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from functools import cache
+from types import MappingProxyType
 from typing import Final
 
 WORD: Final = "flexi."
@@ -39,14 +41,16 @@ INK: Final = "#"
 
 # Seven rows apiece. Lowercase with real ascenders, because "flexi" in capitals
 # is a different word about a different kind of company.
-LETTER_GLYPHS: Final[dict[str, tuple[str, ...]]] = {
-    "f": (".###", ".#..", "###.", ".#..", ".#..", ".#..", ".#.."),
-    "l": ("##.", ".#.", ".#.", ".#.", ".#.", ".#.", ".##"),
-    "e": (".....", ".....", ".###.", "#...#", "#####", "#....", ".###."),
-    "x": (".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#"),
-    "i": (".#.", "...", "##.", ".#.", ".#.", ".#.", "###"),
-    ".": ("..", "..", "..", "..", "..", "..", "##"),
-}
+LETTER_GLYPHS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
+    {
+        "f": (".###", ".#..", "###.", ".#..", ".#..", ".#..", ".#.."),
+        "l": ("##.", ".#.", ".#.", ".#.", ".#.", ".#.", ".##"),
+        "e": (".....", ".....", ".###.", "#...#", "#####", "#....", ".###."),
+        "x": (".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#"),
+        "i": (".#.", "...", "##.", ".#.", ".#.", ".#.", "###"),
+        ".": ("..", "..", "..", "..", "..", "..", "##"),
+    }
+)
 
 TRACKING: Final = 1
 """Blank columns between letters."""

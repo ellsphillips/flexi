@@ -10,8 +10,9 @@ so a sick morning and an annual afternoon draw as two colours in one row.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
+from types import MappingProxyType
 from typing import Any, ClassVar, Final
 
 from rich.style import Style
@@ -23,15 +24,17 @@ from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Cell, Window, covering_slices, edges, strip
 from flexi.theme import CELL_GLYPHS
 
-BASE_STYLES: Final[dict[Cell, str]] = {
-    Cell.OFF: "punch--off",
-    Cell.BREAK: "punch--break",
-    Cell.TARGET: "punch--target",
-    Cell.ABSENCE: "punch--annual",
-    Cell.HOLIDAY: "punch--holiday",
-    Cell.ON: "punch--on",
-    Cell.LIVE: "punch--live",
-}
+BASE_STYLES: Final[Mapping[Cell, str]] = MappingProxyType(
+    {
+        Cell.OFF: "punch--off",
+        Cell.BREAK: "punch--break",
+        Cell.TARGET: "punch--target",
+        Cell.ABSENCE: "punch--annual",
+        Cell.HOLIDAY: "punch--holiday",
+        Cell.ON: "punch--on",
+        Cell.LIVE: "punch--live",
+    }
+)
 
 PUNCH_CLASSES: Final[frozenset[str]] = frozenset(
     {

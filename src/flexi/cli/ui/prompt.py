@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from types import MappingProxyType
 from typing import Final
 
 from rich.console import Console
@@ -102,7 +103,9 @@ def read_posix(descriptor: int) -> Key:
 WINDOWS_PREFIXES: Final = ("\x00", "\xe0")
 """What the Windows console sends ahead of a scan code, rather than an escape."""
 
-WINDOWS_SCANCODES: Final[dict[str, Key]] = {"H": Key.UP, "P": Key.DOWN}
+WINDOWS_SCANCODES: Final[Mapping[str, Key]] = MappingProxyType(
+    {"H": Key.UP, "P": Key.DOWN}
+)
 """The scan codes for the two keys a menu moves on."""
 
 

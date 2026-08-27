@@ -9,8 +9,10 @@ which leaves colour free to carry the day type.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, timedelta
-from typing import Any, ClassVar
+from types import MappingProxyType
+from typing import Any, ClassVar, Final
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -31,13 +33,15 @@ from flexi.messages import DateSelected, Scope
 
 WEEKS = 6
 
-KIND_CLASSES: dict[DayKind, str] = {
-    DayKind.HOLIDAY: "day-holiday",
-    DayKind.ABSENT: "day-absent",
-    DayKind.PARTIAL: "day-partial",
-    DayKind.WEEKEND: "day-weekend",
-    DayKind.WORKING: "day-working",
-}
+KIND_CLASSES: Final[Mapping[DayKind, str]] = MappingProxyType(
+    {
+        DayKind.HOLIDAY: "day-holiday",
+        DayKind.ABSENT: "day-absent",
+        DayKind.PARTIAL: "day-partial",
+        DayKind.WEEKEND: "day-weekend",
+        DayKind.WORKING: "day-working",
+    }
+)
 
 
 class MonthView(Module):

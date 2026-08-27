@@ -8,7 +8,9 @@ wrong.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 from rich.text import Text
@@ -95,25 +97,29 @@ class Tone(StrEnum):
 
 # Kept as a table rather than an f-string so the class names are greppable from
 # the stylesheet, which is where somebody debugging a colour will start.
-TONE_CLASSES: Final[dict[Tone, str]] = {
-    Tone.NEUTRAL: "",
-    Tone.OK: "pill--ok",
-    Tone.WARN: "pill--warn",
-    Tone.ERR: "pill--err",
-    Tone.ACCENT: "pill--accent",
-}
+TONE_CLASSES: Final[Mapping[Tone, str]] = MappingProxyType(
+    {
+        Tone.NEUTRAL: "",
+        Tone.OK: "pill--ok",
+        Tone.WARN: "pill--warn",
+        Tone.ERR: "pill--err",
+        Tone.ACCENT: "pill--accent",
+    }
+)
 
 ALL_TONE_CLASSES: Final[tuple[str, ...]] = tuple(
     name for name in TONE_CLASSES.values() if name
 )
 
-GAUGE_TONE_STYLES: Final[dict[Tone, str]] = {
-    Tone.NEUTRAL: "gauge--readout-only",
-    Tone.OK: "gauge--good",
-    Tone.WARN: "gauge--warn",
-    Tone.ERR: "gauge--bad",
-    Tone.ACCENT: "gauge--readout-only",
-}
+GAUGE_TONE_STYLES: Final[Mapping[Tone, str]] = MappingProxyType(
+    {
+        Tone.NEUTRAL: "gauge--readout-only",
+        Tone.OK: "gauge--good",
+        Tone.WARN: "gauge--warn",
+        Tone.ERR: "gauge--bad",
+        Tone.ACCENT: "gauge--readout-only",
+    }
+)
 
 
 class Pill(Static):

@@ -9,8 +9,9 @@ widgets need it and the app imports the widgets.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import ClassVar, Final
 
 from textual.app import ComposeResult
@@ -46,7 +47,9 @@ NAV_ITEMS: Final[tuple[NavItem, ...]] = (
     NavItem("f4", "settings", "Settings", "Hours, leave year, bank holidays"),
 )
 
-NAV_BY_SCREEN: Final[dict[str, NavItem]] = {item.screen: item for item in NAV_ITEMS}
+NAV_BY_SCREEN: Final[Mapping[str, NavItem]] = MappingProxyType(
+    {item.screen: item for item in NAV_ITEMS}
+)
 
 
 class Lockup(Horizontal):

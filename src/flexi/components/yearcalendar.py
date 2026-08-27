@@ -11,8 +11,10 @@ so nothing here is colour alone.
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections.abc import Mapping
 from datetime import date
 from itertools import accumulate
+from types import MappingProxyType
 from typing import ClassVar, Final
 
 from rich.segment import Segment
@@ -83,11 +85,13 @@ def units_column(width: int) -> int:
     return 2 if width >= LABELLED_CELL else width - 3
 
 
-PORTION_GLYPH: Final[dict[Portion, str]] = {
-    Portion.FULL: FULL,
-    Portion.AM: MORNING,
-    Portion.PM: AFTERNOON,
-}
+PORTION_GLYPH: Final[Mapping[Portion, str]] = MappingProxyType(
+    {
+        Portion.FULL: FULL,
+        Portion.AM: MORNING,
+        Portion.PM: AFTERNOON,
+    }
+)
 
 
 class YearCalendar(ScrollView, can_focus=True):

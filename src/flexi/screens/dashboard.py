@@ -10,8 +10,10 @@ screen invalidates the ledger cache once, and only interested modules rebuild.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
-from typing import Any, ClassVar
+from types import MappingProxyType
+from typing import Any, ClassVar, Final
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -49,13 +51,15 @@ from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
 from flexi.services.registry import Services
 
-JUMP_TARGETS = {
-    "clock-module": "c",
-    "balance-module": "b",
-    "wallet-module": "w",
-    "records-module": "r",
-    "month-view": "p",
-}
+JUMP_TARGETS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "clock-module": "c",
+        "balance-module": "b",
+        "wallet-module": "w",
+        "records-module": "r",
+        "month-view": "p",
+    }
+)
 
 
 class DashboardScreen(Screen[None]):

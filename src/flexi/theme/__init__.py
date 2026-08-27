@@ -69,31 +69,33 @@ PALETTE_DECLARATION: Final = re.compile(
 # Fallbacks, used only if the stylesheet cannot be read. They are the same
 # values as the PALETTE block; a mismatch here is a bug, and
 # `tests/test_theme.py` asserts the two agree.
-FALLBACK: Final[dict[str, str]] = {
-    # Every colour Python asks for by name. The other twenty-six declarations
-    # in the stylesheet are only ever read as `$c-...` from the stylesheet
-    # itself, which could not be read at all if it could not be parsed -- so a
-    # fallback for one of those would answer a question nobody could ask.
-    #
-    # Five of these were also written out as literal `fallback=` arguments at
-    # call sites, where three were unreachable, so the module that says there
-    # is "exactly one place where a colour is written down" had three.
-    "c-ink": "#0F0E0D",
-    "c-surface": "#171614",
-    "c-raised": "#201E1B",
-    "c-line": "#2E2B27",
-    "c-line-soft": "#232019",
-    "c-ash": "#7A736A",
-    "c-paper": "#EDE9E3",
-    "c-cream": "#FAF8F4",
-    "c-muted": "#9C948A",
-    "c-accent": "#00AAAD",
-    "c-accent-lift": "#4CDCDF",
-    "c-accent-deep": "#003031",
-    "c-surplus": "#2E9E52",
-    "c-deficit": "#CE3E5D",
-    "c-warning": "#C38406",
-}
+FALLBACK: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        # Every colour Python asks for by name. The other twenty-six declarations
+        # in the stylesheet are only ever read as `$c-...` from the stylesheet
+        # itself, which could not be read at all if it could not be parsed -- so a
+        # fallback for one of those would answer a question nobody could ask.
+        #
+        # Five of these were also written out as literal `fallback=` arguments at
+        # call sites, where three were unreachable, so the module that says there
+        # is "exactly one place where a colour is written down" had three.
+        "c-ink": "#0F0E0D",
+        "c-surface": "#171614",
+        "c-raised": "#201E1B",
+        "c-line": "#2E2B27",
+        "c-line-soft": "#232019",
+        "c-ash": "#7A736A",
+        "c-paper": "#EDE9E3",
+        "c-cream": "#FAF8F4",
+        "c-muted": "#9C948A",
+        "c-accent": "#00AAAD",
+        "c-accent-lift": "#4CDCDF",
+        "c-accent-deep": "#003031",
+        "c-surplus": "#2E9E52",
+        "c-deficit": "#CE3E5D",
+        "c-warning": "#C38406",
+    }
+)
 
 
 @cache
