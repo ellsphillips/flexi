@@ -75,22 +75,14 @@ class ClockService:
         return self.get_open_session() is not None
 
     def sweep(self) -> None:
-        """Tidy what an interrupted run left behind, before doing anything else.
+        """Close work left running on an earlier day.
 
-        Two halves. A session left running overnight is closed at the
-        configured time, and a session so short it can only have been a slip of
-        the finger is voided -- which also cleans up databases written before
-        there was a threshold.
-
-        Here rather than in `startup`, taking nothing, because both halves are
-        already this service's: the session it writes through, and the
-        auto-close time its own settings service holds. Passed in, they were
-        three arguments of which two were attributes of the third, and the two
-        modules imported each other -- one of them from inside a method, to
-        make the cycle importable.
+        A minimum-session preference applies when a person clocks out and sees
+        the decision immediately. Reapplying today's preference to historical
+        rows here would silently reinterpret real work on every launch after a
+        config change, so startup deliberately performs only stale closure.
         """
         close_stale_sessions(self._session, self._settings.get_auto_close_time())
-        self.discard_short_sessions()
 
     def clock_in(
         self,
@@ -198,30 +190,3 @@ class ClockService:
             session=open_session,
             at=moment,
         )
-
-    def discard_short_sessions(self) -> list[WorkSession]:
-        """Void every closed session already on record that is too short.
-
-        For databases that predate the threshold, or that were filled in while
-        somebody was learning which key does what.
-        """
-        stmt = select(WorkSession).where(
-            WorkSession.clock_out_id.is_not(None), WorkSession.voided.is_(False)
-        )
-        discarded: list[WorkSession] = []
-        for work in self._session.execute(stmt).scalars():
-            # Unreachable: `PRAGMA foreign_keys` is on, so a non-null
-            # `clock_out_id` always resolves. The check is here because the
-            # relationship is typed optional and `moment_of` below is not.
-            # `tests/services/test_short_sessions.py` pins the constraint that
-            # makes this dead, so dropping the pragma fails there.
-            if work.clock_out_event is None:  # pragma: no cover
-                continue
-            length = moment_of(work.clock_out_event) - moment_of(work.clock_in_event)
-            if timedelta() <= length < self._minimum:
-                discarded.append(work)
-        if discarded:
-            with atomic(self._session):
-                for work in discarded:
-                    work.voided = True
-        return discarded

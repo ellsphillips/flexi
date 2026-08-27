@@ -16,12 +16,49 @@ from pathlib import Path
 from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from flexi.constants import AbsenceType, Granularity
 from flexi.locations import config_file
 
-__all__ = ("CONFIG", "Config", "Defaults", "Hotkeys", "load_config", "section")
+__all__ = (
+    "CONFIG",
+    "MAXIMUM_MINIMUM_SESSION_SECONDS",
+    "MAXIMUM_TICK_SECONDS",
+    "Config",
+    "Defaults",
+    "Hotkeys",
+    "load_config",
+    "normalise_hotkey",
+    "section",
+)
+
+MAXIMUM_MINIMUM_SESSION_SECONDS = 3600
+"""Largest supported threshold for deciding a newly closed session was a slip."""
+
+MAXIMUM_TICK_SECONDS = 60
+"""Slowest supported live-clock refresh interval."""
+
+
+def normalise_hotkey(value: str) -> str:
+    """Return a canonical comma-separated Textual key list.
+
+    Textual treats commas and plus signs as separators. Empty segments reach
+    ``Binding`` and raise during module import, before Flexi can draw an error
+    or fall back. Outer whitespace is harmless and removed; whitespace inside
+    a key name and missing chord components are rejected as malformed config.
+    """
+    bindings = tuple(binding.strip() for binding in value.split(","))
+    malformed = any(
+        not binding
+        or any(character.isspace() for character in binding)
+        or any(not modifier for modifier in binding.split("+"))
+        for binding in bindings
+    )
+    if malformed:
+        msg = "A hotkey must contain one or more complete key names"
+        raise ValueError(msg)
+    return ",".join(bindings)
 
 
 class Hotkeys(BaseModel):
@@ -61,6 +98,12 @@ class Hotkeys(BaseModel):
     book_other: str = "O"
     book_absence: str = "a"
 
+    @field_validator("*")
+    @classmethod
+    def normalise_bindings(cls, value: str) -> str:
+        """Validate every binding before Textual imports it."""
+        return normalise_hotkey(value)
+
     def book(self, kind: AbsenceType) -> str:
         """The key that books one kind of absence.
 
@@ -90,7 +133,9 @@ class Defaults(BaseModel):
     """Monday is 0. Bounded, because nothing downstream rejects a 9: the grid
     would rotate by `9 % 7` while the column headings, sliced rather than
     rotated, would silently stay on Monday."""
-    minimum_session_seconds: Annotated[int, Field(ge=0)] = 60
+    minimum_session_seconds: Annotated[
+        int, Field(ge=0, le=MAXIMUM_MINIMUM_SESSION_SECONDS)
+    ] = 60
     """A session shorter than this never happened.
 
     Clocking in and straight back out is a slip of the finger, not a minute of
@@ -98,7 +143,7 @@ class Defaults(BaseModel):
     Sixty seconds is long enough to cover a double-press and short enough that
     nobody loses a real errand to it."""
 
-    tick_seconds: Annotated[int, Field(gt=0)] = 1
+    tick_seconds: Annotated[int, Field(gt=0, le=MAXIMUM_TICK_SECONDS)] = 1
     """How often the live readout refreshes while a session is open. A minute
     would make an elapsed clock jump in 60-second steps, which looks broken."""
 

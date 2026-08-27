@@ -140,10 +140,10 @@ def add_session(session: Session, start: datetime, end: datetime) -> None:
     session.commit()
 
 
-def test_old_short_sessions_are_swept_on_startup(
+def test_old_short_sessions_are_not_reinterpreted_on_startup(
     services: Services, session: Session
 ) -> None:
-    """Somebody learning which key does what leaves a trail of them."""
+    """A changed preference cannot silently void work accepted in the past."""
     for offset in range(5):
         at = NINE + timedelta(minutes=offset)
         add_session(session, at, at + timedelta(seconds=1))
@@ -153,8 +153,8 @@ def test_old_short_sessions_are_swept_on_startup(
 
     built = build_services(session)
     built.clock.sweep()
-    assert len(sessions_on(session, DAY)) == 1
-    assert len(rows(session)) == 6, "voided, not deleted"
+    assert len(sessions_on(session, DAY)) == 6
+    assert not any(work.voided for work in rows(session))
 
 
 def test_an_open_session_is_never_swept(services: Services, session: Session) -> None:
@@ -168,15 +168,7 @@ def test_an_open_session_is_never_swept(services: Services, session: Session) ->
 def test_the_schema_will_not_let_a_clock_out_dangle(
     services: Services, session: Session
 ) -> None:
-    """Which is why `discard_short_sessions` can never meet one.
-
-    That sweep runs before every clock action and guards against a session
-    whose clock-out event has gone — a guard `mypy` requires, since the
-    relationship is typed optional, and one the database makes unreachable.
-    `create_db_engine` turns `PRAGMA foreign_keys` on, so the row cannot be
-    written in the first place. If that pragma is ever dropped, this test is
-    where it is noticed, and the `no cover` on the guard becomes a lie.
-    """
+    """A closed session always resolves the event that defines its duration."""
     services.clock.clock_in(now=NINE)
     services.clock.clock_out(now=NINE + timedelta(hours=8))
     work = session.execute(select(WorkSession)).scalar_one()

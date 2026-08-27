@@ -15,7 +15,17 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from flexi.config import CONFIG, Config, Defaults, Hotkeys, load_config, section
+from flexi.config import (
+    CONFIG,
+    MAXIMUM_MINIMUM_SESSION_SECONDS,
+    MAXIMUM_TICK_SECONDS,
+    Config,
+    Defaults,
+    Hotkeys,
+    load_config,
+    normalise_hotkey,
+    section,
+)
 from flexi.constants import AbsenceType
 
 
@@ -46,6 +56,25 @@ def test_toil_is_booked_under_the_name_it_is_shown_by() -> None:
     `book_flexi`, which does not exist.
     """
     assert Hotkeys().book(AbsenceType.FLEXI) == Hotkeys().book_toil
+
+
+def test_a_list_of_hotkeys_is_canonicalised_before_textual_reads_it() -> None:
+    assert normalise_hotkey(" ctrl+a, shift+b ") == "ctrl+a,shift+b"
+    assert Hotkeys(clock_toggle=" ctrl+a, shift+b ").clock_toggle == ("ctrl+a,shift+b")
+
+
+@pytest.mark.parametrize("value", ["", "   ", ",", "c,", ",c", "ctrl++c", "c d"])
+def test_an_incomplete_hotkey_is_rejected_before_app_import(value: str) -> None:
+    with pytest.raises(ValidationError, match="complete key names"):
+        Hotkeys(clock_toggle=value)
+
+
+def test_a_malformed_hotkey_section_falls_back_to_safe_defaults(
+    tmp_path: Path,
+) -> None:
+    path = written(tmp_path / "config.yaml", "hotkeys:\n  clock_toggle: ','\n")
+
+    assert load_config(path).hotkeys == Hotkeys()
 
 
 # -- reading the file --------------------------------------------------------
@@ -106,7 +135,13 @@ def test_a_value_of_the_wrong_shape_gets_the_defaults(tmp_path: Path) -> None:
     ("name", "value"),
     [
         pytest.param("minimum_session_seconds", 0, id="zero-length-session"),
+        pytest.param(
+            "minimum_session_seconds",
+            MAXIMUM_MINIMUM_SESSION_SECONDS,
+            id="maximum-session-threshold",
+        ),
         pytest.param("tick_seconds", 2, id="positive-tick-interval"),
+        pytest.param("tick_seconds", MAXIMUM_TICK_SECONDS, id="maximum-tick-interval"),
     ],
 )
 def test_timing_boundaries_accept_valid_values(
@@ -122,8 +157,18 @@ def test_timing_boundaries_accept_valid_values(
     ("name", "value"),
     [
         pytest.param("minimum_session_seconds", -1, id="negative-session-threshold"),
+        pytest.param(
+            "minimum_session_seconds",
+            MAXIMUM_MINIMUM_SESSION_SECONDS + 1,
+            id="excessive-session-threshold",
+        ),
         pytest.param("tick_seconds", 0, id="zero-tick-interval"),
         pytest.param("tick_seconds", -1, id="negative-tick-interval"),
+        pytest.param(
+            "tick_seconds",
+            MAXIMUM_TICK_SECONDS + 1,
+            id="excessive-tick-interval",
+        ),
     ],
 )
 def test_invalid_timing_boundaries_fall_back_only_their_section(
