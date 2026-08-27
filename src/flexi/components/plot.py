@@ -54,12 +54,14 @@ class Plot(Widget):
         *(f"plot--{tone}" for tone in PLOT_TONES),
         "plot--axis",
         "plot--legend",
+        "plot--rule",
     }
 
     def __init__(self, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self.series: tuple[Series, ...] = ()
         self.stacked = False
+        self.rule: float | None = None
         self.empty_message = "Nothing to plot yet"
 
     def show(
@@ -67,6 +69,7 @@ class Plot(Widget):
         series: Sequence[Series],
         *,
         stacked: bool = False,
+        rule: float | None = None,
         empty_message: str | None = None,
     ) -> None:
         """Draw these series, replacing whatever was there.
@@ -81,6 +84,7 @@ class Plot(Widget):
             raise ValueError(msg)
         self.series = tuple(series)
         self.stacked = stacked
+        self.rule = rule
         if empty_message is not None:
             self.empty_message = empty_message
         self.refresh()
@@ -92,7 +96,7 @@ class Plot(Widget):
         if not self.series or height < MIN_PLOT_HEIGHT or width < MIN_PLOT_HEIGHT:
             return Text(self.empty_message, style=self._style("plot--legend"))
 
-        grid = plot(self.series, width, height, stacked=self.stacked)
+        grid = plot(self.series, width, height, stacked=self.stacked, rule=self.rule)
         drawn = Text()
         for row, cells in enumerate(grid):
             drawn.append_text(self._axis_label(row, height))
@@ -106,7 +110,9 @@ class Plot(Widget):
     def bounds(self) -> tuple[float, float]:
         """The range the axis is labelled with, low first."""
         span = Bounds.around(self.series, stacked=self.stacked)
-        return span.low, span.high
+        if self.rule is None:
+            return span.low, span.high
+        return min(span.low, self.rule), max(span.high, self.rule)
 
     def _axis_label(self, row: int, height: int) -> Text:
         """A figure against the top and bottom rows, and nothing between them.

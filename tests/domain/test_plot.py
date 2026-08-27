@@ -20,6 +20,7 @@ from flexi.domain.plot import (
     braille,
     line_dots,
     plot,
+    rule_row,
     stack,
 )
 
@@ -231,3 +232,50 @@ def test_a_series_must_be_named() -> None:
     """The legend has nothing else to show, and an unnamed band is a colour."""
     with pytest.raises(ValueError, match="needs a name"):
         Series("", (1.0,))
+
+
+# -- the reference rule ------------------------------------------------------
+
+
+def test_a_rule_gives_way_to_a_bar_it_crosses() -> None:
+    """Zero is furniture, not a reading, so the data keeps its cells.
+
+    Bars are drawn before the rule and lines after it, so a bar is the one
+    thing already in the way when the rule is laid down. Painted over it, the
+    rule would cut a dashed line through solid bars and read as a gap in them.
+    """
+    grid = plot([Series("tall", (2.0,), Mark.BAR)], 4, 2, rule=1.0)
+
+    tones = [cell.tone for row in grid for cell in row if cell]
+    assert set(tones) == {"series"}, "the bar kept every cell the rule wanted"
+
+
+def test_a_rule_shows_beside_a_bar_that_does_not_reach_it() -> None:
+    """The half of the row the bar left empty is still the threshold."""
+    grid = plot([Series("short", (2.0, 0.0), Mark.BAR)], 4, 2, rule=1.0)
+
+    tones = {cell.tone for row in grid for cell in row if cell}
+    assert tones == {"series", "rule"}
+
+
+def test_a_rule_reaches_across_a_plot_with_nothing_on_it() -> None:
+    grid = plot([], 4, 3, rule=0.0)
+
+    assert [cell.char if cell else " " for cell in grid[-1]] == ["╌"] * 4
+
+
+def test_a_rule_pulls_itself_into_view() -> None:
+    """A threshold off the top of the plot is a threshold nobody can see.
+
+    The bounds are widened to hold it, which is what makes "you are above the
+    line" a thing the picture can say rather than a thing it implies.
+    """
+    grid = plot([Series("high", (10.0, 10.0), Mark.LINE)], 4, 4, rule=20.0)
+
+    assert any(cell and cell.tone == "rule" for row in grid for cell in row)
+
+
+def test_a_rule_outside_its_own_bounds_is_not_drawn() -> None:
+    """`rule_row` answers for a plot whose bounds were fixed elsewhere."""
+    assert rule_row(99.0, Bounds(0.0, 5.0), 10) is None
+    assert rule_row(0.0, Bounds(0.0, 5.0), 10) == 9

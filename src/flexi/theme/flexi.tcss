@@ -923,6 +923,7 @@ Plot > .plot--legend { color: $c-muted; }
 Plot > .plot--series { color: $c-accent; }
 Plot > .plot--compare { color: $c-accent-deep; }
 Plot > .plot--target { color: $c-rule; }
+Plot > .plot--rule { color: $c-line; }
 
 Plot > .plot--annual { color: $c-annual; }
 Plot > .plot--sick { color: $c-sick; }

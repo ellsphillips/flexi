@@ -21,8 +21,8 @@ from flexi.components.charts import (
     DivergingBars,
     WeekRibbon,
     YearHeatmap,
+    running_balance,
     week_columns,
-    weekly_hours,
 )
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import mark_width
@@ -42,8 +42,8 @@ __all__ = (
     "BalanceHistory",
     "InsightsScreen",
     "LeaveBurndown",
+    "RunningBalance",
     "ShapeOfTheWeeks",
-    "WhereTheHoursWent",
     "YearAtAGlance",
 )
 
@@ -84,48 +84,50 @@ class BalanceHistory(Module):
         self.set_subtitle(f"{delta(total.delta)} to {day_month(end)}")
 
 
-class WhereTheHoursWent(Module):
-    """A week's hours, split by what excused them, against what it asked for.
+class RunningBalance(Module):
+    """The flexi balance, day by day, and which side of zero it has been.
 
-    Stacked, because the question is not "how much of each" but "did the week
-    add up": four bands reaching the line is a week that balanced however it was
-    spent, and the line is what says so. Drawn as a line rather than a fifth
-    band because what a week asked for is not a thing that happened.
+    The figure on the dashboard is one number and this is where it came from.
+    A weekly total cannot show it: a contract is the promise that those barely
+    move, so charting them draws three near-identical slabs and calls it a
+    trend. The balance is the accumulation of the differences, which is the
+    thing that actually wanders.
+
+    Zero is a rule rather than a series. It is not a reading somebody took; it
+    is the line the readings are on one side of or the other, and it is what
+    turns a wandering line into "ahead" and "behind".
     """
 
     WATCHES: ClassVar[Scope] = Scope.ALL
 
     def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
-        super().__init__(id="hours-went", title="Where the hours went", **kwargs)
+        super().__init__(id="running-balance", title="Running balance", **kwargs)
 
     def compose(self) -> ComposeResult:
-        yield Plot(id="hours-plot")
+        yield Plot(id="balance-plot")
 
     def on_mount(self) -> None:
         self.rebuild()
 
     def rebuild(self) -> None:
         period = self.period
+        # Stop at today. Every working day after it expects hours and has none
+        # recorded, so carrying on draws a cliff into a debt nobody has run up.
         end = min(period.end, self.now.date())
-        chart = self.query_one("#hours-plot", Plot)
+        chart = self.query_one("#balance-plot", Plot)
         if end < period.start:
             chart.show([], empty_message="Not started")
             self.set_subtitle("not started")
             return
 
         ledgers = self.services.ledger.days(period.start, end, now=self.now)
-        bands = weekly_hours(ledgers, first_weekday=period.first_weekday)
+        running = running_balance(ledgers)
         chart.show(
-            [
-                Series("worked", bands["worked"], Mark.BAR, "series"),
-                Series("annual", bands["annual"], Mark.BAR, "annual"),
-                Series("sick", bands["sick"], Mark.BAR, "sick"),
-                Series("other", bands["other"], Mark.BAR, "other"),
-                Series("asked", bands["expected"], Mark.LINE, "target"),
-            ],
-            stacked=True,
+            [Series("balance", running, Mark.LINE, "series")],
+            rule=0.0,
+            empty_message="Nothing recorded yet",
         )
-        self.set_subtitle(f"{len(bands['worked'])} weeks to {day_month(end)}")
+        self.set_subtitle(f"{delta(timedelta(hours=running[-1]))} on {day_month(end)}")
 
 
 class LeaveBurndown(Module):
@@ -235,8 +237,8 @@ class InsightsScreen(Screen[None]):
                 yield BalanceHistory()
                 yield LeaveBurndown()
             with Vertical(classes="insights-row"):
-                yield WhereTheHoursWent()
-            with Vertical(classes="insights-row"):
+                yield RunningBalance()
+            with Horizontal(classes="insights-row"):
                 yield ShapeOfTheWeeks()
                 yield YearAtAGlance()
         yield AppFooter()

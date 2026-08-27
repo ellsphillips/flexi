@@ -50,8 +50,8 @@ if TYPE_CHECKING:
         DivergingBars,
         WeekRibbon,
         YearHeatmap,
+        running_balance,
         week_columns,
-        weekly_hours,
     )
     from flexi.components.charts import FULL as CHART_FULL_GLYPH
     from flexi.components.chrome import (
@@ -285,9 +285,8 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "WeekRibbon",
             "YearHeatmap",
             "SECONDS_PER_HOUR",
-            "WEEKLY_BANDS",
             "week_columns",
-            "weekly_hours",
+            "running_balance",
         ),
         "flexi.components.chrome": (
             "NAV_BY_SCREEN",
@@ -524,9 +523,8 @@ __all__ = (  # noqa: RUF022
     "WeekRibbon",
     "YearHeatmap",
     "SECONDS_PER_HOUR",
-    "WEEKLY_BANDS",
     "week_columns",
-    "weekly_hours",
+    "running_balance",
     "NAV_BY_SCREEN",
     "NAV_ITEMS",
     "OVERFLOW_TEMPLATE",

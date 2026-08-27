@@ -33,6 +33,7 @@ __all__ = (
     "braille",
     "line_dots",
     "plot",
+    "rule_row",
     "stack",
 )
 
@@ -326,8 +327,32 @@ def _fill(
         grid[height - 1 - row][column] = Glyph(BAR_LEVELS[level], tone)
 
 
+RULE_GLYPH: Final = "╌"
+"""A reference line: dashed, so it reads as a threshold and not as a reading."""
+
+
+def rule_row(value: float, bounds: Bounds, height: int) -> int | None:
+    """Which row a horizontal reference sits on, or ``None`` if it is off-plot.
+
+    Examples:
+        >>> rule_row(0.0, Bounds(-5.0, 5.0), 10)
+        5
+        >>> rule_row(99.0, Bounds(0.0, 5.0), 10) is None
+        True
+    """
+    if not bounds.low <= value <= bounds.high:
+        return None
+    from_bottom = bounds.position(value, height - 1)
+    return height - 1 - round(from_bottom)
+
+
 def plot(
-    series: Sequence[Series], width: int, height: int, *, stacked: bool = False
+    series: Sequence[Series],
+    width: int,
+    height: int,
+    *,
+    stacked: bool = False,
+    rule: float | None = None,
 ) -> list[list[Glyph | None]]:
     """Every series, drawn onto one grid of glyphs, top row first.
 
@@ -335,10 +360,24 @@ def plot(
     bars are the context it is read against. Two lines share a grid by taking
     the cells the other left empty, which is what braille is for: a cell is
     eight dots and two strokes rarely want the same one.
+
+    ``rule`` is a threshold rather than a series: it is drawn under everything,
+    only where nothing else is, and it never appears in a legend. Zero on a
+    balance chart is not a reading somebody took -- it is the line the readings
+    are on one side of or the other. It is pulled into the bounds, so a rule
+    always shows.
     """
     bounds = Bounds.around(series, stacked=stacked)
+    if rule is not None:
+        bounds = Bounds(min(bounds.low, rule), max(bounds.high, rule))
     bars = [one for one in series if one.mark is Mark.BAR]
     grid = bar_glyphs(bars, bounds, width, height, stacked=stacked)
+
+    row = None if rule is None else rule_row(rule, bounds, height)
+    if row is not None:
+        for column in range(width):
+            if grid[row][column] is None:
+                grid[row][column] = Glyph(RULE_GLYPH, "rule")
 
     for one in (item for item in series if item.mark is Mark.LINE):
         canvas = Canvas(width, height)
