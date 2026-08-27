@@ -17,7 +17,7 @@ from rich.console import RenderableType
 from textual.binding import Binding, BindingType
 from textual.message import Message
 from textual.widgets import DataTable
-from textual.widgets.data_table import RowDoesNotExist
+from textual.widgets.data_table import CellDoesNotExist, RowDoesNotExist
 
 from flexi.components.options import DataTableOptions
 
@@ -226,7 +226,7 @@ class ExpandableTable(DataTable[RenderableType]):
             return None
         try:
             key = self.coordinate_to_cell_key(self.cursor_coordinate).row_key
-        except Exception:  # noqa: BLE001 - Textual raises several lookup errors
+        except CellDoesNotExist:
             return None
         return None if key.value is None else str(key.value)
 

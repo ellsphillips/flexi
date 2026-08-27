@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from flexi.constants import AbsenceType, Granularity
 from flexi.locations import config_file
@@ -143,7 +143,7 @@ def section[T: BaseModel](model: type[T], raw: object) -> T:
         return model()
     try:
         return model.model_validate(raw)
-    except Exception:  # noqa: BLE001 - pydantic raises a family of errors
+    except ValidationError:
         return model()
 
 

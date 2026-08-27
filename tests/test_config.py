@@ -15,7 +15,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from flexi.config import CONFIG, Config, Defaults, Hotkeys, load_config
+from flexi.config import CONFIG, Config, Defaults, Hotkeys, load_config, section
 from flexi.constants import AbsenceType
 
 
@@ -178,6 +178,21 @@ def test_a_bad_section_does_not_take_the_good_one_with_it(tmp_path: Path) -> Non
 
     assert config.hotkeys.clock_toggle == "x", "the section that read was discarded"
     assert config.defaults == Defaults(), "and the one that did not falls back"
+
+
+def test_an_unexpected_validator_failure_is_not_hidden_as_bad_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fallback is for invalid preferences, not defects in their validators."""
+
+    def fail(_raw: object) -> Hotkeys:
+        message = "validator defect"
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(Hotkeys, "model_validate", staticmethod(fail))
+
+    with pytest.raises(RuntimeError, match="validator defect"):
+        section(Hotkeys, {})
 
 
 def test_what_the_file_says_is_what_is_used(tmp_path: Path) -> None:
