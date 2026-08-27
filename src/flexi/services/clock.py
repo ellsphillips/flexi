@@ -151,16 +151,6 @@ class ClockService:
             return ClockResult(success=False, message="Not clocked in")
 
         moment = wallclock.local(now) if now is not None else wallclock.now()
-        event = punched(ClockAction.OUT, moment, source=source)
-        self._session.add(event)
-        self._session.flush()
-
-        open_session.clock_out_id = event.id
-
-        # Clocking in and straight back out is a slip of the finger. The events
-        # stay — they are immutable, and the audit trail is the point — but the
-        # session is voided, so it is absent from the records table and from
-        # every figure derived from it.
         length = moment - moment_of(open_session.clock_in_event)
 
         # A session cannot run backwards. That is a fault in the data, not a
@@ -168,13 +158,21 @@ class ClockService:
         # a session opened at 01:30 on the morning the clocks go back used to be
         # discarded here, for up to an hour, with a message blaming the user.
         if length < timedelta():
-            self._session.commit()
             return ClockResult(
                 success=False,
                 message="That clock-out is earlier than the clock-in",
                 session=open_session,
             )
 
+        event = punched(ClockAction.OUT, moment, source=source)
+        self._session.add(event)
+        self._session.flush()
+        open_session.clock_out_id = event.id
+
+        # Clocking in and straight back out is a slip of the finger. The events
+        # stay — they are immutable, and the audit trail is the point — but the
+        # session is voided, so it is absent from the records table and from
+        # every figure derived from it.
         if length < self._minimum:
             open_session.voided = True
             self._session.commit()

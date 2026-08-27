@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent
 from flexi.models.database.moment import moment_of
 from flexi.services.registry import Services
@@ -135,7 +136,7 @@ def test_an_open_session_ticks_forward_through_the_fallback_hour(
 
 
 def test_a_backwards_session_is_refused_rather_than_voided(session: Session) -> None:
-    """A negative span is a fault in the data, not a slip of the finger."""
+    """A negative span is rejected without closing or adding to the audit trail."""
     service = Services.build(session).clock
     service.clock_in(now=_at(f"{FALLBACK}T10:00"))
     result = service.clock_out(now=_at(f"{FALLBACK}T09:00"))
@@ -144,3 +145,8 @@ def test_a_backwards_session_is_refused_rather_than_voided(session: Session) -> 
     assert "earlier than the clock-in" in result.message
     assert result.session is not None
     assert result.session.voided is False
+    assert result.session.clock_out_id is None
+    assert service.get_open_session() is result.session
+    assert [event.action for event in session.query(ClockEvent).all()] == [
+        ClockAction.IN
+    ]
