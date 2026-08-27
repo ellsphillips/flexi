@@ -17,8 +17,9 @@ from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.models.database.db import AbsenceDay
+from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import Services
-from tests.services.conftest import Configured
+from tests.services.conftest import Configured, work
 
 MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
@@ -169,6 +170,32 @@ def test_book_range_still_behaves_as_it_did(
     assert len(result.booked) == 5
     assert not result.skipped
     assert _rows(session) == 5
+
+
+def test_a_confirmation_is_refused_when_work_was_recorded_after_preview(
+    services: Services, session: Session
+) -> None:
+    plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+    work(services, MONDAY, 8)
+
+    result = services.absence.book_plan(plan)
+
+    assert result.booked == ()
+    assert result.skipped == ((MONDAY, PLAN_CHANGED),)
+    assert _rows(session) == 0
+
+
+def test_a_confirmation_is_refused_when_entitlement_changed_after_preview(
+    services: Services, session: Session
+) -> None:
+    plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
+    services.settings.save_entitlement(2025, 0.0)
+
+    result = services.absence.book_plan(plan)
+
+    assert result.booked == ()
+    assert result.skipped == ((MONDAY, PLAN_CHANGED),)
+    assert _rows(session) == 0
 
 
 def test_a_span_across_a_bank_holiday_books_the_rest(

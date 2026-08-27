@@ -32,6 +32,7 @@ if TYPE_CHECKING:
         work_sessions,
     )
     from flexi.services.absence import (
+        PLAN_CHANGED,
         AbsencePlan,
         AbsenceResult,
         AbsenceService,
@@ -128,7 +129,7 @@ if TYPE_CHECKING:
         stamped_and_configured,
     )
     from flexi.services.startup import close_stale_sessions
-    from flexi.services.transactions import atomic
+    from flexi.services.transactions import atomic, write_transaction
     from flexi.services.wallet import WalletService
     from flexi.services.work_sessions import stage_clock_out
 
@@ -169,6 +170,7 @@ _EXPORTS: Final = MappingProxyType(
         "span_of": ("absence", "span_of"),
         "still_bookable": ("absence", "still_bookable"),
         "verdict_for": ("absence", "verdict_for"),
+        "PLAN_CHANGED": ("absence", "PLAN_CHANGED"),
         "OPENING_BALANCE": ("adjustments", "OPENING_BALANCE"),
         "AdjustmentResult": ("adjustments", "AdjustmentResult"),
         "AdjustmentService": ("adjustments", "AdjustmentService"),
@@ -241,6 +243,7 @@ _EXPORTS: Final = MappingProxyType(
         "stamped_and_configured": ("setup", "stamped_and_configured"),
         "close_stale_sessions": ("startup", "close_stale_sessions"),
         "atomic": ("transactions", "atomic"),
+        "write_transaction": ("transactions", "write_transaction"),
         "WalletService": ("wallet", "WalletService"),
         "stage_clock_out": ("work_sessions", "stage_clock_out"),
     }
@@ -278,6 +281,7 @@ __all__ = (  # noqa: RUF022
     "span_of",
     "still_bookable",
     "verdict_for",
+    "PLAN_CHANGED",
     "OPENING_BALANCE",
     "AdjustmentResult",
     "AdjustmentService",
@@ -350,6 +354,7 @@ __all__ = (  # noqa: RUF022
     "stamped_and_configured",
     "close_stale_sessions",
     "atomic",
+    "write_transaction",
     "WalletService",
     "stage_clock_out",
 )

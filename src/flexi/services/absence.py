@@ -36,9 +36,10 @@ from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
-from flexi.services.transactions import atomic
+from flexi.services.transactions import atomic, write_transaction
 
 __all__ = (
+    "PLAN_CHANGED",
     "AbsencePlan",
     "AbsenceResult",
     "AbsenceService",
@@ -56,6 +57,9 @@ __all__ = (
     "still_bookable",
     "verdict_for",
 )
+
+PLAN_CHANGED = "The booking changed; review it and confirm again"
+"""Why a once-valid preview is refused instead of being partly persisted."""
 
 type Span = tuple[datetime, datetime]
 """A stretch of recorded work, resolved: an open session ends at midnight."""
@@ -600,32 +604,32 @@ class AbsenceService:
         ``available_toil_days`` only warns on a TOIL booking that would overdraw; it
         never refuses one.
         """
-        decided = verdict_for(
-            self.facts_between(day, day)[0],
-            absence_type,
-            portion,
-            note,
-            remaining_annual=(
-                self.get_remaining_annual_leave(day)
-                if absence_type.draws_down_entitlement
-                else None
-            ),
-        )
-        if decided.verdict is not Verdict.BOOK:
-            return AbsenceResult(False, decided.reason)
+        with write_transaction(self._session):
+            decided = verdict_for(
+                self.facts_between(day, day)[0],
+                absence_type,
+                portion,
+                note,
+                remaining_annual=(
+                    self.get_remaining_annual_leave(day)
+                    if absence_type.draws_down_entitlement
+                    else None
+                ),
+            )
+            if decided.verdict is not Verdict.BOOK:
+                return AbsenceResult(False, decided.reason)
 
-        after = (
-            available_toil_days - portion.days
-            if absence_type.draws_down_balance and available_toil_days is not None
-            else None
-        )
-        absence = AbsenceDay(
-            date=day,
-            absence_type=absence_type,
-            portion=portion,
-            note=note,
-        )
-        with atomic(self._session):
+            after = (
+                available_toil_days - portion.days
+                if absence_type.draws_down_balance and available_toil_days is not None
+                else None
+            )
+            absence = AbsenceDay(
+                date=day,
+                absence_type=absence_type,
+                portion=portion,
+                note=note,
+            )
             self._session.add(absence)
 
         return AbsenceResult(
@@ -736,29 +740,40 @@ class AbsenceService:
         )
 
     def book_plan(self, plan: AbsencePlan) -> RangeResult:
-        """Write exactly what the plan decided, and nothing it did not."""
-        booked: list[date] = []
-        rows: list[AbsenceDay] = []
-        skipped: list[tuple[date, str]] = []
+        """Write the confirmed plan only while the facts behind it still hold."""
+        with write_transaction(self._session):
+            current = self.plan(
+                plan.start,
+                plan.end,
+                plan.absence_type,
+                plan.portion,
+                note=plan.note,
+                available_toil_days=plan.toil_available,
+            )
+            if current != plan:
+                return RangeResult(skipped=((plan.start, PLAN_CHANGED),))
 
-        for day in plan.days:
-            if day.verdict is Verdict.BOOK:
-                rows.append(
-                    AbsenceDay(
-                        date=day.date,
-                        absence_type=plan.absence_type,
-                        portion=plan.portion,
-                        note=plan.note,
+            booked: list[date] = []
+            rows: list[AbsenceDay] = []
+            skipped: list[tuple[date, str]] = []
+
+            for day in current.days:
+                if day.verdict is Verdict.BOOK:
+                    rows.append(
+                        AbsenceDay(
+                            date=day.date,
+                            absence_type=current.absence_type,
+                            portion=current.portion,
+                            note=current.note,
+                        )
                     )
-                )
-                booked.append(day.date)
-            elif day.verdict.is_refusal:
-                skipped.append((day.date, day.reason))
+                    booked.append(day.date)
+                elif day.verdict.is_refusal:
+                    skipped.append((day.date, day.reason))
 
-        if rows:
-            with atomic(self._session):
+            if rows:
                 self._session.add_all(rows)
-        return RangeResult(tuple(booked), tuple(skipped), plan.warning)
+            return RangeResult(tuple(booked), tuple(skipped), current.warning)
 
     def book_range(
         self,
