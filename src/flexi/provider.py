@@ -17,7 +17,7 @@ from textual.types import IgnoreReturnCallbackType
 
 from flexi.components.chrome import NAV_ITEMS
 from flexi.constants import AbsenceType, Granularity
-from flexi.context import flexi_app
+from flexi.context import command_app
 
 __all__ = ("Command", "FlexiCommands")
 
@@ -45,7 +45,7 @@ class FlexiCommands(Provider):
     # -- the catalogue -----------------------------------------------------
 
     def _commands(self) -> Iterable[Command]:
-        app = flexi_app(self.app)
+        app = command_app(self.app)
         screen = app.dashboard()
 
         yield Command(

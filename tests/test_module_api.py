@@ -7,7 +7,7 @@ import inspect
 from collections.abc import Iterator
 from pathlib import Path
 from types import MappingProxyType, ModuleType
-from typing import get_type_hints
+from typing import cast, get_type_hints
 
 import pytest
 from textual.app import App as TextualApp
@@ -25,6 +25,7 @@ from flexi import (
     versioning,
     wallclock,
 )
+from flexi.services.registry import Services
 
 MODULES = (
     app,
@@ -38,6 +39,12 @@ MODULES = (
     versioning,
     wallclock,
 )
+
+
+class ServiceOnlyApp(TextualApp[None]):
+    """A valid module host that deliberately has no command operations."""
+
+    services = cast("Services", object())
 
 
 def module_statements(statements: list[ast.stmt]) -> Iterator[ast.stmt]:
@@ -117,5 +124,20 @@ def test_context_adapters_reject_objects_without_the_required_structure() -> Non
     """A misplaced widget fails at the typed boundary, not at a later attribute."""
     with pytest.raises(TypeError, match="module period and time context"):
         context.module_host(Screen())
-    with pytest.raises(TypeError, match="Flexi application context"):
+    with pytest.raises(TypeError, match="Flexi service context"):
+        context.service_app(TextualApp())
+    with pytest.raises(TypeError, match="Flexi command context"):
+        context.command_app(TextualApp())
+    with pytest.raises(TypeError, match="complete Flexi application context"):
         context.flexi_app(TextualApp())
+
+
+def test_context_adapters_apply_interface_segregation() -> None:
+    """A service host need not pretend to implement unrelated app actions."""
+    app = ServiceOnlyApp()
+
+    assert context.service_app(app) is app
+    with pytest.raises(TypeError, match="Flexi command context"):
+        context.command_app(app)
+    with pytest.raises(TypeError, match="complete Flexi application context"):
+        context.flexi_app(app)

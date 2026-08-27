@@ -14,7 +14,7 @@ from textual.widget import Widget
 from textual.widgets import Static
 
 from flexi.components.options import ModuleOptions
-from flexi.context import flexi_app, module_host
+from flexi.context import module_host, service_app
 from flexi.domain.period import Period
 from flexi.messages import Scope
 
@@ -55,7 +55,7 @@ class Module(Static):
     @property
     def services(self) -> Services:
         """The application's service registry."""
-        return flexi_app(self.app).services
+        return service_app(self.app).services
 
     @property
     def period(self) -> Period:
