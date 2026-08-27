@@ -31,7 +31,7 @@ from flexi.components.expandable import ExpandableTable, RowKind, row_key
 from flexi.components.modules.balance import BalanceModule, lean_class
 from flexi.components.modules.base import Module
 from flexi.components.modules.clock import ClockModule
-from flexi.components.modules.monthview import MonthView, month_grid
+from flexi.components.modules.monthview import MonthView, cell_classes, month_grid
 from flexi.components.modules.records import (
     MAX_JUMP_ROWS,
     BookHere,
@@ -40,6 +40,7 @@ from flexi.components.modules.records import (
 )
 from flexi.components.punch import PunchStrip
 from flexi.constants import AbsenceType, DayKind, Granularity, Portion
+from flexi.domain.dates import DAYS_IN_WEEK
 from flexi.domain.ledger import AbsenceSlice, DayLedger
 from flexi.domain.period import Period
 from flexi.domain.punch import Window
@@ -588,9 +589,7 @@ def test_a_strip_told_only_a_new_day_keeps_the_window_it_draws_in() -> None:
     assert strip.window is window
 
 
-async def test_a_day_the_ledger_says_nothing_about_is_drawn_plain(
-    flexi: Services,
-) -> None:
+def test_a_day_the_ledger_says_nothing_about_is_drawn_plain() -> None:
     """The grid squares off a month, so its corners belong to other ones.
 
     `ledgers.get(when)` returns `None` for those, and a cell with no ledger
@@ -598,14 +597,107 @@ async def test_a_day_the_ledger_says_nothing_about_is_drawn_plain(
     it is today, whether it is selected — without claiming a kind of day it
     knows nothing about.
     """
-    module = MonthView()
-    async with showing(module, flexi, granularity=Granularity.MONTH) as (_p, _panel):
-        period = Period.containing(THURSDAY, Granularity.MONTH)
-        last_month = date(2026, 5, 31)
+    period = Period.containing(THURSDAY, Granularity.MONTH)
+    last_month = date(2026, 5, 31)
 
-        classes = module._cell_classes(last_month, None, period, THURSDAY)
+    classes = cell_classes(
+        last_month, None, period, today=THURSDAY, showing=THURSDAY.replace(day=1)
+    )
 
-        assert "not-current-month" in classes
-        assert not any(c.startswith(("day-", "absence-")) for c in classes), (
-            "a cell with no ledger claims no kind of day"
+    assert "not-current-month" in classes
+    assert not any(c.startswith(("day-", "absence-")) for c in classes), (
+        "a cell with no ledger claims no kind of day"
+    )
+
+
+# -- the calendar's period window --------------------------------------------
+
+
+def window_of(period: Period, showing: date, *, first_weekday: int = 0) -> list[date]:
+    """The grid days `cell_classes` would tint for a period."""
+    return [
+        day
+        for day in month_grid(showing, first_weekday=first_weekday)
+        if "in-period" in cell_classes(day, None, period, today=day, showing=showing)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("granularity", "expected"),
+    [
+        (Granularity.DAY, 1),
+        (Granularity.WEEK, DAYS_IN_WEEK),
+        (Granularity.MONTH, 30),
+    ],
+)
+def test_the_window_covers_exactly_the_period_it_is_showing(
+    granularity: Granularity, expected: int
+) -> None:
+    """The tint is what says which span the rest of the dashboard is reporting.
+
+    A day is one cell, a week is seven, and June is thirty -- counted off the
+    grid rather than off the period, because the grid is what somebody looks at.
+    """
+    period = Period.containing(THURSDAY, granularity)
+
+    assert len(window_of(period, THURSDAY.replace(day=1))) == expected
+
+
+def test_a_week_window_lands_on_one_row_whatever_day_the_week_starts() -> None:
+    """The grid is laid out on the same first weekday the period counts from.
+
+    Were they allowed to disagree, a Sunday-first week would straddle two rows
+    of a Monday-first grid and tint fourteen days as "this week".
+    """
+    for first_weekday in (0, 6):
+        period = Period.containing(
+            THURSDAY, Granularity.WEEK, first_weekday=first_weekday
         )
+        tinted = window_of(period, THURSDAY.replace(day=1), first_weekday=first_weekday)
+        grid = month_grid(THURSDAY.replace(day=1), first_weekday=first_weekday)
+
+        assert len(tinted) == DAYS_IN_WEEK
+        rows = {grid.index(day) // DAYS_IN_WEEK for day in tinted}
+        assert len(rows) == 1, f"a week spilled across {len(rows)} rows"
+
+
+def test_a_year_window_starts_where_the_leave_year_does() -> None:
+    """A leave year that opens mid-month tints from the day it opens.
+
+    Not the whole month: the days before it belong to the year that has just
+    ended, and they are reported under that one everywhere else.
+    """
+    opens = (8, 13)
+    period = Period.containing(date(2026, 8, 27), Granularity.YEAR, year_start=opens)
+
+    tinted = window_of(period, date(2026, 8, 1))
+
+    assert min(tinted) == date(2026, 8, 13), "it opens on the 13th"
+    assert date(2026, 8, 12) not in tinted, "and the 12th is last year's"
+
+
+def test_paging_the_grid_away_from_the_period_tints_nothing() -> None:
+    """Browsing ahead to see where the bank holidays fall does not move it.
+
+    The grid and the period are separate, so a month with none of the period in
+    it has to come back empty rather than tinting the row nearest to it.
+    """
+    period = Period.containing(THURSDAY, Granularity.WEEK)
+
+    assert window_of(period, date(2026, 9, 1)) == []
+
+
+def test_the_selected_day_is_inside_the_window_and_marked_apart_from_it() -> None:
+    """Two devices on one cell: the window tints, the selection reverses.
+
+    The anchor is always in its own period, so the cell carries both. If the
+    selection ever stopped implying the window, the day under the cursor would
+    read as being outside the span the dashboard is reporting.
+    """
+    period = Period.containing(THURSDAY, Granularity.WEEK)
+
+    classes = cell_classes(
+        THURSDAY, None, period, today=THURSDAY, showing=THURSDAY.replace(day=1)
+    )
+
+    assert {"selected", "in-period", "today"} <= set(classes)

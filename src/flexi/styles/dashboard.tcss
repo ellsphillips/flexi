@@ -200,13 +200,15 @@ DashboardScreen.-tiny #balance-module {
 
 /* The period tints the ground; the selection reverses one cell; today is
    underlined in the cell's own text. Three different devices, so all three can
-   be true of one cell and it still reads. */
-.calendar-row.in-period {
-    background: $c-accent-deep 40%;
-}
+   be true of one cell and it still reads.
 
+   The fill at full strength, not at 40%. Blended down it lifted the ground by
+   three and a half percent of the range -- present in the compositor and
+   invisible on a screen, so the window a period covers could not be seen at
+   all. Deep is the palette's fill for exactly this, and it leaves the selected
+   day, which wears the accent itself, three times brighter again. */
 .calendar-row Label.in-period {
-    background: $c-accent-deep 40%;
+    background: $c-accent-deep;
 }
 
 .calendar-row Label.selected {

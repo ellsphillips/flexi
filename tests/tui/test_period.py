@@ -9,7 +9,9 @@ import pytest
 from flexi.app import FlexiApp
 from flexi.components.expandable import ExpandableTable, RowKind
 from flexi.components.modules.monthview import MonthView
+from flexi.config import CONFIG
 from flexi.constants import Granularity
+from flexi.domain.dates import DAYS_IN_WEEK
 from tests.tui.conftest import WIDE, AppFactory, dashboard
 
 TODAY = date(2026, 6, 11)
@@ -183,3 +185,74 @@ async def test_leaving_the_go_to_date_prompt_stays_where_you_were(
         await pilot.pause()
 
         assert dashboard(app).period == before
+
+
+# -- the calendar's window is visible, and follows the cycle -----------------
+
+LEGIBLE_LIFT = 12.0
+"""How far the window has to lift the ground to be seen, in luminance.
+
+The tint was `$c-accent-deep` blended to 40%, which lifted it by nine -- about
+three and a half percent of the range. Present in the compositor and invisible
+on a screen, which is a feature that has not been built.
+"""
+
+
+def luminance(colour: tuple[int, int, int]) -> float:
+    """Rec. 709 relative luminance, which is what the eye is doing here."""
+    red, green, blue = colour
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def grounds(app: FlexiApp) -> dict[str, tuple[int, int, int]]:
+    """The background behind a windowed cell and behind an unwindowed one."""
+    view = app.screen.query_one(MonthView)
+    windowed = next(iter(view.query("Label.in-period")))
+    plain = next(
+        cell
+        for cell in view.query("Label")
+        if not cell.has_class("in-period") and not cell.has_class("selected")
+    )
+    return {
+        "window": windowed.background_colors[1].rgb,
+        "page": plain.background_colors[1].rgb,
+    }
+
+
+async def test_the_period_window_is_actually_visible(app_factory: AppFactory) -> None:
+    """A tint the compositor records and a screen cannot show is not a tint."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        painted = grounds(app)
+
+        lift = luminance(painted["window"]) - luminance(painted["page"])
+
+        assert lift >= LEGIBLE_LIFT, (
+            f"the window lifts the ground by {lift:.1f}, which cannot be seen"
+        )
+
+
+async def test_cycling_the_period_moves_the_window_with_it(
+    app_factory: AppFactory,
+) -> None:
+    """The hotkey is what the tint exists to explain.
+
+    Each granularity covers strictly more of the grid than the one before it,
+    so the calendar says what "day", "week" and "month" mean without a legend.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        view = app.screen.query_one(MonthView)
+        covered: dict[str, int] = {}
+        for _ in range(len(Granularity)):
+            covered[dashboard(app).period.granularity.value] = len(
+                view.query("Label.in-period")
+            )
+            await pilot.press(CONFIG.hotkeys.period_cycle)
+            await pilot.pause()
+
+        assert covered["day"] == 1
+        assert covered["week"] == DAYS_IN_WEEK
+        assert covered["day"] < covered["week"] < covered["month"] <= covered["year"]
