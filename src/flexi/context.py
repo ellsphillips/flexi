@@ -22,7 +22,7 @@ lookup avoiding a type.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from textual.app import App as TextualApp
 from textual.screen import Screen
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from flexi.app import FlexiApp as FlexiApplication
 else:
 
+    @runtime_checkable
     class FlexiApplication(Protocol):
         """Runtime-resolvable view of the application returned by :func:`flexi_app`.
 
@@ -47,6 +48,7 @@ else:
 __all__ = ("FlexiApplication", "ModuleHost", "flexi_app", "module_host")
 
 
+@runtime_checkable
 class ModuleHost(Protocol):
     """What a screen has to own before it can mount a module.
 
@@ -67,14 +69,21 @@ class ModuleHost(Protocol):
 
 def module_host(screen: Screen[Any]) -> ModuleHost:
     """The screen a module is mounted on, typed as one that can host it."""
-    return cast("ModuleHost", screen)
+    if not isinstance(screen, ModuleHost):
+        message = f"{screen!r} does not provide module period and time context"
+        raise TypeError(message)
+    return screen
 
 
 def flexi_app(app: TextualApp[Any]) -> FlexiApplication:
     """The running :class:`~flexi.app.FlexiApp`, typed.
 
-    One cast, in one place, for everything that is only ever mounted inside
-    Flexi. Anything reached through it -- ``services``, ``nav``, the actions --
-    is checked from here on.
+    One structural check, in one place, for everything that is only ever
+    mounted inside Flexi. Anything reached through it -- ``services``, ``nav``,
+    the actions -- is statically checked from here on, while a widget mounted
+    on the wrong application fails at this boundary with a useful message.
     """
-    return cast("FlexiApplication", app)
+    if not isinstance(app, FlexiApplication):
+        message = f"{app!r} does not provide the Flexi application context"
+        raise TypeError(message)
+    return app

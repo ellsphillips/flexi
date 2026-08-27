@@ -10,6 +10,8 @@ from types import MappingProxyType, ModuleType
 from typing import get_type_hints
 
 import pytest
+from textual.app import App as TextualApp
+from textual.screen import Screen
 
 import flexi.__main__ as entrypoint
 from flexi import (
@@ -109,3 +111,11 @@ def test_closed_constant_tables_and_choices_are_immutable() -> None:
     for name in ("_DETAILS", "_DIVISION_LABELS", "_PORTION_LABELS", "_SPOKEN"):
         assert isinstance(getattr(constants, name), MappingProxyType)
     assert isinstance(constants.Division.choices(), tuple)
+
+
+def test_context_adapters_reject_objects_without_the_required_structure() -> None:
+    """A misplaced widget fails at the typed boundary, not at a later attribute."""
+    with pytest.raises(TypeError, match="module period and time context"):
+        context.module_host(Screen())
+    with pytest.raises(TypeError, match="Flexi application context"):
+        context.flexi_app(TextualApp())
