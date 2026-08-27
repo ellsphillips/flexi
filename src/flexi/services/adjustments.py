@@ -56,11 +56,22 @@ class AdjustmentService:
     # -- writing -----------------------------------------------------------
 
     def record(self, when: date, amount: timedelta, reason: str) -> AdjustmentResult:
-        """Store a correction.
+        """Validate, store and commit one correction."""
+        with atomic(self._session):
+            return self.stage_record(when, amount, reason)
+
+    def stage_record(
+        self, when: date, amount: timedelta, reason: str
+    ) -> AdjustmentResult:
+        """Validate and stage one correction in a caller-owned transaction.
 
         Rounded to whole minutes, because that is the resolution every figure in
         the interface is shown at and a correction that reads as ``+0:00`` while
         moving the balance by forty seconds is worse than no correction at all.
+
+        This composable boundary deliberately does not commit. Cross-service
+        decisions can therefore read and stage their consequence beneath one
+        writer reservation instead of introducing a stale-read window.
         """
         if not reason.strip():
             return AdjustmentResult(False, "An adjustment needs a reason")
@@ -75,8 +86,7 @@ class AdjustmentService:
             reason=reason.strip(),
             created_at=wallclock.utc_now().replace(tzinfo=None),
         )
-        with atomic(self._session):
-            self._session.add(row)
+        self._session.add(row)
         return AdjustmentResult(
             True,
             f"Balance adjusted by {minutes:+d} minutes on {stamp(when, '%-d %b %Y')}",

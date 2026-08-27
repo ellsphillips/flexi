@@ -123,6 +123,7 @@ def test_services_is_a_frozen_session_free_data_bundle(session: Session) -> None
         "ledger",
         "settings",
         "wallet",
+        "write",
     }
     assert not hasattr(services, "session")
     assert not hasattr(services.wallet, "_session")

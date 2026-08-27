@@ -8,13 +8,22 @@ writes ended up omitting it.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
+from functools import partial
 
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
 
-__all__ = ("atomic", "write_transaction")
+__all__ = (
+    "WriteTransaction",
+    "atomic",
+    "bind_write_transaction",
+    "write_transaction",
+)
+
+type WriteTransaction = Callable[[], AbstractContextManager[None]]
+"""A persistence-agnostic boundary that reserves and commits one write."""
 
 
 @contextmanager
@@ -59,3 +68,8 @@ def write_transaction(session: Session) -> Iterator[None]:
 
     with atomic(session):
         yield
+
+
+def bind_write_transaction(session: Session) -> WriteTransaction:
+    """Bind a session once without exposing it to orchestration code."""
+    return partial(write_transaction, session)

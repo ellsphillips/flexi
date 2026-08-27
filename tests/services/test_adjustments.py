@@ -14,7 +14,12 @@ from flexi import wallclock
 from flexi.models.database.db import BalanceAdjustment
 from flexi.models.database.engine import get_session
 from flexi.services.adjustments import OPENING_BALANCE
-from flexi.services.registry import Services, invalidate_services, zero_balance
+from flexi.services.registry import (
+    Services,
+    build_services,
+    invalidate_services,
+    zero_balance,
+)
 from tests.conftest import sessions_on
 from tests.services.conftest import CONTRACTED, Configured, work
 
@@ -241,6 +246,27 @@ def test_zeroing_twice_is_refused_the_second_time(services: Services) -> None:
     again = zero_balance(services, MONDAY)
     assert not again.success
     assert "already zero" in again.message
+
+
+def test_zeroing_recomputes_after_an_external_commit(
+    services: Services, engine: Engine
+) -> None:
+    """A cached preview cannot make settlement leave another writer's delta."""
+    work(services, MONDAY, hours=2)
+    preview = services.ledger.balance(MONDAY).delta
+
+    with get_session(engine) as competing_session:
+        competing = build_services(competing_session)
+        competing.adjustments.record(
+            MONDAY, timedelta(minutes=30), "external correction"
+        )
+
+    assert services.ledger.balance(MONDAY).delta == preview
+    assert zero_balance(services, MONDAY).success
+
+    with get_session(engine) as fresh_session:
+        fresh = build_services(fresh_session)
+        assert fresh.ledger.balance(MONDAY).delta == timedelta()
 
 
 def test_zeroing_records_why(services: Services) -> None:

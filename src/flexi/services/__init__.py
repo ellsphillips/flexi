@@ -137,7 +137,12 @@ if TYPE_CHECKING:
         stamped_and_configured,
     )
     from flexi.services.startup import close_stale_sessions
-    from flexi.services.transactions import atomic, write_transaction
+    from flexi.services.transactions import (
+        WriteTransaction,
+        atomic,
+        bind_write_transaction,
+        write_transaction,
+    )
     from flexi.services.wallet import WalletService
     from flexi.services.work_sessions import stage_clock_in, stage_clock_out
 
@@ -261,7 +266,9 @@ _EXPORTS: Final = MappingProxyType(
         "is_initialised": ("setup", "is_initialised"),
         "stamped_and_configured": ("setup", "stamped_and_configured"),
         "close_stale_sessions": ("startup", "close_stale_sessions"),
+        "WriteTransaction": ("transactions", "WriteTransaction"),
         "atomic": ("transactions", "atomic"),
+        "bind_write_transaction": ("transactions", "bind_write_transaction"),
         "write_transaction": ("transactions", "write_transaction"),
         "WalletService": ("wallet", "WalletService"),
         "stage_clock_in": ("work_sessions", "stage_clock_in"),
@@ -381,7 +388,9 @@ __all__ = (  # noqa: RUF022
     "is_initialised",
     "stamped_and_configured",
     "close_stale_sessions",
+    "WriteTransaction",
     "atomic",
+    "bind_write_transaction",
     "write_transaction",
     "WalletService",
     "stage_clock_in",

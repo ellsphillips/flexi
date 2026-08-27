@@ -27,6 +27,10 @@ from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.clock import ClockService
 from flexi.services.ledger import LedgerService
 from flexi.services.settings import SettingsService
+from flexi.services.transactions import (
+    WriteTransaction,
+    bind_write_transaction,
+)
 from flexi.services.wallet import WalletService
 
 __all__ = (
@@ -56,6 +60,7 @@ class Services:
     adjustments: AdjustmentService
     ledger: LedgerService
     wallet: WalletService
+    write: WriteTransaction
 
 
 def build_services(session: Session) -> Services:
@@ -72,6 +77,7 @@ def build_services(session: Session) -> Services:
         adjustments=AdjustmentService(session),
         ledger=ledger,
         wallet=WalletService(settings, absence, ledger),
+        write=bind_write_transaction(session),
     )
 
 
@@ -109,13 +115,15 @@ def zero_balance(
 ) -> AdjustmentResult:
     """Settle the balance so that it reads zero as at the end of ``as_of``."""
     as_of = settlement_date(as_of)
-    standing = services.ledger.balance(as_of).delta
-    if not round(standing.total_seconds() / 60):
-        return AdjustmentResult(False, "The balance is already zero")
-    result = services.adjustments.record(as_of, -standing, reason)
-    if result.success:
-        invalidate_services(services)
-    return result
+    with services.write():
+        # A preview may have memoised this period before another process wrote
+        # to it. The writer reservation must come first; only then is a fresh
+        # derivation stable until its compensating row is committed.
+        services.ledger.invalidate()
+        standing = services.ledger.balance(as_of).delta
+        if not round(standing.total_seconds() / 60):
+            return AdjustmentResult(False, "The balance is already zero")
+        return services.adjustments.stage_record(as_of, -standing, reason)
 
 
 def minimum_session() -> timedelta:
