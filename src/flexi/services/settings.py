@@ -149,6 +149,12 @@ class ResolvedSettings:
     auto_close: time
     division: Division
     leave_year_start: LeaveYearStart
+    tracking_since: date | None
+    """The day setup was answered. Days before it expect no work.
+
+    ``None`` on a database migrated from before the column existed with nothing
+    recorded to date it by, and it means what Flexi did then: every day counts.
+    """
 
 
 def resolve_settings(settings: Settings | None) -> ResolvedSettings:
@@ -162,6 +168,7 @@ def resolve_settings(settings: Settings | None) -> ResolvedSettings:
             auto_close=DEFAULT_AUTO_CLOSE,
             division=DEFAULT_DIVISION,
             leave_year_start=parse_month_day(DEFAULT_LEAVE_YEAR_START),
+            tracking_since=None,
         )
     return ResolvedSettings(
         contracted=timedelta(minutes=settings.contracted_minutes),
@@ -184,6 +191,7 @@ def resolve_settings(settings: Settings | None) -> ResolvedSettings:
             lambda: parse_month_day(settings.leave_year_start),
             parse_month_day(DEFAULT_LEAVE_YEAR_START),
         ),
+        tracking_since=settings.tracking_since,
     )
 
 
@@ -264,6 +272,10 @@ class SettingsService:
         settings = self.get_settings()
         if settings is None:
             settings = Settings(
+                # Stamped on creation only. This is the answer to "when did
+                # Flexi start watching", and editing the settings later does not
+                # change it -- the update path below deliberately leaves it.
+                tracking_since=wallclock.today(),
                 leave_year_start=leave_year_start,
                 working_days=working_days,
                 bank_holiday_division=division,

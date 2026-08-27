@@ -36,9 +36,27 @@ def slice_(kind: AbsenceType, portion: Portion = Portion.FULL) -> AbsenceSlice:
 # -- expected --------------------------------------------------------------
 
 
+def test_a_day_before_flexi_was_tracking_expects_nothing() -> None:
+    """A leave year that opened before Flexi was installed is not a deficit.
+
+    Nothing else about the day matters: it is a working day, in the leave year,
+    with no absence booked and no holiday on it, and it still asks for nothing,
+    because nobody was ever asked to record it.
+    """
+    assert (
+        expected_for(
+            CONTRACTED, is_tracked=False, is_working_day=True, is_holiday=False
+        )
+        == timedelta()
+    )
+
+
 def test_an_ordinary_working_day_expects_the_contract() -> None:
     """It asks for a full day when nothing says otherwise."""
-    assert expected_for(CONTRACTED, is_working_day=True, is_holiday=False) == CONTRACTED
+    assert (
+        expected_for(CONTRACTED, is_tracked=True, is_working_day=True, is_holiday=False)
+        == CONTRACTED
+    )
 
 
 @pytest.mark.parametrize(
@@ -48,7 +66,9 @@ def test_an_ordinary_working_day_expects_the_contract() -> None:
 def test_a_non_working_day_expects_nothing(working: bool, holiday: bool) -> None:
     """It asks for nothing on a weekend or a bank holiday."""
     assert (
-        expected_for(CONTRACTED, is_working_day=working, is_holiday=holiday)
+        expected_for(
+            CONTRACTED, is_tracked=True, is_working_day=working, is_holiday=holiday
+        )
         == timedelta()
     )
 
@@ -57,7 +77,11 @@ def test_a_non_working_day_expects_nothing(working: bool, holiday: bool) -> None
 def test_a_full_day_absence_of_any_type_expects_nothing(kind: AbsenceType) -> None:
     """It asks for nothing on a booked day, whatever the reason."""
     got = expected_for(
-        CONTRACTED, is_working_day=True, is_holiday=False, absences=[slice_(kind)]
+        CONTRACTED,
+        is_tracked=True,
+        is_working_day=True,
+        is_holiday=False,
+        absences=[slice_(kind)],
     )
     assert got == timedelta()
 
@@ -66,6 +90,7 @@ def test_a_half_day_expects_half_the_contract() -> None:
     """It halves the ask when half the day is booked."""
     got = expected_for(
         CONTRACTED,
+        is_tracked=True,
         is_working_day=True,
         is_holiday=False,
         absences=[slice_(AbsenceType.ANNUAL, Portion.AM)],
@@ -77,6 +102,7 @@ def test_two_half_days_of_different_types_expect_nothing() -> None:
     """It handles a sick morning and an annual afternoon."""
     got = expected_for(
         CONTRACTED,
+        is_tracked=True,
         is_working_day=True,
         is_holiday=False,
         absences=[
