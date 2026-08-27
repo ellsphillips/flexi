@@ -54,7 +54,7 @@ class Services:
             session=session,
             settings=settings,
             bank_holidays=bank_holidays,
-            clock=ClockService(session, settings, bank_holidays, _minimum_session()),
+            clock=ClockService(session, settings, bank_holidays, minimum_session()),
             absence=absence,
             adjustments=AdjustmentService(session),
             ledger=ledger,
@@ -100,7 +100,7 @@ class Services:
         return result
 
 
-def _minimum_session() -> timedelta:
+def minimum_session() -> timedelta:
     """How long a session has to last to count.
 
     A preference, so it comes from the config file rather than the database.

@@ -294,7 +294,7 @@ class TestFetchingTheIndex:
 class TestRefreshingOnlyWhenItIsStale:
     """The two halves the launch worker composes.
 
-    `app.FlexiApp._refresh_holidays` asks `is_fresh` and only then fetches, so
+    `app.FlexiApp.refresh_holidays` asks `is_fresh` and only then fetches, so
     that a fresh cache costs no round trip and a stale one is replaced. That
     composition is asserted in `tests/tui/test_app.py`; what is asserted here
     is that each half answers correctly on its own.

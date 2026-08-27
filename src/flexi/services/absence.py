@@ -635,7 +635,7 @@ class AbsenceService:
             booked[row.date].append(row.portion)
         worked: defaultdict[date, list[Span]] = defaultdict(list)
         for session in self._sessions_between(start, end):
-            worked[session.work_date].append(_span_of(session))
+            worked[session.work_date].append(span_of(session))
 
         return [
             DayFacts(
@@ -813,7 +813,7 @@ class AbsenceService:
         return AbsenceResult(True, f"{removed} removed from {short_date(day)}")
 
 
-def _span_of(session: WorkSession) -> Span:
+def span_of(session: WorkSession) -> Span:
     """When a session ran, resolved.
 
     A session nobody closed is worth the rest of its own day: `LedgerService`

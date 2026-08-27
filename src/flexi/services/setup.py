@@ -29,7 +29,10 @@ REQUIRED_SETTINGS = (
 
 _INITIALISED: set[Path] = set()
 """Paths known to be set up. Only the affirmative is remembered: False can
-become True at any moment, and nothing should have to invalidate that."""
+become True at any moment, and nothing should have to invalidate that.
+
+Private because a public handle on it is a way for anything to assert an
+install that is not there."""
 
 
 def is_initialised(db_path: Path | None = None) -> bool:
@@ -45,7 +48,7 @@ def is_initialised(db_path: Path | None = None) -> bool:
     if not path.is_file():
         return False
 
-    answer = _stamped_and_configured(path)
+    answer = stamped_and_configured(path)
     if answer:
         _INITIALISED.add(path)
     return answer
@@ -57,7 +60,7 @@ def forget(db_path: Path | None = None) -> None:
     _INITIALISED.discard(path)
 
 
-def _stamped_and_configured(path: Path) -> bool:
+def stamped_and_configured(path: Path) -> bool:
     """The database carries a migration stamp and a complete settings row.
 
     ``mode=ro`` refuses to create the file, which is the invariant

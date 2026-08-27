@@ -58,7 +58,7 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
         msg = "--demo opens the sample application; it does not take a command."
         raise click.UsageError(msg)
     if demo:
-        _run_demo()
+        run_demo()
         return
 
     ctx.ensure_object(dict)
@@ -77,9 +77,9 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
 
     run_migrations()
     if not is_initialised():
-        _ask_the_questions(ctx, database_file())
+        ask_the_questions(ctx, database_file())
         return
-    _launch().run()
+    launch().run()
 
 
 NOT_INITIALISED = (
@@ -129,7 +129,7 @@ def requires_setup(command: Callable[..., int]) -> Callable[..., None]:
     -- the shape every module in `flexi.cli` already has. It used to open the
     database and hand back nothing, so all eight commands repeated the same
     four lines to fish the registry back out of the context and turn a code
-    into an exit, and `_open_database`'s return value was dead.
+    into an exit, and `open_database`'s return value was dead.
     """
 
     @functools.wraps(command)
@@ -138,12 +138,12 @@ def requires_setup(command: Callable[..., int]) -> Callable[..., None]:
         if not is_initialised():
             click.secho(NOT_INITIALISED, fg="yellow", err=True)
             ctx.exit(1)
-        ctx.exit(command(_open_database(ctx).services, *args, **kwargs))
+        ctx.exit(command(open_database(ctx).services, *args, **kwargs))
 
     return guarded
 
 
-def _launch(*, settings: bool = False, splash: bool = False) -> FlexiApp:
+def launch(*, settings: bool = False, splash: bool = False) -> FlexiApp:
     """Every way into the application goes through here.
 
     ``FlexiApp.__init__`` builds an engine, opens a session and reads the settings
@@ -166,7 +166,7 @@ def _launch(*, settings: bool = False, splash: bool = False) -> FlexiApp:
     return app
 
 
-def _open_database(ctx: click.Context) -> Handles:
+def open_database(ctx: click.Context) -> Handles:
     """Migrate, connect, sweep, and hand back an open database.
 
     Closing is registered on the context rather than written at the end of each
@@ -205,7 +205,7 @@ def holidays_refresh(services: Services) -> int:
     return holidays_cli.run(services)
 
 
-def _run_demo() -> None:
+def run_demo() -> None:
     """Launch against a temporary database holding the sample data.
 
     The same seed the screenshots and the regression tests use, so what a new
@@ -256,7 +256,7 @@ def init(ctx: click.Context) -> None:
     db_path = database_file()
 
     if is_initialised():
-        _already_set_up(ctx, db_path)
+        already_set_up(ctx, db_path)
         return
 
     from flexi.models.database.migrate import run_migrations
@@ -265,10 +265,10 @@ def init(ctx: click.Context) -> None:
     if is_initialised():
         click.secho("Flexi is set up.", fg="green")
         return
-    _ask_the_questions(ctx, db_path, then_open=False)
+    ask_the_questions(ctx, db_path, then_open=False)
 
 
-def _already_set_up(ctx: click.Context, db_path: Path) -> None:
+def already_set_up(ctx: click.Context, db_path: Path) -> None:
     """Show what is recorded, and do what is chosen about it."""
     from flexi.cli import init as init_cli
     from flexi.cli import ui
@@ -286,24 +286,24 @@ def _already_set_up(ctx: click.Context, db_path: Path) -> None:
     if choice is None:
         return
     if choice is init_cli.Choice.OPEN:
-        _open_app()
+        open_app()
         return
     if choice is init_cli.Choice.SETTINGS:
-        _open_app(settings=True)
+        open_app(settings=True)
         return
 
     if not init_cli.confirm_reset(contents):
         ui.abandon("Nothing was erased.")
         return
-    _erase(db_path)
-    _ask_the_questions(ctx, db_path, then_open=False)
+    erase(db_path)
+    ask_the_questions(ctx, db_path, then_open=False)
 
 
-def _open_app(*, settings: bool = False) -> None:
-    _launch(settings=settings).run()
+def open_app(*, settings: bool = False) -> None:
+    launch(settings=settings).run()
 
 
-def _erase(db_path: Path) -> None:
+def erase(db_path: Path) -> None:
     """Snapshot, remove the records, and forget that this path was ever set up."""
     from flexi.cli import init as init_cli
     from flexi.services import setup as setup_service
@@ -314,7 +314,7 @@ def _erase(db_path: Path) -> None:
         init_cli.settled(f"Erased. Snapshot kept at {taken}")
 
 
-def _ask_the_questions(
+def ask_the_questions(
     ctx: click.Context, db_path: Path, *, then_open: bool = True
 ) -> None:
     """Open the setup form, which is a full screen and needs a terminal.
@@ -334,7 +334,7 @@ def _ask_the_questions(
         )
         ctx.exit(1)
 
-    _launch(splash=True).run()
+    launch(splash=True).run()
 
     if not is_initialised():
         click.echo("Setup was not completed.")

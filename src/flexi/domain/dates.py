@@ -65,7 +65,7 @@ RELATIVE_DAYS: Final[dict[str, int]] = {
 
 SEPARATORS: Final[tuple[str, ...]] = (" to ", " until ", " through ", "..")
 
-_FORMATS: Final[tuple[str, ...]] = (
+FORMATS: Final[tuple[str, ...]] = (
     "%d %b %Y",
     "%d %B %Y",
     "%d %b",
@@ -79,7 +79,7 @@ _FORMATS: Final[tuple[str, ...]] = (
     "%d-%m-%Y",
 )
 
-_HELP: Final = "Try 2026-06-12, 12 Jun, friday, next monday, tomorrow, 12, or +3d"
+DATE_HELP: Final = "Try 2026-06-12, 12 Jun, friday, next monday, tomorrow, 12, or +3d"
 
 
 class Preference(enum.Enum):
@@ -130,7 +130,7 @@ def parse_date(
         or parse_day_of_month(text, reference, prefer)
     )
     if found is None:
-        raise ValueError(_HELP)
+        raise ValueError(DATE_HELP)
     return found
 
 
@@ -289,7 +289,7 @@ def parse_written(
     except ValueError:
         pass
 
-    for pattern in _FORMATS:
+    for pattern in FORMATS:
         dated, dated_pattern = (
             (text, pattern)
             if "%Y" in pattern

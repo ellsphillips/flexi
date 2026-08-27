@@ -130,12 +130,12 @@ def load_config(path: Path | None = None) -> Config:
     if not isinstance(raw, dict):
         return Config()
     return Config(
-        hotkeys=_section(Hotkeys, raw.get("hotkeys")),
-        defaults=_section(Defaults, raw.get("defaults")),
+        hotkeys=section(Hotkeys, raw.get("hotkeys")),
+        defaults=section(Defaults, raw.get("defaults")),
     )
 
 
-def _section[T: BaseModel](model: type[T], raw: Any) -> T:
+def section[T: BaseModel](model: type[T], raw: Any) -> T:
     """One section of the file, or that section's defaults."""
     if not isinstance(raw, dict):
         return model()

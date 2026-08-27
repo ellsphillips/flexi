@@ -65,9 +65,9 @@ def collect_bindings(screen: object) -> dict[str, list[tuple[str, str]]]:
     active = getattr(screen, "active_bindings", {})
     app = getattr(screen, "app", None)
     for node, binding, _enabled, _tooltip in active.values():
-        if not binding.description or not _is_ours(node):
+        if not binding.description or not declared_by_flexi(node):
             continue
-        owner = _label_for(node)
+        owner = label_for(node)
         marker = (owner, binding.action)
         if marker in seen:
             continue
@@ -77,12 +77,12 @@ def collect_bindings(screen: object) -> dict[str, list[tuple[str, str]]]:
     return groups
 
 
-def _is_ours(node: object) -> bool:
+def declared_by_flexi(node: object) -> bool:
     """True when the binding was declared by Flexi rather than by Textual."""
     return type(node).__module__.startswith("flexi.")
 
 
-def _label_for(node: object) -> str:
+def label_for(node: object) -> str:
     """The heading a binding is filed under.
 
     Read off the class rather than looked up in a table here. The table had no

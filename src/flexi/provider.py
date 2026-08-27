@@ -95,7 +95,7 @@ class FlexiCommands(Provider):
         yield _Command(
             "Refresh bank holidays",
             "Re-fetch the GOV.UK calendar for the configured division",
-            partial(_refresh_holidays, app),
+            partial(refresh_holidays, app),
         )
 
 
@@ -108,7 +108,7 @@ class _Command:
     run: Callable[[], Any]
 
 
-def _refresh_holidays(app: FlexiApp) -> None:
+def refresh_holidays(app: FlexiApp) -> None:
     ok = app.services.bank_holidays.fetch_and_cache()
     app.holidays_refreshed()
     app.notify(

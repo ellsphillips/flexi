@@ -74,31 +74,31 @@ class ResolvedSettings:
             )
         return cls(
             contracted=timedelta(minutes=settings.contracted_minutes),
-            day_window=_read(
-                lambda: _readable_window(
+            day_window=read_or(
+                lambda: readable_window(
                     settings.day_window_start, settings.day_window_end
                 ),
                 (DEFAULT_WINDOW_START, DEFAULT_WINDOW_END),
             ),
-            working_days=_read(
+            working_days=read_or(
                 lambda: tuple(parse_working_days(settings.working_days)),
                 DEFAULT_WORKING_DAYS,
             ),
-            auto_close=_read(
+            auto_close=read_or(
                 lambda: time(*parse_clock_time(settings.auto_close_time)),
                 DEFAULT_AUTO_CLOSE,
             ),
-            division=_read(
+            division=read_or(
                 lambda: Division(settings.bank_holiday_division), DEFAULT_DIVISION
             ),
-            leave_year_start=_read(
+            leave_year_start=read_or(
                 lambda: parse_month_day(settings.leave_year_start),
                 parse_month_day(DEFAULT_LEAVE_YEAR_START),
             ),
         )
 
 
-def _readable_window(start: str, end: str) -> tuple[str, str]:
+def readable_window(start: str, end: str) -> tuple[str, str]:
     """The stored day window, checked before anything tries to draw in it.
 
     `save_settings` normalises the leave year and the auto-close time and does
@@ -111,7 +111,7 @@ def _readable_window(start: str, end: str) -> tuple[str, str]:
     return start, end
 
 
-def _read[T](value: Callable[[], T], fallback: T) -> T:
+def read_or[T](value: Callable[[], T], fallback: T) -> T:
     """A stored field, or the default when it cannot be read.
 
     The bargain the module strikes, in one place rather than in four of the six
@@ -331,7 +331,7 @@ def parse_working_days(raw: str) -> list[int]:
     return sorted(days)
 
 
-_CLOCK = re.compile(r"^(\d{1,2})(?:[:.](\d{1,2}))?\s*([ap]m?)?$", re.IGNORECASE)
+CLOCK_PATTERN = re.compile(r"^(\d{1,2})(?:[:.](\d{1,2}))?\s*([ap]m?)?$", re.IGNORECASE)
 
 
 def parse_clock_time(raw: str) -> tuple[int, int]:
@@ -353,7 +353,7 @@ def parse_clock_time(raw: str) -> tuple[int, int]:
         >>> parse_clock_time("12am")
         (0, 0)
     """
-    found = _CLOCK.match(raw.strip())
+    found = CLOCK_PATTERN.match(raw.strip())
     if found is None:
         msg = f"'{raw}' is not a time: use HH:MM, like 18:00"
         raise ValueError(msg)

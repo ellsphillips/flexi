@@ -62,14 +62,14 @@ THEME_PATH: Final[Path] = Path(__file__).with_name("flexi.tcss")
 # Matches only top-level `$name: value;` declarations holding a literal. A value
 # containing `$` is skipped deliberately: the parser does no substitution, and a
 # half-resolved colour would be worse than an absent one.
-_PALETTE_DECLARATION: Final = re.compile(
+PALETTE_DECLARATION: Final = re.compile(
     r"^\s*\$([a-z0-9-]+)\s*:\s*([^;${}]+);", re.MULTILINE
 )
 
 # Fallbacks, used only if the stylesheet cannot be read. They are the same
 # values as the PALETTE block; a mismatch here is a bug, and
 # `tests/test_theme.py` asserts the two agree.
-_FALLBACK: Final[dict[str, str]] = {
+FALLBACK: Final[dict[str, str]] = {
     # Every colour Python asks for by name. The other twenty-six declarations
     # in the stylesheet are only ever read as `$c-...` from the stylesheet
     # itself, which could not be read at all if it could not be parsed -- so a
@@ -113,11 +113,9 @@ def palette(path: Path = THEME_PATH) -> Mapping[str, str]:
     try:
         source = path.read_text(encoding="utf-8")
     except OSError:
-        return MappingProxyType(dict(_FALLBACK))
-    found = {
-        name: value.strip() for name, value in _PALETTE_DECLARATION.findall(source)
-    }
-    return MappingProxyType(found or dict(_FALLBACK))
+        return MappingProxyType(dict(FALLBACK))
+    found = {name: value.strip() for name, value in PALETTE_DECLARATION.findall(source)}
+    return MappingProxyType(found or dict(FALLBACK))
 
 
 def colour(name: str, fallback: str = "#FF00FF") -> str:
@@ -126,7 +124,7 @@ def colour(name: str, fallback: str = "#FF00FF") -> str:
     The default is magenta on purpose: a colour that fell through to it is
     meant to be found in the first screenshot, not to blend in.
     """
-    return palette().get(name, _FALLBACK.get(name, fallback))
+    return palette().get(name, FALLBACK.get(name, fallback))
 
 
 def theme_variables() -> dict[str, str]:

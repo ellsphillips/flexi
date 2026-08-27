@@ -145,7 +145,7 @@ class FlexiApp(TextualApp[None]):
                 callback=self._on_setup_done,
             )
         self._check_for_updates()
-        self._refresh_holidays()
+        self.refresh_holidays()
 
     def _on_setup_done(self, completed: bool | None) -> None:
         if not completed:
@@ -158,7 +158,7 @@ class FlexiApp(TextualApp[None]):
         self._engine.dispose()
 
     @textual_work(thread=True)
-    def _refresh_holidays(self) -> None:
+    def refresh_holidays(self) -> None:
         """Keep the bank holiday calendar current, off the message loop.
 
         A worker rather than a blocking call at mount: this is a network round

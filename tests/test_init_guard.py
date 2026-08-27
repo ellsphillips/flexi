@@ -125,7 +125,7 @@ def test_the_bare_command_sets_itself_up_rather_than_refusing(
     """
     opened: list[str] = []
     monkeypatch.setattr(
-        "flexi.__main__._ask_the_questions",
+        "flexi.__main__.ask_the_questions",
         lambda *_args, **_kwargs: opened.append("setup"),
     )
     monkeypatch.setattr("flexi.models.database.migrate.run_migrations", lambda: None)

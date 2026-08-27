@@ -33,7 +33,7 @@ class Key(Enum):
 # has been open -- sends ESC O A for up, where the default mode sends ESC [ A.
 # Reading only one makes the arrows work everywhere except straight after the
 # application, which is the worst half to get.
-_KEYS: Final[dict[str, Key]] = {
+KEYS: Final[dict[str, Key]] = {
     "\x1b[A": Key.UP,
     "\x1bOA": Key.UP,
     "\x1b[B": Key.DOWN,
@@ -49,7 +49,7 @@ _KEYS: Final[dict[str, Key]] = {
     "\x04": Key.ABORT,
 }
 
-_PREFIXES: Final = (ESCAPE, ESCAPE + "[", ESCAPE + "O")
+PREFIXES: Final = (ESCAPE, ESCAPE + "[", ESCAPE + "O")
 
 
 def decode(sequence: str) -> Key:
@@ -60,7 +60,7 @@ def decode(sequence: str) -> Key:
     >>> decode("\x03") is Key.ABORT
     True
     """
-    return _KEYS.get(sequence, Key.UNKNOWN)
+    return KEYS.get(sequence, Key.UNKNOWN)
 
 
 def incomplete(sequence: str) -> bool:
@@ -75,4 +75,4 @@ def incomplete(sequence: str) -> bool:
     >>> incomplete("\x1b[A")
     False
     """
-    return sequence in _PREFIXES
+    return sequence in PREFIXES

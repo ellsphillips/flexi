@@ -32,7 +32,7 @@ from flexi.cli.ui.keys import Key
 
 
 class _Descriptor:
-    """Just enough of a stdin for `_unbuffered`, which asks it for a number."""
+    """Just enough of a stdin for `unbuffered`, which asks it for a number."""
 
     def __init__(self, descriptor: int) -> None:
         self._descriptor = descriptor
@@ -68,7 +68,7 @@ def test_an_arrow_key_arrives_as_three_bytes_and_is_read_as_one_press(
     """
     controller, _ = pty_pair
 
-    with prompt._unbuffered() as descriptor:
+    with prompt.unbuffered() as descriptor:
         os.write(controller, b"\x1b[B")
 
         assert prompt.read_key(descriptor) is Key.DOWN
@@ -86,7 +86,7 @@ def test_an_escape_on_its_own_is_answered_rather_than_waited_on(
     """
     controller, _ = pty_pair
 
-    with prompt._unbuffered() as descriptor:
+    with prompt.unbuffered() as descriptor:
         os.write(controller, b"\x1b")
 
         assert prompt.read_key(descriptor) is Key.QUIT
@@ -103,7 +103,7 @@ def test_a_key_this_terminal_cannot_name_is_ignored_rather_than_fatal(
     """
     controller, _ = pty_pair
 
-    with prompt._unbuffered() as descriptor:
+    with prompt.unbuffered() as descriptor:
         os.write(controller, "é".encode())
 
         assert prompt.read_key(descriptor) is Key.UNKNOWN
@@ -118,7 +118,7 @@ def test_the_terminal_stops_waiting_for_a_line_inside_the_block(
     """
     _, terminal = pty_pair
 
-    with prompt._unbuffered() as descriptor:
+    with prompt.unbuffered() as descriptor:
         mode = termios.tcgetattr(descriptor)
 
     assert not mode[3] & termios.ICANON, "still waiting for a whole line"
@@ -143,7 +143,7 @@ def test_the_terminal_is_handed_back_however_the_block_is_left(
 
     msg = "the loop inside went wrong"
 
-    with pytest.raises(RuntimeError, match=msg), prompt._unbuffered():
+    with pytest.raises(RuntimeError, match=msg), prompt.unbuffered():
         raise RuntimeError(msg)
 
     assert termios.tcgetattr(terminal)[3] & mode == before

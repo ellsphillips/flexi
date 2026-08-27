@@ -184,6 +184,11 @@ _DETAILS: dict[AbsenceType, _Details] = {
 }
 """One table rather than three parallel ones.
 
+Private, and the only kind of name in this codebase that stays so on purpose:
+it is what `AbsenceType.label` and its neighbours are made of. Publishing it
+offers a second way to ask a question the property already answers, which is
+the coupling the property exists to prevent.
+
 The label, the short name and the colour token were three dicts keyed by member,
 with a fourth derived from one of them. Adding a type and forgetting one was a
 KeyError on the booking path with mypy clean and the suite green: four places to
@@ -196,11 +201,17 @@ database is the single commonest thing this enum does. One table and the check
 below buys the same guarantee without spending that.
 """
 
-_undeclared = set(AbsenceType) - set(_DETAILS)
-if _undeclared:  # pragma: no cover - fails at import, before anything runs
-    _names = ", ".join(sorted(kind.name for kind in _undeclared))
-    _msg = f"AbsenceType members with no details declared: {_names}"
-    raise RuntimeError(_msg)
+
+def undeclared_types() -> frozenset[AbsenceType]:
+    """Members with no row in the table above, which must be none of them.
+
+    A member added without details is a `KeyError` on `.label` at the moment
+    somebody books that type. This ran at import and left three temporaries --
+    `_undeclared`, `_names`, `_msg` -- in the module namespace for the life of
+    the process to do it. It is a structural invariant, and `tests/test_layering.py`
+    already establishes that those are stated as a test here.
+    """
+    return frozenset(AbsenceType) - frozenset(_DETAILS)
 
 
 class Verdict(enum.Enum):

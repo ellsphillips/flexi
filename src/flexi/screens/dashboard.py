@@ -336,7 +336,7 @@ class DashboardScreen(Screen[None]):
     def _report(self, result: Outcome, scope: Scope = Scope.CLOCK) -> None:
         """Put a service result on the status bar, and redraw if it wrote."""
         success = result.success
-        message = _with_time(result.message, result)
+        message = with_time(result.message, result)
         if success and result.warning:
             self.status(result.warning, Tone.WARN)
         else:
@@ -351,7 +351,7 @@ class DashboardScreen(Screen[None]):
             footer.set_status(message, tone)
 
 
-def _with_time(message: str, result: Outcome) -> str:
+def with_time(message: str, result: Outcome) -> str:
     """Stamp a clock result with the moment it recorded.
 
     "Clocked out" is a fact about the past tense; "Clocked out at 12:04" is a

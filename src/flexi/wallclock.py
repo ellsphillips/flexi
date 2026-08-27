@@ -33,6 +33,12 @@ class _Pin:
 
 
 _PIN = _Pin()
+"""The one pin every reading in this process goes through.
+
+Private because a public handle on it is a way for anything to move the clock
+out from under everything else. `pinned` is the seam; this is where it keeps
+its state.
+"""
 
 
 @contextmanager

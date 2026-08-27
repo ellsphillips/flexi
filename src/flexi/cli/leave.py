@@ -143,7 +143,7 @@ def run(
         raise click.UsageError(str(error)) from error
 
     if kind is None:
-        return _cancel(services, start, end, assume_yes=assume_yes, dry_run=dry_run)
+        return cancel(services, start, end, assume_yes=assume_yes, dry_run=dry_run)
 
     if kind is AbsenceType.OTHER and not (note or "").strip():
         msg = "Other leave needs --note saying what it is"
@@ -172,7 +172,7 @@ def run(
     return 0
 
 
-def _cancel(
+def cancel(
     services: Services,
     start: date,
     end: date,

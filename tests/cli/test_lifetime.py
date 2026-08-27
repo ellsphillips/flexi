@@ -108,14 +108,14 @@ def test_a_command_uses_one_registry_rather_than_building_a_second(
     no second lookup that could reach a different one.
     """
     seen: list[Services] = []
-    original = main._open_database
+    original = main.open_database
 
     def watching(ctx: click.Context) -> main.Handles:
         handles = original(ctx)
         seen.append(handles.services)
         return handles
 
-    monkeypatch.setattr(main, "_open_database", watching)
+    monkeypatch.setattr(main, "open_database", watching)
     CliRunner().invoke(cli, ["balance", "show"])
 
     assert seen, "the command should open the database"

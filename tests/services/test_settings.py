@@ -249,7 +249,7 @@ def test_a_time_that_cannot_be_read_is_refused_rather_than_stored(
     """It used to be stored unchecked, and then nothing would open.
 
     Saving succeeded, `is_initialised()` said yes, and every command after it
-    died unpacking the value -- from `_open_database` on the CLI and from
+    died unpacking the value -- from `open_database` on the CLI and from
     `App.on_mount` before a screen was drawn. The only way out was Start again,
     which erases the records.
 
