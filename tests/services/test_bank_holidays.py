@@ -17,7 +17,11 @@ from sqlalchemy.orm import Session
 
 from flexi.constants import Division
 from flexi.models.database.db import BankHolidayCache
-from flexi.services.bank_holidays import BankHolidayService
+from flexi.services.bank_holidays import (
+    BankHolidayService,
+    ParsedBankHoliday,
+    parse_bank_holidays,
+)
 
 
 def reading(division: Division) -> Callable[[], Division]:
@@ -228,45 +232,54 @@ class TestFetchingTheIndex:
             is None
         )
 
-    def test_a_division_the_index_does_not_carry_caches_nothing(
-        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param([], id="the root is a list"),
+            pytest.param({"england-and-wales": []}, id="the division is a list"),
+            pytest.param(
+                {"england-and-wales": {"events": None}},
+                id="events is not a list",
+            ),
+            pytest.param(
+                {"england-and-wales": {"events": [None]}}, id="an event is null"
+            ),
+            pytest.param(
+                {
+                    "england-and-wales": {
+                        "events": [{"title": "Nonsense", "date": "someday"}]
+                    }
+                },
+                id="a date is malformed",
+            ),
+            pytest.param(
+                {
+                    "england-and-wales": {
+                        "events": [{"title": None, "date": "2026-01-01"}]
+                    }
+                },
+                id="a title is malformed",
+            ),
+            pytest.param({}, id="the configured division is missing"),
+        ],
+    )
+    def test_a_malformed_response_leaves_the_old_calendar_standing(
+        self,
+        session: Session,
+        monkeypatch: pytest.MonkeyPatch,
+        payload: object,
     ) -> None:
-        """Northern Ireland is missing from this payload, so there is no calendar.
-
-        `is_available` must still say no, because "fetched successfully and
-        found nothing" is exactly the state that makes the ledger charge a full
-        day against every bank holiday.
-        """
-        svc = BankHolidayService(session, reading(Division.NORTHERN_IRELAND))
-        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
-
-        assert svc.fetch_and_cache() is True
-        assert svc.is_available() is False
-
-    def test_an_event_that_cannot_be_read_costs_only_itself(
-        self, session: Session, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """One malformed entry must not cost the year.
-
-        The whole payload is parsed in one pass, so a date GOV.UK writes in a
-        shape `date.fromisoformat` cannot read — or an entry with no date at
-        all — would otherwise take every holiday after it down with it.
-        """
-        payload = {
-            "england-and-wales": {
-                "events": [
-                    {"title": "New Year's Day", "date": "2026-01-01"},
-                    {"title": "Nonsense", "date": "the third of June"},
-                    {"title": "Dateless"},
-                    {"title": "Christmas Day", "date": "2026-12-25"},
-                ]
-            }
-        }
+        """A partial new calendar is less trustworthy than the complete old one."""
+        _seed_cache(session)
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         monkeypatch.setattr(httpx.Client, "get", _answering(payload))
 
-        assert svc.fetch_and_cache() is True
-        assert svc.get_dates() == {date(2026, 1, 1), date(2026, 12, 25)}
+        assert svc.fetch_and_cache() is False
+        assert svc.get_dates() == {
+            date(2026, 1, 1),
+            date(2026, 4, 3),
+            date(2026, 12, 25),
+        }
 
     def test_an_event_with_no_title_is_still_a_day_off(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
@@ -279,6 +292,17 @@ class TestFetchingTheIndex:
         assert svc.fetch_and_cache() is True
         assert svc.holiday_on(date(2026, 1, 1)) is not None
         assert svc.holiday_on(date(2026, 1, 1)) == ""
+
+    def test_the_public_parser_returns_typed_immutable_events(self) -> None:
+        assert parse_bank_holidays(SAMPLE_RESPONSE, Division.SCOTLAND) == (
+            ParsedBankHoliday(date=date(2026, 1, 1), title="New Year's Day"),
+            ParsedBankHoliday(date=date(2026, 11, 30), title="St Andrew's Day"),
+        )
+
+    def test_an_explicitly_empty_calendar_is_valid(self) -> None:
+        assert (
+            parse_bank_holidays({"scotland": {"events": []}}, Division.SCOTLAND) == ()
+        )
 
     def test_an_empty_cache_is_filled_from_the_index(
         self, session: Session, monkeypatch: pytest.MonkeyPatch

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, date, timedelta
 
 from sqlalchemy import delete, select
@@ -13,6 +14,57 @@ from flexi.models.database.db import BankHolidayCache
 GOVUK_URL = "https://www.gov.uk/bank-holidays.json"
 CACHE_MAX_AGE = timedelta(days=7)
 REQUEST_TIMEOUT = 5.0
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedBankHoliday:
+    """One validated event from the GOV.UK bank-holiday index."""
+
+    date: date
+    title: str
+
+
+def parse_bank_holidays(
+    payload: object, division: Division
+) -> tuple[ParsedBankHoliday, ...] | None:
+    """Validate one division of the GOV.UK response without side effects.
+
+    ``None`` means the response cannot be trusted. Validation is deliberately
+    atomic: replacing a complete cached calendar with a partial response would
+    silently turn every omitted holiday into a working day. An empty tuple is a
+    valid, explicitly empty ``events`` list and remains distinct from failure.
+
+    A missing title is accepted as an empty label because the date is the fact
+    the ledger needs. A title that is present but is not text is malformed.
+    """
+    if not isinstance(payload, Mapping):
+        return None
+
+    division_payload: object = payload.get(division.value)
+    if not isinstance(division_payload, Mapping):
+        return None
+
+    raw_events: object = division_payload.get("events")
+    if not isinstance(raw_events, list):
+        return None
+
+    parsed: list[ParsedBankHoliday] = []
+    for raw_event in raw_events:
+        event: object = raw_event
+        if not isinstance(event, Mapping):
+            return None
+
+        raw_date: object = event.get("date")
+        raw_title: object = event.get("title", "")
+        if not isinstance(raw_date, str) or not isinstance(raw_title, str):
+            return None
+        try:
+            when = date.fromisoformat(raw_date)
+        except ValueError:
+            return None
+        parsed.append(ParsedBankHoliday(date=when, title=raw_title))
+
+    return tuple(parsed)
 
 
 class BankHolidayService:
@@ -82,7 +134,9 @@ class BankHolidayService:
             return False
 
         division = self.division
-        events = data.get(division, {}).get("events", [])
+        events = parse_bank_holidays(data, division)
+        if events is None:
+            return False
         now = wallclock.utc_now().replace(tzinfo=None)
 
         # Clear old cache for this division
@@ -91,16 +145,11 @@ class BankHolidayService:
         )
 
         for event in events:
-            try:
-                when = date.fromisoformat(event["date"])
-                title = event.get("title", "")
-            except (KeyError, ValueError):
-                continue
             self._session.add(
                 BankHolidayCache(
                     division=division,
-                    date=when,
-                    title=title,
+                    date=event.date,
+                    title=event.title,
                     fetched_at=now,
                 )
             )
