@@ -26,6 +26,7 @@ LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
             "DEFAULT_CONTRACTED_MINUTES",
             "DEFAULT_WINDOW_END",
             "DEFAULT_WINDOW_START",
+            "SETTINGS_SINGLETON_KEY",
             "AbsenceDay",
             "BalanceAdjustment",
             "BankHolidayCache",

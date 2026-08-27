@@ -22,7 +22,12 @@ from alembic.script import ScriptDirectory
 
 from flexi.constants import AbsenceType, Portion
 from flexi.locations import backups_directory, ensure
-from flexi.models.database.db import AbsenceDay, Base, Settings
+from flexi.models.database.db import (
+    AbsenceDay,
+    Base,
+    Settings,
+    WorkSession,
+)
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import HEAD as RECORDED_HEAD
 from flexi.models.database.migrate import (
@@ -32,6 +37,7 @@ from flexi.models.database.migrate import (
 )
 
 BEFORE_HALF_DAYS = "0006"
+BEFORE_INVARIANTS = "0010"
 HEAD = "head"
 
 
@@ -247,6 +253,121 @@ def test_work_sessions_keep_their_events_across_the_upgrade(db: Path) -> None:
     upgrade(db, HEAD)
     assert len(rows(db, "work_sessions")) == 1
     assert len(rows(db, "clock_events")) == 1
+
+
+def test_valid_legacy_states_survive_the_invariant_upgrade(db: Path) -> None:
+    """0011 adds enforcement without rewriting any valid user record."""
+    upgrade(db, BEFORE_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO settings"
+                " (id, leave_year_start, working_days, bank_holiday_division,"
+                "  auto_close_time)"
+                " VALUES (41, '04-06', '0,1,2,3,4',"
+                " 'england-and-wales', '18:00')"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes)"
+                " VALUES (51, 'IN', '2026-06-10 09:00:00', 'user', 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (61, 51, NULL, '2026-06-10', 0, 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO absence_days (id, date, absence_type, portion)"
+                " VALUES"
+                " (71, '2026-06-11', 'SICK', 'AM'),"
+                " (72, '2026-06-11', 'ANNUAL', 'PM')"
+            )
+        )
+        connection.commit()
+    engine.dispose()
+
+    upgrade(db, HEAD)
+
+    session = get_session(create_db_engine(db))
+    try:
+        settings = session.query(Settings).one()
+        assert settings.id == 41
+        assert settings.singleton_key == 1
+        assert session.query(WorkSession).one().id == 61
+        assert [
+            item.id for item in session.query(AbsenceDay).order_by(AbsenceDay.id)
+        ] == [
+            71,
+            72,
+        ]
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize(
+    ("statements", "expected"),
+    [
+        (
+            (
+                "INSERT INTO settings"
+                " (id, leave_year_start, working_days, bank_holiday_division,"
+                " auto_close_time) VALUES"
+                " (1, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00'),"
+                " (2, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00')",
+            ),
+            "settings has 2 rows",
+        ),
+        (
+            (
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'IN', '2026-06-10 10:00:00', 'user', 0)",
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES"
+                " (1, 1, NULL, '2026-06-10', 0, 0),"
+                " (2, 2, NULL, '2026-06-10', 0, 0)",
+            ),
+            "work_sessions has 2 non-voided open rows",
+        ),
+        (
+            (
+                "INSERT INTO absence_days (id, date, absence_type, portion)"
+                " VALUES"
+                " (1, '2026-06-10', 'ANNUAL', 'FULL'),"
+                " (2, '2026-06-10', 'SICK', 'AM')",
+            ),
+            "absence_days mixes FULL with a half on: 2026-06-10",
+        ),
+    ],
+)
+def test_ambiguous_legacy_states_fail_before_the_schema_changes(
+    db: Path,
+    statements: tuple[str, ...],
+    expected: str,
+) -> None:
+    """The migration names records a person must resolve instead of choosing."""
+    upgrade(db, BEFORE_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        for statement in statements:
+            connection.execute(sa.text(statement))
+        connection.commit()
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match=expected):
+        upgrade(db, HEAD)
+
+    assert revision_of(db) == BEFORE_INVARIANTS
 
 
 def test_head_downgrades_and_upgrades_again(db: Path) -> None:
