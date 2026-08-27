@@ -28,9 +28,10 @@ PAYLOAD: dict[str, Any] = {
             {"title": "Summer bank holiday", "date": "2026-08-31"},
             {"title": "Christmas Day", "date": "2026-12-25"},
         ],
-    }
+    },
+    "scotland": {"division": "scotland", "events": []},
 }
-"""The shape GOV.UK publishes, cut down to two dates."""
+"""The shape GOV.UK publishes: two English dates and an empty Scottish list."""
 
 
 class _Answered:
