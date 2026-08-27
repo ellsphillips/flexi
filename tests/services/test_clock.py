@@ -126,7 +126,9 @@ class TestRollback:
         with pytest.raises(RuntimeError, match="boom"):
             svc.clock_in()
 
-        rollback.assert_called_once_with()
+        # One rollback ends the read-only preflight transaction before the
+        # write reservation; the second recovers the failed commit.
+        assert rollback.call_count == 2
         events = session.execute(select(ClockEvent)).scalars().all()
         sessions = session.execute(select(WorkSession)).scalars().all()
         assert len(events) == 0

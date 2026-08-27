@@ -7,16 +7,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import ClockAction, EventSource
+from flexi.constants import EventSource
 from flexi.domain.format import spoken
 from flexi.models.database.db import AbsenceDay, WorkSession
-from flexi.models.database.moment import moment_of, punched
+from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
-from flexi.services.transactions import atomic
-from flexi.services.work_sessions import stage_clock_out
+from flexi.services.transactions import atomic, write_transaction
+from flexi.services.work_sessions import stage_clock_in, stage_clock_out
 
 __all__ = ("ClockResult", "ClockService")
 
@@ -97,44 +97,43 @@ class ClockService:
     ) -> ClockResult:
         """Clock in. Rejects duplicate clock-in without creating audit rows."""
         self.sweep()
-        # The refusal carries the session, so a caller does not have to go back
-        # and ask what is already in hand.
-        running = self.get_open_session()
-        if running is not None:
-            return ClockResult(
-                success=False, message="Already clocked in", session=running
+        with write_transaction(self._session):
+            # The refusal carries the session, so a caller does not have to go back
+            # and ask what is already in hand.
+            running = self.get_open_session()
+            if running is not None:
+                return ClockResult(
+                    success=False, message="Already clocked in", session=running
+                )
+
+            moment = wallclock.local(now) if now is not None else wallclock.now()
+            work_date = moment.date()
+
+            # Block clocking on bank holidays (if data available)
+            if self._holidays.holiday_on(work_date) is not None:
+                return ClockResult(
+                    success=False, message="Cannot clock in on a bank holiday"
+                )
+
+            # `scalar_one_or_none` here raised outright on two rows, which is the
+            # one arrangement `AbsenceService` documents as legal: a sick morning
+            # and an annual afternoon. Booking those made the next morning's
+            # `flexi clock in` a traceback.
+            stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
+            booked = self._session.execute(stmt).scalars().all()
+            if covers_the_whole_day(booked):
+                return ClockResult(
+                    success=False, message="Cannot clock in on an absence day"
+                )
+
+            work_session = stage_clock_in(
+                self._session,
+                moment,
+                work_date,
+                source=source,
             )
-
-        moment = wallclock.local(now) if now is not None else wallclock.now()
-        work_date = moment.date()
-
-        # Block clocking on bank holidays (if data available)
-        if self._holidays.holiday_on(work_date) is not None:
-            return ClockResult(
-                success=False, message="Cannot clock in on a bank holiday"
-            )
-
-        # `scalar_one_or_none` here raised outright on two rows, which is the
-        # one arrangement `AbsenceService` documents as legal: a sick morning
-        # and an annual afternoon. Booking those made the next morning's
-        # `flexi clock in` a traceback.
-        stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
-        booked = self._session.execute(stmt).scalars().all()
-        if covers_the_whole_day(booked):
-            return ClockResult(
-                success=False, message="Cannot clock in on an absence day"
-            )
-
-        event = punched(ClockAction.IN, moment, source=source)
-        with atomic(self._session):
-            self._session.add(event)
-            self._session.flush()
-
-            work_session = WorkSession(
-                clock_in_id=event.id,
-                work_date=work_date,
-            )
-            self._session.add(work_session)
+            if work_session is None:
+                return ClockResult(success=False, message="Already clocked in")
 
         return ClockResult(
             success=True,

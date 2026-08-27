@@ -1,23 +1,57 @@
 """Composable persistence operations for work sessions.
 
-Clock events are immutable, so closing a session is a two-row write: create an
-OUT event, then link the still-open session to it.  The link is conditional so
-two application sessions cannot both report success while leaving one event
-orphaned.
+Clock events are immutable, so opening or closing a session is a two-row write:
+create an event, then link the one session that won the corresponding database
+claim. The conditional writes stop two application sessions both reporting
+success and leave no speculative event behind for the losing writer.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import update
+from sqlalchemy import select, update
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction, EventSource
 from flexi.models.database.db import WorkSession
 from flexi.models.database.moment import punched
 
-__all__ = ("stage_clock_out",)
+__all__ = ("stage_clock_in", "stage_clock_out")
+
+
+def stage_clock_in(
+    session: Session,
+    opened_at: datetime,
+    work_date: date,
+    *,
+    source: EventSource,
+) -> WorkSession | None:
+    """Stage a clock-in unless another writer already opened a session.
+
+    SQLite's partial unique index is the final authority. ``ON CONFLICT`` turns
+    the expected losing writer into ``None`` rather than leaking an
+    ``IntegrityError`` through the result-oriented service API. Its speculative
+    IN event is deleted in the same transaction, preserving the immutable audit
+    trail without an orphan.
+    """
+    event = punched(ClockAction.IN, opened_at, source=source)
+    session.add(event)
+    session.flush()
+
+    created_id = session.execute(
+        insert(WorkSession)
+        .values(clock_in_id=event.id, work_date=work_date)
+        .on_conflict_do_nothing()
+        .returning(WorkSession.id)
+    ).scalar_one_or_none()
+    if created_id is None:
+        session.delete(event)
+        return None
+    return session.scalars(
+        select(WorkSession).where(WorkSession.id == created_id)
+    ).one()
 
 
 def stage_clock_out(

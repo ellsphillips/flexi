@@ -131,7 +131,7 @@ if TYPE_CHECKING:
     from flexi.services.startup import close_stale_sessions
     from flexi.services.transactions import atomic, write_transaction
     from flexi.services.wallet import WalletService
-    from flexi.services.work_sessions import stage_clock_out
+    from flexi.services.work_sessions import stage_clock_in, stage_clock_out
 
 _SUBMODULES: Final = (
     "absence",
@@ -245,6 +245,7 @@ _EXPORTS: Final = MappingProxyType(
         "atomic": ("transactions", "atomic"),
         "write_transaction": ("transactions", "write_transaction"),
         "WalletService": ("wallet", "WalletService"),
+        "stage_clock_in": ("work_sessions", "stage_clock_in"),
         "stage_clock_out": ("work_sessions", "stage_clock_out"),
     }
 )
@@ -356,6 +357,7 @@ __all__ = (  # noqa: RUF022
     "atomic",
     "write_transaction",
     "WalletService",
+    "stage_clock_in",
     "stage_clock_out",
 )
 

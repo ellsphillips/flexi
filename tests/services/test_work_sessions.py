@@ -11,10 +11,40 @@ from flexi.constants import ClockAction, EventSource
 from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.models.database.moment import punched
 from flexi.services.transactions import atomic
-from flexi.services.work_sessions import stage_clock_out
+from flexi.services.work_sessions import stage_clock_in, stage_clock_out
 
 MONDAY = date(2026, 8, 10)
 NINE = datetime(2026, 8, 10, 9, tzinfo=UTC)
+
+
+def test_two_writers_cannot_both_open_a_session(engine: Engine) -> None:
+    with Session(engine) as first, Session(engine) as second:
+        with atomic(first):
+            first_session = stage_clock_in(
+                first,
+                NINE,
+                MONDAY,
+                source=EventSource.USER,
+            )
+        with atomic(second):
+            second_session = stage_clock_in(
+                second,
+                NINE + timedelta(minutes=1),
+                MONDAY,
+                source=EventSource.SYSTEM,
+            )
+
+    with Session(engine) as check:
+        work_sessions = check.scalars(select(WorkSession)).all()
+        clock_ins = check.scalars(
+            select(ClockEvent).where(ClockEvent.action == ClockAction.IN)
+        ).all()
+
+    assert first_session is not None
+    assert second_session is None
+    assert len(work_sessions) == 1
+    assert len(clock_ins) == 1
+    assert work_sessions[0].clock_in_id == clock_ins[0].id
 
 
 def test_two_writers_cannot_both_close_one_session(engine: Engine) -> None:
