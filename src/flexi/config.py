@@ -13,7 +13,6 @@ the property that matters rather than the count.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -124,7 +123,7 @@ def load_config(path: Path | None = None) -> Config:
     """
     path = path or config_file()
     try:
-        raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
         return Config()
     if not isinstance(raw, dict):
@@ -135,7 +134,7 @@ def load_config(path: Path | None = None) -> Config:
     )
 
 
-def section[T: BaseModel](model: type[T], raw: Any) -> T:
+def section[T: BaseModel](model: type[T], raw: object) -> T:
     """One section of the file, or that section's defaults."""
     if not isinstance(raw, dict):
         return model()

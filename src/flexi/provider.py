@@ -8,12 +8,13 @@ why the keymap can stay small.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from textual.command import DiscoveryHit, Hit, Hits, Provider
+from textual.types import IgnoreReturnCallbackType
 
 from flexi.components.chrome import NAV_ITEMS
 from flexi.constants import AbsenceType, Granularity
@@ -105,7 +106,7 @@ class _Command:
 
     title: str
     help: str
-    run: Callable[[], Any]
+    run: IgnoreReturnCallbackType
 
 
 def refresh_holidays(app: FlexiApp) -> None:

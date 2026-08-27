@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from sqlalchemy import URL, Engine, create_engine, event
+from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import ConnectionPoolEntry
 
 from flexi.locations import database_file
 
@@ -12,8 +13,8 @@ __all__ = ("create_db_engine", "enforce_foreign_keys", "get_session")
 
 
 def enforce_foreign_keys(
-    dbapi_connection: Any,
-    _connection_record: Any,
+    dbapi_connection: DBAPIConnection,
+    _connection_record: ConnectionPoolEntry,
 ) -> None:
     """Enable SQLite foreign key enforcement on every connection.
 

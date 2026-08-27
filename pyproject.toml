@@ -127,7 +127,6 @@ files = ["src/flexi", "tests"]
 exclude = "migrations|dist|build"
 warn_unreachable = true
 show_error_codes = true
-ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 88

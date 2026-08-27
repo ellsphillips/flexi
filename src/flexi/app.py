@@ -11,15 +11,17 @@ allowed to contain one.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
-from pathlib import PurePath
-from typing import Any, ClassVar
+from pathlib import Path, PurePath
+from typing import ClassVar
 
 from textual import events, log
 from textual import work as textual_work
 from textual.app import App as TextualApp
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
+from textual.command import Provider
 from textual.css.query import NoMatches
 from textual.reactive import Reactive, reactive
 from textual.screen import Screen
@@ -68,7 +70,9 @@ class FlexiApp(TextualApp[None]):
         "styles/leave.tcss",
     ]
 
-    COMMANDS: ClassVar[set[Any]] = {FlexiCommands}
+    COMMANDS: ClassVar[set[type[Provider] | Callable[[], type[Provider]]]] = {
+        FlexiCommands
+    }
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(
@@ -93,7 +97,7 @@ class FlexiApp(TextualApp[None]):
     _jumping: Reactive[bool] = reactive(False, init=False, bindings=True)
     """True while the jump overlay is open."""
 
-    def __init__(self, *, db_path: Any = None) -> None:
+    def __init__(self, *, db_path: Path | None = None) -> None:
         super().__init__()
         self._engine = create_db_engine(db_path) if db_path else create_db_engine()
         self._session = get_session(self._engine)
