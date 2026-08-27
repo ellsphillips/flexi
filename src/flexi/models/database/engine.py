@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from sqlalchemy import URL, Engine, create_engine, event
@@ -9,7 +11,12 @@ from sqlalchemy.pool import ConnectionPoolEntry
 
 from flexi.locations import database_file
 
-__all__ = ("create_db_engine", "enforce_foreign_keys", "get_session")
+__all__ = (
+    "create_db_engine",
+    "database_scope",
+    "enforce_foreign_keys",
+    "get_session",
+)
 
 
 def enforce_foreign_keys(
@@ -51,3 +58,21 @@ def get_session(engine: Engine) -> Session:
     SQLite file open, which is what stops `flexi init` deleting it.
     """
     return Session(engine)
+
+
+@contextmanager
+def database_scope(db_path: Path | None = None) -> Iterator[tuple[Engine, Session]]:
+    """Own one engine and session for exactly as long as a caller needs them.
+
+    Each cleanup is registered immediately after its resource is acquired. If
+    session construction fails, the engine is therefore still disposed; if
+    anything later in the caller fails, the session is closed before its engine.
+    An :class:`~contextlib.ExitStack` also lets a longer-lived owner transfer or
+    embed this scope without duplicating the cleanup operations.
+    """
+    with ExitStack() as resources:
+        engine = create_db_engine(db_path)
+        resources.callback(engine.dispose)
+        session = get_session(engine)
+        resources.callback(session.close)
+        yield engine, session

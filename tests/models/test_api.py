@@ -14,7 +14,7 @@ import pytest
 
 from flexi import models
 from flexi.models import database
-from flexi.models.database import backup, db, engine, migrate, moment
+from flexi.models.database import backup, db, engine, invariants, migrate, moment
 
 LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
     (
@@ -40,14 +40,33 @@ LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
     ),
     (
         engine,
-        ("create_db_engine", "enforce_foreign_keys", "get_session"),
+        (
+            "create_db_engine",
+            "database_scope",
+            "enforce_foreign_keys",
+            "get_session",
+        ),
+    ),
+    (
+        invariants,
+        (
+            "CLOCK_EVENT_UPDATE_ERROR",
+            "CLOCK_EVENT_UPDATE_TRIGGER",
+            "clock_event_update_trigger_sql",
+            "create_clock_event_update_trigger",
+            "drop_clock_event_update_trigger",
+            "drop_clock_event_update_trigger_sql",
+            "register_clock_event_immutability",
+        ),
     ),
     (
         migrate,
         (
             "HEAD",
             "MAX_BACKUPS",
+            "DatabaseRevision",
             "MigrationConfig",
+            "RevisionState",
             "alembic_config",
             "backup_database",
             "current_revision",

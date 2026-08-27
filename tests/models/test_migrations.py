@@ -19,6 +19,7 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from sqlalchemy.exc import DatabaseError
 
 from flexi.constants import AbsenceType, Portion
 from flexi.locations import backups_directory, ensure
@@ -32,13 +33,110 @@ from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import HEAD as RECORDED_HEAD
 from flexi.models.database.migrate import (
     MAX_BACKUPS,
+    DatabaseRevision,
+    RevisionState,
     alembic_config,
+    current_revision,
     run_migrations,
 )
 
 BEFORE_HALF_DAYS = "0006"
 BEFORE_INVARIANTS = "0010"
 HEAD = "head"
+
+
+def test_revision_result_rejects_contradictory_states() -> None:
+    """A caller cannot manufacture a result whose state disagrees with its data."""
+    with pytest.raises(ValueError, match="must carry a revision"):
+        DatabaseRevision(RevisionState.STAMPED)
+    with pytest.raises(ValueError, match="cannot carry a revision"):
+        DatabaseRevision(RevisionState.ABSENT, "0001")
+
+
+def test_revision_inspection_distinguishes_missing_and_empty_databases(
+    db: Path,
+) -> None:
+    assert current_revision(db) == DatabaseRevision(RevisionState.ABSENT)
+
+    sqlite3.connect(db).close()
+
+    assert current_revision(db) == DatabaseRevision(RevisionState.EMPTY)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "CREATE TABLE records (id INTEGER PRIMARY KEY)",
+        "CREATE VIEW records AS SELECT 1 AS id",
+    ],
+)
+def test_revision_inspection_identifies_an_unstamped_schema(
+    db: Path, schema: str
+) -> None:
+    with sqlite3.connect(db) as connection:
+        connection.execute(schema)
+
+    assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
+
+
+def test_revision_inspection_identifies_an_empty_stamp_table(db: Path) -> None:
+    with sqlite3.connect(db) as connection:
+        connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+
+    assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
+
+
+def test_revision_inspection_carries_the_database_stamp(db: Path) -> None:
+    upgrade(db, BEFORE_HALF_DAYS)
+
+    assert current_revision(db) == DatabaseRevision(
+        RevisionState.STAMPED, BEFORE_HALF_DAYS
+    )
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        (("0001", "0002"), "multiple migration revisions"),
+        ((None,), "invalid migration revision"),
+    ],
+)
+def test_revision_inspection_refuses_ambiguous_stamps(
+    db: Path, rows: tuple[str | None, ...], message: str
+) -> None:
+    with sqlite3.connect(db) as connection:
+        connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+        connection.executemany(
+            "INSERT INTO alembic_version VALUES (?)", ((row,) for row in rows)
+        )
+
+    with pytest.raises(RuntimeError, match=message):
+        current_revision(db)
+
+
+def test_a_corrupt_database_is_not_mistaken_for_a_fresh_one(db: Path) -> None:
+    db.write_bytes(b"not a sqlite database")
+
+    with pytest.raises(DatabaseError, match="not a database"):
+        run_migrations(db)
+
+    assert db.read_bytes() == b"not a sqlite database"
+
+
+def test_an_unstamped_existing_schema_is_not_assumed_to_belong_to_flexi(
+    db: Path,
+) -> None:
+    with sqlite3.connect(db) as connection:
+        connection.execute("CREATE TABLE somebody_elses_data (value TEXT)")
+        connection.execute("INSERT INTO somebody_elses_data VALUES ('kept')")
+
+    with pytest.raises(RuntimeError, match="unstamped schema"):
+        run_migrations(db)
+
+    with sqlite3.connect(db) as connection:
+        assert connection.execute(
+            "SELECT value FROM somebody_elses_data"
+        ).fetchone() == ("kept",)
 
 
 def test_the_recorded_head_is_the_head_alembic_would_find(db: Path) -> None:
@@ -56,17 +154,17 @@ def test_the_recorded_head_is_the_head_alembic_would_find(db: Path) -> None:
 def test_a_file_that_was_never_migrated_is_migrated_rather_than_refused(
     db: Path,
 ) -> None:
-    """An interrupted first run leaves a database with no `alembic_version`.
+    """A schema-empty file is fresh even though the filesystem entry exists.
 
-    The cheap revision check queries that table directly, so the case has to
-    read as "never migrated" rather than raise -- otherwise the one file that
-    needs the migration most is the one that cannot get it.
+    It has nothing for a recovery copy to protect, so it follows the same path
+    as an absent file rather than the unsafe unstamped-schema path.
     """
     db.touch()
 
     run_migrations(db)
 
     assert revision_of(db) == RECORDED_HEAD
+    assert not list(backups_directory().glob("*.bak"))
 
 
 @pytest.fixture
@@ -433,6 +531,20 @@ def test_upgrading_an_existing_database_snapshots_it_as_it_was(db: Path) -> None
     with alembic_config(db) as cfg:
         head = ScriptDirectory.from_config(cfg).get_current_head()
     assert revision_of(db) == head
+
+
+def test_an_upgrade_refuses_a_backup_that_does_not_verify(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Alembic never sees a stamped database without a proven way back."""
+    upgrade(db, BEFORE_HALF_DAYS)
+    monkeypatch.setattr("flexi.models.database.migrate.verify", lambda _path: False)
+
+    with pytest.raises(RuntimeError, match="backup did not verify"):
+        run_migrations(db)
+
+    assert revision_of(db) == BEFORE_HALF_DAYS
+    assert len(list(backups_directory().glob("*.bak"))) == 1
 
 
 def test_the_backup_an_upgrade_takes_ages_out_the_oldest_one(db: Path) -> None:

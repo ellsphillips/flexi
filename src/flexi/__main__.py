@@ -140,21 +140,18 @@ NOT_INITIALISED = (
 
 @dataclass(frozen=True, slots=True)
 class Handles:
-    """An open database, and the means to let go of it.
+    """The open database values handed to one command.
 
     Handed to the command by :func:`requires_setup` rather than fished back out
     of ``ctx.obj``, which Click types as ``Any`` -- thirteen accesses that
     ``mypy --strict`` could not check, and a rename away from failing at
-    runtime. It stays on the context for ``ctx.call_on_close``.
+    runtime. The Click context owns their lifetime through ``database_scope``;
+    this class only models the values and cannot accidentally close them twice.
     """
 
     engine: DatabaseEngine
     session: DatabaseSession
     services: ServiceRegistry
-
-    def close(self) -> None:
-        self.session.close()
-        self.engine.dispose()
 
 
 def as_of_option[ReturnT](
@@ -226,20 +223,18 @@ def open_database(ctx: click.Context) -> Handles:
     failure was unreachable -- which is to say the session and the engine leaked
     on exactly the paths where something had already gone wrong.
     """
-    from flexi.models.database.engine import create_db_engine, get_session
+    from flexi.models.database.engine import database_scope
     from flexi.models.database.migrate import run_migrations
     from flexi.services.registry import build_services
 
     run_migrations()
-    engine = create_db_engine()
-    session = get_session(engine)
+    engine, session = ctx.with_resource(database_scope())
     services = build_services(session)
     services.clock.sweep()
     services.bank_holidays.fill_if_empty()
 
     handles = Handles(engine=engine, session=session, services=services)
     ctx.obj = handles
-    ctx.call_on_close(handles.close)
     return handles
 
 
@@ -275,7 +270,7 @@ def run_demo() -> None:
 
     from flexi.app import FlexiApp
     from flexi.models.database.db import Base
-    from flexi.models.database.engine import create_db_engine, get_session
+    from flexi.models.database.engine import database_scope
     from flexi.services.samples import seed_demo
 
     # `ignore_cleanup_errors`, because the last thing a demo may do is fail to
@@ -288,12 +283,9 @@ def run_demo() -> None:
         prefix="flexi-demo-", ignore_cleanup_errors=True
     ) as directory:
         path = Path(directory) / "demo.db"
-        engine = create_db_engine(path)
-        Base.metadata.create_all(engine)
-        session = get_session(engine)
-        seed_demo(session, anchor=wallclock.today())
-        session.close()
-        engine.dispose()
+        with database_scope(path) as (engine, session):
+            Base.metadata.create_all(engine)
+            seed_demo(session, anchor=wallclock.today())
         FlexiApp(db_path=path).run()
 
 

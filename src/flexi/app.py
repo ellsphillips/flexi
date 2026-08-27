@@ -12,6 +12,7 @@ allowed to contain one.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import ExitStack
 from functools import partial
 from pathlib import Path, PurePath
 from typing import ClassVar
@@ -40,7 +41,7 @@ from flexi.components.jumper import (
 )
 from flexi.config import CONFIG
 from flexi.messages import Scope
-from flexi.models.database.engine import create_db_engine, get_session
+from flexi.models.database.engine import database_scope, get_session
 from flexi.provider import FlexiCommands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings
@@ -101,25 +102,28 @@ class FlexiApp(TextualApp[None]):
 
     def __init__(self, *, db_path: Path | None = None) -> None:
         super().__init__()
-        self._engine = create_db_engine(db_path) if db_path else create_db_engine()
-        self._session = get_session(self._engine)
-        self.services = build_services(self._session)
-        # Before anything can be pushed: `App.theme = x` raises if the theme has
-        # not been registered, and setup is pushed from `on_mount`.
-        self.register_theme(flexi_theme())
-        self.theme = THEME_NAME
-        self.jumper: Jumper | None = None
-        self.show_splash = False
-        """Set by `flexi init`. Only the first run earns the animation."""
-        self.open_settings = False
-        """Set by `flexi init` when the answer chosen there was to change them."""
-        self._pushed: Screen[None] | None = None
-        """The one destination open on top of the dashboard, if any."""
-        """The screen `action_go_to` pushed, so `f1` can dismiss it.
+        with ExitStack() as construction:
+            self._engine, self._session = construction.enter_context(
+                database_scope(db_path)
+            )
+            self.services = build_services(self._session)
+            # Before anything can be pushed: `App.theme = x` raises if the theme has
+            # not been registered, and setup is pushed from `on_mount`.
+            self.register_theme(flexi_theme())
+            self.theme = THEME_NAME
+            self.jumper: Jumper | None = None
+            self.show_splash = False
+            """Set by `flexi init`. Only the first run earns the animation."""
+            self.open_settings = False
+            """Set by `flexi init` when the answer chosen there was to change them."""
+            self._pushed: Screen[None] | None = None
+            """The one destination open on top of the dashboard, if any."""
+            """The screen `action_go_to` pushed, so `f1` can dismiss it.
 
-        Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
-        is typed as `Screen[object]` and narrowing it against a `Screen[None]`
-        gives mypy `Never`."""
+            Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
+            is typed as `Screen[object]` and narrowing it against a `Screen[None]`
+            gives mypy `Never`."""
+            self._database_lifetime = construction.pop_all()
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -160,8 +164,7 @@ class FlexiApp(TextualApp[None]):
         self.push_screen(DashboardScreen(self.services, id="dashboard"))
 
     def on_unmount(self) -> None:
-        self._session.close()
-        self._engine.dispose()
+        self._database_lifetime.close()
 
     @textual_work(thread=True)
     def refresh_holidays(self) -> None:

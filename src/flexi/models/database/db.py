@@ -20,6 +20,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
+from flexi.models.database.invariants import (
+    register_clock_event_immutability as _register_clock_event_immutability,
+)
 
 __all__ = (
     "DEFAULT_CONTRACTED_MINUTES",
@@ -164,6 +167,9 @@ class ClockEvent(Base):
     column back to decide whose timestamps it may rewrite. `create_constraint`
     is already False by default; it is written down because the default is what
     keeps `create_all` from building a schema the migrations never did."""
+
+
+_register_clock_event_immutability(ClockEvent.__table__)
 
 
 class WorkSession(Base):

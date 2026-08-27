@@ -16,11 +16,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import text
-from sqlalchemy.exc import DatabaseError
 
 import flexi
 from flexi.locations import backups_directory, database_file, ensure
@@ -28,13 +29,16 @@ from flexi.models.database.backup import (
     PROTECTED_PREFIX,
     ROUTINE_PREFIX,
     snapshot,
+    verify,
 )
 from flexi.models.database.engine import create_db_engine
 
 __all__ = (
     "HEAD",
     "MAX_BACKUPS",
+    "DatabaseRevision",
     "MigrationConfig",
+    "RevisionState",
     "alembic_config",
     "backup_database",
     "current_revision",
@@ -67,7 +71,7 @@ else:
 
 MAX_BACKUPS = 10
 
-HEAD = "0011"
+HEAD = "0012"
 """The revision a fully migrated database is stamped with.
 
 Written down so the common case -- already at head -- can be settled without
@@ -76,6 +80,46 @@ the script directory and compares.
 """
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class RevisionState(StrEnum):
+    """The safely distinguishable states of a database's migration stamp.
+
+    ``ABSENT`` means there is no file. ``EMPTY`` is an existing, valid SQLite
+    database with no application tables and is therefore just as safe to build
+    from scratch. ``UNSTAMPED`` means some schema exists but cannot be tied to
+    a migration, so upgrading it would require guessing what Alembic may
+    overwrite. ``STAMPED`` carries exactly one revision in
+    :class:`DatabaseRevision`.
+
+    An unreadable, locked, corrupt, or structurally ambiguous database is not
+    a state: :func:`current_revision` raises instead. Treating that failure as
+    ``UNSTAMPED`` or ``ABSENT`` would send the database into the destructive
+    path this inspection exists to guard.
+    """
+
+    ABSENT = "absent"
+    EMPTY = "empty"
+    UNSTAMPED = "unstamped"
+    STAMPED = "stamped"
+
+
+@dataclass(frozen=True, slots=True)
+class DatabaseRevision:
+    """A database's explicit migration state and, when stamped, its revision."""
+
+    state: RevisionState
+    revision: str | None = None
+
+    def __post_init__(self) -> None:
+        """Keep the state and its associated revision impossible to contradict."""
+        if self.state is RevisionState.STAMPED:
+            if not self.revision:
+                msg = "A stamped database revision must carry a revision"
+                raise ValueError(msg)
+        elif self.revision is not None:
+            msg = f"A {self.state.value} database cannot carry a revision"
+            raise ValueError(msg)
 
 
 @contextmanager
@@ -106,24 +150,49 @@ def alembic_config(db_path: Path) -> Iterator[MigrationConfig]:
         engine.dispose()
 
 
-def current_revision(db_path: Path) -> str | None:
-    """The revision the database is stamped with, or ``None`` for an empty one.
+def current_revision(db_path: Path) -> DatabaseRevision:
+    """Inspect the database's stamp without collapsing unsafe states together.
 
-    Read straight out of ``alembic_version`` rather than through
-    ``MigrationContext``, which is the same single-column query with Alembic's
-    import in front of it. A database with no such table has never been
-    migrated, which is the ``None`` this answers.
+    Read straight out of ``sqlite_master`` and ``alembic_version`` rather than
+    through ``MigrationContext``, avoiding Alembic's import on the common path.
+    A missing file, a schema-empty database, an unstamped schema, and a stamped
+    schema are separate results. Database errors deliberately propagate: a
+    locked or corrupt file must never masquerade as a fresh database.
     """
+    if not db_path.exists():
+        return DatabaseRevision(RevisionState.ABSENT)
+
     engine = create_db_engine(db_path)
     try:
         with engine.connect() as connection:
-            row = connection.execute(
-                text("select version_num from alembic_version")
-            ).first()
-    except DatabaseError:
-        return None
-    else:
-        return None if row is None else str(row[0])
+            schema_objects = {
+                (str(row[0]), str(row[1]))
+                for row in connection.execute(
+                    text(
+                        "SELECT type, name FROM sqlite_master "
+                        "WHERE name NOT LIKE 'sqlite_%'"
+                    )
+                )
+            }
+            if not schema_objects:
+                return DatabaseRevision(RevisionState.EMPTY)
+            if ("table", "alembic_version") not in schema_objects:
+                return DatabaseRevision(RevisionState.UNSTAMPED)
+
+            rows = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).all()
+            if not rows:
+                return DatabaseRevision(RevisionState.UNSTAMPED)
+            if len(rows) != 1:
+                msg = "Database carries multiple migration revisions"
+                raise RuntimeError(msg)
+
+            revision = rows[0][0]
+            if not isinstance(revision, str) or not revision:
+                msg = "Database carries an invalid migration revision"
+                raise RuntimeError(msg)
+            return DatabaseRevision(RevisionState.STAMPED, revision)
     finally:
         engine.dispose()
 
@@ -137,7 +206,7 @@ def backup_database(db_path: Path | None = None) -> Path | None:
     taken immediately before a schema change was the one copy in the
     application that could be torn.
 
-    An empty prefix, so these age out under `_cleanup_old_backups`. The
+    An empty prefix, so these age out under :func:`prune_backups`. The
     prefixed ones are the reset snapshots, which never do.
     """
     if db_path is None:
@@ -174,25 +243,38 @@ def prune_backups(directory: Path) -> None:
 
 
 def run_migrations(db_path: Path | None = None) -> None:
-    """Backup the database (if needed) and apply all pending migrations.
+    """Safely apply every pending migration to ``db_path``.
 
     The already-at-head case returns before Alembic is imported at all. It used
     to build a config, parse every script in the versions directory to work out
     the head, and open a second connection to read the stamp -- a hundred and
     forty milliseconds, on every command, to conclude there was nothing to do.
+
+    Missing and schema-empty databases are fresh and need no recovery copy.
+    Existing unstamped schemas are refused. A stamped database is handed to
+    Alembic only after its snapshot passes
+    :func:`flexi.models.database.backup.verify`.
     """
     if db_path is None:
         db_path = database_file()
 
     ensure(db_path.parent)
 
-    if db_path.exists():
-        if current_revision(db_path) == HEAD:
+    revision = current_revision(db_path)
+    if revision.state is RevisionState.UNSTAMPED:
+        msg = "Database has an unstamped schema; migration refused"
+        raise RuntimeError(msg)
+
+    if revision.state is RevisionState.STAMPED:
+        if revision.revision == HEAD:
             return
 
         backup = backup_database(db_path)
         if backup is None:
             msg = "Database file exists but backup failed"
+            raise RuntimeError(msg)
+        if not verify(backup):
+            msg = "Database backup did not verify; migration refused"
             raise RuntimeError(msg)
 
         prune_backups(backups_directory())
