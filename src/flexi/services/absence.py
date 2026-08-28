@@ -149,9 +149,9 @@ class RangeResult:
     """The outcome of booking or clearing a span of days.
 
     Partial by design. Booking a fortnight that crosses a bank holiday should
-    book twelve days and say so, not refuse all fourteen and leave somebody to
-    find the offending one — so this records what happened and what did not,
-    with the reason each day was skipped.
+    book the nine working days it can and say so, not refuse all fourteen and
+    leave somebody to find the offending one — so this records what happened
+    and what did not, with the reason each day was skipped.
     """
 
     booked: tuple[date, ...] = ()

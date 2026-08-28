@@ -10,8 +10,10 @@ uv run pytest -q
 `main` is what has been released, and merging into it starts the release
 pipeline — see [`docs/RELEASING.md`](docs/RELEASING.md).
 
-The hooks run the same commands CI runs, through the same locked environment, so
-a clean commit is a green pipeline.
+The hooks are CI's static job — ruff, the formatter, mypy and `uv lock --check` —
+run through the same locked environment, so lint and types cannot fail on the
+server having passed on your machine. They do not run the suite. Run `pytest`
+yourself before you push.
 
 ## The layout
 

@@ -12,7 +12,7 @@ frozen dataclass, and a protocol asking for a settable attribute is not
 satisfied by one that cannot be set.
 
 `RangeResult` is deliberately not one of these. It is partial by design -- a
-fortnight that books twelve days and says which two it skipped -- and its
+fortnight that books nine days and says which five it skipped -- and its
 message takes the verb that describes what was attempted, which is a different
 shape for a different job. It never reaches the status bar.
 """

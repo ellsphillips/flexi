@@ -46,8 +46,8 @@ and put in the whole summer. A flow that costs a modal, four fields and a confir
 per day is a flow nobody uses twice.
 
 **Refusals are per day, and reported in aggregate.** Booking a fortnight across a
-bank holiday should book twelve days and say so, not refuse all fourteen and
-leave you to find the bad one. `AbsenceService.book_range` returns what it did
+bank holiday should book the nine working days it can and say so, not refuse all
+fourteen and leave you to find the bad one. `AbsenceService.book_range` returns what it did
 and what it skipped, with reasons.
 
 **The wallet is on screen.** The question behind every booking is "can I afford
