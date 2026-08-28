@@ -73,6 +73,7 @@ if TYPE_CHECKING:
         VersionTag,
         footer_key_cost,
         keys_that_fit,
+        stamped,
         strip_entries,
     )
     from flexi.components.common import (
@@ -308,6 +309,7 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "StripEntry",
             "footer_key_cost",
             "keys_that_fit",
+            "stamped",
             "strip_entries",
         ),
         "flexi.components.common": (
@@ -545,6 +547,7 @@ __all__ = (  # noqa: RUF022
     "StripEntry",
     "footer_key_cost",
     "keys_that_fit",
+    "stamped",
     "strip_entries",
     "ALL_TONE_CLASSES",
     "GAUGE_TONE_STYLES",

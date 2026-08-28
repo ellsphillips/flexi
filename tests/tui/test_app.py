@@ -37,7 +37,14 @@ from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import CACHE_MAX_AGE, BankHolidayService
 from flexi.services.samples import NOW
-from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
+from tests.tui.conftest import (
+    READABLE,
+    WIDE,
+    AppFactory,
+    contrast,
+    dashboard,
+    showing,
+)
 
 TODAY = date(2026, 6, 11)
 """The Thursday the frozen clock is standing on."""
@@ -764,9 +771,28 @@ async def test_the_header_names_the_installed_version(
         await pilot.pause()
         tag = version_tag(app)
 
-        assert str(tag.render()) == flexi.__version__
+        assert str(tag.render()) == f"v{flexi.__version__}"
         assert not tag.has_class("-outdated")
         assert tag.tooltip is None
+
+
+async def test_the_version_is_readable_and_matches_the_wordmark(
+    app_factory: AppFactory,
+) -> None:
+    """Two ends of one header, and they are a matched pair.
+
+    It had been drawn in `$c-line`, which is the colour a rule is drawn in --
+    1.37:1 on the header ground, so the number was in the compositor and not on
+    the screen. Measured rather than named: the assertion a stylesheet cannot
+    talk its way out of is the one about the pixels it produced.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        tag, mark = version_tag(app), app.screen.query_one(".wordmark-name")
+
+        assert contrast(tag.colors[3].rgb, tag.background_colors[1].rgb) >= READABLE
+        assert tag.colors[3].rgb == mark.colors[3].rgb, "the same grey as the wordmark"
 
 
 async def test_a_newer_release_is_offered_in_the_header_not_only_in_a_toast(
@@ -784,7 +810,7 @@ async def test_a_newer_release_is_offered_in_the_header_not_only_in_a_toast(
         await pilot.pause()
         tag = version_tag(app)
 
-        assert str(tag.render()) == f"{flexi.__version__} → 99.0.0"
+        assert str(tag.render()) == f"v{flexi.__version__} → v99.0.0"
         assert tag.has_class("-outdated")
         assert "uv tool upgrade flexi" in str(tag.tooltip)
 
@@ -808,7 +834,7 @@ async def test_a_destination_opened_afterwards_hears_about_the_release(
         await pilot.pause()
         await pilot.pause()
 
-        assert str(version_tag(app).render()) == f"{flexi.__version__} → 99.0.0"
+        assert str(version_tag(app).render()) == f"v{flexi.__version__} → v99.0.0"
 
 
 async def test_a_current_build_leaves_every_header_quiet(

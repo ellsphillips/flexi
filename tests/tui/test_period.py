@@ -13,7 +13,7 @@ from flexi.config import CONFIG
 from flexi.constants import Granularity
 from flexi.domain.dates import DAYS_IN_WEEK
 from flexi.services.registry import invalidate_services
-from tests.tui.conftest import WIDE, AppFactory, dashboard
+from tests.tui.conftest import READABLE, WIDE, AppFactory, contrast, dashboard
 
 TODAY = date(2026, 6, 11)
 
@@ -264,30 +264,6 @@ async def test_cycling_the_period_moves_the_window_with_it(
 
 
 # -- and legible once it is tinted -------------------------------------------
-
-READABLE = 3.0
-"""Contrast a day number has to clear against the ground behind it.
-
-Below three to one a dim tone on a lifted ground stops being a number and
-becomes a texture. `$c-line` on the window fill measured 1.02:1 -- the day was
-in the compositor and not on the screen.
-"""
-
-
-def channel(value: int) -> float:
-    scaled = value / 255
-    return scaled / 12.92 if scaled <= 0.04045 else ((scaled + 0.055) / 1.055) ** 2.4
-
-
-def relative_luminance(colour: tuple[int, int, int]) -> float:
-    red, green, blue = (channel(part) for part in colour)
-    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
-
-
-def contrast(foreground: tuple[int, int, int], ground: tuple[int, int, int]) -> float:
-    """The WCAG ratio between two colours, brighter over darker."""
-    pair = sorted((relative_luminance(foreground), relative_luminance(ground)))
-    return (pair[1] + 0.05) / (pair[0] + 0.05)
 
 
 @pytest.mark.parametrize("granularity", list(Granularity))

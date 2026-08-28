@@ -31,7 +31,13 @@ from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
 import flexi
-from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, AppHeader, NavBar
+from flexi.components.chrome import (
+    NAV_BY_SCREEN,
+    NAV_ITEMS,
+    AppHeader,
+    NavBar,
+    stamped,
+)
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import (
     HasFocusTarget,
@@ -272,7 +278,7 @@ class FlexiApp(TextualApp[None]):
             return
         self.call_from_thread(self.update_offered, latest)
         self.notify(
-            f"Update available: {flexi.__version__} → {latest}\n"
+            f"Update available: {stamped(flexi.__version__)} → {stamped(latest)}\n"
             f"Run: uv tool upgrade flexi",
             severity="information",
             timeout=UPDATE_NOTICE_SECONDS,

@@ -96,3 +96,30 @@ def screen_text(app: FlexiApp) -> str:
     """The rendered characters, for assertions about what is actually drawn."""
     strips = app.screen._compositor.render_strips()
     return "\n".join("".join(segment.text for segment in strip) for strip in strips)
+
+
+# -- legibility --------------------------------------------------------------
+
+READABLE = 3.0
+"""Contrast a piece of chrome has to clear against the ground behind it.
+
+Below three to one a dim tone stops being text and becomes a texture. Two have
+gone out this way: `$c-line` on a tinted calendar cell at 1.02:1, and the same
+colour on the header ground at 1.37:1.
+"""
+
+
+def channel(value: int) -> float:
+    scaled = value / 255
+    return scaled / 12.92 if scaled <= 0.04045 else ((scaled + 0.055) / 1.055) ** 2.4
+
+
+def relative_luminance(colour: tuple[int, int, int]) -> float:
+    red, green, blue = (channel(part) for part in colour)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def contrast(foreground: tuple[int, int, int], ground: tuple[int, int, int]) -> float:
+    """The WCAG ratio between two colours, brighter over darker."""
+    pair = sorted((relative_luminance(foreground), relative_luminance(ground)))
+    return (pair[1] + 0.05) / (pair[0] + 0.05)

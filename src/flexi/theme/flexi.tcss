@@ -479,14 +479,21 @@ NavBar {
     text-align: right;
 }
 
-/* The installed version, and the one that supersedes it. Quiet until there is
-   something to say: a build that is current is a fact nobody needs pointed out,
-   so it wears the same grey as the rest of the chrome until it does not. */
+/* The installed version, and the one that supersedes it.
+
+   It wears the wordmark's cream: the two are a matched pair at either end of
+   the header, and this end had been drawn in $c-line -- a rule colour, 1.37:1
+   on the header ground, which is a hairline rather than text. "Quiet" was the
+   intent and invisible was the result.
+
+   Superseded, the installed number steps back to the chrome grey instead. The
+   emphasis belongs on the version you have not got, and that one is already
+   accented beside it. */
 .header-version {
     width: auto;
     height: 1;
     padding: 0 0 0 2;
-    color: $c-line;
+    color: $c-cream;
 }
 
 .header-version.-outdated {
