@@ -28,6 +28,7 @@ from flexi.domain.punch import Window
 from flexi.domain.stitch import weekday_initials
 
 __all__ = (
+    "AMENDED_HEAT",
     "BASELINE",
     "BLOCK",
     "DIVERGING_STEPS",
@@ -55,6 +56,13 @@ as tofu on the machines it was drawn for. Whole cells cost a quarter of a bar's
 precision and the exact figure is printed underneath anyway."""
 FULL: Final = "█"
 HEAT: Final = "■"
+AMENDED_HEAT: Final = "▒"
+"""A day whose work was written down after the fact rather than punched.
+
+The same fill the strips use for the same reason: the reading is the reading,
+but it came from somebody's memory, and a year of them in one picture is worth
+being able to see.
+"""
 EMPTY: Final = "·"
 
 DIVERGING_STEPS: Final = 4
@@ -399,16 +407,26 @@ class YearHeatmap(Widget):
             return " ", Style()
         if not ledger.is_working_day or ledger.is_holiday:
             return EMPTY, self.get_component_rich_style("chart--neutral")
+        glyph = (
+            AMENDED_HEAT
+            if any(segment.amended for segment in ledger.segments)
+            else HEAT
+        )
         effect = ledger.balance_effect
         if effect == timedelta():
-            return HEAT, self.get_component_rich_style("chart--neutral")
+            return glyph, self.get_component_rich_style("chart--neutral")
         share = min(1.0, abs(effect) / self.scale)
         step = max(1, min(DIVERGING_STEPS, int(round(share * DIVERGING_STEPS))))
         arm = "surplus" if effect > timedelta() else "deficit"
-        return HEAT, self.get_component_rich_style(f"chart--{arm}-{step}")
+        return glyph, self.get_component_rich_style(f"chart--{arm}-{step}")
 
     def _legend(self) -> Text:
-        """Never colour alone: the ramp is drawn with its two ends named."""
+        """Never colour alone: the ramp is drawn with its two ends named.
+
+        The second fill is named only on a year that has one in it. A key to a
+        glyph nobody can find on the chart is a reader hunting for something
+        that is not there.
+        """
         label = self.get_component_rich_style("chart--label")
         text = Text(f"{MINUS}{hm(self.scale)} ", style=label)
         for step in range(DIVERGING_STEPS, 0, -1):
@@ -417,6 +435,12 @@ class YearHeatmap(Widget):
         for step in range(1, DIVERGING_STEPS + 1):
             text.append(HEAT, self.get_component_rich_style(f"chart--surplus-{step}"))
         text.append(f" +{hm(self.scale)}", label)
+        if any(
+            segment.amended
+            for ledger in self.ledgers.values()
+            for segment in ledger.segments
+        ):
+            text.append(f"  {AMENDED_HEAT} corrected", label)
         return text
 
 

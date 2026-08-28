@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         paint_tally,
     )
     from flexi.components.charts import (
+        AMENDED_HEAT,
         BASELINE,
         BLOCK,
         DIVERGING_STEPS,
@@ -274,6 +275,7 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "paint_tally",
         ),
         "flexi.components.charts": (
+            "AMENDED_HEAT",
             "BASELINE",
             "BLOCK",
             "DIVERGING_STEPS",
@@ -512,6 +514,7 @@ __all__ = (  # noqa: RUF022
     "paint_balance",
     "paint_entitlement",
     "paint_tally",
+    "AMENDED_HEAT",
     "BASELINE",
     "BLOCK",
     "DIVERGING_STEPS",
