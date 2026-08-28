@@ -394,23 +394,45 @@ RecordsModule > .record--muted {
    §3 before adding a fifth colour to either arm.
    ========================================================================== */
 
+/* A bento grid: two columns of equal width, rows that hug whatever is in them.
+
+   Every island says how much room it needs rather than all of them being given
+   the same. A punch strip for a fortnight wants the full width and a leave
+   burndown is one bar and a sentence, so a layout that hands them the same
+   width wastes the screen on one and starves the other.
+
+   `grid-rows: auto` is what makes it a bento rather than a table: a row is as
+   tall as its tallest island, so the short ones do not inherit the height of
+   the tall one beside them.
+
+   Narrow collapses to one column, because two columns of fifty are two charts
+   nobody can read. A span of two clamps to the one column there is, so the
+   spans need no rule of their own. */
 #insights-body {
     height: 1fr;
     padding: 0 1;
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 1fr 1fr;
+    grid-rows: auto;
+    grid-gutter: 0 1;
 }
 
-.insights-row {
+#insights-body > .module {
     height: auto;
     width: 1fr;
-}
-
-.insights-row > .module {
-    height: auto;
     margin: 0;
 }
 
-InsightsScreen.-narrow .insights-row {
-    layout: vertical;
+/* An island whose content is a time axis: it reads across, so it gets both
+   columns. */
+.bento--wide {
+    column-span: 2;
+}
+
+InsightsScreen.-narrow #insights-body {
+    grid-size: 1;
+    grid-columns: 1fr;
 }
 
 #balance-bars {

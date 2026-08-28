@@ -35,6 +35,7 @@ from flexi.components.chrome import (
 from flexi.components.common import Pill, Tone
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import Jumper, JumpInfo
+from tests.conftest import settled
 
 WIDE = (80, 24)
 
@@ -153,8 +154,11 @@ async def test_a_binding_hint_matches_its_measurement_and_runs_its_key() -> None
     """The local public widget keeps the rendering and click contract it replaces."""
     app = Bound()
     async with app.run_test(size=(40, 10)) as pilot:
-        await pilot.pause()
-        await pilot.pause()
+        # Settled, not pumped twice. The strip composes its hints from a
+        # callback the binding map schedules, so whether two turns of the loop
+        # are enough is a property of the machine: on a loaded CI runner it is
+        # not, and the failure reads as a footer that never drew.
+        await settled(pilot)
         hint = app.query_one(BindingHint)
 
         assert str(hint.render()) == "x Mark"

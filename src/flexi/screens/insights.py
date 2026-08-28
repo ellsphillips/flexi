@@ -12,7 +12,7 @@ from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.screen import Screen
 
 from flexi import wallclock
@@ -99,6 +99,9 @@ class RunningBalance(Module):
     """
 
     WATCHES: ClassVar[Scope] = Scope.ALL
+
+    BENTO = "bento--wide"
+    """A time axis: every column it loses is days of it."""
 
     def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="running-balance", title="Running balance", **kwargs)
@@ -233,14 +236,17 @@ class InsightsScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield AppHeader()
         with VerticalScroll(id="insights-body"):
-            with Horizontal(classes="insights-row"):
-                yield BalanceHistory()
-                yield LeaveBurndown()
-            with Vertical(classes="insights-row"):
-                yield RunningBalance()
-            with Horizontal(classes="insights-row"):
-                yield ShapeOfTheWeeks()
-                yield YearAtAGlance()
+            # Ordered by what a reader wants first, not by size. The balance is
+            # the headline; the two beside each other are the two allowances it
+            # is spent against; the shapes underneath are the detail behind it.
+            # One island reads across the full width and the other four pair
+            # off, so no cell of the grid is left empty. A row is as tall as its
+            # tallest island, so each is placed beside one of about its height.
+            yield RunningBalance()
+            yield ShapeOfTheWeeks()
+            yield BalanceHistory()
+            yield YearAtAGlance()
+            yield LeaveBurndown()
         yield AppFooter()
 
     def on_mount(self) -> None:

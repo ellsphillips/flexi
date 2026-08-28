@@ -15,13 +15,28 @@ import flexi
 
 
 @pytest.fixture
-def unresolved_version(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Return the package metadata API to its just-imported state."""
-    flexi.version.cache_clear()
-    monkeypatch.delitem(vars(flexi), "__version__", raising=False)
+def unresolved_version() -> Iterator[None]:
+    """Return the package metadata API to its just-imported state.
+
+    Plainly, not through `monkeypatch`. `delitem` records the value it removed
+    so it can put it back at teardown, and what it recorded on the way out was
+    the *patched* version this test had just installed -- so the fixture meant
+    to clean up ended by restoring the fake.
+
+    `flexi.__version__` is resolved once and cached in the module's own globals,
+    which is what makes it worth cleaning up at all: left there, a version
+    invented for one test is the version every later test in the same worker
+    reads. Ordering decides whether that is noticed, so it fails one run in
+    several and never the same one.
+    """
+    _forget()
     yield
+    _forget()
+
+
+def _forget() -> None:
     flexi.version.cache_clear()
-    monkeypatch.delitem(vars(flexi), "__version__", raising=False)
+    vars(flexi).pop("__version__", None)
 
 
 def test_the_public_root_api_is_typed_and_discoverable(
