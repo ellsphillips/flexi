@@ -1,24 +1,38 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
 from flexi.constants import EventSource
-from flexi.domain.format import spoken
+from flexi.domain.format import hm, short_date, spoken
+from flexi.domain.ledger import Segment
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
+from flexi.services.ledger import segment_of
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
 from flexi.services.transactions import atomic, write_transaction
-from flexi.services.work_sessions import stage_clock_in, stage_clock_out
+from flexi.services.work_sessions import (
+    stage_clock_in,
+    stage_clock_out,
+    stage_correction,
+)
 
-__all__ = ("ClockResult", "ClockService")
+__all__ = (
+    "CORRECTION_BACKWARDS",
+    "CORRECTION_EMPTY",
+    "CORRECTION_FUTURE",
+    "CORRECTION_OVERLAP",
+    "ClockResult",
+    "ClockService",
+    "overlapping",
+)
 
 
 @dataclass(frozen=True)
@@ -190,3 +204,96 @@ class ClockService:
             session=open_session,
             at=moment,
         )
+
+    # -- corrections -------------------------------------------------------
+
+    def correct(
+        self,
+        day: date,
+        opened: time,
+        closed: time,
+        *,
+        now: date | None = None,
+    ) -> ClockResult:
+        """Record work on a day nobody clocked at the time.
+
+        A morning nobody punched in for is still a morning that was worked, and
+        the alternative to recording it is a balance that is quietly wrong.
+
+        Refused rather than reconciled when it overlaps something already there:
+        two stretches sharing an hour is a day that counts it twice, and no rule
+        for merging them is better than a person looking at both and saying
+        which is right.
+        """
+        today = now or wallclock.today()
+        if day > today:
+            return ClockResult(success=False, message=CORRECTION_FUTURE)
+        if closed < opened:
+            return ClockResult(success=False, message=CORRECTION_BACKWARDS)
+        if closed == opened:
+            return ClockResult(success=False, message=CORRECTION_EMPTY)
+
+        opened_at = wallclock.local(datetime.combine(day, opened))
+        closed_at = wallclock.local(datetime.combine(day, closed))
+        with write_transaction(self._session):
+            if any(
+                overlapping(existing, opened_at, closed_at)
+                for existing in self.segments_on(day)
+            ):
+                return ClockResult(
+                    success=False, message=CORRECTION_OVERLAP.format(day=day)
+                )
+            recorded = stage_correction(self._session, opened_at, closed_at, day)
+
+        return ClockResult(
+            success=True,
+            message=f"Recorded {hm(closed_at - opened_at)} on {short_date(day)}",
+            session=recorded,
+            at=opened_at,
+        )
+
+    def corrections_between(self, start: date, end: date) -> list[Segment]:
+        """Every corrected stretch in a span, earliest first.
+
+        Only the corrections: a review of what was typed in rather than clocked
+        is a list somebody reads to check their own work, and a punched session
+        on the same day is not what they came to look at.
+        """
+        stmt = (
+            select(WorkSession)
+            .where(
+                WorkSession.work_date >= start,
+                WorkSession.work_date <= end,
+                WorkSession.voided.is_(False),
+            )
+            .options(
+                selectinload(WorkSession.clock_in_event),
+                selectinload(WorkSession.clock_out_event),
+            )
+            .order_by(WorkSession.work_date, WorkSession.id)
+        )
+        found = (segment_of(row) for row in self._session.scalars(stmt))
+        return [segment for segment in found if segment.amended]
+
+    def segments_on(self, day: date) -> list[Segment]:
+        """Every stretch already recorded on a date, punched or corrected."""
+        stmt = (
+            select(WorkSession)
+            .where(WorkSession.work_date == day, WorkSession.voided.is_(False))
+            .options(
+                selectinload(WorkSession.clock_in_event),
+                selectinload(WorkSession.clock_out_event),
+            )
+        )
+        return [segment_of(row) for row in self._session.scalars(stmt)]
+
+
+CORRECTION_BACKWARDS = "That correction ends before it starts"
+CORRECTION_EMPTY = "A correction has to cover some time"
+CORRECTION_FUTURE = "A day that has not happened cannot be corrected"
+CORRECTION_OVERLAP = "That overlaps work already recorded on {day:%a %-d %b}"
+
+
+def overlapping(first: Segment, start: datetime, end: datetime) -> bool:
+    """Whether an existing stretch shares any time with a proposed one."""
+    return bool(first.start < end and start < (first.end or first.start))

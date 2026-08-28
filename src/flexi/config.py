@@ -87,6 +87,7 @@ class Hotkeys(BaseModel):
     expand: str = "space"
     expand_all: str = "shift+space"
     new_session: str = "n"
+    corrections: str = "N"
     edit: str = "e"
     delete: str = "x"
 

@@ -7,8 +7,9 @@ by walking the package and asserts it — so a new modal is covered the day it i
 written rather than the day somebody remembers to add a test.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, time, timedelta
 from typing import ClassVar
 
 from textual.app import ComposeResult
@@ -20,15 +21,21 @@ from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
 
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.dates import parse_date
+from flexi.domain.format import clock, hm, plural, short_date
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import plural
+from flexi.domain.ledger import Segment
+from flexi.services.settings import parse_clock_time
 
 __all__ = (
     "AbsenceBooking",
     "AbsenceModal",
     "ConfirmModal",
+    "Correction",
+    "CorrectionModal",
+    "CorrectionsModal",
     "FlexiModal",
     "GoToDateModal",
+    "correction_line",
     "selected_name",
 )
 
@@ -287,6 +294,129 @@ class GoToDateModal(FlexiModal[date]):
         return parse_date(
             self.query_one("#goto-input", Input).value, reference=self._anchor
         )
+
+
+@dataclass(frozen=True, slots=True)
+class Correction:
+    """A stretch of work somebody is recording after the fact."""
+
+    day: date
+    opened: time
+    closed: time
+
+
+class CorrectionModal(FlexiModal[Correction]):
+    """Record work on a day nobody clocked at the time.
+
+    Three fields and no clever ones. The day defaults to whatever was selected,
+    because the commonest correction is for the day being looked at, and the
+    times are read with the same grammar the rest of Flexi reads a clock time
+    with -- `9`, `9:15`, `0915` and `9am` are all a quarter past nine.
+    """
+
+    title_text: ClassVar[str] = "Record work"
+    confirm_label: ClassVar[str] = "Record"
+
+    def __init__(self, day: date) -> None:
+        super().__init__()
+        self._day = day
+
+    @property
+    def modal_title(self) -> str:
+        return f"Record work on {short_date(self._day)}"
+
+    def compose_body(self) -> ComposeResult:
+        yield Label("From", classes="overline")
+        yield Input("", id="correction-from", placeholder="9:00")
+        yield Label("To", classes="overline")
+        yield Input("", id="correction-to", placeholder="17:00")
+        yield Static(
+            "For a day you worked and did not clock. It counts for everything a "
+            "punched session counts for, and is drawn apart from one.",
+            classes="caption",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#correction-from", Input).focus()
+
+    def result(self) -> Correction:
+        return Correction(
+            day=self._day,
+            opened=self._time("#correction-from", "a start"),
+            closed=self._time("#correction-to", "an end"),
+        )
+
+    def _time(self, selector: str, what: str) -> time:
+        """One field, read as a clock time, or a sentence saying why not."""
+        typed = self.query_one(selector, Input).value.strip()
+        if not typed:
+            msg = f"Give {what} time"
+            raise ValueError(msg)
+        return time(*parse_clock_time(typed))
+
+
+class CorrectionsModal(FlexiModal[None]):
+    """Every correction in the period, so they can be read back as a set.
+
+    A review rather than a form: what was typed from memory is the part of the
+    record worth checking, and on a punch strip a correction is one fill among
+    several. Listed together they are a short answer to "what did I claim?".
+    """
+
+    HELP_LABEL = "Corrections"
+
+    title_text: ClassVar[str] = "Corrections"
+    confirm_label: ClassVar[str] = "Close"
+    tall: ClassVar[bool] = True
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "cancel", "Close", show=True),
+        Binding("enter", "cancel", "Close", show=True, priority=True),
+    ]
+
+    def __init__(self, period: str, corrections: Sequence[Segment]) -> None:
+        super().__init__()
+        self._period = period
+        self._corrections = tuple(corrections)
+
+    @property
+    def modal_title(self) -> str:
+        return f"Corrections · {self._period}"
+
+    def compose_body(self) -> ComposeResult:
+        if not self._corrections:
+            yield Static(
+                "Nothing recorded after the fact in this period.",
+                classes="caption",
+            )
+            return
+        for segment in self._corrections:
+            yield Static(correction_line(segment), classes="correction-row")
+
+    def compose_aside(self) -> ComposeResult:
+        yield Static(self._summary(), classes="caption")
+
+    def _summary(self) -> str:
+        if not self._corrections:
+            return ""
+        total = sum(
+            (
+                segment.end - segment.start
+                for segment in self._corrections
+                if segment.end
+            ),
+            timedelta(),
+        )
+        counted = len(self._corrections)
+        return f"{counted} {plural(counted, 'correction')} · {hm(total)} recorded"
+
+
+def correction_line(segment: Segment) -> str:
+    """One correction, as a date and the window it claims."""
+    finish = segment.end
+    window = "open" if finish is None else f"{clock(segment.start)}–{clock(finish)}"
+    length = "" if finish is None else f"  {hm(finish - segment.start)}"
+    return f"{short_date(segment.start.date()):<12} {window}{length}"
 
 
 def selected_name(screen: DOMNode, selector: str, *, fallback: str) -> str:

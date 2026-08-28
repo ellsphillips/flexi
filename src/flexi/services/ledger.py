@@ -16,7 +16,7 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
-from flexi.constants import DayKind
+from flexi.constants import DayKind, EventSource
 from flexi.domain import leaveyear
 from flexi.domain.balance import (
     BalanceSummary,
@@ -310,6 +310,10 @@ def segment_of(row: WorkSession) -> Segment:
         start=start,
         end=end,
         auto_closed=row.auto_closed,
+        # Read off the clock-in, which is the event a correction is written
+        # from. Both of a correction's events carry it, and the start is the
+        # one every caller already has in hand.
+        amended=row.clock_in_event.source is EventSource.AMENDED,
         note=row.note,
     )
 

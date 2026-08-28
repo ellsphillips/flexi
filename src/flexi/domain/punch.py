@@ -88,6 +88,13 @@ class Cell(StrEnum):
     HOLIDAY = "holiday"
     """A bank holiday. Covers the whole strip."""
 
+    AMENDED = "amended"
+    """On the clock, by a correction rather than a punch.
+
+    Above an absence and below a live session: work is work, and a stretch
+    somebody typed in should still lose to the one they are on right now.
+    """
+
     ON = "on"
     """On the clock."""
 
@@ -248,12 +255,18 @@ def paint_absences(
 def paint_sessions(
     cells: list[Cell], ledger: DayLedger, bounds: list[datetime], moment: datetime
 ) -> None:
-    """A cell is on the clock when a session touches it."""
+    """A cell is on the clock when a session touches it.
+
+    A corrected stretch is drawn apart from a punched one -- same colour, since
+    it is the same hours, and a different fill, since one was read off a clock
+    and the other typed from memory.
+    """
     for segment in ledger.segments:
         finish = segment.finish(moment)
+        worked = Cell.AMENDED if segment.amended else Cell.ON
         for index in range(len(cells)):
             if overlaps(segment.start, finish, bounds, index):
-                cells[index] = Cell.ON
+                cells[index] = worked
 
 
 def paint_breaks(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:

@@ -55,6 +55,7 @@ CELL_GLYPHS: Final[Mapping[Cell, str]] = MappingProxyType(
         Cell.TARGET: "┊",
         Cell.ABSENCE: "▓",
         Cell.HOLIDAY: "░",
+        Cell.AMENDED: "▒",
         Cell.ON: "█",
         Cell.LIVE: "▌",
     }

@@ -46,6 +46,9 @@ from flexi.screens.modals import (
     AbsenceBooking,
     AbsenceModal,
     ConfirmModal,
+    Correction,
+    CorrectionModal,
+    CorrectionsModal,
     GoToDateModal,
 )
 from flexi.services.absence import snapshot_booking
@@ -85,6 +88,8 @@ class DashboardScreen(Screen[None]):
         Binding(CONFIG.hotkeys.period_year, "zoom('year')", "Year", show=False),
         Binding(CONFIG.hotkeys.period_cycle, "cycle", "Period", show=True),
         Binding(CONFIG.hotkeys.go_to_date, "go_to_date", "Go to date", show=False),
+        Binding(CONFIG.hotkeys.new_session, "correct", "Record work", show=True),
+        Binding(CONFIG.hotkeys.corrections, "corrections", "Corrections", show=False),
         # Shifted, so they never collide with the record table's letters, and on
         # the screen rather than the wallet so one keystroke books leave from
         # anywhere on the dashboard.
@@ -291,6 +296,36 @@ class DashboardScreen(Screen[None]):
         event.stop()
         when = date.fromisoformat(event.iso) if event.iso else self.period.anchor
         self.open_absence_modal(when, AbsenceType.ANNUAL)
+
+    def action_correct(self) -> None:
+        """Record work on the selected day that nobody clocked at the time.
+
+        Opens on the day under the cursor, which is the day somebody is looking
+        at when they notice the morning is missing.
+        """
+
+        def record(correction: Correction | None) -> None:
+            if correction is None:
+                return
+            self._report(
+                self._services.clock.correct(
+                    correction.day, correction.opened, correction.closed
+                ),
+                scope=Scope.CLOCK,
+            )
+
+        self.app.push_screen(CorrectionModal(self.period.anchor), callback=record)
+
+    def action_corrections(self) -> None:
+        """Read back every correction in the period, as a set rather than singly."""
+        self.app.push_screen(
+            CorrectionsModal(
+                self.period.label,
+                self._services.clock.corrections_between(
+                    self.period.start, self.period.end
+                ),
+            )
+        )
 
     def open_absence_modal(self, when: date, kind: AbsenceType) -> None:
         """Ask what to book, pre-filled, with the allowances in view."""

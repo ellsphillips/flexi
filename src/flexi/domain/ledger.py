@@ -37,6 +37,8 @@ class Segment:
     start: datetime
     end: datetime | None = None
     auto_closed: bool = False
+    amended: bool = False
+    """Recorded after the fact rather than punched at the time."""
     note: str | None = None
 
     def __post_init__(self) -> None:

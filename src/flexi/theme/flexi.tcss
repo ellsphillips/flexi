@@ -375,6 +375,10 @@ PunchStrip > .punch--off {
 PunchStrip > .punch--on {
     color: $c-accent;
 }
+PunchStrip > .punch--amended {
+    color: $c-accent;
+}
+
 
 PunchStrip > .punch--live {
     color: $c-accent-lift;

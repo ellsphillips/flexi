@@ -19,4 +19,4 @@
  │  Wed 10   ───████████·████████────     7:32   +0:08        │
  ╰─────────────────────────────────────────── 28:29 of 25:54 ─╯
 
-t Today p Period / Clock v Jump ? Help f1 Dashboard +3 more
+t Today p Period n Record work / Clock v Jump ? Help +4 more

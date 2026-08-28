@@ -210,7 +210,12 @@ _EXPORTS: Final = MappingProxyType(
             "fetch_bank_holiday_index",
         ),
         "parse_bank_holidays": ("bank_holidays", "parse_bank_holidays"),
+        "CORRECTION_BACKWARDS": ("clock", "CORRECTION_BACKWARDS"),
+        "CORRECTION_EMPTY": ("clock", "CORRECTION_EMPTY"),
+        "CORRECTION_FUTURE": ("clock", "CORRECTION_FUTURE"),
+        "CORRECTION_OVERLAP": ("clock", "CORRECTION_OVERLAP"),
         "ClockResult": ("clock", "ClockResult"),
+        "overlapping": ("clock", "overlapping"),
         "ClockService": ("clock", "ClockService"),
         "LedgerRevision": ("ledger", "LedgerRevision"),
         "LedgerService": ("ledger", "LedgerService"),
@@ -284,6 +289,7 @@ _EXPORTS: Final = MappingProxyType(
         "WalletService": ("wallet", "WalletService"),
         "stage_clock_in": ("work_sessions", "stage_clock_in"),
         "stage_clock_out": ("work_sessions", "stage_clock_out"),
+        "stage_correction": ("work_sessions", "stage_correction"),
     }
 )
 
@@ -335,8 +341,13 @@ __all__ = (  # noqa: RUF022
     "ParsedBankHoliday",
     "fetch_bank_holiday_index",
     "parse_bank_holidays",
+    "CORRECTION_BACKWARDS",
+    "CORRECTION_EMPTY",
+    "CORRECTION_FUTURE",
+    "CORRECTION_OVERLAP",
     "ClockResult",
     "ClockService",
+    "overlapping",
     "LedgerRevision",
     "LedgerService",
     "day_kind",
@@ -409,6 +420,7 @@ __all__ = (  # noqa: RUF022
     "WalletService",
     "stage_clock_in",
     "stage_clock_out",
+    "stage_correction",
 )
 
 
