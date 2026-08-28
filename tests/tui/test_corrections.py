@@ -10,9 +10,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, time, timedelta
 
 from textual.pilot import Pilot
-from textual.widgets import Input
+from textual.widgets import Digits, Input
 
 from flexi.config import CONFIG
+from flexi.domain.format import digits as digits_of
 from flexi.domain.punch import Cell, strip
 from flexi.screens.modals import CorrectionModal, CorrectionsModal
 from tests.tui.conftest import (
@@ -192,3 +193,26 @@ async def test_cancelling_the_correction_writes_nothing(
         await pilot.pause()
 
         assert app.services.ledger.day(when).worked == before
+
+
+async def test_recording_a_correction_moves_the_balance_on_screen(
+    app_factory: AppFactory,
+) -> None:
+    """The whole point of writing the morning down is the figure it feeds.
+
+    Read off the widget rather than the service: the arithmetic being right and
+    the dashboard being redrawn are two separate things, and a correction that
+    lands in the database while the balance keeps its old figure is the version
+    of this feature nobody would trust.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        digits = app.screen.query_one("#balance-digits", Digits)
+        before = digits.value
+
+        await record(pilot, "6:00", "7:30")
+
+        assert digits.value != before, "the readout still shows the old balance"
+        summary = app.services.ledger.balance(dashboard(app).now.date())
+        assert digits.value == digits_of(summary.delta)

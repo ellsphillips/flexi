@@ -196,13 +196,17 @@ class LedgerService:
             )
             title = holidays.get(when)
             is_working = when.weekday() in working_days
-            # Work recorded on a day is proof Flexi was there for it,
-            # whatever the stamp says, and it outranks the stamp in `_kind`
-            # too. Letting the two disagree would draw the day as worked and
-            # then expect nothing of it, so the session read as pure surplus.
-            is_tracked = (
-                tracking_since is None or when >= tracking_since or bool(segments)
-            )
+            # A punched session is proof Flexi was there for that day, whatever
+            # the stamp says: something clocked in. Letting the two disagree
+            # would draw the day as worked and then expect nothing of it, so
+            # the session read as pure surplus.
+            #
+            # A correction is proof of the opposite. The hours went unrecorded
+            # *because* nobody was clocking, so it cannot vouch for the day the
+            # way a punch can -- and reading it as one is how remembering half
+            # a morning from before setup used to take hours off the balance.
+            punched = any(not segment.amended for segment in segments)
+            is_tracked = tracking_since is None or when >= tracking_since or punched
 
             worked = worked_from(
                 segments, now=moment if when >= today else end_of_day(when)
@@ -222,7 +226,10 @@ class LedgerService:
                     slices,
                     segments,
                     is_working=is_working,
-                    is_tracked=is_tracked,
+                    # What the day *expects* and what it *is* part company on a
+                    # corrected pre-setup day: it asks for nothing, but it is
+                    # not a day nothing is known about either.
+                    is_tracked=is_tracked or bool(segments),
                 ),
                 is_working_day=is_working,
                 contracted=contracted,
@@ -331,8 +338,10 @@ def day_kind(
     The one place the six kinds are decided, in precedence order. `UNTRACKED`
     comes first: a day before setup is not a day somebody failed to work, so
     labelling it a weekend or a bank holiday would answer a question nobody
-    asked. A day with a session on it is never untracked -- `_build` settles
-    that before this is called.
+    asked. A day with any work recorded on it is never untracked -- `_build`
+    settles that before this is called, and it is a broader test than the one
+    it uses for what the day *expects*: a correction says something is known
+    about the day without saying the day was ever asked for.
 
     `PARTIAL` is the case a one-status-per-day table gets wrong: a half-day
     absence with work in the other half.
