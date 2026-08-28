@@ -5,8 +5,11 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+from textual.containers import VerticalScroll
+from textual.pilot import Pilot
 from textual.widgets import Input
 
+from flexi.app import FlexiApp
 from flexi.components.charts import (
     Burndown,
     DivergingBars,
@@ -15,6 +18,7 @@ from flexi.components.charts import (
     week_columns,
 )
 from flexi.components.chrome import AppHeader
+from flexi.components.modules.base import Module
 from flexi.constants import DayKind, Granularity
 from flexi.domain.ledger import DayLedger
 from flexi.messages import Scope
@@ -129,18 +133,35 @@ async def test_the_balance_chart_stops_at_today(app_factory: AppFactory) -> None
 async def test_every_chart_writes_its_figures_as_well_as_drawing_them(
     app_factory: AppFactory,
 ) -> None:
-    """No chart is the only way to read its own numbers."""
+    """No chart is the only way to read its own numbers.
+
+    Read down the page rather than off one screenful. Insights is a scrolling
+    page and there are more charts on it than fit a terminal, so a test that
+    looked at the viewport alone would be asserting the layout as much as the
+    figures -- and would start failing for whichever chart was added last.
+    """
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
         await pilot.pause()
-        text = screen_text(app)
+        text = await scrolled_text(app, pilot)
         assert "best" in text
         assert "worst" in text
         assert "taken" in text
         assert "left" in text
         assert "+" in text
         assert "−" in text
+
+
+async def scrolled_text(app: FlexiApp, pilot: Pilot[None]) -> str:
+    """Everything the page says, gathered a screenful at a time."""
+    body = app.screen.query_one(VerticalScroll)
+    seen = [screen_text(app)]
+    while body.scroll_offset.y < body.max_scroll_y:
+        body.scroll_page_down(animate=False)
+        await pilot.pause()
+        seen.append(screen_text(app))
+    return "\n".join(seen)
 
 
 async def test_the_heatmap_legend_names_both_ends(app_factory: AppFactory) -> None:
@@ -310,3 +331,84 @@ async def test_saving_settings_moves_the_leave_year_under_open_insights(
         assert showing(app, InsightsScreen).period == moved, (
             "clocking redraws the charts; it does not re-read the leave year"
         )
+
+
+# -- the bento grid ----------------------------------------------------------
+
+
+def islands(app: FlexiApp) -> list[Module]:
+    return list(app.screen.query(Module))
+
+
+async def test_wide_islands_take_both_columns_and_the_rest_pair_off(
+    app_factory: AppFactory,
+) -> None:
+    """Five islands into two columns, with no cell of the grid left empty.
+
+    One reads across the full width and the other four pair, so the grid packs
+    exactly. An island added without a partner leaves a hole beside it, which is
+    what this notices.
+    """
+    app = app_factory()
+    async with app.run_test(size=(150, 46)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        await pilot.pause()
+        placed = islands(app)
+
+        wide = [one for one in placed if one.has_class("bento--wide")]
+        assert len(wide) == 1, "one island reads across"
+        assert (len(placed) - len(wide)) % 2 == 0, "the rest pair off"
+
+
+async def test_an_island_says_how_much_room_it_needs(app_factory: AppFactory) -> None:
+    """Declared by the island, not by the screen laying it out.
+
+    How wide a chart has to be to be readable is a fact about the chart, and a
+    screen that decided it would decide it again on every screen the module
+    ever appeared on.
+    """
+    app = app_factory()
+    async with app.run_test(size=(150, 46)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        await pilot.pause()
+
+        for one in islands(app):
+            assert one.has_class("bento--wide") == bool(one.BENTO)
+
+
+async def test_a_wide_island_really_is_wider_than_a_paired_one(
+    app_factory: AppFactory,
+) -> None:
+    """The class has to reach the layout, not just the DOM."""
+    app = app_factory()
+    async with app.run_test(size=(150, 46)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        await pilot.pause()
+        placed = islands(app)
+
+        wide = next(one for one in placed if one.has_class("bento--wide"))
+        paired = next(one for one in placed if not one.has_class("bento--wide"))
+
+        assert wide.region.width > paired.region.width * 1.5
+
+
+async def test_narrow_collapses_every_island_to_one_column(
+    app_factory: AppFactory,
+) -> None:
+    """Two columns of fifty is two charts nobody can read.
+
+    Below the fold class the grid is one column, and the spans collapse with it
+    -- a span of two in a grid of one is a cell that reaches past the screen.
+    """
+    app = app_factory()
+    async with app.run_test(size=(84, 30)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert app.screen.has_class("-narrow")
+        widths = {one.region.width for one in islands(app)}
+        assert len(widths) == 1, f"islands should share one width, got {widths}"

@@ -8,8 +8,10 @@ the mark, so none of them is the only way to read its own numbers.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from itertools import accumulate
 from typing import ClassVar, Final, Unpack
 
 from rich.style import Style
@@ -32,11 +34,13 @@ __all__ = (
     "EMPTY",
     "FULL",
     "HEAT",
+    "SECONDS_PER_HOUR",
     "Burndown",
     "Column",
     "DivergingBars",
     "WeekRibbon",
     "YearHeatmap",
+    "running_balance",
     "week_columns",
 )
 
@@ -56,6 +60,9 @@ EMPTY: Final = "·"
 DIVERGING_STEPS: Final = 4
 """Steps per arm of the heatmap ramp. Four is as many as a reader can rank by
 eye without a legend they have to keep consulting."""
+
+
+SECONDS_PER_HOUR: Final = 3600
 
 
 @dataclass(frozen=True, slots=True)
@@ -411,6 +418,25 @@ class YearHeatmap(Widget):
             text.append(HEAT, self.get_component_rich_style(f"chart--surplus-{step}"))
         text.append(f" +{hm(self.scale)}", label)
         return text
+
+
+def running_balance(ledgers: Sequence[DayLedger]) -> tuple[float, ...]:
+    """The flexi balance in hours after each day, in order.
+
+    The accumulation of what every day contributed, which is what the figure on
+    the dashboard is. Weekly totals cannot show this: a contract is the promise
+    that those barely move, and the balance is the drift they leave behind.
+
+    A day off contributes what it withdrew rather than the hours nobody worked,
+    so a week of leave is flat rather than a cliff -- `balance_effect` is the
+    one place that rule lives.
+    """
+    return tuple(
+        accumulate(
+            ledger.balance_effect.total_seconds() / SECONDS_PER_HOUR
+            for ledger in ledgers
+        )
+    )
 
 
 def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column]:

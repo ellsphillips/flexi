@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 __all__ = (
     "LEVEL",
     "MINUS",
+    "MINUTES_PER_HOUR",
     "SECONDS_PER_MINUTE",
     "ZERO",
     "clock",
@@ -15,6 +16,7 @@ __all__ = (
     "delta",
     "digits",
     "hm",
+    "hm_hours",
     "hms",
     "is_level",
     "long_date",
@@ -32,6 +34,7 @@ MINUS = "−"
 ZERO = "0:00"
 
 SECONDS_PER_MINUTE = 60
+MINUTES_PER_HOUR = 60
 
 LEVEL = timedelta(minutes=1)
 """Below this, a balance is neither a surplus nor a deficit.
@@ -66,6 +69,26 @@ def hm(value: timedelta) -> str:
     """
     total = int(abs(value).total_seconds())
     return f"{total // 3600}:{total % 3600 // 60:02d}"
+
+
+def hm_hours(hours: float) -> str:
+    """A signed count of hours as ``h:mm``, for an axis rather than a reading.
+
+    A plot works in floats -- it is scaling and interpolating -- and asks for a
+    label at the end of it. Converting back to a `timedelta` to reach `hm` would
+    round twice, once into the duration and once out of it.
+
+    Examples:
+        >>> hm_hours(7.4)
+        '7:24'
+        >>> hm_hours(-1.5)
+        '−1:30'
+        >>> hm_hours(0.0)
+        '0:00'
+    """
+    minutes = round(abs(hours) * MINUTES_PER_HOUR)
+    sign = MINUS if hours < 0 and minutes else ""
+    return f"{sign}{minutes // MINUTES_PER_HOUR}:{minutes % MINUTES_PER_HOUR:02d}"
 
 
 def hms(value: timedelta) -> str:

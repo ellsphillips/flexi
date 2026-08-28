@@ -31,6 +31,15 @@ class Module(Static):
 
     WATCHES: ClassVar[Scope] = Scope.ALL
 
+    BENTO: ClassVar[str] = ""
+    """Extra classes saying how much of a grid this island needs.
+
+    Declared by the island rather than by the screen laying it out. How wide a
+    punch strip has to be to be readable is a fact about punch strips, and a
+    screen that decided it would be deciding it again for every screen the
+    module ever appears on.
+    """
+
     can_focus = True
 
     def __init__(
@@ -41,7 +50,7 @@ class Module(Static):
         subtitle: str = "",
         **kwargs: Unpack[ModuleOptions],
     ) -> None:
-        super().__init__(id=id, classes="module", **kwargs)
+        super().__init__(id=id, classes=f"module {self.BENTO}".strip(), **kwargs)
         # Plain assignment routes through Static's reactive machinery before the
         # widget is mounted, and the title is silently lost.
         super().__setattr__("border_title", title)

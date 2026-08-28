@@ -12,7 +12,7 @@ from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.screen import Screen
 
 from flexi import wallclock
@@ -21,17 +21,20 @@ from flexi.components.charts import (
     DivergingBars,
     WeekRibbon,
     YearHeatmap,
+    running_balance,
     week_columns,
 )
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import mark_width
 from flexi.components.modules.base import Module
 from flexi.components.options import ModuleOptions, ScreenOptions
+from flexi.components.plot import Plot
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
 from flexi.context import service_app
 from flexi.domain.format import day_month, delta, hm
 from flexi.domain.period import Period
+from flexi.domain.plot import Mark, Series
 from flexi.messages import Scope
 
 __all__ = (
@@ -39,6 +42,7 @@ __all__ = (
     "BalanceHistory",
     "InsightsScreen",
     "LeaveBurndown",
+    "RunningBalance",
     "ShapeOfTheWeeks",
     "YearAtAGlance",
 )
@@ -78,6 +82,55 @@ class BalanceHistory(Module):
         )
         total = self.services.ledger.summary(period.start, end, now=self.now)
         self.set_subtitle(f"{delta(total.delta)} to {day_month(end)}")
+
+
+class RunningBalance(Module):
+    """The flexi balance, day by day, and which side of zero it has been.
+
+    The figure on the dashboard is one number and this is where it came from.
+    A weekly total cannot show it: a contract is the promise that those barely
+    move, so charting them draws three near-identical slabs and calls it a
+    trend. The balance is the accumulation of the differences, which is the
+    thing that actually wanders.
+
+    Zero is a rule rather than a series. It is not a reading somebody took; it
+    is the line the readings are on one side of or the other, and it is what
+    turns a wandering line into "ahead" and "behind".
+    """
+
+    WATCHES: ClassVar[Scope] = Scope.ALL
+
+    BENTO = "bento--wide"
+    """A time axis: every column it loses is days of it."""
+
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
+        super().__init__(id="running-balance", title="Running balance", **kwargs)
+
+    def compose(self) -> ComposeResult:
+        yield Plot(id="balance-plot")
+
+    def on_mount(self) -> None:
+        self.rebuild()
+
+    def rebuild(self) -> None:
+        period = self.period
+        # Stop at today. Every working day after it expects hours and has none
+        # recorded, so carrying on draws a cliff into a debt nobody has run up.
+        end = min(period.end, self.now.date())
+        chart = self.query_one("#balance-plot", Plot)
+        if end < period.start:
+            chart.show([], empty_message="Not started")
+            self.set_subtitle("not started")
+            return
+
+        ledgers = self.services.ledger.days(period.start, end, now=self.now)
+        running = running_balance(ledgers)
+        chart.show(
+            [Series("balance", running, Mark.LINE, "series")],
+            rule=0.0,
+            empty_message="Nothing recorded yet",
+        )
+        self.set_subtitle(f"{delta(timedelta(hours=running[-1]))} on {day_month(end)}")
 
 
 class LeaveBurndown(Module):
@@ -183,12 +236,17 @@ class InsightsScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield AppHeader()
         with VerticalScroll(id="insights-body"):
-            with Horizontal(classes="insights-row"):
-                yield BalanceHistory()
-                yield LeaveBurndown()
-            with Vertical(classes="insights-row"):
-                yield ShapeOfTheWeeks()
-                yield YearAtAGlance()
+            # Ordered by what a reader wants first, not by size. The balance is
+            # the headline; the two beside each other are the two allowances it
+            # is spent against; the shapes underneath are the detail behind it.
+            # One island reads across the full width and the other four pair
+            # off, so no cell of the grid is left empty. A row is as tall as its
+            # tallest island, so each is placed beside one of about its height.
+            yield RunningBalance()
+            yield ShapeOfTheWeeks()
+            yield BalanceHistory()
+            yield YearAtAGlance()
+            yield LeaveBurndown()
         yield AppFooter()
 
     def on_mount(self) -> None:

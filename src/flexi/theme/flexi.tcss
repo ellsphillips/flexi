@@ -907,3 +907,26 @@ JumpOverlay {
     background: transparent;
     color: $c-ash;
 }
+
+/* -- Plot -----------------------------------------------------------------
+   Bars and lines on one set of axes. A tone is asked for by name in the domain
+   and resolved here, which is what keeps the palette out of the arithmetic. */
+
+Plot {
+    height: 9;
+    min-height: 6;
+}
+
+Plot > .plot--axis { color: $c-ash; }
+Plot > .plot--legend { color: $c-muted; }
+
+Plot > .plot--series { color: $c-accent; }
+Plot > .plot--compare { color: $c-accent-deep; }
+Plot > .plot--target { color: $c-rule; }
+Plot > .plot--rule { color: $c-line; }
+
+Plot > .plot--annual { color: $c-annual; }
+Plot > .plot--sick { color: $c-sick; }
+Plot > .plot--toil { color: $c-toil; }
+Plot > .plot--unpaid { color: $c-unpaid; }
+Plot > .plot--other { color: $c-other; }

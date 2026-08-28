@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         BalanceHistory,
         InsightsScreen,
         LeaveBurndown,
+        RunningBalance,
         ShapeOfTheWeeks,
         YearAtAGlance,
     )
@@ -88,6 +89,7 @@ _MODULE_EXPORTS: Final = MappingProxyType(
             "InsightsScreen",
             "LeaveBurndown",
             "ShapeOfTheWeeks",
+            "RunningBalance",
             "YearAtAGlance",
         ),
         "leave": (
@@ -162,6 +164,7 @@ __all__ = (  # noqa: RUF022
     "InsightsScreen",
     "LeaveBurndown",
     "ShapeOfTheWeeks",
+    "RunningBalance",
     "YearAtAGlance",
     "PORTION_CYCLE",
     "REMOVE_THRESHOLD",
