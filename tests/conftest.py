@@ -9,8 +9,10 @@ preferences: a `period: month` in it fails five tests in
 autouse `_never_the_real_home` below cannot close that hole -- it is
 function-scoped, and by the time it runs the answer has been read.
 
-Hence the two lines before the imports, and the `E402` exemption in
-`pyproject.toml` that lets them be there.
+Hence the two lines before the imports. No `E402` exemption is needed for them,
+and the sentence here used to claim one in `pyproject.toml` that has never
+existed: ruff makes its own exception for `os.environ` mutation between imports,
+precisely so that a file can do this.
 """
 
 import os

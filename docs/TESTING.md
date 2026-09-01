@@ -6,7 +6,7 @@ until the kinds it touches are green.
 | Kind | Question | Where | Speed |
 |---|---|---|---|
 | **Domain** | Is the arithmetic right? | `tests/domain/` | instant |
-| **Service** | Does the write happen, and is it refused when it should be? | `tests/services/` | fast, in-memory SQLite |
+| **Service** | Does the write happen, and is it refused when it should be? | `tests/services/` | fast, a SQLite file under `tmp_path` |
 | **Pilot** | Does the keypress do the thing? | `tests/tui/` | ~50 ms each |
 | **Snapshot** | Does it still look right? | `tests/snapshot/` | ~100 ms each |
 
@@ -40,24 +40,38 @@ the signature and a one-cell drift is invisible in review and obvious in use.
 
 ## 2. Service tests
 
-`tests/conftest.py` already provides an in-memory session; keep it. Add a
-`services` fixture returning a built `Services` registry, and a `frozen_clock`
-fixture using `time-machine`:
+The fixtures are already written; use them rather than rolling your own.
+`tests/conftest.py` gives every test an `engine` and a `session` against a
+throwaway SQLite file under `tmp_path`. `tests/services/conftest.py` adds
+`configure` — one call that sets Flexi up and hands back a built `Services`
+registry — plus `services` for the common case and `work()` for putting a day of
+hours on the clock.
 
 ```python
-@pytest.fixture
-def at():
-    def _at(iso: str):
-        return time_machine.travel(iso, tick=False)
-    return _at
+def test_clock_in_is_refused_on_a_day_booked_off(configure):
+    services = configure(entitlement=(2026, 25.0))
+    services.absence.book(date(2026, 6, 10), AbsenceType.ANNUAL, Portion.FULL)
 
-def test_clock_in_refused_on_absence(services, at):
-    with at("2026-06-10 09:00:00+01:00"):
-        services.absence.book(date(2026, 6, 10), AbsenceType.ANNUAL, Portion.FULL)
-        result = services.clock.clock_in()
+    result = services.clock.clock_in(now=datetime(2026, 6, 10, 9, tzinfo=UTC))
+
     assert not result.success
-    assert "annual" in result.message.lower()
 ```
+
+**`configure` seeds a bank holiday, and it has to.**
+`BankHolidayService.titles_between` answers `None` — not an empty mapping — when
+the calendar is absent, and `AbsenceService` refuses to book against `None`. A
+test that arranges its own database without a cache row does not fail loudly: it
+gets "Bank holiday data unavailable" back from every booking and then asserts
+something else, which is how a test passes while exercising nothing.
+
+**Anything that touches "now" must pin the clock.** The suite pins the *zone*
+session-wide through `flexi.wallclock`, but not the date, so a test that reads
+the real one is a test that fails on some future Tuesday for reasons that have
+nothing to do with the code. Two files learned this the hard way — see
+`tests/services/test_short_sessions.py` and `test_stale_sessions.py`, both of
+which hold the clock still with `time_machine.travel(..., tick=False)` in a
+module-level autouse fixture, and say why in the docstring. `configure`'s seeded
+holiday is the usual trap: on the day after it, every `clock_in()` is refused.
 
 Every service method that returns a `Result` needs both branches tested. The
 refusal message is part of the contract — it is what the status bar shows.

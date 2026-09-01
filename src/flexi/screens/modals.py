@@ -2,9 +2,10 @@
 
 ``escape`` cancels and dismisses with ``None``. ``enter`` confirms. ``tab`` moves
 between fields. A modal that breaks one of those is a bug, and
-``tests/tui/test_modal_contract.py`` discovers every :class:`FlexiModal` subclass
-by walking the package and asserts it — so a new modal is covered the day it is
-written rather than the day somebody remembers to add a test.
+``tests/tui/test_keyboard.py::test_every_modal_binds_escape_and_enter`` discovers
+every :class:`FlexiModal` subclass by walking the package and asserts it — so a
+new modal is covered the day it is written rather than the day somebody
+remembers to add a test.
 """
 
 from collections.abc import Sequence
