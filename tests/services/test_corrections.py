@@ -171,6 +171,44 @@ def test_a_correction_does_not_collide_with_a_running_session(
     assert clock.is_clocked_in() is True
 
 
+def test_a_correction_may_not_claim_hours_a_running_session_is_claiming(
+    clock: ClockService, session: Session
+) -> None:
+    """The open session has no end, and that is not the same as no duration.
+
+    The guard read `first.end or first.start`, which made a session still
+    running a zero-length instant: clocking in at 10:00 and then correcting
+    10:00-12:00 was admitted, and those two hours were then counted once for the
+    punch and once for the correction. At 15:00 the day read seven hours worked
+    where the truth was five.
+    """
+    assert clock.clock_in(now=NOW).success
+
+    result = clock.correct(TODAY, time(10, 0), time(12, 0), now=TODAY)
+
+    assert result.success is False
+    assert "overlaps" in result.message
+    assert len(clock.segments_on(TODAY)) == 1
+    day = build_services(session).ledger.day(
+        TODAY, now=datetime.combine(TODAY, time(15, 0), tzinfo=UTC)
+    )
+    assert day.worked == timedelta(hours=5)
+
+
+def test_a_correction_before_a_running_session_is_still_allowed(
+    clock: ClockService,
+) -> None:
+    """The morning is over and nothing is claiming it.
+
+    The open session is worth the rest of its own day, not the whole of it, so
+    the hours before it opened stay correctable -- which is the commonest
+    correction there is: the morning you forgot, typed in this afternoon.
+    """
+    assert clock.clock_in(now=NOW).success
+
+    assert clock.correct(TODAY, time(7, 0), time(9, 0), now=TODAY).success is True
+
+
 # -- how it is drawn ---------------------------------------------------------
 
 

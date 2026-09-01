@@ -14,7 +14,7 @@ from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
-from flexi.services.ledger import segment_of
+from flexi.services.ledger import end_of_day, segment_of
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
 from flexi.services.transactions import atomic, write_transaction
@@ -304,5 +304,18 @@ left in `src/`, the other thirteen all being `stamp()` arguments or prose.
 
 
 def overlapping(first: Segment, start: datetime, end: datetime) -> bool:
-    """Whether an existing stretch shares any time with a proposed one."""
-    return bool(first.start < end and start < (first.end or first.start))
+    """Whether an existing stretch shares any time with a proposed one.
+
+    An open session is worth the rest of its own day, which is the reading
+    `ledger.end_of_day` already gives it everywhere else. `first.end or
+    first.start` collapsed it to a zero-length instant instead, so a session
+    still running claimed none of the time it was in the middle of claiming and
+    a correction over those hours was waved through to be counted twice.
+
+    Not `wallclock.now()`: that would still admit a correction for later this
+    afternoon, which overlaps the moment the person clocks out. While a session
+    is running, any correction after its start on that date is refused.
+    """
+    return bool(
+        first.start < end and start < first.finish(end_of_day(first.start.date()))
+    )
