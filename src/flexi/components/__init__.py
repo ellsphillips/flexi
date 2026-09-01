@@ -46,6 +46,7 @@ if TYPE_CHECKING:
         DIVERGING_STEPS,
         EMPTY,
         HEAT,
+        SECONDS_PER_HOUR,
         Burndown,
         Column,
         DivergingBars,

@@ -144,3 +144,92 @@ def test_context_adapters_apply_interface_segregation() -> None:
         context.command_app(app)
     with pytest.raises(TypeError, match="complete Flexi application context"):
         context.flexi_app(app)
+
+
+LAZY_FACADES = (
+    "flexi/services/__init__.py",
+    "flexi/components/__init__.py",
+    "flexi/components/modules/__init__.py",
+    "flexi/screens/__init__.py",
+    "flexi/cli/__init__.py",
+    "flexi/cli/ui/__init__.py",
+)
+"""The packages that resolve their exports lazily through PEP 562 `__getattr__`.
+
+`flexi.domain` and `flexi.models` import theirs eagerly, so their annotations
+come from the imports themselves and there is no second list to keep in step.
+"""
+
+
+def _names_bound_under_type_checking(tree: ast.Module) -> set[str]:
+    """Every name the `if TYPE_CHECKING:` block imports, as it is bound."""
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        guard = isinstance(node, ast.If) and isinstance(node.test, ast.Name)
+        if not (guard and node.test.id == "TYPE_CHECKING"):  # type: ignore[attr-defined]
+            continue
+        for statement in ast.walk(node):
+            if isinstance(statement, ast.Import | ast.ImportFrom):
+                # `asname or name`, because the facades deliberately rename on
+                # the way in -- `format as formatting`, `FULL as
+                # CHART_FULL_GLYPH` -- and it is the bound name that has to
+                # match `__all__`.
+                bound |= {alias.asname or alias.name for alias in statement.names}
+    return bound
+
+
+def _locally_defined(tree: ast.Module) -> set[str]:
+    """Names the facade defines itself rather than re-exporting."""
+    defined: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            defined.add(node.name)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            defined.add(node.target.id)
+        elif isinstance(node, ast.Assign):
+            defined |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+    return defined
+
+
+@pytest.mark.parametrize("relative", LAZY_FACADES)
+def test_a_lazy_facade_types_everything_it_exports(relative: str) -> None:
+    """The `if TYPE_CHECKING:` block is a fourth export list, and nothing gated it.
+
+    A lazy facade carries the same names in four places: `__all__`, the runtime
+    routing table, `__getattr__`, and this block. Only the block is invisible at
+    runtime -- a name missing from it still imports and still works, and the
+    only symptom is that `from flexi.services import CORRECTION_OVERLAP` types
+    as `object` for anybody downstream. Flexi ships `py.typed`, so that is a
+    hole in a contract it makes explicitly.
+
+    Six names had already drifted out of `flexi.services` and one out of
+    `flexi.components`, which is what a hand-maintained list with no gate does.
+
+    `if TYPE_CHECKING:` is in coverage's `exclude_also`, so this costs the
+    100% gate nothing.
+    """
+    path = Path(__file__).resolve().parent.parent / "src" / relative
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+    exported = set(_module_all(tree))
+    missing = exported - _names_bound_under_type_checking(tree) - _locally_defined(tree)
+
+    assert missing == set(), (
+        f"{relative} exports {sorted(missing)} without importing them under "
+        f"`if TYPE_CHECKING:`, so a type checker sees them as `object`"
+    )
+
+
+def _module_all(tree: ast.Module) -> list[str]:
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else []
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id == "__all__":
+                return [
+                    element.value
+                    for element in ast.walk(node)
+                    if isinstance(element, ast.Constant)
+                    and isinstance(element.value, str)
+                ]
+    msg = "the facade declares no __all__"
+    raise AssertionError(msg)

@@ -69,7 +69,16 @@ if TYPE_CHECKING:
         fetch_bank_holiday_index,
         parse_bank_holidays,
     )
-    from flexi.services.clock import ClockResult, ClockService
+    from flexi.services.clock import (
+        CORRECTION_BACKWARDS,
+        CORRECTION_BOOKED,
+        CORRECTION_EMPTY,
+        CORRECTION_FUTURE,
+        CORRECTION_OVERLAP,
+        ClockResult,
+        ClockService,
+        overlapping,
+    )
     from flexi.services.ledger import (
         LedgerRevision,
         LedgerService,
@@ -152,7 +161,11 @@ if TYPE_CHECKING:
         write_transaction,
     )
     from flexi.services.wallet import WalletService
-    from flexi.services.work_sessions import stage_clock_in, stage_clock_out
+    from flexi.services.work_sessions import (
+        stage_clock_in,
+        stage_clock_out,
+        stage_correction,
+    )
 
 _SUBMODULES: Final = (
     "absence",
