@@ -26,6 +26,7 @@ from flexi.services.work_sessions import (
 
 __all__ = (
     "CORRECTION_BACKWARDS",
+    "CORRECTION_BOOKED",
     "CORRECTION_EMPTY",
     "CORRECTION_FUTURE",
     "CORRECTION_OVERLAP",
@@ -88,6 +89,21 @@ class ClockService:
     def is_clocked_in(self) -> bool:
         return self.get_open_session() is not None
 
+    def _fully_booked(self, work_date: date) -> bool:
+        """Whether booked absence leaves no half of a date left to work.
+
+        Asked by both routes into a work session, which is the point: the guard
+        used to live inline in `clock_in` only, so `correct` -- the other way a
+        day gets hours on it -- walked straight past it.
+
+        `scalar_one_or_none` here raised outright on two rows, which is the one
+        arrangement `AbsenceService` documents as legal: a sick morning and an
+        annual afternoon. Booking those made the next morning's `flexi clock in`
+        a traceback.
+        """
+        stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
+        return covers_the_whole_day(self._session.execute(stmt).scalars().all())
+
     def sweep(self) -> None:
         """Close work left running on an earlier day.
 
@@ -124,13 +140,7 @@ class ClockService:
                     success=False, message="Cannot clock in on a bank holiday"
                 )
 
-            # `scalar_one_or_none` here raised outright on two rows, which is the
-            # one arrangement `AbsenceService` documents as legal: a sick morning
-            # and an annual afternoon. Booking those made the next morning's
-            # `flexi clock in` a traceback.
-            stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
-            booked = self._session.execute(stmt).scalars().all()
-            if covers_the_whole_day(booked):
+            if self._fully_booked(work_date):
                 return ClockResult(
                     success=False, message="Cannot clock in on an absence day"
                 )
@@ -224,6 +234,18 @@ class ClockService:
         two stretches sharing an hour is a day that counts it twice, and no rule
         for merging them is better than a person looking at both and saying
         which is right.
+
+        A day already booked off in full is refused for the same reason. The
+        absence spends a day of allowance and expects no work, so hours recorded
+        on top of it are pure surplus: the day is paid for twice, once out of the
+        leave balance and once into the flexi balance. Half a day booked is left
+        alone, exactly as `clock_in` leaves it -- a booked morning and a worked
+        afternoon is an ordinary day.
+
+        A bank holiday is deliberately *not* refused here, though `clock_in`
+        refuses one. Nobody can clock in on a bank holiday, so a correction is
+        the only way to record work that genuinely happened on one, and unlike
+        booked leave it spends no allowance -- the surplus it earns is real.
         """
         today = now or wallclock.today()
         if day > today:
@@ -236,6 +258,11 @@ class ClockService:
         opened_at = wallclock.local(datetime.combine(day, opened))
         closed_at = wallclock.local(datetime.combine(day, closed))
         with write_transaction(self._session):
+            if self._fully_booked(day):
+                return ClockResult(
+                    success=False,
+                    message=CORRECTION_BOOKED.format(day=short_date(day)),
+                )
             if any(
                 overlapping(existing, opened_at, closed_at)
                 for existing in self.segments_on(day)
@@ -290,6 +317,7 @@ class ClockService:
 
 
 CORRECTION_BACKWARDS = "That correction ends before it starts"
+CORRECTION_BOOKED = "{day} is already booked off in full"
 CORRECTION_EMPTY = "A correction has to cover some time"
 CORRECTION_FUTURE = "A day that has not happened cannot be corrected"
 CORRECTION_OVERLAP = "That overlaps work already recorded on {day}"
