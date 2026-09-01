@@ -20,15 +20,29 @@ __all__ = ("run",)
 
 
 def run(services: Services) -> int:
-    """Fetch the calendar for the configured division. Returns an exit code."""
+    """Fetch the calendar for the configured division. Returns an exit code.
+
+    A failed fetch is always a non-zero exit: the refresh is what was asked for,
+    a cron entry reads the code, and softening it to zero whenever some calendar
+    survives would mean a machine could go a year without a successful refresh
+    and never once say so.
+
+    What the failure *says* depends on whether anything is left to fall back on.
+    It claimed "bank holidays will be missing" either way, which is untrue of
+    the commoner case by far -- every command runs `fill_if_empty` on the way
+    in, so by the time this runs there is usually a calendar, and a stale
+    calendar still answers correctly for the year it holds.
+    """
     named = services.bank_holidays.division.label
 
     if not services.bank_holidays.fetch_and_cache():
+        kept = (
+            "The calendar already cached is unchanged and still in use."
+            if services.bank_holidays.is_available()
+            else "Flexi keeps working; bank holidays will be missing until it can."
+        )
         click.secho(
-            f"Could not reach GOV.UK for {named}.\n"
-            "Flexi keeps working; bank holidays will be missing until it can.",
-            fg="yellow",
-            err=True,
+            f"Could not reach GOV.UK for {named}.\n{kept}", fg="yellow", err=True
         )
         return 1
 

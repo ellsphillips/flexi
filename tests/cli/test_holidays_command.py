@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+import httpx
 import pytest
 from sqlalchemy.orm import Session
 
@@ -129,6 +130,38 @@ def test_a_refresh_that_cannot_reach_govuk_fails_without_hiding_it(
     assert "Could not reach GOV.UK for England & Wales." in reported
     assert "Flexi keeps working" in reported
     assert services.bank_holidays.get_dates() is None
+
+
+def test_a_refresh_that_fails_over_a_cached_calendar_says_which_it_kept(
+    session: Session, answering: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Still exit 1 -- the refresh failed -- but not "bank holidays will be missing".
+
+    They will not be missing. Every command runs `fill_if_empty` on the way in,
+    so by the time this runs there is usually a calendar, and a stale one still
+    answers correctly for the year it holds. Telling somebody their calendar has
+    gone when it has not is how a warning stops being read.
+    """
+    services = configured(session)
+    assert holidays_cli.run(services) == 0, "the first refresh fills the cache"
+    capsys.readouterr()
+
+    def refused(*_args: object, **_kwargs: object) -> None:
+        msg = "GOV.UK is unreachable this time"
+        raise httpx.ConnectError(msg)
+
+    with pytest.MonkeyPatch.context() as offline:
+        offline.setattr("httpx.Client.get", refused)
+        assert holidays_cli.run(services) == 1, "a cron entry reads this"
+
+    reported = capsys.readouterr().err
+    assert "Could not reach GOV.UK for England & Wales." in reported
+    assert "already cached is unchanged" in reported
+    assert "will be missing" not in reported
+    assert services.bank_holidays.get_dates() == {
+        date(2026, 8, 31),
+        date(2026, 12, 25),
+    }
 
 
 def test_a_machine_with_no_settings_row_is_named_by_the_default_region(
