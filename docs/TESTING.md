@@ -23,7 +23,7 @@ The three that matter most:
     [
         (h(7, 24), h(7, 24), "0:00"),
         (h(8, 12), h(7, 24), "+0:48"),
-        (h(3, 10), h(7, 24), "−4:14"),   # U+2212, not a hyphen
+        (h(3, 10), h(7, 24), "−4:14"),  # U+2212, not a hyphen
     ],
 )
 def test_delta_formatting(worked, expected, want):

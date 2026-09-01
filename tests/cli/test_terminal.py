@@ -116,7 +116,7 @@ def test_the_terminal_stops_waiting_for_a_line_inside_the_block(
 
     A terminal in its default mode hands nothing over until enter is pressed.
     """
-    _, terminal = pty_pair
+    _, _terminal = pty_pair
 
     with prompt.unbuffered() as descriptor:
         mode = termios.tcgetattr(descriptor)

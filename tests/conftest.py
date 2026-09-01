@@ -271,11 +271,19 @@ def in_london() -> Iterator[None]:
 
 
 @pytest.fixture
-def engine(tmp_path: Path) -> Engine:
-    """An empty database on disk, with every table created."""
+def engine(tmp_path: Path) -> Iterator[Engine]:
+    """An empty database on disk, with every table created.
+
+    Disposed on the way out. It used to be returned rather than yielded, so
+    every test left its SQLite connection to the garbage collector: pytest 8.4
+    began surfacing that as `ResourceWarning: unclosed database`, hundreds of
+    them a run, and a suite that prints hundreds of warnings is a suite nobody
+    reads the warnings of.
+    """
     created = create_db_engine(tmp_path / "test.db")
     Base.metadata.create_all(created)
-    return created
+    yield created
+    created.dispose()
 
 
 @pytest.fixture

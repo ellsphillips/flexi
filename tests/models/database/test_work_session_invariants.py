@@ -127,7 +127,7 @@ def test_one_clock_in_event_cannot_start_two_sessions(
             )
         )
 
-        with pytest.raises(IntegrityError, match="work_sessions.clock_in_id"):
+        with pytest.raises(IntegrityError, match=r"work_sessions\.clock_in_id"):
             session.commit()
 
 
@@ -155,7 +155,7 @@ def test_one_clock_out_event_cannot_finish_two_sessions(
             )
         )
 
-        with pytest.raises(IntegrityError, match="work_sessions.clock_out_id"):
+        with pytest.raises(IntegrityError, match=r"work_sessions\.clock_out_id"):
             session.commit()
 
 

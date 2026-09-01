@@ -50,6 +50,90 @@ BEFORE_BANK_HOLIDAY_REFRESHES = "0012"
 BEFORE_CLOCK_SESSION_INVARIANTS = "0013"
 HEAD = "head"
 
+# -- ambiguous legacy rows, as SQL -------------------------------------------
+#
+# Named rather than written inline in the `parametrize` lists below. Implicit
+# string concatenation inside a collection is the shape of the missing-comma
+# bug -- two entries silently becoming one -- so ruff refuses it there, and
+# rightly: at this length the comma ending each statement is easy to miss. As
+# assignments they are unambiguous, and the cases below now read as the
+# sentence each is testing rather than as a wall of SQL.
+
+TWO_SETTINGS_ROWS = (
+    "INSERT INTO settings"
+    " (id, leave_year_start, working_days, bank_holiday_division,"
+    " auto_close_time) VALUES"
+    " (1, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00'),"
+    " (2, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00')"
+)
+
+TWO_IN_EVENTS = (
+    "INSERT INTO clock_events"
+    " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+    " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+    " (2, 'IN', '2026-06-10 10:00:00', 'user', 0)"
+)
+
+TWO_OUT_EVENTS = (
+    "INSERT INTO clock_events"
+    " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+    " (1, 'OUT', '2026-06-10 09:00:00', 'user', 0),"
+    " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0)"
+)
+
+IN_OUT_OUT_EVENTS = (
+    "INSERT INTO clock_events"
+    " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+    " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+    " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0),"
+    " (3, 'OUT', '2026-06-10 11:00:00', 'user', 0)"
+)
+
+IN_IN_OUT_EVENTS = (
+    "INSERT INTO clock_events"
+    " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+    " (1, 'IN', '2026-06-10 08:00:00', 'user', 0),"
+    " (2, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+    " (3, 'OUT', '2026-06-10 10:00:00', 'user', 0)"
+)
+
+TWO_OPEN_SESSIONS = (
+    "INSERT INTO work_sessions"
+    " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+    " VALUES"
+    " (1, 1, NULL, '2026-06-10', 0, 0),"
+    " (2, 2, NULL, '2026-06-10', 0, 0)"
+)
+
+TWO_SESSIONS_SHARING_A_CLOCK_OUT = (
+    "INSERT INTO work_sessions"
+    " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+    " VALUES"
+    " (11, 1, 2, '2026-06-10', 0, 0),"
+    " (12, 1, 3, '2026-06-11', 0, 0)"
+)
+
+TWO_SESSIONS_SHARING_A_CLOCK_IN = (
+    "INSERT INTO work_sessions"
+    " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+    " VALUES"
+    " (11, 1, 3, '2026-06-10', 0, 0),"
+    " (12, 2, 3, '2026-06-11', 0, 0)"
+)
+
+ONE_SESSION_ON_EVENTS_1_AND_2 = (
+    "INSERT INTO work_sessions"
+    " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+    " VALUES (11, 1, 2, '2026-06-10', 0, 0)"
+)
+
+A_FULL_DAY_AND_A_HALF = (
+    "INSERT INTO absence_days (id, date, absence_type, portion)"
+    " VALUES"
+    " (1, '2026-06-10', 'ANNUAL', 'FULL'),"
+    " (2, '2026-06-10', 'SICK', 'AM')"
+)
+
 
 def test_revision_result_rejects_contradictory_states() -> None:
     """A caller cannot manufacture a result whose state disagrees with its data."""
@@ -461,37 +545,13 @@ def test_valid_legacy_states_survive_the_invariant_upgrade(db: Path) -> None:
 @pytest.mark.parametrize(
     ("statements", "expected"),
     [
+        ((TWO_SETTINGS_ROWS,), "settings has 2 rows"),
         (
-            (
-                "INSERT INTO settings"
-                " (id, leave_year_start, working_days, bank_holiday_division,"
-                " auto_close_time) VALUES"
-                " (1, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00'),"
-                " (2, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00')",
-            ),
-            "settings has 2 rows",
-        ),
-        (
-            (
-                "INSERT INTO clock_events"
-                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
-                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
-                " (2, 'IN', '2026-06-10 10:00:00', 'user', 0)",
-                "INSERT INTO work_sessions"
-                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
-                " VALUES"
-                " (1, 1, NULL, '2026-06-10', 0, 0),"
-                " (2, 2, NULL, '2026-06-10', 0, 0)",
-            ),
+            (TWO_IN_EVENTS, TWO_OPEN_SESSIONS),
             "work_sessions has 2 non-voided open rows",
         ),
         (
-            (
-                "INSERT INTO absence_days (id, date, absence_type, portion)"
-                " VALUES"
-                " (1, '2026-06-10', 'ANNUAL', 'FULL'),"
-                " (2, '2026-06-10', 'SICK', 'AM')",
-            ),
+            (A_FULL_DAY_AND_A_HALF,),
             "absence_days mixes FULL with a half on: 2026-06-10",
         ),
     ],
@@ -520,57 +580,19 @@ def test_ambiguous_legacy_states_fail_before_the_schema_changes(
     ("statements", "expected"),
     [
         (
-            (
-                "INSERT INTO clock_events"
-                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
-                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
-                " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0),"
-                " (3, 'OUT', '2026-06-10 11:00:00', 'user', 0)",
-                "INSERT INTO work_sessions"
-                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
-                " VALUES"
-                " (11, 1, 2, '2026-06-10', 0, 0),"
-                " (12, 1, 3, '2026-06-11', 0, 0)",
-            ),
+            (IN_OUT_OUT_EVENTS, TWO_SESSIONS_SHARING_A_CLOCK_OUT),
             "work_sessions reuses clock_in_id values: 1",
         ),
         (
-            (
-                "INSERT INTO clock_events"
-                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
-                " (1, 'IN', '2026-06-10 08:00:00', 'user', 0),"
-                " (2, 'IN', '2026-06-10 09:00:00', 'user', 0),"
-                " (3, 'OUT', '2026-06-10 10:00:00', 'user', 0)",
-                "INSERT INTO work_sessions"
-                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
-                " VALUES"
-                " (11, 1, 3, '2026-06-10', 0, 0),"
-                " (12, 2, 3, '2026-06-11', 0, 0)",
-            ),
+            (IN_IN_OUT_EVENTS, TWO_SESSIONS_SHARING_A_CLOCK_IN),
             "work_sessions reuses clock_out_id values: 3",
         ),
         (
-            (
-                "INSERT INTO clock_events"
-                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
-                " (1, 'OUT', '2026-06-10 09:00:00', 'user', 0),"
-                " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0)",
-                "INSERT INTO work_sessions"
-                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
-                " VALUES (11, 1, 2, '2026-06-10', 0, 0)",
-            ),
+            (TWO_OUT_EVENTS, ONE_SESSION_ON_EVENTS_1_AND_2),
             "work_sessions has non-IN clock_in rows: 11",
         ),
         (
-            (
-                "INSERT INTO clock_events"
-                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
-                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
-                " (2, 'IN', '2026-06-10 10:00:00', 'user', 0)",
-                "INSERT INTO work_sessions"
-                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
-                " VALUES (11, 1, 2, '2026-06-10', 0, 0)",
-            ),
+            (TWO_IN_EVENTS, ONE_SESSION_ON_EVENTS_1_AND_2),
             "work_sessions has non-OUT clock_out rows: 11",
         ),
     ],

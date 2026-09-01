@@ -9,7 +9,6 @@ semantically here so import order can never decide which one a caller receives.
 from __future__ import annotations
 
 # These imports describe attributes that PEP 562 resolves lazily at runtime.
-# ruff: noqa: TC004
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 

@@ -187,7 +187,7 @@ class FlexiApp(TextualApp[None]):
         self._check_for_updates()
         self.refresh_holidays()
 
-    def _on_setup_done(self, completed: bool | None) -> None:
+    def _on_setup_done(self, completed: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
         if not completed:
             self.exit()
             return
@@ -424,7 +424,7 @@ class FlexiApp(TextualApp[None]):
         self._pushed = None
         self.nav = "dashboard"
 
-    def _on_settings_saved(self, saved: bool | None) -> None:
+    def _on_settings_saved(self, saved: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
         """The form has gone, however it went: saved, escaped or replaced."""
         self._settings = None
         if not saved:

@@ -162,25 +162,29 @@ books leave in the future, so it uses an
 
 ```python
 class Granularity(StrEnum):
-    DAY = "day"; WEEK = "week"; MONTH = "month"; YEAR = "year"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+
 
 @dataclass(frozen=True, slots=True)
 class Period:
     granularity: Granularity
-    anchor: date          # any date inside the period
+    anchor: date  # any date inside the period
 
     @property
     def start(self) -> date: ...
     @property
-    def end(self) -> date: ...          # inclusive
-    def shift(self, n: int) -> Period: ...       # n periods forward/back
-    def zoom(self, g: Granularity) -> Period: ...# keep the anchor, change the span
+    def end(self) -> date: ...  # inclusive
+    def shift(self, n: int) -> Period: ...  # n periods forward/back
+    def zoom(self, g: Granularity) -> Period: ...  # keep the anchor, change the span
     def contains(self, d: date) -> bool: ...
     def days(self) -> Iterator[date]: ...
     @property
-    def label(self) -> str: ...         # "Week of 8 Jun", "June 2026", "2026/27"
+    def label(self) -> str: ...  # "Week of 8 Jun", "June 2026", "2026/27"
     @property
-    def is_current(self) -> bool: ...   # contains today
+    def is_current(self) -> bool: ...  # contains today
 ```
 
 Two rules that make the control feel right:
@@ -204,24 +208,28 @@ The single view model every widget reads. Computed by
 ```python
 @dataclass(frozen=True, slots=True)
 class Segment:
-    start: datetime          # local
-    end: datetime | None     # None while open
+    start: datetime  # local
+    end: datetime | None  # None while open
     open: bool
     auto_closed: bool
     note: str | None
     session_id: int
 
+
 @dataclass(frozen=True, slots=True)
 class DayLedger:
     date: date
-    kind: DayKind            # WORKING | WEEKEND | HOLIDAY | ABSENT | PARTIAL
+    kind: DayKind  # WORKING | WEEKEND | HOLIDAY | ABSENT | PARTIAL
     holiday_title: str | None
-    absences: tuple[AbsenceSlice, ...]   # 0, 1 (full) or up to 2 (am+pm)
+    absences: tuple[AbsenceSlice, ...]  # 0, 1 (full) or up to 2 (am+pm)
     segments: tuple[Segment, ...]
     worked: timedelta
     expected: timedelta
+
     @property
-    def delta(self) -> timedelta:  return self.worked - self.expected
+    def delta(self) -> timedelta:
+        return self.worked - self.expected
+
     @property
     def is_open(self) -> bool: ...
 ```

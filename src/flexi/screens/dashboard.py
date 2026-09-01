@@ -369,7 +369,7 @@ class DashboardScreen(Screen[None]):
             return
         booking = snapshot_booking(found)
 
-        def confirm(answer: bool | None) -> None:
+        def confirm(answer: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
             if answer:
                 self._report(
                     self._services.absence.remove_booking(booking),

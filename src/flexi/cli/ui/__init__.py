@@ -22,7 +22,6 @@ terminal exists, and it is the only part that cannot be tested without one.
 from __future__ import annotations
 
 # These imports describe attributes that PEP 562 resolves lazily at runtime.
-# ruff: noqa: TC004
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 

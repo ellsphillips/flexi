@@ -18,7 +18,6 @@ from flexi.domain.dates import Preference, parse_date
 from flexi.services.outcome import Outcome
 
 # These imports describe attributes that PEP 562 resolves lazily at runtime.
-# ruff: noqa: TC004
 if TYPE_CHECKING:
     from flexi.cli import balance, clock, holidays, init, leave, ui
     from flexi.cli.balance import NO_CALENDAR, log, show, undo, zero
@@ -126,8 +125,13 @@ __all__ = (  # noqa: RUF022
 )
 
 
-class TypedDate(click.ParamType):
+class TypedDate(click.ParamType[date]):
     """A date option, read with the grammar the rest of Flexi understands.
+
+    Parameterised because `click.ParamType` became generic in its converted
+    type in Click 8.5; the bare form is a mypy `type-arg` error under
+    `strict`. `date` is what `convert` returns, so it is also what Click's own
+    stubs now use to type the option this is attached to.
 
     `click.DateTime` accepts `%Y-%m-%d` and hands back a `datetime`, so every
     option using it had to unwrap `.date()` and declare a parameter as a

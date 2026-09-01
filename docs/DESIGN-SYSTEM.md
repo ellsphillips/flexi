@@ -285,7 +285,7 @@ Terminal CSS has no media query, so the class is the query:
 ```python
 def on_resize(self, event: Resize) -> None:
     self.set_class(event.size.width < 100, "-narrow")
-    self.set_class(event.size.width < 64,  "-tiny")
+    self.set_class(event.size.width < 64, "-tiny")
 ```
 
 Three layouts, driven by the terminal's width — never a widget's own, which is
@@ -359,6 +359,7 @@ Textual scopes CSS variables to the stylesheet that declares them, so a
 
 ```python
 _PALETTE = re.compile(r"^\s*\$([a-z0-9-]+)\s*:\s*([^;${}]+);", re.MULTILINE)
+
 
 @cache
 def palette(path: Path = THEME_PATH) -> dict[str, str]:

@@ -171,9 +171,9 @@ widgets that show elapsed time (clock subtitle, balance) and only while
 ```python
 NAV_ITEMS = (
     NavItem("f1", "dashboard", "Dashboard", "Clock, balance, wallet and records"),
-    NavItem("f2", "leave",     "Leave",     "Book and remove leave across the year"),
-    NavItem("f3", "insights",  "Insights",  "How the balance and the allowances moved"),
-    NavItem("f4", "settings",  "Settings",  "Hours, leave year, bank holidays"),
+    NavItem("f2", "leave", "Leave", "Book and remove leave across the year"),
+    NavItem("f3", "insights", "Insights", "How the balance and the allowances moved"),
+    NavItem("f4", "settings", "Settings", "Hours, leave year, bank holidays"),
 )
 ```
 
@@ -205,18 +205,21 @@ per-row styling costs 2,700 lines. Flexi gets the same effect by passing
 `rich.text.Text` with an explicit style into the cell:
 
 ```python
-table.add_row(*(Text(cell, style=self.get_component_rich_style("record--sub"))
-                for cell in cells), key=f"s-{session.id}")
+table.add_row(
+    *(Text(cell, style=self.get_component_rich_style("record--sub")) for cell in cells),
+    key=f"s-{session.id}",
+)
 ```
 
 `ExpandableTable` wraps the stock `DataTable` and owns the expansion state:
 
 ```python
 class ExpandableTable(DataTable):
-    expanded: set[str]                 # row keys currently open
+    expanded: set[str]  # row keys currently open
 
     def set_rows(self, groups: Sequence[RowGroup]) -> None: ...
     def toggle(self, key: str) -> None: ...
+
     class Expanded(Message): ...
 ```
 
@@ -249,7 +252,7 @@ per-widget hooks and do not:
    ```python
    class FlexiScreen(Screen):
        def jump_targets(self) -> Mapping[str, str]:
-           return {}          # widget id -> key
+           return {}  # widget id -> key
    ```
 
    The app builds a `Jumper` from `self.screen.jump_targets()` each time the

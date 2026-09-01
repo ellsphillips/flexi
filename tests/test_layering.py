@@ -266,7 +266,7 @@ def clock_reads(source: Path) -> Iterator[str]:
 @pytest.mark.parametrize(
     "path",
     [path for path in sorted(SRC.rglob("*.py")) if path.name != "wallclock.py"],
-    ids=lambda p: str(p),
+    ids=str,
 )
 def test_only_wallclock_reads_the_system_clock(path: Path) -> None:
     """The invariant the README and CONTRIBUTING both state, enforced.

@@ -320,7 +320,7 @@ class LeaveScreen(Screen[None]):
             self._commit(plan)
             return
 
-        def confirm(answer: bool | None) -> None:
+        def confirm(answer: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
             if answer:
                 self._commit(plan)
 
@@ -358,7 +358,7 @@ class LeaveScreen(Screen[None]):
             self._clear(plan)
             return
 
-        def confirm(answer: bool | None) -> None:
+        def confirm(answer: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
             if answer:
                 self._clear(plan)
 

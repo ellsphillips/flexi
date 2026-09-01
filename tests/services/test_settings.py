@@ -318,7 +318,7 @@ def test_a_time_that_cannot_be_read_is_refused_rather_than_stored(
     Both screens already wrap `save_settings` in `except ValueError: notify`, so
     refusing here is what puts the message in front of somebody.
     """
-    with pytest.raises(ValueError, match="time|range"):
+    with pytest.raises(ValueError, match=r"time|range"):
         svc.save_settings(
             parse_settings(
                 leave_year_start="04-06",

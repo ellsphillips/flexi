@@ -253,14 +253,14 @@ class Burndown(Widget):
         width = max(12, self.content_size.width)
         spent = self.total - self.remaining
         track = [EMPTY] * width
-        filled = int(round(spent / self.total * width))
+        filled = round(spent / self.total * width)
         for index in range(min(filled, width)):
             track[index] = FULL
 
         marker = (
             None
             if self.pace is None
-            else min(width - 1, max(0, int(round(self.pace / self.total * width))))
+            else min(width - 1, max(0, round(self.pace / self.total * width)))
         )
         if marker is not None:
             track[marker] = "┃"
@@ -416,7 +416,7 @@ class YearHeatmap(Widget):
         if effect == timedelta():
             return glyph, self.get_component_rich_style("chart--neutral")
         share = min(1.0, abs(effect) / self.scale)
-        step = max(1, min(DIVERGING_STEPS, int(round(share * DIVERGING_STEPS))))
+        step = max(1, min(DIVERGING_STEPS, round(share * DIVERGING_STEPS)))
         arm = "surplus" if effect > timedelta() else "deficit"
         return glyph, self.get_component_rich_style(f"chart--{arm}-{step}")
 

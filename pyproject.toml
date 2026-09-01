@@ -160,6 +160,19 @@ ignore = [
     "TC001",
     "TC002",
     "TC003",
+    # A per-file copyright header. The licence is stated once, in LICENSE, and
+    # in the `license` field of this file. Repeating it at the top of 226 files
+    # is noise that has to be maintained and says nothing the licence does not.
+    "CPY001",
+    # A deferred import is a technique this codebase uses deliberately, not an
+    # oversight. `flexi.services` and its four sibling facades resolve every
+    # export through PEP 562 `__getattr__` precisely so that importing them
+    # costs nothing -- `flexi.services.setup` sits on the startup path of every
+    # CLI command and must not drag SQLAlchemy in. `minimum_session` reads
+    # `flexi.config` inside the function for the same reason, and
+    # `tests/test_layering.py` has a `module_scope_imports` helper that exists
+    # only to tell a deferred import from one that is paid at import time.
+    "PLC0415",
 ]
 
 [tool.ruff.lint.per-file-ignores]
