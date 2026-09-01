@@ -155,12 +155,30 @@ class Selection:
         return Selection.at(self.head)
 
     def go_to(self, when: date) -> Selection:
+        """Jump to a date, dropping any span.
+
+        The verb `Period.go_to` and `YearCalendar.go_to` share, so the three read
+        alike where the leave screen calls them side by side.
+        """
         return Selection.at(when)
 
     def label(self) -> str:
-        """How the selection names itself."""
+        """How the selection names itself.
+
+        Each end drops only what the other makes obvious. A span that crosses a
+        year makes nothing obvious, so both ends carry theirs: the month was
+        compared without the year, and a selection running from one August into
+        the next read "Mon 10 – Mon 9 Aug 2027" -- which parses as a fortnight
+        running backwards inside a single month rather than as the year it is.
+
+        Worth being exact about, because this is the string the confirmation
+        names when a selection is about to be cleared, and nothing clamps a
+        selection: `extend` is a week a press and the calendar applies no bound.
+        """
         if self.single:
             return long_date(self.anchor)
+        if self.start.year != self.end.year:
+            return f"{long_date(self.start)} – {long_date(self.end)}"
         if self.start.month == self.end.month:
             return f"{stamp(self.start, '%a %-d')} – {long_date(self.end)}"
         return f"{short_date(self.start)} – {long_date(self.end)}"

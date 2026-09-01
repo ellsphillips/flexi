@@ -162,6 +162,12 @@ def test_membership() -> None:
         (0, "Mon 10 Aug 2026"),
         (4, "Mon 10 – Fri 14 Aug 2026"),
         (30, "Mon 10 Aug – Wed 9 Sep 2026"),
+        # Same month, a year apart. The start kept only its weekday and day, so
+        # this read "Mon 10 – Mon 9 Aug 2027" -- a fortnight running backwards
+        # rather than the year it is. Nothing clamps the selection: `extend` is
+        # seven days a press and the calendar applies no bound, so held
+        # shift+down reaches here.
+        (364, "Mon 10 Aug 2026 – Mon 9 Aug 2027"),
     ],
 )
 def test_the_selection_names_itself(extend: int, expected: str) -> None:
