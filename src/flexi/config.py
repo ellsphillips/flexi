@@ -163,6 +163,16 @@ def load_config(path: Path | None = None) -> Config:
 
     A malformed file yields the defaults rather than refusing to start: a typo
     in a keybinding should not lock somebody out of their own time records.
+    "Malformed" includes the wrong encoding. A file saved as UTF-16 -- which
+    Notepad and PowerShell's `>` both do without being asked -- raised
+    `UnicodeDecodeError`, which is a `ValueError` and not caught by either of
+    the other two, so it escaped. `CONFIG` is bound at module scope, so that was
+    not a TUI that would not start: it was `import flexi.config` raising, which
+    takes `flexi --version` down with it.
+
+    Not `errors="replace"`, and no encoding sniffing. Silently mis-decoding a
+    keybinding into a character nobody can type is worse than falling back to
+    the defaults and leaving the file for its author to fix.
 
     Section by section, though, and not wholesale. Validated as one document, a
     single unknown key under `defaults` -- and `extra="forbid"` makes an unknown
@@ -173,7 +183,7 @@ def load_config(path: Path | None = None) -> Config:
     path = path or config_file()
     try:
         raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
         return Config()
     if not isinstance(raw, dict):
         return Config()
