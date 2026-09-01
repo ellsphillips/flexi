@@ -137,9 +137,10 @@ Every modal, without exception:
 | `enter` | Confirm, when the focused widget is not multi-line. |
 | `tab` / `shift+tab` | Next / previous field. |
 
-A modal that breaks one of these is a bug. They are asserted for every modal in
-`tests/tui/test_modal_contract.py`, which discovers `ModalScreen` subclasses by
-walking the package — so a new modal is covered the day it is written.
+A modal that breaks one of these is a bug. They are asserted for every modal by
+`tests/tui/test_keyboard.py::test_every_modal_binds_escape_and_enter`, which
+discovers `FlexiModal` subclasses by walking the package — so a new modal is
+covered the day it is written.
 
 ---
 
@@ -192,7 +193,8 @@ from every screen would drop the misses silently instead.
 3. **Give it a `description` that is a verb phrase in the imperative** — `Book
    leave`, not `Leave booking`. The same words appear in the strip, the help
    screen and the palette, so they have to read as an instruction.
-4. **Check the collision test.** `tests/tui/test_bindings.py` asserts that no two
+4. **Check the collision test.**
+   `tests/tui/test_keyboard.py::test_no_two_shown_bindings_share_a_key` asserts that no two
    *shown* bindings active on the same screen use the same key, and that every
    action named by a binding exists as a method. A typo in an action name is
    otherwise silent until a user presses the key.

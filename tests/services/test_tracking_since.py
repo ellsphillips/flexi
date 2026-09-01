@@ -18,7 +18,7 @@ import time_machine
 from sqlalchemy.orm import Session
 
 from flexi.constants import DayKind, Division
-from flexi.services.registry import Services, build_services
+from flexi.services.registry import Services, build_services, invalidate_services
 from flexi.services.settings import SettingsUpdate
 from tests.services.conftest import CONTRACTED, Configured, work
 
@@ -159,3 +159,113 @@ def test_a_day_with_work_on_it_is_tracked_whatever_the_stamp_says(
     assert day.kind is not DayKind.UNTRACKED
     assert day.expected == CONTRACTED, "it is an ordinary working day after all"
     assert day.delta < timedelta(), "two hours on a seven-hour day is a shortfall"
+
+
+# -- corrections against the stamp -------------------------------------------
+
+BEFORE_SETUP = date(2026, 6, 3)
+"""A Wednesday, well inside the leave year and well before Flexi arrived."""
+
+
+def banked(services: Services, as_of: date) -> timedelta:
+    """The balance as a timedelta.
+
+    These are whole minutes, and 7.4 hours is not one of the numbers binary
+    floating point can hold.
+    """
+    return services.ledger.balance(as_of).delta
+
+
+def test_correcting_a_day_from_before_setup_adds_the_hours_to_the_balance(
+    configure: Configured,
+) -> None:
+    """Remembering a morning must never cost hours, and it used to cost 3:54.
+
+    A punched session vouches for its own day -- something clocked in, so Flexi
+    was plainly running. A correction is the opposite: those hours went
+    unrecorded *because* nobody was clocking. Read as a punch, it pulled a
+    pre-setup day into tracking, billed it a full contracted day, and paid back
+    only the half somebody could remember.
+    """
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
+        before = banked(services, INSTALLED)
+
+        services.clock.correct(BEFORE_SETUP, time(9, 0), time(12, 30))
+        invalidate_services(services)
+
+        assert banked(services, INSTALLED) == before + timedelta(hours=3, minutes=30)
+
+
+def test_a_full_day_corrected_from_before_setup_is_banked_rather_than_absorbed(
+    configure: Configured,
+) -> None:
+    """The same rule a Saturday and a bank holiday already run on.
+
+    A day Flexi never asked for work expects nothing, so work done on one is
+    surplus. Anything else means a full day recovered from memory moves the
+    balance by exactly zero, which reads as the feature not working.
+    """
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
+        before = banked(services, INSTALLED)
+
+        services.clock.correct(BEFORE_SETUP, time(9, 0), time(16, 24))
+        invalidate_services(services)
+
+        assert banked(services, INSTALLED) == before + CONTRACTED
+
+
+def test_a_corrected_day_from_before_setup_still_expects_nothing_of_itself(
+    configure: Configured,
+) -> None:
+    """The day is no longer unknown, but it was never asked to be worked.
+
+    Two facts that `is_tracked` used to answer with one bit: what a day expects,
+    and whether anything is known about it.
+    """
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
+        services.clock.correct(BEFORE_SETUP, time(9, 0), time(12, 30))
+        invalidate_services(services)
+
+        day = services.ledger.day(BEFORE_SETUP)
+        assert day.expected == timedelta()
+        assert day.kind is not DayKind.UNTRACKED, "there is work recorded on it"
+
+
+def test_a_punched_session_before_setup_still_vouches_for_its_day(
+    configure: Configured,
+) -> None:
+    """The rule corrections are being carved out of, left standing.
+
+    Somebody who installed Flexi, clocked in, and only later filled the stamp
+    in has real events from that day, and it is a working day like any other.
+    """
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
+        work(services, BEFORE_SETUP, hours=7.4)
+
+        day = services.ledger.day(BEFORE_SETUP)
+        assert day.expected == CONTRACTED
+        assert day.kind is DayKind.WORKING
+
+
+def test_a_correction_after_setup_is_measured_against_the_contract(
+    configure: Configured,
+) -> None:
+    """The carve-out stops at the stamp.
+
+    Past it, a half-day is a half-day: the contract asked for a full one, and
+    a correction that only accounts for part of it leaves the day behind.
+    """
+    tracked_day = INSTALLED - timedelta(days=1)
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=tracked_day)
+        before = banked(services, INSTALLED)
+
+        services.clock.correct(tracked_day, time(9, 0), time(12, 30))
+        invalidate_services(services)
+
+        assert banked(services, INSTALLED) == before + timedelta(hours=3, minutes=30)
+        assert services.ledger.day(tracked_day).expected == CONTRACTED

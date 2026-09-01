@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
+from flexi.domain.format import long_date
 from flexi.services.absence import AbsenceService
 from flexi.services.adjustments import (
     OPENING_BALANCE,
@@ -113,8 +114,26 @@ def zero_balance(
     *,
     reason: str = OPENING_BALANCE,
 ) -> AdjustmentResult:
-    """Settle the balance so that it reads zero as at the end of ``as_of``."""
+    """Settle the balance so that it reads zero as at the end of ``as_of``.
+
+    A date that has not finished is refused. `settlement_date` explains why the
+    default is yesterday, and the same reasoning is what makes a *future* line
+    worse rather than merely useless: the balance is derived from a projection
+    in which every day between now and then was worked zero hours, so the
+    correction is sized to absorb hours nobody has worked yet. The row is then
+    invisible -- `LedgerService._adjustments` filters on `date <= end` -- until
+    its date arrives, at which point the week's real hours read as pure surplus.
+
+    Here rather than in `flexi/cli/balance.py` so that the TUI and any embedder
+    hold the same line, the way `ClockService.correct` refuses a future day for
+    every caller rather than only the one that happened to be noticed.
+    """
     as_of = settlement_date(as_of)
+    if as_of >= wallclock.today():
+        return AdjustmentResult(
+            False,
+            f"{long_date(as_of)} has not finished; settle to yesterday or before",
+        )
     with services.write():
         # A preview may have memoised this period before another process wrote
         # to it. The writer reservation must come first; only then is a fresh

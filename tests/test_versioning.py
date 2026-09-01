@@ -72,9 +72,19 @@ def test_a_newer_release_is_reported_by_name() -> None:
 
 
 def test_the_running_version_is_not_an_update() -> None:
-    with patch(
-        "flexi.versioning.httpx.get", return_value=_publishing(flexi.__version__)
-    ):
+    """The boundary case, and the only test that covers it.
+
+    This patched `flexi.versioning.httpx.get`, which `get_pypi_version` stopped
+    using when it moved to a `Client` -- the seam the other six tests in this
+    file already use. So the patch caught nothing, the autouse no-internet
+    fixture refused the real connection, and the `None` being asserted was "PyPI
+    could not be read" rather than "the published version is this one".
+
+    It passed either way, which meant `>` could become `>=` and stay green: the
+    application would then offer an update to the version already running, on
+    every launch, and nothing here would have said so.
+    """
+    with patch("httpx.Client.get", return_value=_publishing(flexi.__version__)):
         assert available_update() is None
 
 

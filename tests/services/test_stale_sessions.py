@@ -2,18 +2,43 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
+import time_machine
 from sqlalchemy.orm import Session
 
-from flexi import wallclock
 from flexi.constants import ClockAction, EventSource
 from flexi.models.database.db import WorkSession
 from flexi.models.database.moment import punched
 from flexi.services.clock import ClockService
 from flexi.services.startup import close_stale_sessions
 from tests.services.conftest import Configured
+
+TODAY = date(2026, 8, 11)
+"""The day these tests run on, held still.
+
+Every test here opens a session "yesterday" and sweeps as at "today", and both
+used to come from the real clock. That put the whole file at the mercy of the
+calendar twice over: `configure` caches a bank holiday, and `clock_in` refuses
+to open a session on one, so on the day after that holiday every clock-in here
+silently did nothing and six tests failed asserting on the session it did not
+create. A suite that is green on the thirtieth and red on the first is worse
+than a red one, because nothing changed to make it red.
+
+A Tuesday, so yesterday is a working Monday, and both are clear of the holiday
+`tests/services/conftest.py` seeds.
+"""
+
+YESTERDAY = TODAY - timedelta(days=1)
+NOW = datetime.combine(TODAY, time(10, 0), tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _on_the_day() -> Iterator[None]:
+    with time_machine.travel(NOW, tick=False):
+        yield
 
 
 @pytest.fixture
@@ -31,7 +56,7 @@ def svc(configure: Configured) -> ClockService:
 
 class TestStaleSessionClose:
     def test_closes_previous_day(self, svc: ClockService, session: Session) -> None:
-        yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+        yesterday = NOW - timedelta(days=1)
         svc.clock_in(now=yesterday)
         closed = close_stale_sessions(session, time(18, 0))
         assert len(closed) == 1
@@ -44,7 +69,7 @@ class TestStaleSessionClose:
         assert svc.is_clocked_in() is True
 
     def test_system_audit_event(self, svc: ClockService, session: Session) -> None:
-        yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+        yesterday = NOW - timedelta(days=1)
         svc.clock_in(now=yesterday)
         closed = close_stale_sessions(session, time(18, 0))
         assert closed[0].clock_out_event is not None
@@ -52,13 +77,13 @@ class TestStaleSessionClose:
         assert closed[0].clock_out_event.action is ClockAction.OUT
 
     def test_auto_closed_flag_set(self, svc: ClockService, session: Session) -> None:
-        yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+        yesterday = NOW - timedelta(days=1)
         svc.clock_in(now=yesterday)
         closed = close_stale_sessions(session, time(18, 0))
         assert closed[0].auto_closed is True
 
     def test_closes_only_once(self, svc: ClockService, session: Session) -> None:
-        yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+        yesterday = NOW - timedelta(days=1)
         svc.clock_in(now=yesterday)
         close_stale_sessions(session, time(18, 0))
         second = close_stale_sessions(session, time(18, 0))
@@ -69,17 +94,16 @@ class TestStaleSessionClose:
 
     def test_does_not_auto_close_voided_history(self, session: Session) -> None:
         """A discarded open row is history, not unfinished current work."""
-        yesterday = wallclock.today() - timedelta(days=1)
         event = punched(
             ClockAction.IN,
-            datetime.combine(yesterday, time(9), tzinfo=UTC),
+            datetime.combine(YESTERDAY, time(9), tzinfo=UTC),
             source=EventSource.USER,
         )
         session.add(event)
         session.flush()
         discarded = WorkSession(
             clock_in_id=event.id,
-            work_date=yesterday,
+            work_date=YESTERDAY,
             voided=True,
         )
         session.add(discarded)
@@ -96,7 +120,7 @@ class TestFallbackTo2359:
     ) -> None:
         # Clock in at 20:00 yesterday, auto-close configured at 18:00
         yesterday_8pm = datetime.combine(
-            wallclock.today() - timedelta(days=1),
+            YESTERDAY,
             time(20, 0),
             tzinfo=UTC,
         )
@@ -112,7 +136,7 @@ class TestFallbackTo2359:
         self, svc: ClockService, session: Session
     ) -> None:
         yesterday_6pm = datetime.combine(
-            wallclock.today() - timedelta(days=1),
+            YESTERDAY,
             time(18, 0),
             tzinfo=UTC,
         )
@@ -130,7 +154,7 @@ class TestCountsTowardWorkedTime:
         self, svc: ClockService, session: Session
     ) -> None:
         yesterday_9am = datetime.combine(
-            wallclock.today() - timedelta(days=1),
+            YESTERDAY,
             time(9, 0),
             tzinfo=UTC,
         )
@@ -180,7 +204,7 @@ def test_a_session_closed_under_the_sweep_is_not_reported_as_swept(
     update declines, and the sweep must leave it out of what it says it did
     rather than claim a clock-out it did not write.
     """
-    yesterday = datetime.now(tz=UTC) - timedelta(days=1)
+    yesterday = NOW - timedelta(days=1)
     svc.clock_in(now=yesterday)
     monkeypatch.setattr(
         "flexi.services.startup.stage_clock_out",

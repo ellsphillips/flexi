@@ -55,6 +55,7 @@ CELL_GLYPHS: Final[Mapping[Cell, str]] = MappingProxyType(
         Cell.TARGET: "┊",
         Cell.ABSENCE: "▓",
         Cell.HOLIDAY: "░",
+        Cell.AMENDED: "▒",
         Cell.ON: "█",
         Cell.LIVE: "▌",
     }
@@ -106,6 +107,11 @@ FALLBACK: Final[Mapping[str, str]] = MappingProxyType(
         "c-surplus": "#2E9E52",
         "c-deficit": "#CE3E5D",
         "c-warning": "#C38406",
+        # Asked for by `flexi.cli.ui.onclock.CELL_TONES` for a booked day, and
+        # missing here, so an unreadable stylesheet painted every absence cell
+        # in the CLI punch strip magenta -- the placeholder `colour()` returns
+        # when it can answer neither from the stylesheet nor from this table.
+        "c-annual": "#8451C9",
     }
 )
 

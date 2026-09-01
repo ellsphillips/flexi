@@ -93,6 +93,23 @@ def test_a_file_that_is_not_yaml_at_all_gets_the_defaults(tmp_path: Path) -> Non
     assert load_config(broken) == Config()
 
 
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-32"])
+def test_a_file_saved_in_the_wrong_encoding_gets_the_defaults(
+    tmp_path: Path, encoding: str
+) -> None:
+    """Notepad and PowerShell's `>` both write UTF-16 without being asked.
+
+    `UnicodeDecodeError` is a `ValueError`, so it was caught by neither `OSError`
+    nor `yaml.YAMLError` and escaped `load_config` entirely. `CONFIG` is bound at
+    module scope, so this was not a TUI that would not start -- it was
+    `import flexi.config` raising, which takes `flexi --version` with it.
+    """
+    path = tmp_path / "config.yaml"
+    path.write_bytes("hotkeys:\n  clock_toggle: c\n".encode(encoding))
+
+    assert load_config(path) == Config()
+
+
 @pytest.mark.parametrize("text", ["just a sentence\n", "- one\n- two\n", ""])
 def test_a_file_that_is_not_a_mapping_gets_the_defaults(
     tmp_path: Path, text: str

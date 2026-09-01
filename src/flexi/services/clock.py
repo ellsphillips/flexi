@@ -1,24 +1,39 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
 from flexi.constants import EventSource
-from flexi.domain.format import spoken
+from flexi.domain.format import hm, short_date, spoken
+from flexi.domain.ledger import Segment
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
+from flexi.services.ledger import end_of_day, segment_of
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
 from flexi.services.transactions import atomic, write_transaction
-from flexi.services.work_sessions import stage_clock_in, stage_clock_out
+from flexi.services.work_sessions import (
+    stage_clock_in,
+    stage_clock_out,
+    stage_correction,
+)
 
-__all__ = ("ClockResult", "ClockService")
+__all__ = (
+    "CORRECTION_BACKWARDS",
+    "CORRECTION_BOOKED",
+    "CORRECTION_EMPTY",
+    "CORRECTION_FUTURE",
+    "CORRECTION_OVERLAP",
+    "ClockResult",
+    "ClockService",
+    "overlapping",
+)
 
 
 @dataclass(frozen=True)
@@ -74,6 +89,21 @@ class ClockService:
     def is_clocked_in(self) -> bool:
         return self.get_open_session() is not None
 
+    def _fully_booked(self, work_date: date) -> bool:
+        """Whether booked absence leaves no half of a date left to work.
+
+        Asked by both routes into a work session, which is the point: the guard
+        used to live inline in `clock_in` only, so `correct` -- the other way a
+        day gets hours on it -- walked straight past it.
+
+        `scalar_one_or_none` here raised outright on two rows, which is the one
+        arrangement `AbsenceService` documents as legal: a sick morning and an
+        annual afternoon. Booking those made the next morning's `flexi clock in`
+        a traceback.
+        """
+        stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
+        return covers_the_whole_day(self._session.execute(stmt).scalars().all())
+
     def sweep(self) -> None:
         """Close work left running on an earlier day.
 
@@ -110,13 +140,7 @@ class ClockService:
                     success=False, message="Cannot clock in on a bank holiday"
                 )
 
-            # `scalar_one_or_none` here raised outright on two rows, which is the
-            # one arrangement `AbsenceService` documents as legal: a sick morning
-            # and an annual afternoon. Booking those made the next morning's
-            # `flexi clock in` a traceback.
-            stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
-            booked = self._session.execute(stmt).scalars().all()
-            if covers_the_whole_day(booked):
+            if self._fully_booked(work_date):
                 return ClockResult(
                     success=False, message="Cannot clock in on an absence day"
                 )
@@ -190,3 +214,136 @@ class ClockService:
             session=open_session,
             at=moment,
         )
+
+    # -- corrections -------------------------------------------------------
+
+    def correct(
+        self,
+        day: date,
+        opened: time,
+        closed: time,
+        *,
+        now: date | None = None,
+    ) -> ClockResult:
+        """Record work on a day nobody clocked at the time.
+
+        A morning nobody punched in for is still a morning that was worked, and
+        the alternative to recording it is a balance that is quietly wrong.
+
+        Refused rather than reconciled when it overlaps something already there:
+        two stretches sharing an hour is a day that counts it twice, and no rule
+        for merging them is better than a person looking at both and saying
+        which is right.
+
+        A day already booked off in full is refused for the same reason. The
+        absence spends a day of allowance and expects no work, so hours recorded
+        on top of it are pure surplus: the day is paid for twice, once out of the
+        leave balance and once into the flexi balance. Half a day booked is left
+        alone, exactly as `clock_in` leaves it -- a booked morning and a worked
+        afternoon is an ordinary day.
+
+        A bank holiday is deliberately *not* refused here, though `clock_in`
+        refuses one. Nobody can clock in on a bank holiday, so a correction is
+        the only way to record work that genuinely happened on one, and unlike
+        booked leave it spends no allowance -- the surplus it earns is real.
+        """
+        today = now or wallclock.today()
+        if day > today:
+            return ClockResult(success=False, message=CORRECTION_FUTURE)
+        if closed < opened:
+            return ClockResult(success=False, message=CORRECTION_BACKWARDS)
+        if closed == opened:
+            return ClockResult(success=False, message=CORRECTION_EMPTY)
+
+        opened_at = wallclock.local(datetime.combine(day, opened))
+        closed_at = wallclock.local(datetime.combine(day, closed))
+        with write_transaction(self._session):
+            if self._fully_booked(day):
+                return ClockResult(
+                    success=False,
+                    message=CORRECTION_BOOKED.format(day=short_date(day)),
+                )
+            if any(
+                overlapping(existing, opened_at, closed_at)
+                for existing in self.segments_on(day)
+            ):
+                return ClockResult(
+                    success=False,
+                    message=CORRECTION_OVERLAP.format(day=short_date(day)),
+                )
+            recorded = stage_correction(self._session, opened_at, closed_at, day)
+
+        return ClockResult(
+            success=True,
+            message=f"Recorded {hm(closed_at - opened_at)} on {short_date(day)}",
+            session=recorded,
+            at=opened_at,
+        )
+
+    def corrections_between(self, start: date, end: date) -> list[Segment]:
+        """Every corrected stretch in a span, earliest first.
+
+        Only the corrections: a review of what was typed in rather than clocked
+        is a list somebody reads to check their own work, and a punched session
+        on the same day is not what they came to look at.
+        """
+        stmt = (
+            select(WorkSession)
+            .where(
+                WorkSession.work_date >= start,
+                WorkSession.work_date <= end,
+                WorkSession.voided.is_(False),
+            )
+            .options(
+                selectinload(WorkSession.clock_in_event),
+                selectinload(WorkSession.clock_out_event),
+            )
+            .order_by(WorkSession.work_date, WorkSession.id)
+        )
+        found = (segment_of(row) for row in self._session.scalars(stmt))
+        return [segment for segment in found if segment.amended]
+
+    def segments_on(self, day: date) -> list[Segment]:
+        """Every stretch already recorded on a date, punched or corrected."""
+        stmt = (
+            select(WorkSession)
+            .where(WorkSession.work_date == day, WorkSession.voided.is_(False))
+            .options(
+                selectinload(WorkSession.clock_in_event),
+                selectinload(WorkSession.clock_out_event),
+            )
+        )
+        return [segment_of(row) for row in self._session.scalars(stmt)]
+
+
+CORRECTION_BACKWARDS = "That correction ends before it starts"
+CORRECTION_BOOKED = "{day} is already booked off in full"
+CORRECTION_EMPTY = "A correction has to cover some time"
+CORRECTION_FUTURE = "A day that has not happened cannot be corrected"
+CORRECTION_OVERLAP = "That overlaps work already recorded on {day}"
+"""Formatted with an already-rendered date, not with the `date` itself.
+
+`%-d` is a glibc extension. On Windows `strftime` raises `ValueError: Invalid
+format string`, so the refusal explaining an overlap was itself a crash on the
+platform the classifiers claim -- and this was the only live `%-d` format spec
+left in `src/`, the other thirteen all being `stamp()` arguments or prose.
+`domain/format.py` exists for exactly this reason; `short_date` goes through it.
+"""
+
+
+def overlapping(first: Segment, start: datetime, end: datetime) -> bool:
+    """Whether an existing stretch shares any time with a proposed one.
+
+    An open session is worth the rest of its own day, which is the reading
+    `ledger.end_of_day` already gives it everywhere else. `first.end or
+    first.start` collapsed it to a zero-length instant instead, so a session
+    still running claimed none of the time it was in the middle of claiming and
+    a correction over those hours was waved through to be counted twice.
+
+    Not `wallclock.now()`: that would still admit a correction for later this
+    afternoon, which overlaps the moment the person clocks out. While a session
+    is running, any correction after its start on that date is refused.
+    """
+    return bool(
+        first.start < end and start < first.finish(end_of_day(first.start.date()))
+    )

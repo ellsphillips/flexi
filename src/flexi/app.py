@@ -31,7 +31,13 @@ from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
 import flexi
-from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, AppHeader, NavBar
+from flexi.components.chrome import (
+    NAV_BY_SCREEN,
+    NAV_ITEMS,
+    AppHeader,
+    NavBar,
+    stamped,
+)
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import (
     HasFocusTarget,
@@ -125,12 +131,23 @@ class FlexiApp(TextualApp[None]):
             self.open_settings = False
             """Set by `flexi init` when the answer chosen there was to change them."""
             self._pushed: Screen[None] | None = None
-            """The one destination open on top of the dashboard, if any."""
-            """The screen `action_go_to` pushed, so `f1` can dismiss it.
+            """The one destination open on top of the dashboard, if any.
 
-            Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
-            is typed as `Screen[object]` and narrowing it against a `Screen[None]`
-            gives mypy `Never`."""
+            The screen `action_go_to` pushed, so `f1` can dismiss it. Held
+            rather than found with `isinstance(self.screen, ...)`: `App.screen`
+            is typed as `Screen[object]` and narrowing it against a
+            `Screen[None]` gives mypy `Never`.
+
+            This used to be two consecutive string literals. Only the first is a
+            docstring; the second -- the longer one, carrying the reason -- was
+            an expression statement that evaluated and was thrown away, so the
+            explanation was invisible to `help()` and to every editor."""
+            self._settings: SettingsScreen | None = None
+            """The settings form, if it is open.
+
+            Separate from `_pushed` rather than sharing it: `SettingsScreen` is
+            a `Screen[bool]`, `Screen`'s parameter is invariant, and assigning
+            one to a `Screen[None]` is a mypy error rather than a nicety."""
             self._bank_holiday_fetcher = bank_holiday_fetcher
             self._holiday_refresh_lock = Lock()
             self._shutdown_event = Event()
@@ -272,7 +289,7 @@ class FlexiApp(TextualApp[None]):
             return
         self.call_from_thread(self.update_offered, latest)
         self.notify(
-            f"Update available: {flexi.__version__} → {latest}\n"
+            f"Update available: {stamped(flexi.__version__)} → {stamped(latest)}\n"
             f"Run: uv tool upgrade flexi",
             severity="information",
             timeout=UPDATE_NOTICE_SECONDS,
@@ -307,9 +324,19 @@ class FlexiApp(TextualApp[None]):
         if name == self.nav:
             return
         if name == "settings":
-            self.push_screen(
-                SettingsScreen(self.services), callback=self._on_settings_saved
-            )
+            # The guard above cannot cover this: `self.nav` is only ever set to
+            # a destination with a nav item, and settings has none. Without a
+            # guard of its own, f4 f4 pushed a second form -- and every field on
+            # it was read from the service at construction, so it was frozen at
+            # the values from before the first one was saved. Saving the stale
+            # one then wrote them all back, silently reverting the change.
+            if self._settings is not None:
+                return
+            # Not `_close_pushed()` first: settings is a dialog that sits *on
+            # top of* whatever destination is open, and redrawing the screen
+            # underneath it after a save is the whole point of the callback.
+            self._settings = SettingsScreen(self.services)
+            self.push_screen(self._settings, callback=self._on_settings_saved)
             return
         board = self.dashboard()
         if name == "insights" and board is not None:
@@ -367,7 +394,19 @@ class FlexiApp(TextualApp[None]):
 
         Cleared before the dismissal rather than after, so the callback can tell
         "this screen was replaced" from "the user left it".
+
+        Settings is closed first, because it sits on top. `Screen.dismiss` pops
+        whatever is on top of the stack rather than the screen it was called on,
+        so while settings sat above Insights, pressing f3 dismissed `_pushed`
+        and Textual took *settings* off instead -- leaving Insights orphaned
+        under a Leave screen that thought it had replaced it,
+        `_on_settings_saved` never run, and f1 dismissing the wrong thing again.
+        Closing top-down means each `dismiss` is called on the screen that is
+        actually there to be popped.
         """
+        if self._settings is not None:
+            form, self._settings = self._settings, None
+            form.dismiss(False)
         if self._pushed is None:
             return
         leaving, self._pushed = self._pushed, None
@@ -386,6 +425,8 @@ class FlexiApp(TextualApp[None]):
         self.nav = "dashboard"
 
     def _on_settings_saved(self, saved: bool | None) -> None:
+        """The form has gone, however it went: saved, escaped or replaced."""
+        self._settings = None
         if not saved:
             return
         self.refresh_open_screens()

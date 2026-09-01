@@ -1,0 +1,316 @@
+"""Recording work nobody clocked at the time.
+
+A morning nobody punched in for is still a morning that was worked, and the
+alternative to recording it is a balance that is quietly wrong. What is checked
+here is that a correction counts for everything a punched session counts for,
+stays distinguishable from one, and cannot be used to claim the same hour twice.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, time, timedelta
+
+import pytest
+import time_machine
+from sqlalchemy.orm import Session
+
+from flexi.constants import AbsenceType, EventSource, Portion
+from flexi.domain.format import short_date
+from flexi.domain.punch import Cell, Window, strip
+from flexi.models.database.db import ClockEvent
+from flexi.services.clock import (
+    CORRECTION_BACKWARDS,
+    CORRECTION_BOOKED,
+    CORRECTION_EMPTY,
+    CORRECTION_FUTURE,
+    ClockService,
+)
+from flexi.services.registry import Services, build_services
+from tests.services.conftest import Configured
+
+MONDAY = date(2026, 6, 8)
+TUESDAY = date(2026, 6, 9)
+TODAY = date(2026, 6, 11)
+NOW = datetime.combine(TODAY, time(10, 0), tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _on_the_day() -> Iterator[None]:
+    """Hold the clock at TODAY, which every test here already passes as `now`.
+
+    Every `correct` call names its own day, but the two tests that also punch
+    called `clock_in()` bare and got the real one. That made them a lottery on
+    the date the suite happened to run: `tests/services/conftest.py` seeds a
+    bank holiday on 31 August, and `clock_in` refuses one, so on that day the
+    open session was never created and the assertion below it failed. The same
+    trap took `test_stale_sessions.py` out on 1 September.
+    """
+    with time_machine.travel(NOW, tick=False):
+        yield
+
+
+@pytest.fixture
+def services(configure: Configured) -> Services:
+    return configure(leave_year_start="01-01", entitlement=(2026, 25.0))
+
+
+@pytest.fixture
+def clock(services: Services) -> ClockService:
+    return services.clock
+
+
+# -- what it records ---------------------------------------------------------
+
+
+def test_a_correction_counts_as_work(clock: ClockService, session: Session) -> None:
+    """It is the same hours; only the way they were captured differs."""
+    result = clock.correct(MONDAY, time(9, 0), time(12, 30), now=TODAY)
+
+    assert result.success is True
+    assert "3:30" in result.message
+    day = build_services(session).ledger.day(MONDAY)
+    assert day.worked == timedelta(hours=3, minutes=30)
+
+
+def test_a_correction_is_marked_as_one(clock: ClockService, session: Session) -> None:
+    """Both of its events say so, which is what the strip and the review read."""
+    clock.correct(MONDAY, time(9, 0), time(12, 30), now=TODAY)
+
+    sources = {row.source for row in session.query(ClockEvent)}
+    assert sources == {EventSource.AMENDED}
+    [segment] = build_services(session).ledger.day(MONDAY).segments
+    assert segment.amended is True
+
+
+def test_two_corrections_can_share_a_day(clock: ClockService) -> None:
+    """A morning and an afternoon are two stretches, not one long one.
+
+    The index that admits a single *open* session says nothing about closed
+    ones, which is what lets a day be corrected a piece at a time.
+    """
+    assert clock.correct(MONDAY, time(9, 0), time(12, 30), now=TODAY).success
+    assert clock.correct(MONDAY, time(13, 30), time(17, 0), now=TODAY).success
+
+    assert len(clock.segments_on(MONDAY)) == 2
+
+
+# -- what it refuses ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("opened", "closed", "refusal"),
+    [
+        (time(17, 0), time(9, 0), CORRECTION_BACKWARDS),
+        (time(9, 0), time(9, 0), CORRECTION_EMPTY),
+    ],
+)
+def test_a_window_that_is_not_a_window_is_refused(
+    clock: ClockService, opened: time, closed: time, refusal: str
+) -> None:
+    """Neither is a typo worth guessing at: one is inverted, one is nothing."""
+    result = clock.correct(MONDAY, opened, closed, now=TODAY)
+
+    assert result.success is False
+    assert result.message == refusal
+    assert clock.segments_on(MONDAY) == []
+
+
+def test_a_day_that_has_not_happened_cannot_be_corrected(clock: ClockService) -> None:
+    """Work recorded forward is not a correction, it is a plan."""
+    result = clock.correct(
+        TODAY + timedelta(days=1), time(9, 0), time(17, 0), now=TODAY
+    )
+
+    assert result.success is False
+    assert result.message == CORRECTION_FUTURE
+
+
+def test_today_can_still_be_corrected(clock: ClockService) -> None:
+    """The commonest correction of all is the morning you forgot, this morning."""
+    assert clock.correct(TODAY, time(9, 0), time(10, 0), now=TODAY).success is True
+
+
+@pytest.mark.parametrize(
+    ("opened", "closed"),
+    [
+        (time(12, 0), time(13, 0)),  # starts inside
+        (time(8, 0), time(10, 0)),  # ends inside
+        (time(8, 0), time(18, 0)),  # swallows it
+        (time(10, 0), time(11, 0)),  # inside it
+    ],
+)
+def test_a_correction_may_not_claim_an_hour_twice(
+    clock: ClockService, opened: time, closed: time
+) -> None:
+    """Refused rather than merged.
+
+    Two stretches sharing an hour is a day that counts it twice, and no rule for
+    reconciling them is better than a person looking at both and saying which is
+    right.
+    """
+    assert clock.correct(MONDAY, time(9, 0), time(12, 30), now=TODAY).success
+
+    result = clock.correct(MONDAY, opened, closed, now=TODAY)
+
+    assert result.success is False
+    assert "overlaps" in result.message
+    assert len(clock.segments_on(MONDAY)) == 1
+
+
+def test_a_correction_may_touch_the_end_of_another(clock: ClockService) -> None:
+    """Ending at one and starting at one is a break of nothing, not an overlap."""
+    assert clock.correct(MONDAY, time(9, 0), time(13, 0), now=TODAY).success
+
+    assert clock.correct(MONDAY, time(13, 0), time(17, 0), now=TODAY).success
+
+
+def test_a_correction_does_not_collide_with_a_running_session(
+    clock: ClockService,
+) -> None:
+    """Clocking in opens a session; correcting a past day is not that.
+
+    They share a table and one partial index, so a correction written while
+    somebody is on the clock has to leave the open session alone.
+    """
+    assert clock.clock_in().success
+    assert clock.correct(MONDAY, time(9, 0), time(17, 0), now=TODAY).success
+    assert clock.is_clocked_in() is True
+
+
+def test_a_correction_may_not_claim_hours_a_running_session_is_claiming(
+    clock: ClockService, session: Session
+) -> None:
+    """The open session has no end, and that is not the same as no duration.
+
+    The guard read `first.end or first.start`, which made a session still
+    running a zero-length instant: clocking in at 10:00 and then correcting
+    10:00-12:00 was admitted, and those two hours were then counted once for the
+    punch and once for the correction. At 15:00 the day read seven hours worked
+    where the truth was five.
+    """
+    assert clock.clock_in(now=NOW).success
+
+    result = clock.correct(TODAY, time(10, 0), time(12, 0), now=TODAY)
+
+    assert result.success is False
+    assert "overlaps" in result.message
+    assert len(clock.segments_on(TODAY)) == 1
+    day = build_services(session).ledger.day(
+        TODAY, now=datetime.combine(TODAY, time(15, 0), tzinfo=UTC)
+    )
+    assert day.worked == timedelta(hours=5)
+
+
+def test_a_day_booked_off_in_full_cannot_also_be_corrected(
+    services: Services, clock: ClockService
+) -> None:
+    """The day is otherwise paid for twice, out of two different balances.
+
+    `clock_in` has refused this since it was written; `correct` is the other way
+    hours get onto a day, and it walked straight past the guard. The leave still
+    spends a day of allowance and the hours land as pure surplus on top.
+    """
+    assert services.absence.book(MONDAY, AbsenceType.ANNUAL).success
+
+    result = clock.correct(MONDAY, time(9, 0), time(17, 0), now=TODAY)
+
+    assert result.success is False
+    assert result.message == CORRECTION_BOOKED.format(day=short_date(MONDAY))
+    assert clock.segments_on(MONDAY) == []
+
+
+def test_half_a_day_booked_leaves_the_other_half_correctable(
+    services: Services, clock: ClockService
+) -> None:
+    """A booked morning and a worked afternoon is an ordinary day.
+
+    Exactly where `clock_in` draws the line, and the two have to agree: the
+    mirror rule already lets a half day be booked over work in the other half.
+    """
+    assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM).success
+
+    assert clock.correct(MONDAY, time(13, 0), time(17, 0), now=TODAY).success is True
+
+
+def test_a_bank_holiday_can_still_be_corrected(configure: Configured) -> None:
+    """Deliberately unlike `clock_in`, which refuses one.
+
+    Nobody can clock in on a bank holiday, so a correction is the only way to
+    record work that genuinely happened on one -- and unlike booked leave it
+    spends no allowance, so the surplus it earns is real.
+    """
+    services = configure(
+        leave_year_start="01-01",
+        entitlement=(2026, 25.0),
+        holidays=((MONDAY, "A bank holiday"),),
+    )
+
+    assert services.clock.correct(MONDAY, time(9, 0), time(17, 0), now=TODAY).success
+
+
+def test_a_correction_before_a_running_session_is_still_allowed(
+    clock: ClockService,
+) -> None:
+    """The morning is over and nothing is claiming it.
+
+    The open session is worth the rest of its own day, not the whole of it, so
+    the hours before it opened stay correctable -- which is the commonest
+    correction there is: the morning you forgot, typed in this afternoon.
+    """
+    assert clock.clock_in(now=NOW).success
+
+    assert clock.correct(TODAY, time(7, 0), time(9, 0), now=TODAY).success is True
+
+
+# -- how it is drawn ---------------------------------------------------------
+
+
+def test_a_corrected_stretch_is_drawn_apart_from_a_punched_one(
+    clock: ClockService, session: Session
+) -> None:
+    """Same colour, different fill: the hours are the same, the record is not."""
+    clock.correct(MONDAY, time(9, 0), time(12, 0), now=TODAY)
+    ledger = build_services(session).ledger.day(MONDAY)
+
+    cells = strip(
+        ledger, 48, Window(), now=datetime.combine(MONDAY, time(23, 0), tzinfo=UTC)
+    )
+
+    assert Cell.AMENDED in cells
+    assert Cell.ON not in cells, "a correction is never drawn as a punch"
+
+
+# -- reading them back -------------------------------------------------------
+
+
+def test_the_review_lists_only_what_was_corrected(
+    clock: ClockService, session: Session
+) -> None:
+    """A punched session on the same day is not what somebody came to check.
+
+    The punch is put on MONDAY afternoon deliberately. Clocking in and straight
+    back out, which is what this did before, is under the minimum session and is
+    voided -- so the row the filter is supposed to reject was being rejected for
+    the wrong reason, and `amended` was never the thing under test.
+    """
+    clock.correct(MONDAY, time(9, 0), time(12, 0), now=TODAY)
+    clock.clock_in(now=datetime.combine(MONDAY, time(13, 0), tzinfo=UTC))
+    clock.clock_out(now=datetime.combine(MONDAY, time(17, 0), tzinfo=UTC))
+
+    found = clock.corrections_between(MONDAY, TODAY)
+
+    assert [one.start.date() for one in found] == [MONDAY]
+    assert all(one.amended for one in found)
+
+
+def test_the_review_is_ordered_and_bounded_by_the_period(clock: ClockService) -> None:
+    """It answers for the span on screen, earliest first."""
+    clock.correct(TUESDAY, time(9, 0), time(10, 0), now=TODAY)
+    clock.correct(MONDAY, time(9, 0), time(10, 0), now=TODAY)
+
+    assert [one.start.date() for one in clock.corrections_between(MONDAY, TUESDAY)] == [
+        MONDAY,
+        TUESDAY,
+    ]
+    assert clock.corrections_between(TODAY, TODAY) == []

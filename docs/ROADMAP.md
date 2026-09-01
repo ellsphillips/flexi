@@ -133,7 +133,7 @@ gauges agree with `tests/services/test_wallet.py`.
 
 `jumper.py`, `jump_overlay.py`, `jump.tcss`, `jump_targets()` on every screen,
 row targets in the records table. The help screen. `FlexiCommands` provider.
-`test_bindings.py` and `test_modal_contract.py`.
+The binding-collision and modal-contract tests, both in `tests/tui/test_keyboard.py`.
 
 **Done when:** `v` then a panel key focuses that panel and `escape` restores the
 previous focus exactly; `v` then `4` lands on the fourth day row; every action

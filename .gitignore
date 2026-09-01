@@ -141,3 +141,12 @@ dmypy.json
 
 # The lease files the demo and the tests take beside a scratch database.
 *.db.lock
+
+# Scratch databases written into the repo root. `alembic.ini` points at
+# `sqlite:///flexi.db`, so `alembic upgrade head` from here makes one, and
+# `scripts/shoot.py` -- which CONTRIBUTING asks every contributor to run --
+# writes `.demo.db`. Only the lease beside them was ignored, so the databases
+# themselves were one `git add -A` away from being committed.
+*.db
+*.db-wal
+*.db-shm

@@ -229,3 +229,60 @@ def test_every_class_with_keys_says_what_to_call_it(path: Path) -> None:
             f"{node.name} declares BINDINGS but no HELP_LABEL, so the help "
             f"modal would file its keys under {node.name!r}."
         )
+
+
+CLOCK_READS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("date", "today"),
+        ("datetime", "now"),
+        ("datetime", "utcnow"),
+        ("time", "time"),
+        ("time", "time_ns"),
+    }
+)
+"""Ways of asking the machine what time it is, as `(object, attribute)` pairs.
+
+Only `flexi/wallclock.py` may use one. Everything else goes through it, which is
+what makes a timesheet's arithmetic independent of the machine it is computed
+on -- and what lets the suite pin the clock in a single place.
+"""
+
+
+def clock_reads(source: Path) -> Iterator[str]:
+    """Every direct reading of the system clock in a file."""
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        called = node.func
+        if (
+            isinstance(called, ast.Attribute)
+            and isinstance(called.value, ast.Name)
+            and (called.value.id, called.attr) in CLOCK_READS
+        ):
+            yield f"{called.value.id}.{called.attr}()"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for path in sorted(SRC.rglob("*.py")) if path.name != "wallclock.py"],
+    ids=lambda p: str(p),
+)
+def test_only_wallclock_reads_the_system_clock(path: Path) -> None:
+    """The invariant the README and CONTRIBUTING both state, enforced.
+
+    Migrations included, which is where the one violation was: `0015` stamped
+    `date.today()` behind a `noqa`, so the reading came from the machine while
+    everything around it came from the pin. `TZ=America/New_York uv run pytest`
+    was one failure out of 2157, and the matrix runs UTC and Europe/London --
+    neither of them behind UTC, so nothing in CI could ever have seen it.
+
+    `DTZ005`/`DTZ011` catch the naive spellings, but `date.today()` behind a
+    `noqa` and `datetime.now(tz=UTC)` are both invisible to them.
+    """
+    found = sorted(set(clock_reads(path)))
+    assert found == [], (
+        f"{path.relative_to(SRC)} reads the system clock directly "
+        f"({', '.join(found)}); every reading goes through flexi.wallclock, "
+        f"so that one pin moves them all"
+    )

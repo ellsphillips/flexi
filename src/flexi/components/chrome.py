@@ -44,8 +44,20 @@ __all__ = (
     "VersionTag",
     "footer_key_cost",
     "keys_that_fit",
+    "stamped",
     "strip_entries",
 )
+
+
+def stamped(version: str) -> str:
+    """A release number as people write it down, with the `v` on the front.
+
+    The packaging metadata has no `v` and should not: `importlib.metadata` and
+    every comparison against it want the bare number. The prefix is a display
+    convention, so it is added at the point of display.
+    """
+    return f"v{version}"
+
 
 OVERFLOW_TEMPLATE: Final = "+{count} more"
 """Written as a template so the strip can price the marker before it knows the
@@ -152,12 +164,12 @@ class VersionTag(Static):
     """The newer published version, or empty when this is the newest."""
 
     def render(self) -> Text:
-        installed = Text(flexi.__version__, style=self.rich_style)
+        installed = Text(stamped(flexi.__version__), style=self.rich_style)
         if not self.latest:
             return installed
         installed.append(" → ", style=self.get_component_rich_style("version--arrow"))
         installed.append(
-            self.latest, style=self.get_component_rich_style("version--latest")
+            stamped(self.latest), style=self.get_component_rich_style("version--latest")
         )
         return installed
 

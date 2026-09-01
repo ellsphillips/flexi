@@ -40,6 +40,7 @@ BASE_STYLES: Final[Mapping[Cell, str]] = MappingProxyType(
         Cell.TARGET: "punch--target",
         Cell.ABSENCE: "punch--annual",
         Cell.HOLIDAY: "punch--holiday",
+        Cell.AMENDED: "punch--amended",
         Cell.ON: "punch--on",
         Cell.LIVE: "punch--live",
     }
@@ -49,6 +50,7 @@ PUNCH_CLASSES: Final[frozenset[str]] = frozenset(
     {
         "punch--off",
         "punch--on",
+        "punch--amended",
         "punch--live",
         "punch--break",
         "punch--target",

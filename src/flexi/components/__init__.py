@@ -40,11 +40,13 @@ if TYPE_CHECKING:
         paint_tally,
     )
     from flexi.components.charts import (
+        AMENDED_HEAT,
         BASELINE,
         BLOCK,
         DIVERGING_STEPS,
         EMPTY,
         HEAT,
+        SECONDS_PER_HOUR,
         Burndown,
         Column,
         DivergingBars,
@@ -72,6 +74,7 @@ if TYPE_CHECKING:
         VersionTag,
         footer_key_cost,
         keys_that_fit,
+        stamped,
         strip_entries,
     )
     from flexi.components.common import (
@@ -274,6 +277,7 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "paint_tally",
         ),
         "flexi.components.charts": (
+            "AMENDED_HEAT",
             "BASELINE",
             "BLOCK",
             "DIVERGING_STEPS",
@@ -306,6 +310,7 @@ _EXPORT_GROUPS: Final = MappingProxyType(
             "StripEntry",
             "footer_key_cost",
             "keys_that_fit",
+            "stamped",
             "strip_entries",
         ),
         "flexi.components.common": (
@@ -512,6 +517,7 @@ __all__ = (  # noqa: RUF022
     "paint_balance",
     "paint_entitlement",
     "paint_tally",
+    "AMENDED_HEAT",
     "BASELINE",
     "BLOCK",
     "DIVERGING_STEPS",
@@ -542,6 +548,7 @@ __all__ = (  # noqa: RUF022
     "StripEntry",
     "footer_key_cost",
     "keys_that_fit",
+    "stamped",
     "strip_entries",
     "ALL_TONE_CLASSES",
     "GAUGE_TONE_STYLES",

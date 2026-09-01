@@ -27,6 +27,7 @@ from textual.widget import Widget
 
 from flexi import wallclock
 from flexi.components.charts import (
+    AMENDED_HEAT,
     BASELINE,
     BLOCK,
     DIVERGING_STEPS,
@@ -53,6 +54,14 @@ NOW = wallclock.local(datetime.combine(MONDAY, time(23, 59)))
 """When these ribbons are drawn. `render_strip` takes the moment rather than
 guessing at it, and the end of the day is the reading that draws a closed day
 the same however often it is redrawn."""
+
+AMENDED = Segment(
+    session_id=1,
+    start=wallclock.local(datetime.combine(MONDAY, time(9))),
+    end=wallclock.local(datetime.combine(MONDAY, time(17))),
+    amended=True,
+)
+"""A morning nobody punched in for, written up later."""
 
 
 @asynccontextmanager
@@ -435,6 +444,36 @@ async def test_the_legend_names_both_ends_of_the_ramp() -> None:
         assert legend.startswith("−3:00 ")
         assert legend.endswith(" +3:00")
         assert legend.count(HEAT) == DIVERGING_STEPS * 2 + 1
+        assert AMENDED_HEAT not in legend, "nothing on this year was corrected"
+
+
+async def test_a_day_written_up_afterwards_carries_its_own_fill() -> None:
+    """The ramp says how the day went; the fill says where the reading came from.
+
+    Recoloured instead, the day would drop off the diverging scale it belongs
+    on -- the hours are the hours however they were captured.
+    """
+    heatmap = YearHeatmap()
+    async with mounted(heatmap):
+        heatmap.show([day(MONDAY, segments=(AMENDED,))], first_weekday=0)
+
+        glyph, style = heatmap._cell(MONDAY)
+        assert glyph == AMENDED_HEAT
+        assert style == heatmap.get_component_rich_style("chart--neutral")
+        assert f"{AMENDED_HEAT} corrected" in lines(heatmap)[-1], "and it is named"
+
+
+async def test_a_punched_day_beside_a_corrected_one_keeps_the_solid_fill() -> None:
+    """Both fills on one grid, which is the only way either means anything."""
+    heatmap = YearHeatmap()
+    async with mounted(heatmap):
+        heatmap.show(
+            [day(MONDAY, segments=(AMENDED,)), day(MONDAY + timedelta(days=1))],
+            first_weekday=0,
+        )
+
+        assert heatmap._cell(MONDAY)[0] == AMENDED_HEAT
+        assert heatmap._cell(MONDAY + timedelta(days=1))[0] == HEAT
 
 
 # -- week_columns ------------------------------------------------------------

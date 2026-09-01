@@ -18,7 +18,7 @@ from flexi.constants import ClockAction, EventSource
 from flexi.models.database.db import WorkSession
 from flexi.models.database.moment import punched
 
-__all__ = ("stage_clock_in", "stage_clock_out")
+__all__ = ("stage_clock_in", "stage_clock_out", "stage_correction")
 
 
 def stage_clock_in(
@@ -95,3 +95,34 @@ def stage_clock_out(
         session.delete(event)
         return False
     return True
+
+
+def stage_correction(
+    session: Session,
+    opened_at: datetime,
+    closed_at: datetime,
+    work_date: date,
+) -> WorkSession:
+    """Stage a whole session that was never punched, open and closed at once.
+
+    Not `stage_clock_in` followed by `stage_clock_out`: those two are the live
+    path and are conditional on there being no open session, which a correction
+    for last Tuesday has nothing to do with. The partial unique index admits any
+    number of *closed* sessions on a date, which is what makes a morning and an
+    afternoon two corrections rather than one.
+
+    The caller owns the transaction and the validation. This writes.
+    """
+    started = punched(ClockAction.IN, opened_at, source=EventSource.AMENDED)
+    ended = punched(ClockAction.OUT, closed_at, source=EventSource.AMENDED)
+    session.add_all([started, ended])
+    session.flush()
+
+    recorded = WorkSession(
+        clock_in_id=started.id,
+        clock_out_id=ended.id,
+        work_date=work_date,
+    )
+    session.add(recorded)
+    session.flush()
+    return recorded

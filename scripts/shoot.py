@@ -170,11 +170,17 @@ async def main() -> None:
 
     # Seeded under the frozen clock as well as captured under it, which is what
     # `tests/snapshot/test_screens.py` does. The two have to match.
-    with PINNED, time_machine.travel(NOW, tick=False):
-        build_database(db).close()
-        for name, size, keys in SHOOTS:
-            await shoot(name, size, keys, db)
-    db.unlink(missing_ok=True)
+    #
+    # `finally`, because the unlink used to sit after the block: one failing
+    # shot left `.demo.db` in the repo root, and until `*.db` was ignored that
+    # was a scratch database sitting in `git status` waiting to be committed.
+    try:
+        with PINNED, time_machine.travel(NOW, tick=False):
+            build_database(db).close()
+            for name, size, keys in SHOOTS:
+                await shoot(name, size, keys, db)
+    finally:
+        db.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

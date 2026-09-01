@@ -45,6 +45,21 @@ class EventSource(StrEnum):
     SYSTEM = "system"
     """Flexi closed a session nobody closed."""
 
+    AMENDED = "amended"
+    """Somebody recorded work after the fact.
+
+    A morning nobody clocked in for is still a morning that was worked, and the
+    alternative to recording it is a balance that is quietly wrong. It counts
+    for everything a punched session counts for and is drawn apart from one,
+    because a figure somebody typed from memory and a figure the clock took are
+    not the same kind of fact.
+
+    The column takes it without a migration: it is a plain `VARCHAR` with no
+    check on it, deliberately, and nothing keys on the value except migration
+    0010 -- which decides whose timestamps it may rewrite, and had run before
+    this existed.
+    """
+
 
 class Granularity(StrEnum):
     """The span a period covers."""

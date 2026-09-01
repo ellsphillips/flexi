@@ -18,7 +18,7 @@ from flexi import wallclock
 from flexi.cli.ui.rail import GUTTER, HAIRLINE, SETTLED, Tone
 from flexi.domain.format import clock, delta, hm
 from flexi.domain.ledger import DayLedger
-from flexi.domain.punch import Window, strip
+from flexi.domain.punch import Cell, Window, strip
 from flexi.theme import CELL_GLYPHS, TAIL, colour
 
 __all__ = (
@@ -33,24 +33,37 @@ STRIP_CELLS = 44
 """Fixed, not measured: a pure function cannot ask the terminal its width, and
 this leaves both window labels room inside eighty columns."""
 
-CELL_TONES: Final[Mapping[str, str]] = MappingProxyType(
+CELL_TONES: Final[Mapping[Cell, str]] = MappingProxyType(
     {
-        "off": "c-line",
-        "break": "c-muted",
-        "target": "c-accent",
-        "absence": "c-annual",
-        "holiday": "c-muted",
-        "on": "c-surplus",
-        "live": "c-accent-lift",
+        Cell.OFF: "c-line",
+        Cell.BREAK: "c-muted",
+        Cell.TARGET: "c-accent",
+        Cell.ABSENCE: "c-annual",
+        Cell.HOLIDAY: "c-muted",
+        Cell.AMENDED: "c-surplus",
+        Cell.ON: "c-surplus",
+        Cell.LIVE: "c-accent-lift",
     }
 )
+"""Keyed by `Cell`, like `theme.CELL_GLYPHS` and `components.punch.BASE_STYLES`.
+
+It was keyed by `str` and had seven of the eight, so a day carrying a correction
+made `flexi clock in` a `KeyError: 'amended'`. Of the three tables that map the
+strip, this was the one nobody updated when `Cell.AMENDED` arrived; keying it by
+the enum is what lets `tests/test_public_values.py` assert all three are total.
+
+`Cell.AMENDED` takes the same green as `Cell.ON` deliberately -- `domain/punch`
+puts it as "same colour, since it is the same hours, and a different fill", and
+the glyph is what tells them apart. Not `c-annual`: that is the violet booked
+leave is drawn in, and corrected work is not absence.
+"""
 
 
 def punch_line(ledger: DayLedger, window: Window, *, now: datetime) -> Text:
     """The day as a row of cells, in the palette the dashboard uses."""
     line = Text(no_wrap=True)
     for cell in strip(ledger, STRIP_CELLS, window, now=now):
-        line.append(CELL_GLYPHS[cell], style=colour(CELL_TONES[cell.value]))
+        line.append(CELL_GLYPHS[cell], style=colour(CELL_TONES[cell]))
     return line
 
 

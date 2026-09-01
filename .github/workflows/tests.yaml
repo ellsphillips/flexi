@@ -31,10 +31,17 @@ jobs:
         # here with transitions.
         #
         # The suite pins its own clock through `flexi.wallclock`, so what this
-        # row varies is the machine underneath it. Green in both is the evidence
-        # that no reading escapes that pin; it used to export TZ and then have
-        # `tests/conftest.py` overwrite it, so both rows ran the same suite.
-        tz: ["UTC", "Europe/London"]
+        # row varies is the machine underneath it. Green in all three is the
+        # evidence that no reading escapes that pin; it used to export TZ and
+        # then have `tests/conftest.py` overwrite it, so both rows ran the same
+        # suite.
+        #
+        # America/New_York is here because both the others are at or ahead of
+        # UTC, and a reading that escapes the pin only disagrees with a frozen
+        # naive datetime -- which time_machine reads as UTC -- on a machine
+        # *behind* it. Migration 0015 stamped `date.today()` for a week and this
+        # matrix could not see it.
+        tz: ["UTC", "Europe/London", "America/New_York"]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -48,7 +55,17 @@ jobs:
         env:
           TZ: ${{ matrix.tz }}
         run: |
-          $zone = if ($env:TZ -eq 'Europe/London') { 'GMT Standard Time' } else { 'UTC' }
+          # Explicit, and it fails on a zone it has not been taught. The `else`
+          # that used to be here fell back to UTC, so adding a row to the matrix
+          # above would have left Windows silently on UTC while the job name
+          # claimed otherwise -- the exact failure this step exists to prevent.
+          $zones = @{
+            'UTC'               = 'UTC'
+            'Europe/London'     = 'GMT Standard Time'
+            'America/New_York'  = 'Eastern Standard Time'
+          }
+          $zone = $zones[$env:TZ]
+          if (-not $zone) { throw "no Windows zone mapped for '$env:TZ'" }
           tzutil /s "$zone"
           Write-Host "runner clock: $(Get-Date -Format o)  ($(tzutil /g))"
 

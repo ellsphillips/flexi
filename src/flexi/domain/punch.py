@@ -13,11 +13,16 @@ Everything is a function of ``(ledger, width, window, now)`` and the zone
 table cell, an expanded row and a week ribbon.
 
 The zone is the fifth input and the docstring used to say there were four.
-`edges` localises each cell boundary through `wallclock`, because the grid has
+`edges` resolves each cell boundary through `wallclock`, because the grid has
 to be a *wall* grid: on the October Sunday, 02:00 is an hour further from
 midnight than 01:00 was, and a strip drawn on a fixed offset would put an hour
 of that day in the wrong cell. It is the only outward import in `flexi.domain`,
 and it is deliberate.
+
+`edges` asks the zone twice and generates the interior arithmetically whenever
+the two ends of the window agree on their offset, which is every window on all
+but two days a year. The per-boundary walk is still there for the two that
+disagree, and it is what the paragraph above is describing.
 
 Three shapes of name, so a reader can tell what a call does before reading it:
 a noun phrase returns a value (``edges``, ``cell_count``, ``cell_holding``,
@@ -88,6 +93,13 @@ class Cell(StrEnum):
     HOLIDAY = "holiday"
     """A bank holiday. Covers the whole strip."""
 
+    AMENDED = "amended"
+    """On the clock, by a correction rather than a punch.
+
+    Above an absence and below a live session: work is work, and a stretch
+    somebody typed in should still lose to the one they are on right now.
+    """
+
     ON = "on"
     """On the clock."""
 
@@ -146,8 +158,19 @@ def edges(day: date, count: int, window: Window) -> list[datetime]:
     """
     span = window.minutes / count
     midnight = datetime.combine(day, time.min)
-    # Each bound localised on its own, so the grid stays a *wall* grid: on the
-    # October Sunday 02:00 is an hour further from midnight than 01:00 was.
+    first = wallclock.local(window.moment(midnight, 0.0))
+    last = wallclock.local(window.moment(midnight, count * span))
+    if first.utcoffset() == last.utcoffset():
+        # No transition inside the window, which is every window on all but two
+        # days a year. The interior bounds all carry the offset the two ends
+        # share, so adding to a fixed-offset reading gives the identical wall
+        # grid without asking the zone `count` more times. Drawing the year
+        # calendar is 365 of these, and localising every bound was half its cost.
+        return [first + timedelta(minutes=index * span) for index in range(count + 1)]
+    # A transition inside the window. Each bound is localised on its own, so the
+    # grid stays a *wall* grid: on the October Sunday 02:00 is an hour further
+    # from midnight than 01:00 was. Load-bearing rather than defensive -- the
+    # path above is only equivalent while the offset holds still.
     return [
         wallclock.local(window.moment(midnight, index * span))
         for index in range(count + 1)
@@ -248,12 +271,18 @@ def paint_absences(
 def paint_sessions(
     cells: list[Cell], ledger: DayLedger, bounds: list[datetime], moment: datetime
 ) -> None:
-    """A cell is on the clock when a session touches it."""
+    """A cell is on the clock when a session touches it.
+
+    A corrected stretch is drawn apart from a punched one -- same colour, since
+    it is the same hours, and a different fill, since one was read off a clock
+    and the other typed from memory.
+    """
     for segment in ledger.segments:
         finish = segment.finish(moment)
+        worked = Cell.AMENDED if segment.amended else Cell.ON
         for index in range(len(cells)):
             if overlaps(segment.start, finish, bounds, index):
-                cells[index] = Cell.ON
+                cells[index] = worked
 
 
 def paint_breaks(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:

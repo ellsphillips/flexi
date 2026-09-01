@@ -305,6 +305,12 @@ RecordsModule > .punch--on {
     color: $c-accent;
 }
 
+/* A correction is the same hours in the same colour. The fill is what tells
+   them apart -- a second colour would say it was a different kind of work. */
+RecordsModule > .punch--amended {
+    color: $c-accent;
+}
+
 RecordsModule > .punch--live {
     color: $c-accent-lift;
     text-style: bold;
@@ -497,6 +503,7 @@ Burndown > .chart--reference {
    Component classes are scoped to the type that declares them. */
 WeekRibbon > .punch--off { color: $c-line; }
 WeekRibbon > .punch--on { color: $c-accent; }
+WeekRibbon > .punch--amended { color: $c-accent; }
 WeekRibbon > .punch--live { color: $c-accent-lift; text-style: bold; }
 WeekRibbon > .punch--break { color: $c-ash; }
 WeekRibbon > .punch--target { color: $c-muted; }
