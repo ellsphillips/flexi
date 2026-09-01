@@ -284,6 +284,54 @@ async def test_adding_a_year_keeps_the_screen_and_everything_typed_into_it(
         assert screen.query_one(f"#ent-{year}", Input), "the new row should be mounted"
 
 
+async def test_f4_twice_does_not_build_a_second_form(
+    app_factory: AppFactory,
+) -> None:
+    """The second one would be frozen at the values from before the first save.
+
+    `action_go_to` returns early when the destination is already current, but
+    `self.nav` is only ever set to a destination with a nav item and settings
+    has none, so that guard could never cover this branch. Two forms stacked up,
+    and `SettingsScreen.compose` reads every field from the service as it is
+    built -- so saving the top one and then saving the stale one underneath
+    wrote the old values straight back over the change.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        await open_settings(pilot)
+
+        forms = [s for s in app.screen_stack if isinstance(s, SettingsScreen)]
+        assert len(forms) == 1
+
+
+async def test_leaving_a_destination_with_settings_open_closes_both(
+    app_factory: AppFactory,
+) -> None:
+    """`Screen.dismiss` pops the top of the stack, not the screen it is called on.
+
+    With settings sitting above the leave screen, moving to insights dismissed
+    the screen the application was *holding* and Textual took settings off
+    instead -- leaving the leave screen orphaned underneath the destination that
+    thought it had replaced it.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f2")
+        await pilot.pause()
+        await open_settings(pilot)
+        showing(app, SettingsScreen)
+
+        await pilot.press("f3")
+        await pilot.pause()
+
+        assert [type(screen).__name__ for screen in app.screen_stack] == [
+            "Screen",
+            "DashboardScreen",
+            "InsightsScreen",
+        ]
+
+
 async def test_saving_settings_redraws_the_leave_screen_under_the_dialog(
     app_factory: AppFactory,
 ) -> None:
