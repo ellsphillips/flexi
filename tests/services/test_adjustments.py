@@ -238,6 +238,36 @@ def test_zeroing_defaults_to_yesterday(services: Services) -> None:
         assert result.adjustment.date == wallclock.today() - timedelta(days=1)
 
 
+@pytest.mark.parametrize("ahead", [0, 1, 90])
+def test_zeroing_to_a_day_that_has_not_finished_is_refused(
+    services: Services, ahead: int
+) -> None:
+    """Today included: `settlement_date`'s rule is yesterday or earlier.
+
+    `flexi balance zero --as-of friday` on a Tuesday resolved to that Friday and
+    wrote the row, and the confirmation prompt named exactly the date the user
+    had asked for, so nothing on screen said anything was wrong. The row was
+    then invisible -- the ledger filters adjustments on `date <= end` -- until
+    its date arrived.
+
+    That is worse than a dormant credit. The correction is sized against a
+    projection in which every day between now and then was worked zero hours, so
+    once the date arrives the week's real hours read as pure surplus: precisely
+    the unearned overtime `settlement_date` exists to prevent, stretched over
+    several days.
+    """
+    work(services, MONDAY, hours=2)
+    invalidate_services(services)
+
+    with time_machine.travel(datetime(2026, 6, 10, 11, 0, tzinfo=UTC), tick=False):
+        result = zero_balance(services, wallclock.today() + timedelta(days=ahead))
+
+        assert result.success is False
+        assert "has not finished" in result.message
+        assert result.adjustment is None
+    assert services.adjustments.all() == []
+
+
 def test_zeroing_twice_is_refused_the_second_time(services: Services) -> None:
     """It says so rather than writing a row that does nothing."""
     work(services, MONDAY, hours=2)
