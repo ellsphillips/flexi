@@ -28,11 +28,11 @@ classifiers = [
 ]
 
 dependencies = [
-    "alembic>=1.13.0",
-    "click>=8.1.8",
+    "alembic>=1.19.1",
+    "click>=8.5.0",
     "httpx>=0.27.0",
-    "packaging>=24.0",
-    "pydantic>=2.0",
+    "packaging>=26.3",
+    "pydantic>=2.13.5",
     "pyyaml>=6.0",
     "rich>=13.9.4",
     # 2.0.41 is the first release whose `make_union_type` survives Python
@@ -60,21 +60,21 @@ flexi = "flexi.__main__:cli"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.14.1",
-    "pre-commit>=4.0.1",
-    "pygments>=2.19.1",
+    "mypy>=2.3.1",
+    "pre-commit>=4.6.2",
+    "pygments>=2.21.0",
     "pytest>=8.3.4",
-    "pytest-cov>=6.0.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-mock>=3.14.0",
-    "ruff>=0.9.1",
-    "textual-dev>=1.7.0",
+    "pytest-cov>=7.1.0",
+    "pytest-asyncio>=1.4.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.16.5",
+    "textual-dev>=1.8.0",
     "pytest-textual-snapshot>=1.1.0",
-    "time-machine>=2.16.0",
-    "types-pyyaml>=6.0",
+    "time-machine>=3.5.0",
+    "types-pyyaml>=6.0.12.20260815",
     "typing-extensions>=4.12.2",
     "pytest-xdist>=3.8.0",
-    "hypothesis>=6.122",
+    "hypothesis>=6.165.10",
     "pytest-randomly>=3.16",
     "pytest-timeout>=2.3",
 ]
