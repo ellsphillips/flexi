@@ -16,6 +16,12 @@ Nothing here can produce a null; the column stays nullable so that a row written
 by an older Flexi against a newer schema is readable rather than a constraint
 error.
 
+The date comes from `flexi.wallclock`, which makes this the only migration that
+imports from the application. That is a deliberate exception: `wallclock` is the
+one place Flexi reads the clock, the invariant is worth more than a frozen
+revision's usual independence, and the module depends on nothing but the
+standard library, so it cannot drag a schema change into an import cycle.
+
 Revision ID: 0015
 Revises: 0014
 Create Date: 2026-08-27
@@ -23,10 +29,11 @@ Create Date: 2026-08-27
 """
 
 from collections.abc import Sequence
-from datetime import date
 
 import sqlalchemy as sa
 from alembic import op
+
+from flexi import wallclock
 
 revision: str = "0015"
 down_revision: str | None = "0014"
@@ -47,7 +54,7 @@ def upgrade() -> None:
 
     connection = op.get_bind()
     earliest = connection.execute(EARLIEST_RECORD).scalar()
-    stamp = earliest or date.today().isoformat()  # noqa: DTZ011
+    stamp = earliest or wallclock.today().isoformat()
     connection.execute(
         sa.text("UPDATE settings SET tracking_since = :stamp"), {"stamp": str(stamp)}
     )
