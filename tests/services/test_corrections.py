@@ -8,9 +8,11 @@ stays distinguishable from one, and cannot be used to claim the same hour twice.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
+import time_machine
 from sqlalchemy.orm import Session
 
 from flexi.constants import EventSource
@@ -28,6 +30,22 @@ from tests.services.conftest import Configured
 MONDAY = date(2026, 6, 8)
 TUESDAY = date(2026, 6, 9)
 TODAY = date(2026, 6, 11)
+NOW = datetime.combine(TODAY, time(10, 0), tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _on_the_day() -> Iterator[None]:
+    """Hold the clock at TODAY, which every test here already passes as `now`.
+
+    Every `correct` call names its own day, but the two tests that also punch
+    called `clock_in()` bare and got the real one. That made them a lottery on
+    the date the suite happened to run: `tests/services/conftest.py` seeds a
+    bank holiday on 31 August, and `clock_in` refuses one, so on that day the
+    open session was never created and the assertion below it failed. The same
+    trap took `test_stale_sessions.py` out on 1 September.
+    """
+    with time_machine.travel(NOW, tick=False):
+        yield
 
 
 @pytest.fixture
@@ -177,10 +195,16 @@ def test_a_corrected_stretch_is_drawn_apart_from_a_punched_one(
 def test_the_review_lists_only_what_was_corrected(
     clock: ClockService, session: Session
 ) -> None:
-    """A punched session on the same day is not what somebody came to check."""
+    """A punched session on the same day is not what somebody came to check.
+
+    The punch is put on MONDAY afternoon deliberately. Clocking in and straight
+    back out, which is what this did before, is under the minimum session and is
+    voided -- so the row the filter is supposed to reject was being rejected for
+    the wrong reason, and `amended` was never the thing under test.
+    """
     clock.correct(MONDAY, time(9, 0), time(12, 0), now=TODAY)
-    clock.clock_in()
-    clock.clock_out()
+    clock.clock_in(now=datetime.combine(MONDAY, time(13, 0), tzinfo=UTC))
+    clock.clock_out(now=datetime.combine(MONDAY, time(17, 0), tzinfo=UTC))
 
     found = clock.corrections_between(MONDAY, TODAY)
 
