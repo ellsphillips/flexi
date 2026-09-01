@@ -484,6 +484,60 @@ async def test_only_nine_days_are_numbered_and_only_where_they_can_be_seen(
         assert all(region.contains_point(offset) for offset in targets)
 
 
+async def test_scrolling_the_table_moves_the_badges_rather_than_spending_them(
+    flexi: Services,
+) -> None:
+    """The nine numbers belong to the rows on screen, wherever the table is.
+
+    `visible_rows` means "not collapsed away", not "inside the viewport", and
+    the counter was incremented before the viewport test. So the rows scrolled
+    off the top spent all nine badges and the offer ran out before the first row
+    anybody could see: scroll a month of records far enough and jump mode
+    offered no row badges at all.
+    """
+    module = RecordsModule()
+    async with showing(module, flexi, granularity=Granularity.MONTH, size=SHORT) as (
+        pilot,
+        _panel,
+    ):
+        module.table.focus()
+        for _ in range(25):
+            await pilot.press("down")
+        await pilot.pause()
+        assert module.table.scroll_offset.y > 0, "the table really did scroll"
+
+        targets = module.jump_row_targets()
+
+        assert targets, "a scrolled table still has rows on screen to offer"
+        region = module.table.region
+        assert all(region.contains_point(offset) for offset in targets)
+        assert {info.key for info in targets.values()} == {
+            str(number) for number in range(1, len(targets) + 1)
+        }
+
+
+async def test_a_table_taller_than_the_offer_numbers_only_the_first_nine(
+    flexi: Services,
+) -> None:
+    """There are nine number keys, and the tenth visible day gets none.
+
+    The `break` is only reachable once ten day rows are on screen at the same
+    time, which no other test arranges -- while off-screen rows were counted it
+    was reached for the wrong reason entirely.
+    """
+    module = RecordsModule()
+    async with showing(module, flexi, granularity=Granularity.MONTH, size=(90, 30)) as (
+        _pilot,
+        _panel,
+    ):
+        targets = module.jump_row_targets()
+
+        assert len(targets) == MAX_JUMP_ROWS
+        assert {info.key for info in targets.values()} == {
+            str(number) for number in range(1, MAX_JUMP_ROWS + 1)
+        }
+
+
 async def test_the_cursor_names_its_day_from_anywhere_inside_the_group(
     flexi: Services,
 ) -> None:

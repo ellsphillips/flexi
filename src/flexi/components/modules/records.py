@@ -375,12 +375,17 @@ class RecordsModule(Module):
         for index, row in enumerate(table.visible_rows()):
             if row.kind != RowKind.DAY:
                 continue
-            numbered += 1
-            if numbered > MAX_JUMP_ROWS:
-                break
             y = region.y + header + index - scroll
             if not (region.y + header <= y < region.y + region.height):
                 continue
+            # Counted only once the row is known to be on screen. `visible_rows`
+            # means "not collapsed away", not "inside the viewport", so rows
+            # scrolled off the top used to spend the nine badges before the
+            # first row anybody could see was reached -- scroll a month of
+            # records down far enough and every badge was gone.
+            numbered += 1
+            if numbered > MAX_JUMP_ROWS:
+                break
             targets[Offset(region.x + region.width - BADGE_WIDTH, y)] = JumpInfo(
                 str(numbered), row.key, BadgeShape.ROW
             )
