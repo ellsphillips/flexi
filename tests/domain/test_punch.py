@@ -5,7 +5,14 @@ import pytest
 from flexi import wallclock
 from flexi.constants import AbsenceType, DayKind, Portion
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
-from flexi.domain.punch import Cell, Window, bucket_minutes, cell_count, strip
+from flexi.domain.punch import (
+    Cell,
+    Window,
+    bucket_minutes,
+    cell_count,
+    edges,
+    strip,
+)
 
 DAY = date(2026, 6, 11)
 CONTRACTED = timedelta(hours=7, minutes=24)
@@ -254,3 +261,67 @@ def test_a_window_can_be_parsed_and_measured() -> None:
     """It reads the configured day window."""
     window = Window.parse("08:00", "18:30")
     assert window.minutes == 630
+
+
+# -- the grid across a transition --------------------------------------------
+
+SPRING_FORWARD = date(2026, 3, 29)
+"""The Sunday Europe/London loses an hour, at 01:00 GMT."""
+
+AUTUMN_BACK = date(2026, 10, 25)
+"""The Sunday Europe/London gains one, at 02:00 BST."""
+
+NIGHT = Window(time(0, 0), time(6, 0))
+"""A window wide enough to contain a transition.
+
+The default 07:00-19:00 cannot: no zone in the database moves its clocks inside
+working hours, which is why every existing test takes the fast path and why the
+fallback below had never been drawn.
+"""
+
+
+@pytest.mark.usefixtures("in_london")
+@pytest.mark.parametrize("day", [SPRING_FORWARD, AUTUMN_BACK])
+@pytest.mark.parametrize("count", [12, 44])
+def test_the_grid_stays_a_wall_grid_across_a_transition(day: date, count: int) -> None:
+    """Each bound localised on its own when the offset moves under the window.
+
+    `edges` generates the interior arithmetically while the two ends share an
+    offset, which is every window on all but two days a year. On these two it
+    has to ask the zone for each bound instead: on the October Sunday 02:00 is
+    an hour further from midnight than 01:00 was, and an evenly spaced grid
+    would put the hour that happens twice in one cell.
+    """
+    bounds = edges(day, count, NIGHT)
+
+    assert len(bounds) == count + 1
+    assert [b.time() for b in bounds] == [
+        (
+            datetime.combine(day, NIGHT.start)
+            + timedelta(minutes=index * NIGHT.minutes / count)
+        ).time()
+        for index in range(count + 1)
+    ], "the wall readings are evenly spaced whatever the offsets under them are"
+    offsets = {bound.utcoffset() for bound in bounds}
+    assert len(offsets) == 2, "the transition is inside the window, so both apply"
+
+
+@pytest.mark.usefixtures("in_london")
+def test_a_window_clear_of_the_transition_is_spaced_the_same_way() -> None:
+    """The two paths agree wherever they overlap.
+
+    The whole justification for generating the interior is that it is
+    indistinguishable from localising each bound, so the working day on the
+    Sunday the clocks move is the case worth pinning.
+    """
+    bounds = edges(AUTUMN_BACK, 44, Window())
+
+    assert len({bound.utcoffset() for bound in bounds}) == 1
+    assert bounds == [
+        wallclock.local(
+            Window().moment(
+                datetime.combine(AUTUMN_BACK, time.min), index * Window().minutes / 44
+            )
+        )
+        for index in range(45)
+    ]
