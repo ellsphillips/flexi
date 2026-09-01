@@ -241,7 +241,8 @@ class ClockService:
                 for existing in self.segments_on(day)
             ):
                 return ClockResult(
-                    success=False, message=CORRECTION_OVERLAP.format(day=day)
+                    success=False,
+                    message=CORRECTION_OVERLAP.format(day=short_date(day)),
                 )
             recorded = stage_correction(self._session, opened_at, closed_at, day)
 
@@ -291,7 +292,15 @@ class ClockService:
 CORRECTION_BACKWARDS = "That correction ends before it starts"
 CORRECTION_EMPTY = "A correction has to cover some time"
 CORRECTION_FUTURE = "A day that has not happened cannot be corrected"
-CORRECTION_OVERLAP = "That overlaps work already recorded on {day:%a %-d %b}"
+CORRECTION_OVERLAP = "That overlaps work already recorded on {day}"
+"""Formatted with an already-rendered date, not with the `date` itself.
+
+`%-d` is a glibc extension. On Windows `strftime` raises `ValueError: Invalid
+format string`, so the refusal explaining an overlap was itself a crash on the
+platform the classifiers claim -- and this was the only live `%-d` format spec
+left in `src/`, the other thirteen all being `stamp()` arguments or prose.
+`domain/format.py` exists for exactly this reason; `short_date` goes through it.
+"""
 
 
 def overlapping(first: Segment, start: datetime, end: datetime) -> bool:
