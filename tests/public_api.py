@@ -22,6 +22,33 @@ def contains_any(annotation: object, seen: frozenset[int] = frozenset()) -> bool
     return any(contains_any(argument, visited) for argument in get_args(annotation))
 
 
+def hints_of(function: object) -> Mapping[str, object]:
+    """``get_type_hints``, with the function's own type parameters in scope.
+
+    A PEP 695 generic keeps its parameters in ``__type_params__``, and before
+    CPython 3.12.4 ``get_type_hints`` did not put them in the namespace it
+    evaluates a string annotation in. `flexi.config.section` is
+    ``def section[T: BaseModel](...) -> T``, and under `from __future__ import
+    annotations` that return type is the string ``"T"`` -- so resolving it
+    raised ``NameError: name 'T' is not defined``.
+
+    Which is not hypothetical: Ubuntu 24.04 LTS ships 3.12.3, that is the
+    interpreter the `ubuntu-latest · Python 3.12` rows of the matrix resolve to,
+    and all three of them were failing on it. The repo claims 3.12 support in
+    `requires-python`, so the oldest 3.12 anybody is likely to have is the one
+    that has to work.
+
+    Passing them explicitly costs nothing on a newer interpreter, and
+    `class_type_hints` below has always done exactly this for classes -- plain
+    functions were the case that was missed.
+    """
+    parameters = {
+        parameter.__name__: parameter
+        for parameter in getattr(function, "__type_params__", ())
+    }
+    return get_type_hints(function, localns=parameters)
+
+
 def public_type_hints(
     module: ModuleType,
 ) -> Iterator[tuple[str, Mapping[str, object]]]:
@@ -31,7 +58,7 @@ def public_type_hints(
         value = getattr(module, name)
         qualified = f"{module.__name__}.{name}"
         if inspect.isfunction(value) and value.__module__ == module.__name__:
-            yield qualified, get_type_hints(value)
+            yield qualified, hints_of(value)
         elif inspect.isclass(value) and value.__module__ == module.__name__:
             yield from class_type_hints(value, qualified, seen)
         elif isinstance(value, TypeAliasType):
@@ -71,7 +98,7 @@ def class_type_hints(
         for role, function in member_functions(member):
             if getattr(function, "__module__", None) == value.__module__:
                 suffix = f".{role}" if role else ""
-                yield f"{member_name}{suffix}", get_type_hints(function)
+                yield f"{member_name}{suffix}", hints_of(function)
 
 
 def member_functions(member: object) -> Iterator[tuple[str, object]]:
