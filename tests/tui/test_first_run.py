@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from textual.pilot import Pilot
 from textual.widgets import Input, Select
 
 from flexi.app import FlexiApp
@@ -37,6 +38,29 @@ def fresh_db(tmp_path: Path) -> Path:
 def notices(app: FlexiApp) -> list[str]:
     """Everything the application has put in front of the user, oldest first."""
     return [notification.message for notification in app._notifications]
+
+
+async def revealed(pilot: Pilot[None]) -> None:
+    """Wait for the setup screen's reveal to finish, rather than hoping it has.
+
+    Eleven tests here pumped `pilot.pause()` twenty-four times and then asserted
+    on what had been drawn. `pause` drains the messages queued at the moment it
+    is called, so how far an animation has run when the twenty-fourth returns is
+    a property of how loaded the machine is -- and the setup screen animates
+    three things: the marker's row, the question block's height, and its
+    opacity, the last on a delay.
+
+    Sampled a fraction early, an opacity of 0.99 renders `$c-accent` as
+    `#00A9AC` instead of `#00AAAD`. That is one CI failure on one Windows row of
+    twenty-seven, which is the worst kind: it reruns green, so it reads as
+    infrastructure rather than as the test asking a question before the answer
+    exists.
+
+    `wait_for_scheduled_animations` waits for the delayed ones too, which the
+    opacity animation is.
+    """
+    await pilot.wait_for_scheduled_animations()
+    await pilot.pause()
 
 
 async def _answer(app: FlexiApp, working_days: str) -> None:
@@ -313,8 +337,7 @@ async def test_a_key_the_questions_do_not_claim_cuts_the_animation_short(
         assert not questions.has_class("-arrived")
 
         await pilot.press("f5")
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         assert questions.has_class("-arrived"), "the word stopped and let them in"
         assert app.screen.query_one("#input-leave-start", Input).value == "04-06", (
@@ -340,8 +363,7 @@ async def test_once_the_questions_are_up_tab_moves_between_them_again(
         await pilot.pause()
         screen = showing(app, SetupScreen)
         screen.query_one(Wordmark).skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
         assert app.screen.focused is screen.query_one("#input-leave-start", Input)
 
         await pilot.press("tab")
@@ -379,8 +401,7 @@ async def test_the_wordmark_is_centred_over_the_questions(
     async with app.run_test(size=(width, 34)) as pilot:
         await pilot.pause()
         showing(app, SetupScreen).query_one(Wordmark).skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         left, right = _logo_span(app)
         questions = app.screen.query_one("#setup-questions").region
@@ -400,8 +421,7 @@ async def test_the_wordmark_does_not_move_sideways_when_the_questions_arrive(
         before = wordmark.region.x
 
         wordmark.skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         assert wordmark.region.x == before
 
@@ -422,8 +442,7 @@ async def test_the_wordmark_rises_to_make_room(
         settled = wordmark.region.y
 
         wordmark.skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         assert wordmark.region.y < settled, "the logo should have moved up"
         assert questions.region.height > 0
@@ -444,8 +463,7 @@ async def test_the_counted_height_is_the_real_one(
         await pilot.pause()
         screen = showing(app, SetupScreen)
         screen.query_one(Wordmark).skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         counted = form_rows(len(screen.query(Question)))
         assert screen.query_one("#setup-questions").region.height == counted
@@ -499,8 +517,7 @@ async def test_the_rail_is_one_unbroken_line(
         await pilot.pause()
         screen = showing(app, SetupScreen)
         screen.query_one(Wordmark).skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         rail = screen.query_one(Rail)
         rows = [
@@ -526,8 +543,7 @@ async def test_the_marker_sits_on_the_question_holding_the_cursor(
         await pilot.pause()
         screen = showing(app, SetupScreen)
         screen.query_one(Wordmark).skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         rail = screen.query_one(Rail)
         first = rail.marker
@@ -556,8 +572,7 @@ async def test_the_marker_travels_rather_than_jumps(
         await pilot.pause()
         screen = showing(app, SetupScreen)
         screen.query_one(Wordmark).skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         rail = screen.query_one(Rail)
         animate = rail.animate
@@ -604,8 +619,7 @@ async def test_the_foot_of_the_rail_matches_the_line_above_it(
         await pilot.pause()
         screen = showing(app, SetupScreen)
         screen.query_one(Wordmark).skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         drawn = _rail_column(app, screen.query_one(Rail))
         foot, hairline = drawn[-1], colour("c-line").upper()
@@ -629,8 +643,7 @@ async def test_the_marker_is_the_only_thing_lit_on_the_rail(
         await pilot.pause()
         screen = showing(app, SetupScreen)
         screen.query_one(Wordmark).skip()
-        for _ in range(24):
-            await pilot.pause()
+        await revealed(pilot)
 
         rail = screen.query_one(Rail)
         drawn = _rail_column(app, rail)
