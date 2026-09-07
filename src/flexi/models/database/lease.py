@@ -13,7 +13,6 @@ hold locks on different files with the same name.
 
 from __future__ import annotations
 
-import errno
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -64,22 +63,71 @@ def lease_path(database: Path) -> Path:
 
 
 if sys.platform == "win32":  # pragma: no cover - exercised by the Windows job
+    import ctypes
     import msvcrt
+    from ctypes import wintypes
+
+    _LOCKFILE_FAIL_IMMEDIATELY = 0x1
+    _LOCKFILE_EXCLUSIVE_LOCK = 0x2
+    _ERROR_LOCK_VIOLATION = 33
+    _ERROR_IO_PENDING = 997
+
+    class _Overlapped(ctypes.Structure):
+        """The byte range `LockFileEx` works on: offset zero, as POSIX does."""
+
+        _fields_ = (
+            ("Internal", wintypes.LPVOID),
+            ("InternalHigh", wintypes.LPVOID),
+            ("Offset", wintypes.DWORD),
+            ("OffsetHigh", wintypes.DWORD),
+            ("hEvent", wintypes.HANDLE),
+        )
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
     def _try_lock(handle: BinaryIO, mode: LeaseMode) -> bool:
-        handle.seek(0)
-        operation = msvcrt.LK_NBRLCK if mode is LeaseMode.SHARED else msvcrt.LK_NBLCK
-        try:
-            msvcrt.locking(handle.fileno(), operation, 1)
-        except OSError as error:
-            if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
-                raise
-            return False
+        """Take a real shared or exclusive lock on the lease file's first byte.
+
+        `msvcrt.locking` was used here, with `LK_NBRLCK` for a shared lease --
+        but Microsoft documents `_LK_NBRLCK` as "same as `_LK_NBLCK`", and
+        `_locking` exposes no shared mode at all. Every lease on Windows was
+        therefore exclusive: two application lifetimes could not share a
+        database, so `flexi clock in` could not run while the TUI was open, and
+        `tests/models/database/test_lease.py` failed on all six Windows rows of
+        the matrix.
+
+        `LockFileEx` is the API that distinguishes the two. Without
+        `LOCKFILE_EXCLUSIVE_LOCK` it takes a shared lock, which is what the
+        POSIX branch below gets from `LOCK_SH`.
+        """
+        flags = _LOCKFILE_FAIL_IMMEDIATELY
+        if mode is LeaseMode.EXCLUSIVE:
+            flags |= _LOCKFILE_EXCLUSIVE_LOCK
+        overlapped = _Overlapped()
+        taken = _kernel32.LockFileEx(
+            msvcrt.get_osfhandle(handle.fileno()),
+            flags,
+            0,
+            1,
+            0,
+            ctypes.byref(overlapped),
+        )
+        if not taken:
+            code = ctypes.get_last_error()
+            # Held by somebody incompatible. Anything else is a real fault and
+            # must not be reported to the caller as mere contention.
+            if code in {_ERROR_LOCK_VIOLATION, _ERROR_IO_PENDING}:
+                return False
+            raise ctypes.WinError(code)
         return True
 
     def _unlock(handle: BinaryIO) -> None:
-        handle.seek(0)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        overlapped = _Overlapped()
+        released = _kernel32.UnlockFileEx(
+            msvcrt.get_osfhandle(handle.fileno()), 0, 1, 0, ctypes.byref(overlapped)
+        )
+        if not released:
+            raise ctypes.WinError(ctypes.get_last_error())
 
 else:
     import fcntl
