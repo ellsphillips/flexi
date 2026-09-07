@@ -19,6 +19,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal
 from textual.geometry import Offset
+from textual.pilot import Pilot
 from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Static
@@ -35,7 +36,7 @@ from flexi.components.chrome import (
 from flexi.components.common import Pill, Tone
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import Jumper, JumpInfo
-from tests.conftest import settled
+from tests.conftest import SETTLE_PASSES, settled
 
 WIDE = (80, 24)
 
@@ -101,6 +102,27 @@ def showing[S: Screen[Any]](app: App[None], kind: type[S]) -> S:
     return screen
 
 
+async def laid_out(pilot: Pilot[Any], widget: Widget) -> None:
+    """Wait until the compositor has given ``widget`` a width.
+
+    `settled` waits for the callbacks a layout *schedules*; it does not promise
+    the layout itself has run, and a widget the compositor has not placed yet
+    reports `region.width == 0`. On a loaded Windows runner that is what the
+    measurement assertion below actually compared -- `assert (0 + 1) == 7`,
+    which reads as a broken measurement rather than as a footer that had not
+    been drawn when it was asked.
+
+    Bounded, and it says which of the two happened: a widget that never gets a
+    width is a real failure and should not be reported as a wrong number.
+    """
+    for _ in range(SETTLE_PASSES):
+        if widget.region.width:
+            return
+        await pilot.pause()
+    msg = f"{type(widget).__name__} was never laid out"
+    raise AssertionError(msg)
+
+
 # -- the nav bar -------------------------------------------------------------
 
 
@@ -160,6 +182,7 @@ async def test_a_binding_hint_matches_its_measurement_and_runs_its_key() -> None
         # not, and the failure reads as a footer that never drew.
         await settled(pilot)
         hint = app.query_one(BindingHint)
+        await laid_out(pilot, hint)
 
         assert str(hint.render()) == "x Mark"
         assert hint.region.width + hint.styles.margin.right == footer_key_cost(
