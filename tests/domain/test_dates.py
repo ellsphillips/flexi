@@ -15,9 +15,12 @@ from datetime import date
 
 import pytest
 
+from flexi.domain import leaveyear
 from flexi.domain.dates import (
     DATE_RANGE_ERROR,
     MONTH_NAMES,
+    SUPPORTED_FIRST,
+    SUPPORTED_LAST,
     Preference,
     add_days,
     add_months,
@@ -384,3 +387,145 @@ def test_moving_whole_months_clamps_to_a_shorter_one(
 ) -> None:
     """The 31st has no counterpart in February, and neither does 29 February."""
     assert add_months(start, count) == expected
+
+
+# -- a span's end -------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected"),
+    [
+        ("yesterday to tomorrow", (date(2026, 8, 9), date(2026, 8, 11))),
+        ("last week to today", (date(2026, 8, 3), MONDAY)),
+        ("last week to yesterday", (date(2026, 8, 3), date(2026, 8, 9))),
+        ("2026-08-03 to today", (date(2026, 8, 3), MONDAY)),
+        ("+1d to +3d", (date(2026, 8, 11), date(2026, 8, 13))),
+    ],
+)
+def test_a_word_or_an_offset_ending_a_span_counts_from_today(
+    typed: str, expected: tuple[date, date]
+) -> None:
+    """`last week to today`, typed on the Friday back, is a week of sickness.
+
+    Read from the start of the range instead, every one of these collapses:
+    `last week to today` is the one day the range starts on, and `+1d to +3d`
+    runs a day too long.
+    """
+    assert parse_span(typed, reference=MONDAY) == expected
+
+
+def test_a_span_whose_end_is_before_its_start_is_still_refused() -> None:
+    """Friday comes after today, so `friday to today` runs backwards."""
+    with pytest.raises(ValueError, match="runs backwards"):
+        parse_span("friday to today", reference=MONDAY)
+
+
+# -- numbers no calendar has -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("read", "message"),
+    [
+        pytest.param(
+            lambda: parse_date("2147483648", reference=MONDAY),
+            "August has no day 2147483648",
+            id="bare-day",
+        ),
+        pytest.param(
+            lambda: parse_date(
+                "2147483648", reference=MONDAY, prefer=Preference.FORWARD
+            ),
+            "August has no day 2147483648",
+            id="bare-day-forward",
+        ),
+        pytest.param(
+            lambda: parse_date("2147483648 jun", reference=MONDAY),
+            "2147483648/6 is not a valid calendar day",
+            id="written",
+        ),
+        pytest.param(
+            lambda: parse_date("jun 99999999999999999999 2026", reference=MONDAY),
+            "Try 2026",
+            id="written-with-a-year",
+        ),
+        pytest.param(
+            lambda: parse_span("2026-08-10 to 99999999999999999999", reference=MONDAY),
+            "August has no day 99999999999999999999",
+            id="span",
+        ),
+        pytest.param(
+            lambda: parse_day_of_month("2147483648", MONDAY),
+            "August has no day 2147483648",
+            id="day-of-month",
+        ),
+        pytest.param(
+            lambda: resolve_month_day(6, 2147483648, MONDAY),
+            "2147483648/6 is not a valid calendar day",
+            id="month-day",
+        ),
+    ],
+)
+def test_a_day_number_too_large_for_the_calendar_is_refused(
+    read: Callable[[], object], message: str
+) -> None:
+    """`date` answers a day of 2147483648 with `OverflowError`, not `ValueError`.
+
+    Every caller of the parser catches the documented failure only: the CLI's
+    `TypedDate`, `flexi leave`, and the two modals. One arriving as an
+    `OverflowError` is a stack trace on the command line and Textual's crash
+    screen in the application.
+    """
+    with pytest.raises(ValueError, match=message):
+        read()
+
+
+def test_a_digit_int_cannot_read_is_not_a_day_number() -> None:
+    """`'²'.isdigit()` is true and `int('²')` raises, so the test is decimal.
+
+    Arabic-Indic digits are decimal and `int` reads them, so they stay a day of
+    the month; a superscript is not a number anybody typed as one.
+    """
+    with pytest.raises(ValueError, match="Try 2026"):
+        parse_date("²", reference=MONDAY)
+    assert parse_date("٣", reference=MONDAY) == date(2026, 8, 3)
+
+
+# -- the window Flexi works in -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "read",
+    [
+        pytest.param(lambda: parse_date("9999-12-31", reference=MONDAY), id="last"),
+        pytest.param(lambda: parse_date("0001-01-01", reference=MONDAY), id="first"),
+        pytest.param(
+            lambda: parse_span("2026-08-10 to 9999-12-31", reference=MONDAY),
+            id="span-end",
+        ),
+        pytest.param(
+            lambda: parse_span("today to next week", reference=date(9998, 12, 31)),
+            id="span-word-end",
+        ),
+    ],
+)
+def test_a_date_outside_the_window_flexi_works_in_is_refused(
+    read: Callable[[], object],
+) -> None:
+    """The leave year either side of year 1 and year 9999 is not a date.
+
+    `--as-of 9999-12-31` reaches `leaveyear.bounds`, which asks for the year
+    10000; the refusal has to come from the parser, where every caller is
+    already expecting one.
+    """
+    with pytest.raises(ValueError, match="outside") as raised:
+        read()
+
+    assert str(raised.value) == DATE_RANGE_ERROR
+
+
+@pytest.mark.parametrize("edge", [SUPPORTED_FIRST, SUPPORTED_LAST])
+def test_both_edges_of_the_window_have_a_leave_year(edge: date) -> None:
+    """Which is what the window is for: a date it accepts can be worked with."""
+    start, end = leaveyear.bounds(edge, 4, 6)
+
+    assert start <= edge <= end

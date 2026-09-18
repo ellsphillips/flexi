@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from flexi.domain.plot import (
+    BRAILLE_BASE,
     DOT_COLUMNS,
     DOT_ROWS,
     Bounds,
@@ -279,3 +280,46 @@ def test_a_rule_outside_its_own_bounds_is_not_drawn() -> None:
     """`rule_row` answers for a plot whose bounds were fixed elsewhere."""
     assert rule_row(99.0, Bounds(0.0, 5.0), 10) is None
     assert rule_row(0.0, Bounds(0.0, 5.0), 10) == 9
+
+
+# -- two lines ---------------------------------------------------------------
+
+
+def lit(grid: list[list[Glyph | None]]) -> set[tuple[int, int, int]]:
+    """Every braille dot lit in a grid, as ``(row, column, bit)``."""
+    return {
+        (row, column, bit)
+        for row, cells in enumerate(grid)
+        for column, cell in enumerate(cells)
+        if cell is not None
+        for bit in (0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80)
+        if (ord(cell.char) - BRAILLE_BASE) & bit
+    }
+
+
+RISING = Series("rising", (0.0, 1.0, 2.0, 3.0), Mark.LINE, "series")
+FALLING = Series("falling", (3.0, 2.0, 1.0, 0.0), Mark.LINE, "compare")
+
+
+def test_two_lines_keep_every_dot_the_other_lights() -> None:
+    """A cell is eight dots, and a crossing costs neither stroke a gap.
+
+    Written a cell at a time, the second line's glyph takes the whole cell and
+    the first line vanishes from it at the crossing, which is the part of the
+    picture the reader came for.
+    """
+    merged = lit(plot([RISING, FALLING], 6, 3))
+
+    assert lit(plot([RISING], 6, 3)) <= merged
+    assert lit(plot([FALLING], 6, 3)) <= merged
+    assert lit(plot([FALLING, RISING], 6, 3)) == merged
+
+
+def test_a_cell_two_lines_share_wears_the_later_tone() -> None:
+    """A cell carries one colour, and the drawing order decides which."""
+    grid = plot([RISING, FALLING], 6, 3)
+    shared = grid[1][2]
+
+    assert shared is not None
+    assert shared.tone == "compare"
+    assert lit([[shared]]) == {(0, 0, bit) for bit in (0x01, 0x10, 0x20, 0x40)}

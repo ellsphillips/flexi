@@ -1,4 +1,5 @@
-from flexi.constants import AbsenceType, undeclared_types
+from flexi import constants
+from flexi.constants import AbsenceType
 
 
 def test_every_absence_type_reads_inside_a_sentence() -> None:
@@ -15,7 +16,7 @@ def test_every_absence_type_reads_inside_a_sentence() -> None:
 def test_every_absence_type_declares_its_details() -> None:
     """A member with no row is a KeyError on `.label`, at booking time.
 
-    Checked here rather than at import, where it cost three module-level
-    temporaries that outlived the check by the length of the process.
+    Read straight off the private table, so `flexi.constants` carries no
+    function that exists for this assertion to call.
     """
-    assert undeclared_types() == frozenset()
+    assert frozenset(AbsenceType) == frozenset(constants._DETAILS)

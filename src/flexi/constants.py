@@ -25,7 +25,6 @@ __all__ = (
     "Portion",
     "Verdict",
     "absence_from_word",
-    "undeclared_types",
 )
 
 
@@ -238,21 +237,10 @@ remember and nothing to remind you.
 Carrying the data on the members themselves, through `__new__`, would be
 stronger still -- but it makes `AbsenceType("annual")` look like a four-argument
 constructor to a type checker, and reading a stored value back out of the
-database is the single commonest thing this enum does. One table and the check
-below buys the same guarantee without spending that.
+database is the single commonest thing this enum does. One table, and the test
+that reads it against the members, buys the same guarantee without spending
+that.
 """
-
-
-def undeclared_types() -> frozenset[AbsenceType]:
-    """Members with no row in the table above, which must be none of them.
-
-    A member added without details is a `KeyError` on `.label` at the moment
-    somebody books that type. This ran at import and left three temporaries --
-    `_undeclared`, `_names`, `_msg` -- in the module namespace for the life of
-    the process to do it. It is a structural invariant, and `tests/test_layering.py`
-    already establishes that those are stated as a test here.
-    """
-    return frozenset(AbsenceType) - frozenset(_DETAILS)
 
 
 class Verdict(enum.Enum):

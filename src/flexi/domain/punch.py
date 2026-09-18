@@ -8,6 +8,11 @@ session is overstated rather than lost. And it coarsens rather than truncating,
 falling back to three cells below :data:`MIN_CELLS` rather than claiming a
 precision it cannot draw.
 
+The third is a limit, not a rule. The strip draws the window it is handed and
+nothing outside it, so an evening session under the default 07:00 to 19:00 draws
+an empty rail beside a row reporting the hours. The window is
+``settings.day_window``, and a working day outside it needs that setting moved.
+
 Everything is a function of ``(ledger, width, window, now)`` and the zone
 `flexi.wallclock` is pinned to, which is what lets one implementation draw a
 table cell, an expanded row and a week ribbon.
@@ -109,7 +114,11 @@ class Cell(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Window:
-    """The span of the day the strip draws, edge to edge."""
+    """The span of the day the strip draws, edge to edge.
+
+    Work outside it is not drawn, so the defaults below are the hours an
+    ordinary working day happens in, not a limit on what can be worked.
+    """
 
     start: time = time(7, 0)
     end: time = time(19, 0)

@@ -205,6 +205,25 @@ def test_a_session_running_past_the_window_lights_no_cell_as_live() -> None:
     assert Cell.LIVE not in cells
 
 
+def test_a_session_outside_the_window_is_not_drawn() -> None:
+    """The strip draws the window it is handed, and only that.
+
+    An evening's work under the default 07:00 to 19:00 leaves an empty rail
+    beside a row reporting three and a half hours. Pinned because the window is
+    a setting: the honest strip for an evening shift is the one drawn against a
+    window that holds it.
+    """
+    evening = (Segment(1, at(20), at(23, 30)),)
+
+    assert render(strip(ledger(segments=evening), 24, now=EVENING)) == "-" * 24
+    assert Cell.ON in strip(
+        ledger(segments=evening),
+        24,
+        Window(time(19, 0), time(23, 59)),
+        now=EVENING,
+    ), "the same day, drawn against a window that holds it"
+
+
 def test_a_short_session_lights_a_whole_cell() -> None:
     """It shows presence rather than proportion, so nothing vanishes."""
     worked = (Segment(1, at(9, 5), at(9, 10)),)

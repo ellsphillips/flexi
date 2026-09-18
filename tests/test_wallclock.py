@@ -10,7 +10,7 @@ because the run still carries the zone in its name.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -190,3 +190,42 @@ def test_the_london_fixture_is_the_pin_and_not_the_environment() -> None:
     """`TZ` is not consulted, so a Windows runner reads the same as a Linux one."""
     with time_machine.travel(MIDSUMMER, tick=False):
         assert wallclock.now().utcoffset() == timedelta(hours=1)
+
+
+class Unreadable(datetime):
+    """A moment the platform's own `localtime` will not take.
+
+    Windows raises ``OSError: [Errno 22]`` from `localtime_s` for any negative
+    ``time_t``, so every moment before 1970 reads this way there and none of
+    them do here. Subclassed rather than mocked because the failure belongs to
+    the value, not to the module.
+    """
+
+    def astimezone(self, tz: tzinfo | None = None) -> Unreadable:
+        if tz is None:
+            message = "Invalid argument"
+            raise OSError(22, message)
+        return super().astimezone(tz)
+
+
+def test_a_wall_reading_the_platform_refuses_keeps_its_day() -> None:
+    """`end_of_day` manufactures one of these for every day it is asked about.
+
+    A balance as of 1960 walks days whose last microsecond is a naive 1959
+    reading, and the Windows rows of the matrix cannot be allowed to answer
+    that with a stack trace out of a service.
+    """
+    with wallclock.pinned(None):
+        reading = wallclock.local(Unreadable(1959, 4, 6, 23, 59, 59))
+
+    assert reading.replace(tzinfo=None) == datetime(1959, 4, 6, 23, 59, 59)
+    assert reading.utcoffset() == datetime.now().astimezone().utcoffset()
+
+
+def test_an_instant_the_platform_refuses_stays_the_same_instant() -> None:
+    """Aware in, converted out: the fallback may not move the moment itself."""
+    with wallclock.pinned(None):
+        reading = wallclock.local(Unreadable(1959, 4, 6, 23, 59, 59, tzinfo=UTC))
+
+    assert reading == datetime(1959, 4, 6, 23, 59, 59, tzinfo=UTC)
+    assert isinstance(reading.tzinfo, timezone)

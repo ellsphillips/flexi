@@ -17,6 +17,7 @@ from flexi.domain import (
     leaveyear,
     ledger,
     period,
+    plot,
     punch,
     wallet,
 )
@@ -30,6 +31,7 @@ LEAF_MODULES = (
     leaveyear,
     ledger,
     period,
+    plot,
     punch,
     stitch_module,
     wallet,
@@ -95,6 +97,24 @@ def test_the_domain_facade_resolves_ambiguous_leaf_names() -> None:
     assert domain.CalendarCell is stitch_module.Cell
     assert domain.ZERO_DURATION is balance.ZERO
     assert domain.ZERO_TEXT is formatting.ZERO
+    assert domain.plot is plot
+    assert domain.plot_series is plot.plot
+
+
+def test_every_leaf_in_the_package_is_held_to_the_api_rules() -> None:
+    """A leaf missing from the list above is held to none of them."""
+    package = Path(domain.__file__ or "").parent
+    leaves = {
+        path.stem for path in package.glob("*.py") if not path.stem.startswith("_")
+    }
+    published = {
+        value.__name__
+        for value in (getattr(domain, name) for name in domain.__all__)
+        if isinstance(value, ModuleType)
+    }
+
+    assert leaves == {module.__name__.rpartition(".")[2] for module in LEAF_MODULES}
+    assert {module.__name__ for module in LEAF_MODULES} <= published
 
 
 def test_the_domain_facade_publishes_date_time_contracts() -> None:

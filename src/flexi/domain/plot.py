@@ -24,6 +24,7 @@ __all__ = (
     "DOT_BITS",
     "DOT_COLUMNS",
     "DOT_ROWS",
+    "RULE_GLYPH",
     "Bounds",
     "Canvas",
     "Glyph",
@@ -54,10 +55,10 @@ Braille numbers its dots 1-2-3-7 down the left and 4-5-6-8 down the right, which
 is not the order a raster wants. The table is the translation, written once.
 """
 
-BAR_LEVELS: Final[str] = " ▁▂▃▄▅▆▇█"
+_BAR_LEVELS: Final[str] = " ▁▂▃▄▅▆▇█"
 """A column of block glyphs, empty through full, one eighth at a time."""
 
-EIGHTHS: Final = len(BAR_LEVELS) - 1
+_EIGHTHS: Final = len(_BAR_LEVELS) - 1
 
 
 class Mark(StrEnum):
@@ -323,8 +324,8 @@ def _fill(
         covered = min(crown, row + 1) - max(base, row)
         if covered <= 0:
             continue
-        level = max(1, round(covered * EIGHTHS))
-        grid[height - 1 - row][column] = Glyph(BAR_LEVELS[level], tone)
+        level = max(1, round(covered * _EIGHTHS))
+        grid[height - 1 - row][column] = Glyph(_BAR_LEVELS[level], tone)
 
 
 RULE_GLYPH: Final = "╌"
@@ -357,9 +358,11 @@ def plot(
     """Every series, drawn onto one grid of glyphs, top row first.
 
     Bars go down first and lines over them, because a line is the reading and
-    bars are the context it is read against. Two lines share a grid by taking
-    the cells the other left empty, which is what braille is for: a cell is
-    eight dots and two strokes rarely want the same one.
+    bars are the context it is read against. Two lines share a cell by lighting
+    their dots in it, which is what braille is for: a cell is eight dots and
+    two strokes rarely want the same one. The later line's tone is the one a
+    shared cell wears, since a cell carries one colour and the drawing order
+    already decides what sits on top.
 
     ``rule`` is a threshold rather than a series: it is drawn under everything,
     only where nothing else is, and it never appears in a legend. Zero on a
@@ -379,11 +382,15 @@ def plot(
             if grid[row][column] is None:
                 grid[row][column] = Glyph(RULE_GLYPH, "rule")
 
+    lines: dict[tuple[int, int], tuple[int, str]] = {}
     for one in (item for item in series if item.mark is Mark.LINE):
         canvas = Canvas(width, height)
         line_dots(one.values, bounds, canvas)
-        for row, drawn in enumerate(canvas.rows()):
-            for column, char in enumerate(drawn):
-                if char != braille(0):
-                    grid[row][column] = Glyph(char, one.tone)
+        for drawn_row, drawn in enumerate(canvas.cells):
+            for column, bits in enumerate(drawn):
+                if bits:
+                    already, _ = lines.get((drawn_row, column), (0, one.tone))
+                    lines[(drawn_row, column)] = (already | bits, one.tone)
+    for (drawn_row, column), (bits, tone) in lines.items():
+        grid[drawn_row][column] = Glyph(braille(bits), tone)
     return grid

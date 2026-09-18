@@ -5,10 +5,10 @@ command line needs the same vocabulary a dialog does, and the CLI cannot import
 Textual.
 
 Read relative to ``reference``, which is usually today and often is not:
-``parse_span`` reads the end of a range from its *start*, so ``28 dec to 4 jan``
-lands in the following year, and both modals read from the day on screen. It was
-called ``today``, which is what a reader assumes when a screen anchored on last
-March offers "an offset moves from today".
+``parse_span`` reads a written end from the range's *start*, so ``28 dec to 4
+jan`` lands in the following year, and both modals read from the day on screen.
+It was called ``today``, which is what a reader assumes when a screen anchored
+on last March offers "an offset moves from today".
 
 A dialog and a command line want different defaults, though. Somebody typing
 ``12`` into "go to date" while looking at June means the 12th of June, whether
@@ -47,6 +47,8 @@ __all__ = (
     "RELATIVE_DAYS",
     "SEPARATORS",
     "SHORTEST_DAY_NAME",
+    "SUPPORTED_FIRST",
+    "SUPPORTED_LAST",
     "Preference",
     "add_days",
     "add_months",
@@ -133,8 +135,18 @@ FORMATS: Final[tuple[str, ...]] = (
 )
 
 DATE_HELP: Final = "Try 2026-06-12, 12 Jun, friday, next monday, tomorrow, 12, or +3d"
+
+SUPPORTED_FIRST: Final = date(date.min.year + 1, 1, 1)
+SUPPORTED_LAST: Final = date(date.max.year - 1, 12, 31)
+"""The window a typed date is read into.
+
+A leave year reaches into the calendar year on either side of the date it
+holds, so the first and the last year the calendar has cannot be worked in.
+`leaveyear.bounds(date(9999, 12, 31), 4, 6)` asks `date` for the year 10000.
+"""
+
 DATE_RANGE_ERROR: Final = (
-    f"Date falls outside {date.min.isoformat()} to {date.max.isoformat()}"
+    f"Date falls outside {SUPPORTED_FIRST.isoformat()} to {SUPPORTED_LAST.isoformat()}"
 )
 
 
@@ -191,7 +203,7 @@ def parse_date(
     )
     if found is None:
         raise ValueError(DATE_HELP)
-    return found
+    return _supported(found)
 
 
 def parse_span(
@@ -199,13 +211,19 @@ def parse_span(
 ) -> tuple[date, date]:
     """A date, or a pair separated by ``to``, ``until``, ``through`` or ``..``.
 
-    The end is read *from the start* rather than from the reference, so ``28 dec to
-    4 jan`` lands in the following year and ``monday to friday`` stays in one
-    week.
+    A written end is read *from the start* rather than from the reference, so
+    ``28 dec to 4 jan`` lands in the following year and ``monday to friday``
+    stays in one week.
+
+    A word and an offset name a day from the reference wherever the range
+    begins, because that is what they say: the end of ``last week to today`` is
+    today, and ``+1d to +3d`` is three days from now rather than four.
 
     Examples:
         >>> parse_span("monday to friday", reference=date(2026, 8, 10))
         (datetime.date(2026, 8, 10), datetime.date(2026, 8, 14))
+        >>> parse_span("last week to today", reference=date(2026, 8, 10))
+        (datetime.date(2026, 8, 3), datetime.date(2026, 8, 10))
         >>> parse_span("12 jun", reference=date(2026, 8, 10))
         (datetime.date(2027, 6, 12), datetime.date(2027, 6, 12))
     """
@@ -214,7 +232,11 @@ def parse_span(
         if separator in text:
             head, _, tail = text.partition(separator)
             start = parse_date(head, reference=reference, prefer=prefer)
-            end = parse_date(tail, reference=start, prefer=Preference.FORWARD)
+            end = _supported(
+                relative_to(tail, reference)
+                or parse_offset(tail, reference)
+                or parse_date(tail, reference=start, prefer=Preference.FORWARD)
+            )
             if end < start:
                 # Through `stamp`, not `{end:%-d %b %Y}`. `%-d` is a glibc and
                 # BSD extension: on Windows `strftime` raises `ValueError:
@@ -393,9 +415,9 @@ def parse_written(
                 return None
         first_month = month_index(first)
         second_month = month_index(second)
-        if first_month is not None and second.isdigit():
+        if first_month is not None and second.isdecimal():
             day, month = int(second), first_month
-        elif first.isdigit() and second_month is not None:
+        elif first.isdecimal() and second_month is not None:
             day, month = int(first), second_month
         else:
             return None
@@ -404,7 +426,7 @@ def parse_written(
     if year is not None:
         try:
             return date(year, month, day)
-        except ValueError:
+        except (OverflowError, ValueError):
             return None
     return resolve_month_day(month, day, reference, prefer)
 
@@ -437,7 +459,7 @@ def parse_day_of_month(
         >>> parse_day_of_month("friday", date(2026, 8, 10)) is None
         True
     """
-    if not text.isdigit():
+    if not text.isdecimal():
         return None
     day = int(text)
     if prefer is Preference.FORWARD:
@@ -452,7 +474,7 @@ def parse_day_of_month(
             month = add_months(month, 1)
     try:
         return reference.replace(day=day)
-    except ValueError as error:
+    except (OverflowError, ValueError) as error:
         msg = f"{MONTH_NAMES[reference.month - 1].title()} has no day {day}"
         raise ValueError(msg) from error
 
@@ -548,6 +570,20 @@ def days_between(start: date, end: date) -> list[date]:
 # -- helpers -----------------------------------------------------------------
 
 
+def _supported(found: date) -> date:
+    """A date the rest of Flexi can work with, or the range refusal.
+
+    The calendar runs from year 1 to year 9999 and leave-year arithmetic reads
+    a year either side of the date it is given, so the two end years are dates
+    `date` accepts and Flexi cannot hold. Refused here, at the boundary every
+    typed date crosses, because every caller of that boundary already turns a
+    ``ValueError`` into a usage error or a message under a field.
+    """
+    if not SUPPORTED_FIRST <= found <= SUPPORTED_LAST:
+        raise ValueError(DATE_RANGE_ERROR)
+    return found
+
+
 def forward_if_passed(
     parsed: date, reference: date, prefer: Preference = Preference.CURRENT
 ) -> date:
@@ -585,7 +621,7 @@ def resolve_month_day(
     """
     try:
         date(LEAP_SENTINEL_YEAR, month, day)
-    except ValueError as error:
+    except (OverflowError, ValueError) as error:
         msg = f"{day}/{month} is not a valid calendar day"
         raise ValueError(msg) from error
 

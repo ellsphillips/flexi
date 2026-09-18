@@ -119,7 +119,17 @@ def local(moment: datetime) -> datetime:
     """
     zone = _PINNED_ZONE.get()
     if zone is None:
-        return moment.astimezone()
+        try:
+            return moment.astimezone()
+        except (OSError, OverflowError):
+            # Windows' `localtime_s` refuses a negative `time_t`, so a moment
+            # before 1970 has no reading against the machine's own zone there,
+            # and `end_of_day` manufactures one for every day it is asked
+            # about. The offset in force now stands in for the offset in force
+            # then: the day survives, the DST rules of 1959 do not.
+            here = timezone(datetime.now().astimezone().utcoffset() or timedelta())
+            anchored = moment.replace(tzinfo=here) if moment.tzinfo is None else moment
+            return anchored.astimezone(here)
     # The same two readings as above, taken against the pinned zone instead of
     # the machine: attaching it to a naive moment resolves an ambiguous hour at
     # `fold=0` and a skipped one to the instant it names, exactly as the
