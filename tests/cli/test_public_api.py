@@ -69,6 +69,11 @@ CLI_ROUTES = {
     "manage_leave": ("leave", "run"),
     "parse_request": ("leave", "parse_request"),
     "render": ("leave", "render"),
+    "PLAIN_TERMINALS": ("output", "PLAIN_TERMINALS"),
+    "enable_ansi": ("output", "enable_ansi"),
+    "monochrome": ("output", "monochrome"),
+    "prepare": ("output", "prepare"),
+    "tolerant": ("output", "tolerant"),
 }
 
 
@@ -165,10 +170,12 @@ def test_cli_facade_routes_every_leaf_export_once() -> None:
     assert all(count == 1 for count in Counter(CLI_ROUTES.values()).values())
     assert locally_defined_public_names(CLI / "__init__.py") == {
         "TypedDate",
+        "Utf8Text",
         "report",
     }
     expected_facade = {
         "TypedDate",
+        "Utf8Text",
         "report",
         "ui",
         *CLI_MODULE_NAMES,
@@ -221,6 +228,21 @@ def test_facades_are_static_and_runtime_typed() -> None:
 def test_typed_dates_report_extreme_offsets_as_usage_errors(typed: str) -> None:
     with pytest.raises(click.BadParameter, match="outside"):
         cli_api.TypedDate().convert(typed, None, None)
+
+
+def test_free_text_sqlite_cannot_store_is_refused_at_the_boundary() -> None:
+    """Python decodes argv with `surrogateescape`.
+
+    A cp1252 note pasted into a UTF-8 process arrives as a lone surrogate,
+    which SQLite refuses -- after the plan had been shown, agreed to, and the
+    transaction rolled back under a traceback.
+    """
+    with pytest.raises(click.BadParameter, match="not valid UTF-8"):
+        cli_api.Utf8Text().convert("caf\udce9", None, None)
+
+
+def test_free_text_that_can_be_stored_passes_through_unchanged() -> None:
+    assert cli_api.Utf8Text().convert("café ☕", None, None) == "café ☕"
 
 
 def test_public_annotations_resolve_at_runtime() -> None:

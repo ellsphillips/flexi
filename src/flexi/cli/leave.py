@@ -17,6 +17,7 @@ the result was a receipt.
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Mapping
 from datetime import date
 from types import MappingProxyType
@@ -34,7 +35,7 @@ from flexi.constants import (
 from flexi.domain.dates import Preference, parse_span
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import long_date, plural, short_date
-from flexi.services.absence import AbsencePlan
+from flexi.services.absence import AbsencePlan, RemovalBooking
 from flexi.services.registry import Services, available_toil_days
 
 __all__ = (
@@ -53,9 +54,15 @@ PORTION_WORDS: Final[Mapping[str, Portion]] = MappingProxyType(
         "morning": Portion.AM,
         "pm": Portion.PM,
         "afternoon": Portion.PM,
-        "half": Portion.AM,
     }
 )
+"""The words that name half a day.
+
+``half`` is not one of them. A word that has to guess which half belongs in
+the usage error an unrecognised date already lands in, not in a mapping where
+it quietly means the morning and leaves ``cancel friday half`` reporting
+nothing booked on a booked afternoon.
+"""
 
 VERDICT_NOTE: Final[Mapping[Verdict, str]] = MappingProxyType(
     {
@@ -63,6 +70,32 @@ VERDICT_NOTE: Final[Mapping[Verdict, str]] = MappingProxyType(
         Verdict.BANK_HOLIDAY: "bank holiday",
     }
 )
+
+_CONTROL_CATEGORIES: Final = frozenset({"Cc", "Cf"})
+"""Unicode categories a terminal reads as instructions rather than as text."""
+
+
+def _printable(text: str) -> str:
+    """A label with the characters a terminal would obey taken out of it.
+
+    A bank holiday title comes from GOV.UK and is echoed straight to the
+    screen. An ESC, a BEL or a carriage return in one recolours the terminal,
+    retitles the window or fakes a line of output, and Click strips only the
+    CSI form. Letters, punctuation and spaces survive intact.
+    """
+    return "".join(
+        character
+        for character in text
+        if unicodedata.category(character) not in _CONTROL_CATEGORIES
+    )
+
+
+def _booking_line(booking: RemovalBooking) -> str:
+    """One booked row, as the cancellation lists it."""
+    portion = (
+        "" if booking.portion is Portion.FULL else f" ({booking.portion.label.lower()})"
+    )
+    return f"  {short_date(booking.date)}   {booking.absence_type.label}{portion}"
 
 
 class Request(NamedTuple):
@@ -117,7 +150,7 @@ def render(plan: AbsencePlan) -> str:
         if day.verdict is Verdict.BOOK:
             lines.append(f"  {short_date(day.date)}")
         elif day.verdict.is_skip:
-            note = day.detail or VERDICT_NOTE.get(day.verdict, "skipped")
+            note = _printable(day.detail or VERDICT_NOTE.get(day.verdict, "skipped"))
             lines.append(f"  {short_date(day.date)}   — {note}")
         else:
             lines.append(f"  {short_date(day.date)}   ✗ {day.reason}")
@@ -199,12 +232,16 @@ def run(
         return 1
     if dry_run:
         return 0
-    if not assume_yes and not click.confirm("\nBook it?", default=False):
-        click.echo("Nothing was booked.")
+    if not assume_yes and not click.confirm("\nBook it?", default=False, err=True):
+        click.echo("Nothing was booked.", err=True)
         return 1
 
     result = services.absence.book_plan(plan)
-    click.secho(result.message("booked"), fg="green" if result.success else "red")
+    click.secho(
+        result.message("booked"),
+        fg="green" if result.success else "red",
+        err=not result.success,
+    )
     return 0 if result.success else 1
 
 
@@ -224,27 +261,39 @@ def cancel(
             if start == end
             else f"{short_date(start)} to {long_date(end)}"
         )
-        click.echo(f"Nothing is booked on {span}.")
+        if portion is not None:
+            # Asked for one half and found none does not mean the day is
+            # empty: a full booking, or the other half, matches neither
+            # filter. Saying nothing is booked there sends somebody away
+            # believing a booking they made was never written.
+            whole = services.absence.removal_plan(start, end)
+            if not whole.is_empty:
+                click.echo(
+                    f"Nothing is booked for the {portion.label.lower()} "
+                    f"of {span}. Booked there:",
+                    err=True,
+                )
+                for booking in whole.bookings:
+                    click.echo(_booking_line(booking), err=True)
+                click.echo("Cancel the whole day to take it back.", err=True)
+                return 1
+        click.echo(f"Nothing is booked on {span}.", err=True)
         return 1
 
     click.echo("Cancelling")
-    for absence in plan.bookings:
-        portion_label = (
-            ""
-            if absence.portion is Portion.FULL
-            else f" ({absence.portion.label.lower()})"
-        )
-        click.echo(
-            f"  {short_date(absence.date)}   "
-            f"{absence.absence_type.label}{portion_label}"
-        )
+    for booking in plan.bookings:
+        click.echo(_booking_line(booking))
 
     if dry_run:
         return 0
-    if not assume_yes and not click.confirm("\nCancel these?", default=False):
-        click.echo("Nothing was cancelled.")
+    if not assume_yes and not click.confirm("\nCancel these?", default=False, err=True):
+        click.echo("Nothing was cancelled.", err=True)
         return 1
 
     result = services.absence.remove_plan(plan)
-    click.secho(result.message("cancelled"), fg="green" if result.success else "yellow")
+    click.secho(
+        result.message("cancelled"),
+        fg="green" if result.success else "red",
+        err=not result.success,
+    )
     return 0 if result.success else 1

@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable, Iterator, Sequence
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import httpx
 import pytest
 import time_machine
 from click.testing import CliRunner
@@ -36,6 +38,7 @@ from flexi.cli import ui
 from flexi.locations import backups_directory, database_file
 from flexi.models.database.db import AbsenceDay, BankHolidayCache, BankHolidayRefresh
 from flexi.models.database.engine import create_db_engine, get_session
+from flexi.models.database.lease import LeaseMode, database_lease
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import build_services
 from flexi.services.settings import parse_settings
@@ -165,9 +168,14 @@ def answering_the_questions(app: _Opened) -> None:
     set_up(app.db_path or database_file())
 
 
+def at_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Somebody is present, which `CliRunner` is by construction not."""
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
+
+
 def choosing(monkeypatch: pytest.MonkeyPatch, choice: init_cli.Choice | None) -> None:
     """Stand at the `flexi init` menu and pick something, or escape."""
-    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
+    at_a_terminal(monkeypatch)
 
     def picking(
         question: str,
@@ -192,6 +200,7 @@ def test_the_demo_never_opens_the_records_on_this_machine(
     so it has to seed a database before it opens one. Seeding the real one to
     draw a picture would wipe a year of somebody's work.
     """
+    at_a_terminal(monkeypatch)
     instead_of_the_application(monkeypatch)
 
     result = CliRunner().invoke(cli, ["--demo"])
@@ -208,6 +217,7 @@ def test_the_demo_is_thrown_away_when_it_closes(
     Six weeks of invented records left behind on disk are indistinguishable
     from six weeks of real ones the next time somebody goes looking.
     """
+    at_a_terminal(monkeypatch)
     opened = instead_of_the_application(monkeypatch)
 
     CliRunner().invoke(cli, ["--demo"])
@@ -232,6 +242,7 @@ def test_the_demo_opens_a_working_life_rather_than_an_empty_week(
                 sample.execute("SELECT count(*) FROM work_sessions").fetchone()[0]
             )
 
+    at_a_terminal(monkeypatch)
     instead_of_the_application(monkeypatch, read_it)
 
     CliRunner().invoke(cli, ["--demo"])
@@ -328,12 +339,143 @@ def test_bare_flexi_on_a_set_up_machine_just_opens_it(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No questions, and no animation: the splash is for a first run."""
+    at_a_terminal(monkeypatch)
     opened = instead_of_the_application(monkeypatch)
 
     result = CliRunner().invoke(cli, [])
 
     assert result.exit_code == 0, result.output
     assert [(app.ran, app.show_splash) for app in opened] == [(True, False)]
+
+
+def test_bare_flexi_with_no_terminal_refuses_rather_than_hanging(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cron entry that runs bare `flexi` has to come back.
+
+    Textual opens against a pipe quite happily and then sits there drawing to
+    it, so without this the command never returns: it holds its lease on the
+    database and pours escape sequences into the log until somebody notices.
+    """
+    opened = instead_of_the_application(monkeypatch)
+
+    result = CliRunner().invoke(cli, [])
+
+    assert result.exit_code == 1
+    assert "needs a terminal" in result.output
+    assert "flexi balance show" in result.output, "say what can be run instead"
+    assert opened == [], "nothing is opened at a pipe"
+
+
+def test_the_demo_with_no_terminal_refuses_before_it_seeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refused before the throwaway database is built, not after."""
+    opened = instead_of_the_application(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["--demo"])
+
+    assert result.exit_code == 1
+    assert "needs a terminal" in result.output
+    assert opened == []
+
+
+# -- what stopped the database being opened ----------------------------------
+
+
+def test_a_held_database_is_one_line_rather_than_a_traceback(
+    home: Path,
+) -> None:
+    """The ordinary way to meet this is an upgrade with the dashboard open.
+
+    The application holds a shared lease for its lifetime and the first command
+    after an upgrade needs an exclusive one to migrate, so the refusal is a
+    normal Tuesday and not an exceptional condition.
+    """
+    with database_lease(home, LeaseMode.EXCLUSIVE):
+        result = CliRunner().invoke(cli, ["clock", "in"])
+
+    assert result.exit_code == 1
+    assert "in use at" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_a_file_that_is_not_a_database_names_it_and_the_backups() -> None:
+    """A partial write leaves a file `flexi init` cannot read.
+
+    Without this it ends in `sqlite3.DatabaseError: file is not a database`
+    with no mention of which file, where the copies are, or what to do next.
+    """
+    db = database_file()
+    db.parent.mkdir(parents=True, exist_ok=True)
+    db.write_bytes(b"\x00 not a database " * 128)
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    assert result.exit_code == 1
+    assert str(db) in result.output
+    assert str(backups_directory()) in result.output
+    assert "Traceback" not in result.output
+
+
+def test_a_schema_with_no_stamp_says_where_the_database_is() -> None:
+    """Alembic cannot upgrade what it cannot place, and refuses to guess."""
+    db = database_file()
+    db.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db) as connection:
+        connection.execute("CREATE TABLE settings (id integer primary key)")
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    assert result.exit_code == 1
+    assert str(db) in result.output
+    assert "Traceback" not in result.output
+
+
+def test_a_data_directory_that_cannot_be_made_is_reported() -> None:
+    """A file sitting where the data directory goes is an `OSError`, once."""
+    directory = database_file().parent
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    directory.write_text("in the way", encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    assert result.exit_code == 1
+    assert str(directory) in result.output
+    assert "Traceback" not in result.output
+
+
+def test_a_revision_this_flexi_cannot_reach_suggests_an_upgrade(home: Path) -> None:
+    """A database stamped by a newer Flexi is a reason to upgrade, not a crash.
+
+    The refusal names the file itself, so nothing is appended to it.
+    """
+    with closing(sqlite3.connect(home)) as connection:
+        connection.execute("UPDATE alembic_version SET version_num = '0099'")
+        connection.commit()
+
+    result = CliRunner().invoke(cli, ["balance", "show"])
+
+    assert result.exit_code == 1
+    assert "newer Flexi" in result.output
+    assert result.output.count(str(home)) == 1
+    assert "Traceback" not in result.output
+
+
+def test_a_fault_that_is_not_about_the_file_still_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bug keeps its traceback. Only the actionable failures get a sentence."""
+
+    def bug() -> None:
+        msg = "something went wrong deep inside"
+        raise ValueError(msg)
+
+    monkeypatch.setattr("flexi.models.database.migrate.run_migrations", bug)
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    assert isinstance(result.exception, ValueError)
 
 
 # -- the guard ---------------------------------------------------------------
@@ -389,6 +531,36 @@ def test_clocking_in_from_the_command_line(home: Path) -> None:
     assert "Clocked in" in result.output
 
 
+def test_refreshing_the_calendar_asks_gov_uk_once(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Opening a command fills an empty cache, and this command is the fill.
+
+    Doing both made the one command whose job is the fetch ask GOV.UK twice and
+    wait twice as long to say it could not be reached.
+    """
+    engine = create_db_engine(home)
+    session = get_session(engine)
+    session.query(BankHolidayCache).delete()
+    session.query(BankHolidayRefresh).delete()
+    session.commit()
+    session.close()
+    engine.dispose()
+
+    asked: list[str] = []
+
+    def counted(*_args: object, **_kwargs: object) -> None:
+        asked.append("gov.uk")
+        msg = "the test suite does not make network requests"
+        raise httpx.ConnectError(msg)
+
+    monkeypatch.setattr(httpx.Client, "get", counted)
+
+    CliRunner().invoke(cli, ["holidays", "refresh"])
+
+    assert len(asked) == 1
+
+
 def test_refreshing_the_calendar_offline_fails_rather_than_reporting_nothing(
     home: Path,
 ) -> None:
@@ -436,6 +608,41 @@ def test_other_leave_carries_the_note_it_was_given(home: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert notes(home) == ["jury service"]
+
+
+def test_a_note_that_is_not_utf8_is_refused_before_the_plan_is_shown(
+    home: Path,
+) -> None:
+    """A cp1252 paste arrives from argv as a lone surrogate.
+
+    SQLite refuses to write one, so without this the plan is printed, the
+    booking is agreed to, and the transaction rolls back under a
+    `UnicodeEncodeError`.
+    """
+    result = CliRunner().invoke(
+        cli, ["leave", "other", "friday", "--note", "caf\udce9", "--yes"]
+    )
+
+    assert result.exit_code == 2
+    assert "not valid UTF-8" in result.output
+    assert "Booking other leave" not in result.output
+    assert booked_days(home) == []
+
+
+def test_a_confirmation_is_asked_on_stderr_not_in_the_output(
+    home: Path,
+) -> None:
+    """`flexi leave annual friday > plan.txt` must not put the question in the file.
+
+    A prompt is not the program's output, which is the rule `cli/ui/prompt`
+    states and the rail already keeps.
+    """
+    result = CliRunner().invoke(cli, ["leave", "annual", "friday"], input="n\n")
+
+    assert result.exit_code == 1
+    assert "Book it?" in result.stderr
+    assert "Book it?" not in result.stdout
+    assert "Booking annual leave" in result.stdout, "the plan is the output"
 
 
 def booked_days(db_path: Path) -> list[date]:

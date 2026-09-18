@@ -13,7 +13,8 @@ import click
 
 from flexi import wallclock
 from flexi.cli import report
-from flexi.domain.format import delta, hm, long_date, stamp
+from flexi.domain.balance import BalanceSummary
+from flexi.domain.format import SECONDS_PER_MINUTE, delta, hm, long_date, stamp
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services, settlement_date, zero_balance
 
@@ -32,20 +33,52 @@ nobody can act on, printed where it has nothing to do with anything.
 """
 
 
+def _whole_minutes(value: timedelta) -> timedelta:
+    """A duration floored to the minute these figures are drawn in.
+
+    Every row is printed by `hm`, which shows whole minutes, and the balance is
+    the sum of the rows. Formatting the exact figures instead leaves the three
+    lines disagreeing by a minute whenever the sessions carry seconds and the
+    balance is negative: 2:00:09 worked against 3:42 expected prints
+    `2:00 / 3:42 / −1:41`. Flooring each term first is what makes the sum of
+    what is shown equal the total that is shown.
+    """
+    return timedelta(minutes=value // timedelta(seconds=1) // SECONDS_PER_MINUTE)
+
+
 def show(services: Services, as_of: date | None = None) -> int:
     """Print the running balance and what it is made of."""
-    today = as_of or wallclock.today()
+    now = wallclock.today()
+    today = as_of or now
+    if today > now:
+        # Every working day between now and then is charged as a full day
+        # nobody worked, so the figure is a deficit invented from days nobody
+        # has lived. `zero` refuses a future date for the same reason.
+        click.secho(
+            f"{long_date(today)} has not happened; the balance runs to today",
+            fg="yellow",
+            err=True,
+        )
+        return 1
+
     start, _ = services.absence.leave_year_bounds(today)
-    summary = services.ledger.balance(today)
+    exact = services.ledger.balance(today)
+    summary = BalanceSummary(
+        worked=_whole_minutes(exact.worked),
+        expected=_whole_minutes(exact.expected),
+        toil_taken=_whole_minutes(exact.toil_taken),
+        adjustment=_whole_minutes(exact.adjustment),
+    )
 
     click.echo(
         f"leave year   {stamp(start, '%-d %b %Y')} → {stamp(today, '%-d %b %Y')}"
     )
-    # Said only when it falls inside the leave year, which is the case it
+    # Said only when it falls inside the reported span, which is the case it
     # explains: four months of leave year and seven hours expected is a figure
-    # nobody can check without being told which days were counted.
+    # nobody can check without being told which days were counted. A tracking
+    # date after the span explains nothing about it.
     since = services.settings.resolved().tracking_since
-    if since is not None and since > start:
+    if since is not None and start < since <= today:
         click.echo(f"tracking     {stamp(since, '%-d %b %Y')} onwards")
     click.echo(f"worked       {hm(summary.worked)}")
     click.echo(f"expected     {hm(summary.expected)}")
@@ -72,14 +105,25 @@ def zero(
     Records one signed adjustment rather than deleting anything: the clock
     events that produced the balance stay exactly where they are, and the line
     can be taken back with `flexi balance undo`.
+
+    Declining exits 1, as declining a booking does: the write that was asked
+    for did not happen, and a script chaining on `&&` has to be able to tell.
     """
     when = settlement_date(as_of)
+    if when >= wallclock.today():
+        # `zero_balance` refuses this, and the standing it would be sized from
+        # is a projection in which every day between now and then was worked
+        # zero hours. Printing that figure first offers it as a reading.
+        return report(zero_balance(services, when, reason=reason or OPENING_BALANCE))
+
     standing = services.ledger.balance(when).delta
 
     click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
-    if not assume_yes and not click.confirm("Settle it to zero?", default=True):
-        click.echo("Left alone.")
-        return 0
+    if not assume_yes and not click.confirm(
+        "Settle it to zero?", default=True, err=True
+    ):
+        click.echo("Left alone.", err=True)
+        return 1
 
     result = zero_balance(services, when, reason=reason or OPENING_BALANCE)
     if report(result):

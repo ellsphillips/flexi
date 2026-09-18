@@ -19,7 +19,7 @@ from flexi.services.outcome import Outcome
 
 # These imports describe attributes that PEP 562 resolves lazily at runtime.
 if TYPE_CHECKING:
-    from flexi.cli import balance, clock, holidays, init, leave, ui
+    from flexi.cli import balance, clock, holidays, init, leave, output, ui
     from flexi.cli.balance import NO_CALENDAR, log, show, undo, zero
     from flexi.cli.clock import already_on, clock_in, clock_out
     from flexi.cli.holidays import run as refresh_holidays
@@ -48,8 +48,23 @@ if TYPE_CHECKING:
     from flexi.cli.leave import (
         run as manage_leave,
     )
+    from flexi.cli.output import (
+        PLAIN_TERMINALS,
+        enable_ansi,
+        monochrome,
+        prepare,
+        tolerant,
+    )
 
-_SUBMODULES: Final = ("balance", "clock", "holidays", "init", "leave", "ui")
+_SUBMODULES: Final = (
+    "balance",
+    "clock",
+    "holidays",
+    "init",
+    "leave",
+    "output",
+    "ui",
+)
 
 _EXPORTS: Final = MappingProxyType(
     {
@@ -81,18 +96,25 @@ _EXPORTS: Final = MappingProxyType(
         "manage_leave": ("leave", "run"),
         "parse_request": ("leave", "parse_request"),
         "render": ("leave", "render"),
+        "PLAIN_TERMINALS": ("output", "PLAIN_TERMINALS"),
+        "enable_ansi": ("output", "enable_ansi"),
+        "monochrome": ("output", "monochrome"),
+        "prepare": ("output", "prepare"),
+        "tolerant": ("output", "tolerant"),
     }
 )
 
 # Keep the public surface grouped by its defining module.
 __all__ = (  # noqa: RUF022
     "TypedDate",
+    "Utf8Text",
     "report",
     "balance",
     "clock",
     "holidays",
     "init",
     "leave",
+    "output",
     "ui",
     "NO_CALENDAR",
     "log",
@@ -122,6 +144,11 @@ __all__ = (  # noqa: RUF022
     "manage_leave",
     "parse_request",
     "render",
+    "PLAIN_TERMINALS",
+    "enable_ansi",
+    "monochrome",
+    "prepare",
+    "tolerant",
 )
 
 
@@ -156,15 +183,47 @@ class TypedDate(click.ParamType[date]):
             self.fail(str(error), param, ctx)
 
 
+class Utf8Text(click.ParamType[str]):
+    """Free text the database can actually store.
+
+    Python decodes ``argv`` with ``surrogateescape``, so a byte that is not
+    UTF-8 arrives as a lone surrogate. SQLite refuses to write one, and the
+    refusal used to arrive as a traceback after the plan had been shown and
+    agreed to.
+    """
+
+    name = "text"
+
+    def convert(
+        self,
+        value: object,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> str:
+        text = str(value)
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError:
+            self.fail("is not valid UTF-8 text", param, ctx)
+        return text
+
+
 def report(result: Outcome) -> int:
     """Say what happened, and turn it into an exit code.
 
-    Green and zero, or red and one. The same decision the status bar makes in
-    the application, so the two surfaces agree about what counts as a failure
-    -- and one decision rather than the three copies that were spread across
-    two modules, of which only one carried the reason.
+    Green on stdout and zero, or red on stderr and one. The same decision the
+    status bar makes in the application, so the two surfaces agree about what
+    counts as a failure -- and one decision rather than the three copies that
+    were spread across two modules, of which only one carried the reason.
+
+    A failure is not the program's output. `flexi clock out >/dev/null` has to
+    leave "Not clocked in" where the person can read it.
     """
-    click.secho(result.message, fg="green" if result.success else "red")
+    click.secho(
+        result.message,
+        fg="green" if result.success else "red",
+        err=not result.success,
+    )
     return 0 if result.success else 1
 
 

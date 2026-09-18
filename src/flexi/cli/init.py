@@ -166,15 +166,24 @@ def overview(db_path: Path, contents: Contents) -> list[Text]:
 
 
 def options(contents: Contents) -> list[ui.Option[Choice]]:
+    """The three things to do about a Flexi that is already here.
+
+    An unreadable database counts at nothing, so the grave line has to say so
+    in words: "erase 0 records" beside an overview saying the file may still
+    hold them is the one place unknown must not be rounded to zero.
+    """
     total = contents.total
-    erase = (
-        "erase everything"
-        if contents.is_empty
-        else f"erase {total} {plural(total, 'record')}"
-    )
+    if contents.unreadable:
+        erase = "erase whatever it holds"
+    elif contents.is_empty:
+        erase = "erase everything"
+    else:
+        erase = f"erase {total} {plural(total, 'record')}"
     return [
         ui.Option(Choice.OPEN, "Open Flexi", "your records, as they are"),
-        ui.Option(Choice.SETTINGS, "Change settings", "leave year, hours, region"),
+        ui.Option(
+            Choice.SETTINGS, "Change settings", "leave year, working days, region"
+        ),
         ui.Option(Choice.RESET, "Start again", erase, grave=True),
     ]
 
@@ -230,7 +239,22 @@ def reset(db_path: Path) -> Path | None:
     Only the file. The backups directory lives inside the data directory, so
     deleting the directory would take every snapshot ever made -- including the
     one taken a moment earlier, which is the whole safety net.
+
+    A link is refused rather than followed. ``is_file`` and ``sqlite3.connect``
+    resolve one and ``Path.unlink`` does not, so acting on a database kept in a
+    synced folder would report "Erased" while every record survives at the far
+    end and only the link has gone. Deleting through the link instead
+    propagates the deletion to every machine the folder is on, which is a
+    larger thing than "start again on this one".
     """
+    if db_path.is_symlink():
+        msg = (
+            f"{db_path} is a link to {db_path.resolve()}. Flexi will not erase "
+            "through a link. Nothing was deleted: remove the link, or run the "
+            "reset against the file it points at."
+        )
+        raise click.ClickException(msg)
+
     try:
         with database_lease(db_path, LeaseMode.EXCLUSIVE):
             taken: Path | None = None

@@ -20,11 +20,21 @@ from sqlalchemy.orm import Session
 from flexi.cli import balance as balance_cli
 from flexi.cli import clock as clock_cli
 from flexi.constants import AbsenceType
+from flexi.domain.format import MINUS
 from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
 from flexi.services.registry import Services, build_services, invalidate_services
 from flexi.services.settings import parse_settings
 
 NOON = date(2026, 6, 10)
+
+
+def figure(printed: str, label: str) -> timedelta:
+    """The `h:mm` on one line of the balance, signed."""
+    line = next(row for row in printed.splitlines() if row.startswith(label))
+    reading = line.removeprefix(label).strip()
+    sign = -1 if reading.startswith(MINUS) else 1
+    hours, minutes = reading.lstrip(f"{MINUS}+").split(":")
+    return sign * timedelta(hours=int(hours), minutes=int(minutes))
 
 
 @pytest.fixture
@@ -98,6 +108,39 @@ def test_clocking_out_without_clocking_in_is_a_failure(
     assert clock_cli.clock_out(services) == 1
 
 
+def test_a_refusal_is_said_on_stderr_rather_than_in_the_output(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`flexi clock out >/dev/null || alert` has to leave the reason readable."""
+    assert clock_cli.clock_out(services) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Not clocked in" in captured.err
+
+
+def test_the_running_session_is_drawn_in_colour_at_a_terminal(
+    services: Services,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`click.echo` stringifies a Rich `Text` to its plain characters.
+
+    The punch strip, the green marker and the signed balance all arrive in
+    default ink, which makes the colour tables in `ui.onclock` dead code on the
+    only path that uses them.
+    """
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    with time_machine.travel(datetime(2026, 6, 10, 9, 0), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 10, 11, 30), tick=False):
+        assert clock_cli.clock_in(services) == 1
+
+    printed = capsys.readouterr().out
+    assert "Already on the clock" in printed
+    assert "\x1b[" in printed, "the rail is drawn in the dashboard palette"
+
+
 def test_clocking_in_and_out_again(services: Services) -> None:
     assert clock_cli.clock_in(services) == 0
     assert clock_cli.clock_out(services) == 0
@@ -139,6 +182,89 @@ def test_undoing_something_that_is_not_there_is_a_failure(
     services: Services,
 ) -> None:
     assert balance_cli.undo(services, 9999) == 1
+
+
+def test_the_balance_agrees_with_the_rows_it_is_made_of(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sessions are stored to the second and the figures are drawn to the minute.
+
+    Formatting the exact delta rather than the quantised rows leaves a deficit
+    a minute better than its own components: 2:00:09 worked against 3:42
+    expected prints `2:00 / 3:42 / -1:41`.
+    """
+    with time_machine.travel(datetime(2026, 6, 10, 9, 0, 0), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 10, 11, 0, 9), tick=False):
+        clock_cli.clock_out(services)
+    invalidate_services(services)
+    capsys.readouterr()
+
+    assert balance_cli.show(services, NOON) == 0
+
+    printed = capsys.readouterr().out
+    worked = figure(printed, "worked")
+    expected = figure(printed, "expected")
+    assert figure(printed, "balance") == worked - expected
+
+
+def test_a_balance_asked_for_a_day_that_has_not_happened_is_refused(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every future working day is charged as a full day nobody worked.
+
+    `flexi balance show --as-of 2026-12-31` reports a deficit of 569 hours
+    computed from days nobody has lived. `zero` refuses a future date already.
+    """
+    with time_machine.travel(datetime(2026, 6, 10, 12, 0), tick=False):
+        assert balance_cli.show(services, date(2026, 6, 11)) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "has not happened" in captured.err
+
+
+def test_the_balance_as_at_today_is_still_reported(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The refusal is for `>` today, not `>=`: today is the documented default."""
+    with time_machine.travel(datetime(2026, 6, 10, 12, 0), tick=False):
+        assert balance_cli.show(services, date(2026, 6, 10)) == 0
+
+    assert "balance" in capsys.readouterr().out
+
+
+def tracking_from(session: Session, when: date) -> Services:
+    """The same machine, with a tracking start stamped on it."""
+    stored = build_services(session).settings.get_settings()
+    assert stored is not None
+    stored.tracking_since = when
+    session.commit()
+    return build_services(session)
+
+
+def test_a_report_before_tracking_began_does_not_claim_tracking(
+    session: Session, services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A date after the span explains nothing about the span.
+
+    `--as-of 31 Mar 2026` prints `tracking 18 Sep 2026 onwards` under a report
+    whose range ends five months earlier.
+    """
+    built = tracking_from(session, date(2026, 6, 1))
+
+    assert balance_cli.show(built, date(2026, 5, 20)) == 0
+    assert "tracking" not in capsys.readouterr().out
+
+
+def test_a_report_that_reaches_the_tracking_date_still_says_so(
+    session: Session, services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Otherwise seven hours expected across four months is unexplained."""
+    built = tracking_from(session, date(2026, 6, 1))
+
+    assert balance_cli.show(built, NOON) == 0
+    assert "tracking     1 Jun 2026 onwards" in capsys.readouterr().out
 
 
 # -- what the balance is made of ---------------------------------------------

@@ -138,6 +138,34 @@ def test_a_reset_does_not_touch_the_backups_directory(populated: Path) -> None:
     assert earlier.is_file()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="an unprivileged Windows job cannot link"
+)
+def test_a_reset_through_a_link_is_refused_and_names_both_ends(
+    populated: Path, tmp_path: Path
+) -> None:
+    """`Path.unlink` does not follow a link and `sqlite3.connect` does.
+
+    A database kept in a synced folder is reported "Erased" while every record
+    survives at the far end, the link has gone, and the next run quietly builds
+    a fresh database locally.
+    """
+    elsewhere = tmp_path / "cloud"
+    elsewhere.mkdir()
+    target = elsewhere / "flexi.db"
+    populated.rename(target)
+    populated.symlink_to(target)
+
+    with pytest.raises(ClickException, match="will not erase through a link") as raised:
+        init_cli.reset(populated)
+
+    assert str(target) in str(raised.value)
+    assert target.is_file()
+    assert populated.is_symlink()
+    with sqlite3.connect(f"file:{target}?mode=ro", uri=True) as kept:
+        assert kept.execute("SELECT count(*) FROM clock_events").fetchone()[0] == 1
+
+
 def test_a_reset_of_a_missing_database_takes_no_snapshot(tmp_path: Path) -> None:
     assert init_cli.reset(tmp_path / "absent.db") is None
 
@@ -213,6 +241,19 @@ def test_the_menu_says_how_much_it_would_erase() -> None:
     assert erase_option(init_cli.Contents((("days", 1),))).hint == "erase 1 record"
     assert erase_option(init_cli.Contents((("days", 9),))).hint == "erase 9 records"
     assert erase_option(init_cli.Contents()).hint == "erase everything"
+
+
+def test_an_unreadable_database_is_not_offered_as_nothing_to_lose() -> None:
+    """Unknown is not zero.
+
+    A file that cannot be read counts at nothing, so the grave line offers to
+    "erase 0 records" directly under an overview saying it may still hold
+    them.
+    """
+    hint = erase_option(init_cli.Contents(unreadable=True)).hint
+
+    assert "0" not in hint
+    assert hint == "erase whatever it holds"
 
 
 def test_the_destructive_row_is_drawn_in_the_deficit_red(populated: Path) -> None:

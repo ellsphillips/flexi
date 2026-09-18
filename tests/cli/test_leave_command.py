@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+import click
 import pytest
 from sqlalchemy.orm import Session
 
@@ -95,10 +96,36 @@ def test_a_portion_is_only_taken_from_the_end() -> None:
 
 @pytest.mark.parametrize("word", ["someday", "vacation", "holidays"])
 def test_an_unknown_kind_is_refused_by_name(word: str) -> None:
-    import click
-
     with pytest.raises(click.UsageError, match=word):
         parse_request((word, "friday"))
+
+
+@pytest.mark.parametrize(
+    ("word", "portion"),
+    [
+        ("am", Portion.AM),
+        ("morning", Portion.AM),
+        ("pm", Portion.PM),
+        ("afternoon", Portion.PM),
+    ],
+)
+def test_the_portion_words_are_the_four_the_help_names(
+    word: str, portion: Portion
+) -> None:
+    assert parse_request(("annual", "friday", word)).portion is portion
+
+
+def test_half_is_not_a_portion_word() -> None:
+    """A word that has to guess which half is a word nobody can rely on.
+
+    Mapped to the morning it leaves `flexi leave cancel friday half` against a
+    booked afternoon reporting nothing booked on a day that is booked. Left
+    out, it lands in the usage error an unrecognised date already lands in.
+    """
+    asked = parse_request(("annual", "friday", "half"))
+
+    assert asked.portion is None
+    assert asked.when == "friday half"
 
 
 # -- planning and confirming -------------------------------------------------
@@ -204,6 +231,32 @@ def test_the_render_names_the_bank_holiday(services: Services) -> None:
     assert "3 days" in shown
 
 
+def test_a_holiday_title_cannot_carry_instructions_to_the_terminal(
+    services: Services, session: Session
+) -> None:
+    """The title comes from GOV.UK and is echoed straight at the screen.
+
+    Click strips the CSI form and nothing else, so an OSC window title and a
+    carriage return in a tampered calendar reached the terminal intact.
+    """
+    session.add(
+        BankHolidayCache(
+            division="england-and-wales",
+            date=TUESDAY,
+            title="Bank Holiday\x1b[31m PWNED \x1b]0;owned\x07\x1b[0m\r\nfake line",
+        )
+    )
+    session.commit()
+    built = build_services(session)
+
+    shown = render(built.absence.plan(TUESDAY, TUESDAY, AbsenceType.ANNUAL))
+
+    assert "PWNED" in shown, "the words survive; the instructions do not"
+    assert "\x1b" not in shown
+    assert "\x07" not in shown
+    assert "\r" not in shown
+
+
 def test_the_render_shows_the_allowance_moving(services: Services) -> None:
     plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
     assert "25 → 20 days left" in render(plan)
@@ -256,7 +309,7 @@ def test_a_stale_confirmation_is_reported_as_failure(
     )
 
     assert code == 1
-    assert "changed" in capsys.readouterr().out
+    assert "changed" in capsys.readouterr().err, "a failure is not the output"
     assert [(row.date, row.absence_type) for row in _booked(session)] == [
         (MONDAY, AbsenceType.SICK)
     ]
@@ -307,7 +360,9 @@ def test_cancelling_removes_what_was_booked(
     assert _booked(session) == []
 
 
-def test_cancelling_nothing_says_so(services: Services) -> None:
+def test_cancelling_nothing_says_so(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = run(
         services,
         ("cancel", "friday"),
@@ -317,6 +372,52 @@ def test_cancelling_nothing_says_so(services: Services) -> None:
         today=MONDAY,
     )
     assert code == 1
+    assert "Nothing is booked on" in capsys.readouterr().err
+
+
+def test_asking_for_one_half_of_a_full_day_says_what_is_booked(
+    services: Services, session: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A full booking matches neither half filter.
+
+    "Nothing is booked on Mon 10 Aug" about a day that is booked sends
+    somebody away believing the booking was never written, or booking it a
+    second time on top.
+    """
+    services.absence.book(MONDAY, AbsenceType.ANNUAL)
+
+    code = run(
+        services,
+        ("cancel", "monday", "am"),
+        note=None,
+        assume_yes=True,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    assert code == 1
+    reported = capsys.readouterr().err
+    assert "Nothing is booked on" not in reported
+    assert "Annual leave" in reported
+    assert "Cancel the whole day" in reported
+    assert len(_booked(session)) == 1
+
+
+def test_asking_for_one_half_of_an_empty_day_says_nothing_is_booked(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The day really is empty here, and the plain sentence is the true one."""
+    code = run(
+        services,
+        ("cancel", "monday", "am"),
+        note=None,
+        assume_yes=True,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    assert code == 1
+    assert "Nothing is booked on" in capsys.readouterr().err
 
 
 def test_cancelling_is_a_dry_run_too(services: Services, session: Session) -> None:
@@ -503,3 +604,46 @@ def test_cancellation_refuses_a_booking_added_after_confirmation(
         (MONDAY, AbsenceType.ANNUAL),
         (TUESDAY, AbsenceType.SICK),
     ]
+
+
+def test_a_refused_cancellation_is_red_like_a_refused_booking(
+    services: Services,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Two failures of the same kind, on the same command, in one colour.
+
+    Yellow is the tone the rest of the CLI keeps for a warning it carried on
+    past, and a cancellation that did not happen is not one of those.
+    """
+    run(
+        services,
+        ("annual", "monday"),
+        note=None,
+        assume_yes=True,
+        dry_run=False,
+        today=MONDAY,
+    )
+
+    def add_then_confirm(
+        _prompt: str, *, default: bool = False, **_options: object
+    ) -> bool:
+        assert default is False
+        assert services.absence.book(TUESDAY, AbsenceType.SICK).success
+        return True
+
+    monkeypatch.setattr("click.confirm", add_then_confirm)
+    capsys.readouterr()
+
+    with click.Context(click.Command("leave"), color=True):
+        code = run(
+            services,
+            ("cancel", "monday", "to", "friday"),
+            note=None,
+            assume_yes=False,
+            dry_run=False,
+            today=MONDAY,
+        )
+
+    assert code == 1
+    assert "\x1b[31m" in capsys.readouterr().err

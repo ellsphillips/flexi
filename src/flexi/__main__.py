@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -23,29 +22,14 @@ from typing import TYPE_CHECKING, Protocol
 import click
 
 from flexi import wallclock
-from flexi.cli import TypedDate
-from flexi.locations import database_file
+from flexi.cli import TypedDate, Utf8Text
+from flexi.locations import backups_directory, database_file
 from flexi.services.setup import is_initialised
 
 if TYPE_CHECKING:
-    from sqlalchemy import Engine as DatabaseEngine
-    from sqlalchemy.orm import Session as DatabaseSession
-
     from flexi.app import FlexiApp as FlexiApplication
     from flexi.services.registry import Services as ServiceRegistry
 else:
-
-    class DatabaseEngine(Protocol):
-        """The engine lifecycle retained by an open command."""
-
-        def dispose(self) -> None:
-            """Release pooled database connections."""
-
-    class DatabaseSession(Protocol):
-        """The session lifecycle retained by an open command."""
-
-        def close(self) -> None:
-            """Release the command's database session."""
 
     class FlexiApplication(Protocol):
         """Runtime-resolvable application result without an eager Textual import."""
@@ -58,11 +42,10 @@ else:
 
 
 __all__ = (
+    "NEEDS_TERMINAL",
     "NOT_INITIALISED",
-    "DatabaseEngine",
-    "DatabaseSession",
+    "UNREADABLE",
     "FlexiApplication",
-    "Handles",
     "ServiceRegistry",
     "already_set_up",
     "as_of_option",
@@ -82,6 +65,8 @@ __all__ = (
     "init",
     "launch",
     "leave",
+    "migrate",
+    "needs_a_terminal",
     "open_app",
     "open_database",
     "requires_setup",
@@ -99,19 +84,23 @@ __all__ = (
 @click.option(
     "--demo",
     is_flag=True,
-    help="Run against a throwaway database seeded with six weeks of a working life.",
+    help="Run against a throwaway database holding a plausible working life "
+    "up to today.",
 )
 @click.pass_context
 def cli(ctx: click.Context, *, demo: bool = False) -> None:
     """Track flexitime from the terminal."""
+    from flexi.cli import output
+
+    output.prepare(ctx)
+
     if demo and ctx.invoked_subcommand is not None:
         msg = "--demo opens the sample application; it does not take a command."
         raise click.UsageError(msg)
     if demo:
+        needs_a_terminal(ctx)
         run_demo()
         return
-
-    ctx.ensure_object(dict)
 
     # Nothing is opened here. A guard in the group callback runs before click
     # has resolved the subcommand, so it would refuse `flexi init` on the very
@@ -123,35 +112,76 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
     # Bare `flexi` on a new machine sets itself up rather than refusing. The
     # guard exists to stop clock, leave and balance inventing answers from
     # defaults nobody chose -- not to make the application decline to open.
-    from flexi.models.database.migrate import run_migrations
-
-    run_migrations()
+    migrate()
     if not is_initialised():
         ask_the_questions(ctx, database_file())
         return
+    needs_a_terminal(ctx)
     launch().run()
 
 
 NOT_INITIALISED = (
     "Flexi is not set up on this machine yet.\n"
-    "Run `flexi init` to choose your leave year, hours and bank holidays."
+    "Run `flexi init` to choose your leave year, working days and bank holidays."
+)
+
+NEEDS_TERMINAL = (
+    "Flexi is a full-screen application and needs a terminal.\n"
+    "Try `flexi balance show`, or `flexi --help` for the rest."
+)
+
+UNREADABLE = (
+    "The database at {path} could not be read.\n"
+    "Move it aside, or restore a copy from {backups}, then run `flexi init`."
 )
 
 
-@dataclass(frozen=True, slots=True)
-class Handles:
-    """The open database values handed to one command.
+def needs_a_terminal(ctx: click.Context) -> None:
+    """Refuse when there is no terminal for the application to draw on.
 
-    Handed to the command by :func:`requires_setup` rather than fished back out
-    of ``ctx.obj``, which Click types as ``Any`` -- thirteen accesses that
-    ``mypy --strict`` could not check, and a rename away from failing at
-    runtime. The Click context owns their lifetime through ``database_scope``;
-    this class only models the values and cannot accidentally close them twice.
+    Textual reads ``sys.__stdin__`` and draws on ``sys.__stderr__``, which is
+    what :func:`flexi.cli.ui.interactive` checks. Without this a cron entry
+    that runs bare ``flexi`` never returns: it sits streaming escape sequences
+    into the log and holding a lease on the database.
     """
+    from flexi.cli import ui
 
-    engine: DatabaseEngine
-    session: DatabaseSession
-    services: ServiceRegistry
+    if not ui.interactive():
+        click.secho(NEEDS_TERMINAL, fg="yellow", err=True)
+        ctx.exit(1)
+
+
+def migrate() -> None:
+    """Bring the schema to head, or say in one sentence what stopped it.
+
+    Every failure here is about the file rather than about what was asked for:
+    another Flexi holding it, a data directory that cannot be written, a file
+    that is not a database, a schema this version cannot read. Without this each
+    arrives as a traceback whose last line is the only readable part of it.
+    Anything else still raises: a traceback is the right answer to a bug.
+    """
+    import sqlite3
+
+    from sqlalchemy.exc import DatabaseError
+
+    from flexi.models.database.migrate import run_migrations
+
+    try:
+        run_migrations()
+    except (sqlite3.DatabaseError, DatabaseError) as error:
+        message = UNREADABLE.format(path=database_file(), backups=backups_directory())
+        raise click.ClickException(message) from error
+    except RuntimeError as error:
+        # A busy lease and a refused migration are both written for a person to
+        # read. Some of them name the file they are about; the rest are one
+        # clause long and could be about any database on the machine.
+        message = str(error)
+        if str(database_file()) not in message:
+            message = f"{message}. The database is at {database_file()}."
+        raise click.ClickException(message) from error
+    except OSError as error:
+        message = f"Flexi could not use {database_file().parent}: {error}."
+        raise click.ClickException(message) from error
 
 
 def as_of_option[ReturnT](
@@ -168,7 +198,9 @@ def as_of_option[ReturnT](
     )
 
 
-def requires_setup(command: Callable[..., int]) -> Callable[..., None]:
+def requires_setup(
+    *, fill: bool = True
+) -> Callable[[Callable[..., int]], Callable[..., None]]:
     """Refuse before setup; migrate, open a session, and exit on what came back.
 
     Applied per command rather than to the group, so `flexi init` and every
@@ -179,17 +211,25 @@ def requires_setup(command: Callable[..., int]) -> Callable[..., None]:
     database and hand back nothing, so all eight commands repeated the same
     four lines to fish the registry back out of the context and turn a code
     into an exit, and `open_database`'s return value was dead.
+
+    ``fill`` is for the one command whose job is the fetch that opening would
+    do for it. Without it `flexi holidays refresh` asks GOV.UK twice and waits
+    twice as long to answer.
     """
 
-    @functools.wraps(command)
-    @click.pass_context
-    def guarded(ctx: click.Context, /, *args: object, **kwargs: object) -> None:
-        if not is_initialised():
-            click.secho(NOT_INITIALISED, fg="yellow", err=True)
-            ctx.exit(1)
-        ctx.exit(command(open_database(ctx).services, *args, **kwargs))
+    def decorate(command: Callable[..., int]) -> Callable[..., None]:
+        @functools.wraps(command)
+        @click.pass_context
+        def guarded(ctx: click.Context, /, *args: object, **kwargs: object) -> None:
+            if not is_initialised():
+                click.secho(NOT_INITIALISED, fg="yellow", err=True)
+                ctx.exit(1)
+            services = open_database(ctx, fill=fill)
+            ctx.exit(command(services, *args, **kwargs))
 
-    return guarded
+        return guarded
+
+    return decorate
 
 
 def launch(*, settings: bool = False, splash: bool = False) -> FlexiApplication:
@@ -206,17 +246,16 @@ def launch(*, settings: bool = False, splash: bool = False) -> FlexiApplication:
     backup. That is a cheap price for the guarantee.
     """
     from flexi.app import FlexiApp
-    from flexi.models.database.migrate import run_migrations
 
-    run_migrations()
+    migrate()
     app = FlexiApp()
     app.open_settings = settings
     app.show_splash = splash
     return app
 
 
-def open_database(ctx: click.Context) -> Handles:
-    """Migrate, connect, sweep, and hand back an open database.
+def open_database(ctx: click.Context, *, fill: bool = True) -> ServiceRegistry:
+    """Migrate, connect, sweep, and hand back the service registry.
 
     Closing is registered on the context rather than written at the end of each
     command. `ctx.exit` raises, so every hand-written `session.close()` after a
@@ -224,18 +263,15 @@ def open_database(ctx: click.Context) -> Handles:
     on exactly the paths where something had already gone wrong.
     """
     from flexi.models.database.engine import database_scope
-    from flexi.models.database.migrate import run_migrations
     from flexi.services.registry import build_services
 
-    run_migrations()
-    engine, session = ctx.with_resource(database_scope())
+    migrate()
+    _engine, session = ctx.with_resource(database_scope())
     services = build_services(session)
     services.clock.sweep()
-    services.bank_holidays.fill_if_empty()
-
-    handles = Handles(engine=engine, session=session, services=services)
-    ctx.obj = handles
-    return handles
+    if fill:
+        services.bank_holidays.fill_if_empty()
+    return services
 
 
 @cli.group()
@@ -244,7 +280,7 @@ def holidays() -> None:
 
 
 @holidays.command(name="refresh")
-@requires_setup
+@requires_setup(fill=False)
 def holidays_refresh(services: ServiceRegistry) -> int:
     """Fetch the calendar for the configured region from GOV.UK."""
     from flexi.cli import holidays as holidays_cli
@@ -295,9 +331,7 @@ def init(ctx: click.Context) -> None:
         already_set_up(ctx, db_path)
         return
 
-    from flexi.models.database.migrate import run_migrations
-
-    run_migrations()
+    migrate()
     if is_initialised():
         click.secho("Flexi is set up.", fg="green")
         return
@@ -385,7 +419,7 @@ def clock() -> None:
 
 
 @clock.command(name="in")
-@requires_setup
+@requires_setup()
 def clock_in(services: ServiceRegistry) -> int:
     """Clock in to start a work session."""
     from flexi.cli import clock as clock_cli
@@ -394,7 +428,7 @@ def clock_in(services: ServiceRegistry) -> int:
 
 
 @clock.command(name="out")
-@requires_setup
+@requires_setup()
 def clock_out(services: ServiceRegistry) -> int:
     """Clock out to end the current work session."""
     from flexi.cli import clock as clock_cli
@@ -406,11 +440,13 @@ def clock_out(services: ServiceRegistry) -> int:
     context_settings={"ignore_unknown_options": True},
     short_help="Book or cancel leave in one line.",
 )
-@click.argument("words", nargs=-1, required=True)
-@click.option("--note", default=None, help="A note, required for `other`.")
+@click.argument("words", nargs=-1, required=True, type=Utf8Text())
+@click.option(
+    "--note", default=None, type=Utf8Text(), help="A note, required for `other`."
+)
 @click.option("--yes", is_flag=True, help="Skip the confirmation.")
 @click.option("--dry-run", is_flag=True, help="Show the plan and stop.")
-@requires_setup
+@requires_setup()
 def leave(
     services: ServiceRegistry,
     words: tuple[str, ...],
@@ -428,7 +464,8 @@ def leave(
     flexi leave toil 12 jun
     flexi leave cancel next monday
 
-    The plan is shown before anything is written.
+    End with am, morning, pm or afternoon for half a day. Join two dates with
+    to, until, through or `..`. The plan is shown before anything is written.
     """  # noqa: D301 - the \b is Click's, and a raw string breaks it
     from flexi.cli import leave as leave_cli
 
@@ -448,8 +485,11 @@ def balance() -> None:
 
 
 @balance.command(name="show")
-@as_of_option("Report the balance as at the end of this date. Defaults to today.")
-@requires_setup
+@as_of_option(
+    "Report the balance as at the end of this date, which may not be in the "
+    "future. Defaults to today."
+)
+@requires_setup()
 def balance_show(services: ServiceRegistry, as_of: date | None) -> int:
     """Print the running balance and what it is made of."""
     from flexi.cli import balance as balance_cli
@@ -459,9 +499,14 @@ def balance_show(services: ServiceRegistry, as_of: date | None) -> int:
 
 @balance.command(name="zero")
 @as_of_option("Settle up to and including this date. Defaults to yesterday.")
-@click.option("--reason", default=None, help="Why the balance was settled.")
+@click.option(
+    "--reason",
+    default=None,
+    type=Utf8Text(),
+    help="Why the balance was settled.",
+)
 @click.option("--yes", is_flag=True, help="Do not ask.")
-@requires_setup
+@requires_setup()
 def balance_zero(
     services: ServiceRegistry,
     as_of: date | None,
@@ -476,7 +521,7 @@ def balance_zero(
 
 
 @balance.command(name="log")
-@requires_setup
+@requires_setup()
 def balance_log(services: ServiceRegistry) -> int:
     """List every correction ever recorded."""
     from flexi.cli import balance as balance_cli
@@ -486,7 +531,7 @@ def balance_log(services: ServiceRegistry) -> int:
 
 @balance.command(name="undo")
 @click.argument("adjustment_id", type=int)
-@requires_setup
+@requires_setup()
 def balance_undo(services: ServiceRegistry, adjustment_id: int) -> int:
     """Remove a correction by its id, as listed by `flexi balance log`."""
     from flexi.cli import balance as balance_cli

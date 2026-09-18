@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import click
+from rich.console import Console
 
 from flexi import wallclock
 from flexi.cli import report
@@ -34,12 +34,24 @@ def clock_out(services: Services) -> int:
 
 
 def already_on(services: Services, since: datetime) -> int:
-    """Draw the running session rather than refusing in one red line."""
+    """Draw the running session rather than refusing in one red line.
+
+    Through Rich rather than `click.echo`, which stringifies a `Text` to its
+    plain characters -- leaving the punch strip, the marker and the signed
+    balance in default ink, and the colour tables in `ui.onclock` dead on the
+    only path that uses them. Rich withholds the styles itself when stdout is
+    not a terminal, so a piped run stays plain.
+
+    Stdout, not the stderr console the prompts use. This is a drawing of what
+    is on the clock, which is the answer to the question that was asked.
+    """
     now = wallclock.now()
     today = now.date()
     ledger = services.ledger.days(today, today, now=now)[0]
     balance = services.ledger.balance(today, now=now).delta
-    click.echo()
-    click.echo(on_the_clock(ledger, services.ledger.window, since, balance, now=now))
-    click.echo()
+    strip = on_the_clock(ledger, services.ledger.window, since, balance, now=now)
+    console = Console(highlight=False, markup=False, emoji=False)
+    console.print()
+    console.print(strip, soft_wrap=True)
+    console.print()
     return 1

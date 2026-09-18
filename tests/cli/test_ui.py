@@ -344,6 +344,25 @@ def test_a_redraw_takes_back_exactly_the_lines_it_drew() -> None:
     assert visible(stream).strip() == "only this"
 
 
+def test_a_console_that_cannot_obey_an_escape_is_not_sent_one() -> None:
+    """Legacy conhost prints the sequence instead of acting on it.
+
+    `rewind` writes straight to the console's file, which is the one place in
+    `Surface` that goes past Rich's legacy renderer, so the `flexi init` menu
+    stacks with a literal `[3F[0J` between every copy. Stacked frames read
+    better than that.
+    """
+    stream = io.StringIO()
+    console = Console(file=stream, width=60, legacy_windows=True)
+    surface = prompt.Surface(console)
+
+    surface.draw([Text("one"), Text("two")])
+    surface.redraw([Text("only this")])
+
+    assert "\x1b" not in stream.getvalue()
+    assert stream.getvalue().splitlines()[-1].strip() == "only this"
+
+
 def test_a_surface_that_has_drawn_nothing_takes_nothing_back() -> None:
     """The line above the first thing Flexi draws belongs to the shell."""
     console, stream = paper()
@@ -470,7 +489,7 @@ def _no_terminal() -> Iterator[int]:
 def options() -> Sequence[Option[str]]:
     return (
         Option("open", "Open Flexi", "your records, as they are"),
-        Option("settings", "Change settings", "leave year, hours, region"),
+        Option("settings", "Change settings", "leave year, working days, region"),
         Option("reset", "Start again", "erase 12 records", grave=True),
     )
 

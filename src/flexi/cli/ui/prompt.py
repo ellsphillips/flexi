@@ -176,8 +176,15 @@ class Surface:
         self._drawn = len(lines)
 
     def rewind(self) -> None:
-        """Put the cursor back where the last draw started, and clear."""
-        if self._drawn:
+        """Put the cursor back where the last draw started, and clear.
+
+        A console with no virtual-terminal processing prints the escape
+        sequence instead of obeying it, and this write is the one place that
+        goes past Rich's legacy renderer. There the redraw is skipped and the
+        frames stack: untidy reads better than ``[3F[0J`` between every copy
+        of the menu.
+        """
+        if self._drawn and not self._console.legacy_windows:
             self._console.file.write(f"\x1b[{self._drawn}F\x1b[0J")
             self._console.file.flush()
         self._drawn = 0

@@ -123,10 +123,57 @@ def test_zeroing_leaves_today_alone(home: Path) -> None:
 
 
 def test_zero_asks_before_it_writes(home: Path) -> None:
-    """Declining leaves the records exactly as they were."""
+    """Declining leaves the records exactly as they were.
+
+    Exit 1, as a declined booking does: the write that was asked for did not
+    happen, and `flexi balance zero && flexi balance show` has to be able to
+    tell that from a settlement.
+    """
     result = CliRunner().invoke(cli, ["balance", "zero"], input="n\n")
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "Left alone" in result.output
+    assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
+
+
+def test_the_settlement_question_is_asked_on_stderr(home: Path) -> None:
+    """`flexi balance zero > log` must not send the question into the file."""
+    result = CliRunner().invoke(cli, ["balance", "zero"], input="n\n")
+
+    assert "Settle it to zero?" in result.stderr
+    assert "Settle it to zero?" not in result.stdout
+    assert "balance as at" in result.stdout, "the standing is the output"
+
+
+def test_settling_a_day_that_has_not_finished_shows_no_projection(
+    home: Path,
+) -> None:
+    """The refusal is the whole answer.
+
+    The standing it would be sized from is a projection in which every day
+    between now and then was worked zero hours, so printing it first offers a
+    figure of several hundred hours as a reading.
+    """
+    result = CliRunner().invoke(cli, ["balance", "zero", "--as-of", "today", "--yes"])
+
+    assert result.exit_code == 1
+    assert "has not finished" in result.output
+    assert "balance as at" not in result.stdout
+
+
+def test_a_reason_that_is_not_utf8_is_refused_before_the_write(
+    home: Path,
+) -> None:
+    """The adjustment reason is stored, so a lone surrogate reaches SQLite.
+
+    Without this it refuses after the standing has been printed and the
+    settlement agreed to, with a traceback as the only explanation.
+    """
+    result = CliRunner().invoke(
+        cli, ["balance", "zero", "--reason", "caf\udce9", "--yes"]
+    )
+
+    assert result.exit_code == 2
+    assert "not valid UTF-8" in result.output
     assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
 
 

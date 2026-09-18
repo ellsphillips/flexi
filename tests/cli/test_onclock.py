@@ -1,7 +1,10 @@
 """Pure rendering of a running session and its projected finish."""
 
+import io
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+from rich.console import Console
 
 from flexi import wallclock
 from flexi.cli.ui.onclock import on_the_clock
@@ -38,3 +41,34 @@ def test_reduced_projection_uses_expected_time_and_destination_offset() -> None:
 
     assert "0:00 of 3:42 today" in rendered.plain
     assert "hours met at 05:12" in rendered.plain
+
+
+def test_the_rail_carries_the_palette_the_dashboard_uses() -> None:
+    """Otherwise the tone tables in `ui.onclock` are elaborate dead code."""
+    with wallclock.pinned(LONDON):
+        since = wallclock.local(datetime(2026, 6, 10, 9, 0))
+        now = wallclock.local(datetime(2026, 6, 10, 11, 30))
+        ledger = DayLedger(
+            date=now.date(),
+            kind=DayKind.WORKING,
+            is_working_day=True,
+            contracted=CONTRACTED,
+            worked=timedelta(hours=2, minutes=30),
+            expected=CONTRACTED,
+            segments=(Segment(1, since),),
+        )
+        stream = io.StringIO()
+        console = Console(file=stream, force_terminal=True, color_system="truecolor")
+
+        console.print(
+            on_the_clock(
+                ledger,
+                Window.parse("07:00", "19:00"),
+                since,
+                timedelta(minutes=-48),
+                now=now,
+            ),
+            soft_wrap=True,
+        )
+
+    assert "\x1b[" in stream.getvalue()

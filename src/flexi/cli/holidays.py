@@ -29,9 +29,12 @@ def run(services: Services) -> int:
 
     What the failure *says* depends on whether anything is left to fall back on.
     It claimed "bank holidays will be missing" either way, which is untrue of
-    the commoner case by far -- every command runs `fill_if_empty` on the way
-    in, so by the time this runs there is usually a calendar, and a stale
+    the commoner case by far -- every other command fills an empty cache on the
+    way in, so by the time this runs there is usually a calendar, and a stale
     calendar still answers correctly for the year it holds.
+
+    This one command opens without that fill. Its own fetch is the fill, and
+    doing both asks GOV.UK twice and waits twice as long to say so.
     """
     named = services.bank_holidays.division.label
 

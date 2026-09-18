@@ -210,10 +210,10 @@ def test_a_command_uses_one_registry_rather_than_building_a_second(
     seen: list[Services] = []
     original = main.open_database
 
-    def watching(ctx: click.Context) -> main.Handles:
-        handles = original(ctx)
-        seen.append(handles.services)
-        return handles
+    def watching(ctx: click.Context, *, fill: bool = True) -> Services:
+        services = original(ctx, fill=fill)
+        seen.append(services)
+        return services
 
     monkeypatch.setattr(main, "open_database", watching)
     CliRunner().invoke(cli, ["balance", "show"])
