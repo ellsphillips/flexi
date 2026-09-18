@@ -31,6 +31,7 @@ from flexi.services.settings import (
     parse_settings,
     validate_window,
 )
+from flexi.services.setup import REQUIRED_SETTINGS
 
 
 @pytest.fixture
@@ -64,6 +65,46 @@ class TestSetupComplete:
     def test_complete_after_save(self, svc: SettingsService) -> None:
         _do_setup(svc)
         assert svc.is_setup_complete() is True
+
+    @pytest.mark.parametrize("field", REQUIRED_SETTINGS)
+    def test_every_required_field_is_one_this_gate_checks(
+        self, svc: SettingsService, session: Session, field: str
+    ) -> None:
+        """One list of required settings, read by both gates that ask.
+
+        `flexi clock in` reads `REQUIRED_SETTINGS` over a read-only connection
+        and bare `flexi` asks this. A field listed in one and not the other is
+        the dashboard opening on a database the command line calls unconfigured.
+        """
+        _do_setup(svc)
+        stored = svc.get_settings()
+        assert stored is not None
+
+        setattr(stored, field, "")
+        session.commit()
+
+        assert svc.is_setup_complete() is False
+
+    def test_a_new_required_setting_moves_this_gate_with_it(
+        self, svc: SettingsService, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Adding to the list is the whole change; nothing here has to be edited.
+
+        Spelled out here as well, a fifth required setting would leave bare
+        `flexi` opening the dashboard on a database `flexi clock in` refuses.
+        """
+        _do_setup(svc)
+        monkeypatch.setattr(
+            "flexi.services.settings.REQUIRED_SETTINGS",
+            (*REQUIRED_SETTINGS, "tracking_since"),
+        )
+        stored = svc.get_settings()
+        assert stored is not None
+
+        stored.tracking_since = None
+        session.commit()
+
+        assert svc.is_setup_complete() is False
 
     def test_incomplete_with_empty_field(self, svc: SettingsService) -> None:
         with pytest.raises(ValueError, match="Invalid date format"):

@@ -26,6 +26,7 @@ from flexi.models.database.db import (
     LeaveEntitlement,
     Settings,
 )
+from flexi.services.setup import REQUIRED_SETTINGS
 from flexi.services.transactions import atomic
 
 __all__ = (
@@ -233,16 +234,18 @@ class SettingsService:
         return self._session.execute(select(Settings)).scalar_one_or_none()
 
     def is_setup_complete(self) -> bool:
-        s = self.get_settings()
-        if s is None:
+        """Whether this database has everything Flexi needs to open on it.
+
+        The fields come from :data:`~flexi.services.setup.REQUIRED_SETTINGS`
+        rather than being spelled out again. The command line reads that same
+        list over a read-only connection, and two entry points disagreeing about
+        one file is a bare `flexi` opening the dashboard on a database that
+        `flexi clock in` calls unconfigured.
+        """
+        stored = self.get_settings()
+        if stored is None:
             return False
-        # All required fields must be present
-        return bool(
-            s.leave_year_start
-            and s.working_days
-            and s.bank_holiday_division
-            and s.auto_close_time
-        )
+        return all(getattr(stored, field) for field in REQUIRED_SETTINGS)
 
     def save_settings(self, update: SettingsUpdate) -> Settings:
         """Persist and commit one typed settings update."""

@@ -122,35 +122,126 @@ def nth_monday(year: int, month: int, *, last: bool) -> date:
     return date(year, month, mondays[-1 if last else 0])
 
 
-def holidays_in(year: int) -> tuple[tuple[date, str], ...]:
-    """The three moveable English bank holidays of a leave year, by their rules.
+def _easter(year: int) -> date:
+    """Easter Sunday, by the Gregorian computus.
 
-    First and last Monday in May, last Monday in August -- which is what they
-    are, rather than three dates typed out for one particular year. A demo
-    seeded from a fixed list has bank holidays in the wrong place the moment the
-    year moves on, and Flexi refuses to book leave on them, so being wrong about
-    one is visible.
+    A rule rather than a table, so Good Friday and Easter Monday sit where they
+    belong in whichever year the demo is run in.
 
-    All three fall between April and the following April, so a leave year takes
-    them all from its own starting year.
+    Examples:
+        >>> _easter(2026)
+        datetime.date(2026, 4, 5)
+        >>> _easter(2027)
+        datetime.date(2027, 3, 28)
     """
-    return (
+    golden = year % 19
+    century, within = divmod(year, 100)
+    leaps, century_day = divmod(century, 4)
+    correction = (century + 8) // 25
+    lunar = (century - correction + 1) // 3
+    epact = (19 * golden + century - leaps - lunar + 15) % 30
+    quarters, spare = divmod(within, 4)
+    weekday = (32 + 2 * century_day + 2 * quarters - epact - spare) % 7
+    offset = (golden + 11 * epact + 22 * weekday) // 451
+    month, day = divmod(epact + weekday - 7 * offset + 114, 31)
+    return date(year, month, day + 1)
+
+
+def _free(when: date, taken: set[date], *, forward: bool = False) -> date:
+    """The nearest day nothing else claims, walking away from ``when``.
+
+    A weekend, a bank holiday and a day already booked are all days Flexi
+    refuses to put absence on, and a seed that produced a state the application
+    would not let you reach is a bad fixture. With a fixed anchor the offsets
+    below never landed on one; anchored to today they land on one most weeks.
+
+    The same walk keeps a fixed bank holiday on the next free weekday, which is
+    what a substitute day is.
+    """
+    step = timedelta(days=1 if forward else -1)
+    while when.weekday() > FRIDAY or when in taken:
+        when += step
+    return when
+
+
+def _dated_holidays(year: int) -> tuple[tuple[date, str], ...]:
+    """The English bank holidays of one calendar year, substitutes resolved.
+
+    A fixed date landing on a weekend is kept on the next free weekday, which is
+    why both Christmas Day and Boxing Day move in a year Christmas is a Saturday.
+    """
+    easter = _easter(year)
+    moveable = (
+        (easter - timedelta(days=2), "Good Friday"),
+        (easter + timedelta(days=1), "Easter Monday"),
         (nth_monday(year, MAY, last=False), "Early May bank holiday"),
         (nth_monday(year, MAY, last=True), "Spring bank holiday"),
         (nth_monday(year, AUGUST, last=True), "Summer bank holiday"),
     )
+    taken = {when for when, _ in moveable}
+    kept: list[tuple[date, str]] = []
+    for when, title in (
+        (date(year, 1, 1), "New Year's Day"),
+        (date(year, 12, 25), "Christmas Day"),
+        (date(year, 12, 26), "Boxing Day"),
+    ):
+        substitute = _free(when, taken, forward=True)
+        taken.add(substitute)
+        kept.append((substitute, title))
+    return tuple(sorted(moveable + tuple(kept)))
 
 
-def seed_demo(session: Session, *, anchor: date = ANCHOR) -> None:
-    """Replace the database atomically with a life ending on ``anchor``."""
+def holidays_in(year: int) -> tuple[tuple[date, str], ...]:
+    """The English bank holidays of the leave year beginning in ``year``.
+
+    By their rules -- computus for Easter, the nth Monday of a month for the
+    spring and summer holidays, the next free weekday for a fixed date on a
+    weekend -- rather than a list typed out for one particular year. A demo
+    seeded from a fixed list has bank holidays in the wrong place the moment the
+    year moves on, and Flexi refuses to book leave on them and draws them
+    differently, so being wrong about one is visible.
+
+    Read over the leave year's own span rather than its starting calendar year.
+    New Year's Day belongs to the following one, and Easter falls either side of
+    the 6th of April depending on the year: the leave year opening in April 2027
+    has no Easter in it at all, and the one opening in April 2028 has two.
+    """
+    month, day = LEAVE_YEAR
+    start, end = date(year, month, day), date(year + 1, month, day)
+    return tuple(
+        (when, title)
+        for when, title in _dated_holidays(year) + _dated_holidays(year + 1)
+        if start <= when < end
+    )
+
+
+def seed_demo(
+    session: Session, *, anchor: date = ANCHOR, now: time | None = None
+) -> None:
+    """Replace the database atomically with a life ending on ``anchor``.
+
+    ``now`` is the wall time the anchor day has reached: it decides how much of
+    that day is already recorded, and nothing is written past it. A caller
+    seeding today has to pass the real one, or the demo opens with a clock-in
+    that has not happened and a clock-out key that refuses. The default is
+    :data:`NOW`, which is what the screenshots are drawn at.
+    """
+    moment = NOW.time() if now is None else now
     start = leaveyear.start_of(anchor, *LEAVE_YEAR)
-    holidays = {when for when, _ in holidays_in(start.year)}
+    # Three leave years, because the absences reach a fortnight back and a week
+    # forward from the anchor and an anchor near either edge crosses out of its
+    # own. Only the anchor's year is cached: those are the dates the demo draws.
+    holidays = {
+        when
+        for year in (start.year - 1, start.year, start.year + 1)
+        for when, _ in holidays_in(year)
+    }
     with atomic(session):
         _wipe(session)
         _settings(session, anchor, start)
-        _holidays(session, start.year, anchor)
+        _holidays(session, start.year, anchor, moment)
         booked, half_day = _absences(session, anchor, holidays)
-        _work(session, start, anchor, booked | holidays, half_day)
+        _work(session, start, anchor, booked | holidays, half_day, moment)
 
 
 def _wipe(session: Session) -> None:
@@ -195,11 +286,12 @@ def _settings(session: Session, anchor: date, start: date) -> None:
     )
 
 
-def _holidays(session: Session, year: int, anchor: date) -> None:
+def _holidays(session: Session, year: int, anchor: date, now: time) -> None:
     # Fetched this morning, so the cache reads as fresh whenever the demo is
     # opened. A timestamp from a fixed date would have the command palette's
-    # refresh reach for the network on a machine being shown the sample data.
-    fetched = datetime.combine(anchor, time(9, 0))
+    # refresh reach for the network on a machine being shown the sample data,
+    # and one later than `now` would have it fetched in the future.
+    fetched = datetime.combine(anchor, min(time(9, 0), now))
     session.add(
         BankHolidayRefresh(
             division=DEFAULT_DIVISION,
@@ -214,20 +306,6 @@ def _holidays(session: Session, year: int, anchor: date) -> None:
                 title=title,
             )
         )
-
-
-def _free(when: date, taken: set[date], *, forward: bool = False) -> date:
-    """The nearest day nothing else claims, walking away from ``when``.
-
-    A weekend, a bank holiday and a day already booked are all days Flexi
-    refuses to put absence on, and a seed that produced a state the application
-    would not let you reach is a bad fixture. With a fixed anchor the offsets
-    below never landed on one; anchored to today they land on one most weeks.
-    """
-    step = timedelta(days=1 if forward else -1)
-    while when.weekday() > FRIDAY or when in taken:
-        when += step
-    return when
 
 
 def _absences(
@@ -277,20 +355,30 @@ def _absences(
 
 
 def _work(
-    session: Session, start: date, anchor: date, booked: set[date], half_day: date
+    session: Session,
+    start: date,
+    anchor: date,
+    booked: set[date],
+    half_day: date,
+    now: time,
 ) -> None:
     for index in range((anchor - start).days + 1):
         when = start + timedelta(days=index)
         if when.weekday() > FRIDAY or when in booked:
             continue
         if when == anchor:
-            _open_session(session, when, index)
+            _open_session(session, when, index, now)
             continue
         _closed_day(session, when, index, morning=when != half_day)
 
 
 def _closed_day(session: Session, when: date, index: int, *, morning: bool) -> None:
-    """A normal day: in, lunch, out. A half day skips the morning."""
+    """A normal day: in, lunch, out. A half day skips the morning.
+
+    The half day is half a day. Its morning is booked as annual leave, so the
+    afternoon owes half a contract; a whole one there draws a day off that also
+    earns nearly four hours of flexi and runs past the punch window.
+    """
     arrive = time(8, ARRIVALS[index % len(ARRIVALS)] % 60)
     lunch = LUNCHES[index % len(LUNCHES)]
     extra = EXTRAS[index % len(EXTRAS)]
@@ -298,20 +386,33 @@ def _closed_day(session: Session, when: date, index: int, *, morning: bool) -> N
     if morning:
         _session(session, when, arrive, time(12, 30))
         back = add_minutes(time(12, 30), lunch)
+        owed = DEFAULT_CONTRACTED_MINUTES - 210
     else:
         back = time(13, 0)
+        owed = DEFAULT_CONTRACTED_MINUTES // 2
 
-    finish = add_minutes(
-        back, DEFAULT_CONTRACTED_MINUTES - (210 if morning else 0) + extra
-    )
-    _session(session, when, back, finish)
+    _session(session, when, back, add_minutes(back, owed + extra))
 
 
-def _open_session(session: Session, when: date, index: int) -> None:
-    """Today: arrived, took lunch, and is still on the clock."""
+def _open_session(session: Session, when: date, index: int, now: time) -> None:
+    """The anchor day, as far as ``now`` has taken it.
+
+    Four shapes, and which one a demo opens on depends on the hour it is run at:
+    not in yet, on the clock all morning, off the clock at lunch, or back and
+    still on the clock. A fixed 13:20 clock-in shown to somebody running the
+    demo at nine is a session that has not started, and the clock-out key
+    refuses it.
+    """
     arrive = time(8, ARRIVALS[index % len(ARRIVALS)] % 60)
-    _session(session, when, arrive, time(12, 40))
-    _session(session, when, time(13, 20), None)
+    lunch, back = time(12, 40), time(13, 20)
+    if now <= arrive:
+        return
+    if now <= lunch:
+        _session(session, when, arrive, None)
+        return
+    _session(session, when, arrive, lunch)
+    if now > back:
+        _session(session, when, back, None)
 
 
 def _session(session: Session, when: date, start: time, end: time | None) -> None:

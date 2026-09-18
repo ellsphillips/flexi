@@ -124,6 +124,12 @@ def zero_balance(
     invisible -- `LedgerService._adjustments` filters on `date <= end` -- until
     its date arrives, at which point the week's real hours read as pure surplus.
 
+    A date earlier than a line already drawn in the same leave year is refused
+    too. The correction is sized from the balance up to ``as_of``, which cannot
+    see the later row, so the two overlap and the period they share is absorbed
+    twice. A previous leave year is fair game: each one accumulates from its own
+    start, so a line in one is not part of the sum in the other.
+
     Here rather than in `flexi/cli/balance.py` so that the TUI and any embedder
     hold the same line, the way `ClockService.correct` refuses a future day for
     every caller rather than only the one that happened to be noticed.
@@ -139,6 +145,15 @@ def zero_balance(
         # to it. The writer reservation must come first; only then is a fresh
         # derivation stable until its compensating row is committed.
         services.ledger.invalidate()
+        _, year_end = services.absence.leave_year_bounds(as_of)
+        standing_line = services.adjustments.first_after(as_of, year_end)
+        if standing_line is not None:
+            return AdjustmentResult(
+                False,
+                f"A line was already drawn at {long_date(standing_line.date)};"
+                f" undo it with `flexi balance undo {standing_line.id}`"
+                " or settle on or after that date",
+            )
         standing = services.ledger.balance(as_of).delta
         if not round(standing.total_seconds() / 60):
             return AdjustmentResult(False, "The balance is already zero")

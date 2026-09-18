@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
-from flexi.constants import AbsenceType, Portion, Verdict
+from flexi.constants import AbsenceType, EventSource, Portion, Verdict
 from flexi.domain import leaveyear
 from flexi.domain.dates import days_between
 from flexi.domain.format import days as fmt_days
@@ -66,7 +66,8 @@ PLAN_CHANGED = "The booking changed; review it and confirm again"
 """Why a once-valid preview is refused instead of being partly persisted."""
 
 type Span = tuple[datetime, datetime]
-"""A stretch of recorded work, resolved: an open session ends at midnight."""
+"""A stretch of recorded work, resolved: see :func:`span_of` for what an open
+session is worth."""
 
 
 def covers_the_whole_day(booked: Iterable[Portion]) -> bool:
@@ -119,6 +120,12 @@ def overdraw(after: float | None, *, opening: str = "This") -> str | None:
     arithmetic and their own sentence, so a day and a fortnight could disagree
     about whether the same request was worth mentioning.
 
+    Rounded to one decimal, the resolution every other days-of-TOIL figure is
+    shown at. A balance is hours divided by a contracted day, so the raw
+    shortfall is a fraction that reads as "1.86486 days" beside a modal saying
+    "0.9 days banked". A shortfall that rounds to nothing carries no warning:
+    "0 days into deficit" says less than silence does.
+
     Examples:
         >>> overdraw(None) is None
         True
@@ -126,12 +133,19 @@ def overdraw(after: float | None, *, opening: str = "This") -> str | None:
         True
         >>> overdraw(-2.5)
         'This takes the flexi balance 2.5 days into deficit'
+        >>> overdraw(-1.86486)
+        'This takes the flexi balance 1.9 days into deficit'
+        >>> overdraw(-0.02) is None
+        True
         >>> overdraw(-1, opening="Booked, but this")
         'Booked, but this takes the flexi balance 1 day into deficit'
     """
     if after is None or after >= 0:
         return None
-    return f"{opening} takes {deficit(-after)}"
+    short = round(-after, 1)
+    if not short:
+        return None
+    return f"{opening} takes {deficit(short)}"
 
 
 @dataclass(frozen=True)
@@ -157,6 +171,10 @@ class RangeResult:
     booked: tuple[date, ...] = ()
     skipped: tuple[tuple[date, str], ...] = ()
     warning: str | None = None
+    noun: str = "day"
+    """What one of these is: a whole day, or the half that was booked. Five
+    afternoons are five afternoons and two and a half days, and reporting them
+    as "5 days" contradicts the confirmation that was just accepted."""
 
     @property
     def success(self) -> bool:
@@ -177,7 +195,7 @@ class RangeResult:
                 if len(self.reasons) == 1
                 else (f"Nothing {what}: " + "; ".join(self.reasons))
             )
-        days = f"{len(self.booked)} {plural(len(self.booked), 'day')}"
+        days = f"{len(self.booked)} {plural(len(self.booked), self.noun)}"
         if not self.skipped:
             return f"{days} {what}"
         missed = f"{len(self.skipped)} skipped"
@@ -229,6 +247,10 @@ class DayFacts:
     holiday_title: str | None
     booked: tuple[Portion, ...]
     worked: tuple[Span, ...]
+    is_tracked: bool = True
+    """Whether the ledger expects anything of this date. False before Flexi was
+    watching, unless something punched the clock on it -- `LedgerService` reads
+    the same rule, and a TOIL booking's arithmetic turns on it."""
 
     @property
     def midday(self) -> datetime:
@@ -268,6 +290,21 @@ def clash_reason(facts: DayFacts, portion: Portion) -> str | None:
     if facts.has_work_in(portion):
         return "There is recorded work in that part of the day"
     return None
+
+
+def _draws_on_the_balance(facts: DayFacts, today: date) -> bool:
+    """True when booking TOIL on this date would move the flexi balance.
+
+    A tracked day that has been and gone already expects its contracted hours
+    and already carries the shortfall for not getting them. Booking TOIL over it
+    trades that expectation for a withdrawal of the same size, so the balance
+    reads afterwards exactly what it reads now and charging the booking against
+    it warns about a movement that does not happen.
+
+    A day still to come has not been counted yet, and an untracked day expects
+    nothing at all, so a withdrawal against either is a real one.
+    """
+    return facts.date > today or not facts.is_tracked
 
 
 def verdict_for(
@@ -317,12 +354,16 @@ def verdict_for(
         and remaining_annual is not None
         and remaining_annual < portion.days
     ):
-        short = portion.days - remaining_annual
-        return PlannedDay(
-            facts.date,
-            Verdict.NO_ENTITLEMENT,
-            f"Not enough annual leave — {short:g} day short of the request",
+        # What is left, not what this day is short by: one date can be short
+        # by at most one day, whatever the size of the request around it.
+        left = max(remaining_annual, 0.0)
+        remainder = f"{fmt_days(left)} {plural(left, 'day')}"
+        reason = (
+            f"Not enough annual leave — only {remainder} left"
+            if left
+            else "Not enough annual leave left"
         )
+        return PlannedDay(facts.date, Verdict.NO_ENTITLEMENT, reason)
     return PlannedDay(facts.date, Verdict.BOOK, "")
 
 
@@ -380,6 +421,11 @@ class AbsencePlan:
     days: tuple[PlannedDay, ...]
     annual_balances: tuple[AnnualBalance, ...] = ()
     toil_available: float | None = None
+    toil_cost: float | None = None
+    """What this plan would take off the flexi balance, which is not its `cost`:
+    a tracked day already gone by relabels a shortfall the balance has counted.
+    ``None`` is a plan built without a date to measure against, where every
+    bookable day counts."""
 
     @property
     def bookable(self) -> tuple[PlannedDay, ...]:
@@ -437,7 +483,9 @@ class AbsencePlan:
             return None
         if not self.absence_type.draws_down_balance:
             return self.toil_available
-        return self.toil_available - self.cost
+        return self.toil_available - (
+            self.cost if self.toil_cost is None else self.toil_cost
+        )
 
     @property
     def warning(self) -> str | None:
@@ -724,8 +772,9 @@ class AbsenceService:
         never refuses one.
         """
         with write_transaction(self._session):
+            facts = self.facts_between(day, day)[0]
             decided = verdict_for(
-                self.facts_between(day, day)[0],
+                facts,
                 absence_type,
                 portion,
                 note,
@@ -738,8 +787,11 @@ class AbsenceService:
             if decided.verdict is not Verdict.BOOK:
                 return AbsenceResult(False, decided.reason)
 
+            charged = (
+                portion.days if _draws_on_the_balance(facts, wallclock.today()) else 0.0
+            )
             after = (
-                available_toil_days - portion.days
+                available_toil_days - charged
                 if absence_type.draws_down_balance and available_toil_days is not None
                 else None
             )
@@ -771,14 +823,25 @@ class AbsenceService:
         until something writes, and a verdict read through a stale cache would
         book over a day that had just been taken.
         """
-        working = set(self._settings.resolved().working_days)
+        settings = self._settings.resolved()
+        working = set(settings.working_days)
+        tracking_since = settings.tracking_since
         titles = self._bank_holidays.titles_between(start, end)
         booked: defaultdict[date, list[Portion]] = defaultdict(list)
         for row in self.in_range(start, end):
             booked[row.date].append(row.portion)
+        # One reading for the whole span, so two dates in the same plan cannot
+        # disagree about when now is.
+        moment = wallclock.now()
         worked: defaultdict[date, list[Span]] = defaultdict(list)
+        punched: set[date] = set()
         for session in self._sessions_between(start, end):
-            worked[session.work_date].append(span_of(session))
+            worked[session.work_date].append(span_of(session, now=moment))
+            # Something clocked in, so Flexi was there for that day whatever the
+            # tracking stamp says. Hours typed in from memory cannot vouch for
+            # it the same way, which is the distinction `LedgerService` draws.
+            if session.clock_in_event.source is not EventSource.AMENDED:
+                punched.add(session.work_date)
 
         return [
             DayFacts(
@@ -788,6 +851,9 @@ class AbsenceService:
                 holiday_title=None if titles is None else titles.get(when),
                 booked=tuple(booked[when]),
                 worked=tuple(worked[when]),
+                is_tracked=(
+                    tracking_since is None or when >= tracking_since or when in punched
+                ),
             )
             for when in days_between(start, end)
         ]
@@ -841,6 +907,8 @@ class AbsenceService:
         opening = self.get_remaining_annual_leave_by_year(years)
         remaining = dict(opening)
         days: list[PlannedDay] = []
+        today = wallclock.today()
+        toil_cost = 0.0
 
         for facts in span_facts:
             active_year = leaveyear.active_year(facts.date, month, day)
@@ -853,11 +921,11 @@ class AbsenceService:
                 remaining_annual=available,
             )
             days.append(decided)
-            if (
-                decided.verdict is Verdict.BOOK
-                and absence_type.draws_down_entitlement
-                and available is not None
-            ):
+            if decided.verdict is not Verdict.BOOK:
+                continue
+            if _draws_on_the_balance(facts, today):
+                toil_cost += portion.days
+            if absence_type.draws_down_entitlement and available is not None:
                 remaining[active_year] = available - portion.days
 
         return AbsencePlan(
@@ -871,6 +939,7 @@ class AbsenceService:
                 AnnualBalance(year, opening[year], remaining[year]) for year in years
             ),
             toil_available=available_toil_days,
+            toil_cost=toil_cost,
         )
 
     def book_plan(self, plan: AbsencePlan) -> RangeResult:
@@ -907,7 +976,12 @@ class AbsenceService:
 
             if rows:
                 self._session.add_all(rows)
-            return RangeResult(tuple(booked), tuple(skipped), current.warning)
+            return RangeResult(
+                tuple(booked),
+                tuple(skipped),
+                current.warning,
+                current.portion.noun,
+            )
 
     def book_range(
         self,
@@ -972,9 +1046,14 @@ class AbsenceService:
                 return RangeResult(skipped=((plan.start, PLAN_CHANGED),))
 
             removed = tuple(dict.fromkeys(row.date for row in rows))
+            # One noun only when one portion was taken. A morning and an
+            # afternoon cleared off one date are one day, and calling that "1
+            # morning" would name half of what went.
+            portions = {row.portion for row in rows}
+            noun = next(iter(portions)).noun if len(portions) == 1 else "day"
             for row in rows:
                 self._session.delete(row)
-            return RangeResult(removed)
+            return RangeResult(removed, noun=noun)
 
     def clear_range(self, start: date, end: date) -> RangeResult:
         """Remove every booking in a span.
@@ -1019,14 +1098,23 @@ class AbsenceService:
         return AbsenceResult(True, f"{removed} removed from {short_date(day)}")
 
 
-def span_of(session: WorkSession) -> Span:
+def span_of(session: WorkSession, *, now: datetime | None = None) -> Span:
     """When a session ran, resolved.
 
-    A session nobody closed is worth the rest of its own day: `LedgerService`
-    reaches the same conclusion by the same route, and a clock-out that never
-    came must not make the whole evening look worked.
+    A session still open on its own day is worth what it has run so far, which
+    is what `LedgerService` values it at and what the punch strip draws. Valued
+    to the end of that day instead, it covers an afternoon nobody has worked
+    yet and refuses a booking over it.
+
+    A session left open on an earlier day is worth the rest of that day and no
+    more. That is the window between a crash and the sweep on the next launch,
+    and a clock-out that never came must not make every evening since look
+    worked.
     """
     start = moment_of(session.clock_in_event)
-    if session.clock_out_event is None:
-        return start, wallclock.local(datetime.combine(session.work_date, time.max))
-    return start, moment_of(session.clock_out_event)
+    if session.clock_out_event is not None:
+        return start, moment_of(session.clock_out_event)
+    moment = wallclock.now() if now is None else now
+    if session.work_date >= moment.date():
+        return start, moment
+    return start, wallclock.local(datetime.combine(session.work_date, time.max))

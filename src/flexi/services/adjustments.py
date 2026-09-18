@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.domain.format import stamp
+from flexi.domain.format import delta, stamp
 from flexi.models.database.db import BalanceAdjustment
 from flexi.services.transactions import atomic, write_transaction
 
@@ -52,6 +52,21 @@ class AdjustmentService:
             BalanceAdjustment.date.desc(), BalanceAdjustment.id.desc()
         )
         return list(self._session.execute(stmt).scalars())
+
+    def first_after(self, when: date, until: date) -> BalanceAdjustment | None:
+        """The earliest correction dated after ``when`` and no later than ``until``.
+
+        A settlement is sized from the balance up to its own date, so a line
+        drawn earlier than one already standing cannot see it and counts the
+        period the two share twice. `zero_balance` asks this before sizing one.
+        """
+        stmt = (
+            select(BalanceAdjustment)
+            .where(BalanceAdjustment.date > when, BalanceAdjustment.date <= until)
+            .order_by(BalanceAdjustment.date, BalanceAdjustment.id)
+            .limit(1)
+        )
+        return self._session.execute(stmt).scalars().first()
 
     # -- writing -----------------------------------------------------------
 
@@ -89,7 +104,8 @@ class AdjustmentService:
         self._session.add(row)
         return AdjustmentResult(
             True,
-            f"Balance adjusted by {minutes:+d} minutes on {stamp(when, '%-d %b %Y')}",
+            f"Balance adjusted by {delta(timedelta(minutes=minutes))}"
+            f" on {stamp(when, '%-d %b %Y')}",
             row,
         )
 

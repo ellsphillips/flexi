@@ -278,6 +278,51 @@ def test_zeroing_twice_is_refused_the_second_time(services: Services) -> None:
     assert "already zero" in again.message
 
 
+def test_zeroing_earlier_than_a_line_already_drawn_is_refused(
+    services: Services,
+) -> None:
+    """Two overlapping settlements absorb the period they share twice.
+
+    A line is sized from the balance up to its own date, so an earlier one
+    cannot see a later one. Left to stand, the second row hands back the whole
+    deficit the first already cancelled and the rest of the leave year reads as
+    surplus nobody worked.
+    """
+    work(services, MONDAY, hours=2)
+    assert zero_balance(services, FRIDAY).success
+    invalidate_services(services)
+    settled = services.ledger.balance(FRIDAY).delta
+
+    earlier = zero_balance(services, MONDAY)
+
+    assert not earlier.success
+    assert "12 Jun" in earlier.message
+    assert "balance undo" in earlier.message
+    assert len(services.adjustments.all()) == 1
+    invalidate_services(services)
+    assert services.ledger.balance(FRIDAY).delta == settled
+
+
+def test_zeroing_an_earlier_leave_year_is_still_allowed(services: Services) -> None:
+    """Each leave year accumulates from its own start, so the two do not overlap."""
+    work(services, MONDAY, hours=2)
+    assert zero_balance(services, FRIDAY).success
+
+    previous = zero_balance(services, MONDAY - timedelta(days=3))
+
+    assert previous.success, previous.message
+    assert len(services.adjustments.all()) == 2
+
+
+def test_a_settlement_reports_itself_in_hours_and_minutes(services: Services) -> None:
+    """The one line saying what was written uses the unit every other line does."""
+    work(services, MONDAY, hours=2)
+
+    result = zero_balance(services, MONDAY)
+
+    assert "+5:24" in result.message
+
+
 def test_zeroing_recomputes_after_an_external_commit(
     services: Services, engine: Engine
 ) -> None:

@@ -11,15 +11,18 @@ status bar, which matched "That day is already a bank holiday" and missed
 
 from __future__ import annotations
 
-from datetime import date
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, time
 
+import pytest
+import time_machine
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.models.database.db import AbsenceDay, BankHolidayRefresh
 from flexi.services.absence import PLAN_CHANGED
-from flexi.services.registry import Services
+from flexi.services.registry import Services, invalidate_services
 from tests.services.conftest import Configured, work
 
 MONDAY = date(2026, 8, 10)
@@ -28,6 +31,23 @@ SATURDAY = date(2026, 8, 15)
 SUNDAY = date(2026, 8, 16)
 BANK_HOLIDAY = date(2026, 8, 31)
 SEPT_FRIDAY = date(2026, 9, 4)
+BEFORE_THE_SPAN = datetime(2026, 8, 7, 9, 0, tzinfo=UTC)
+"""The Friday before MONDAY.
+
+TOIL only draws on the flexi balance for days the balance has not already
+counted, so the span has to be ahead of today for the overdraw warning to have
+anything to warn about.
+"""
+MID_SPAN = datetime(2026, 8, 12, 10, 0, tzinfo=UTC)
+"""The Wednesday inside it."""
+AFTER_THE_SPAN = datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
+"""The Thursday after it, by which time every day in it has been counted."""
+
+
+@pytest.fixture
+def before_the_span() -> Iterator[None]:
+    with time_machine.travel(BEFORE_THE_SPAN, tick=False):
+        yield
 
 
 def _configure(
@@ -249,7 +269,9 @@ def test_a_span_across_a_bank_holiday_books_the_rest(
 # -- the flexi balance -------------------------------------------------------
 
 
-def test_an_overdrawn_balance_warns_rather_than_refuses(services: Services) -> None:
+def test_an_overdrawn_balance_warns_rather_than_refuses(
+    services: Services, before_the_span: None
+) -> None:
     """A flexi balance is your own arithmetic; going under is a decision."""
     plan = services.absence.plan(
         MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=2.0
@@ -260,7 +282,9 @@ def test_an_overdrawn_balance_warns_rather_than_refuses(services: Services) -> N
     assert "3 day" in plan.warning
 
 
-def test_no_warning_when_the_balance_covers_it(services: Services) -> None:
+def test_no_warning_when_the_balance_covers_it(
+    services: Services, before_the_span: None
+) -> None:
     plan = services.absence.plan(
         MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=10.0
     )
@@ -285,6 +309,97 @@ def test_a_week_of_annual_leave_leaves_the_flexi_balance_where_it_was(
     assert plan.warning is None, "an overdrawn balance is not this booking's news"
 
 
+def test_toil_for_a_day_gone_by_leaves_the_balance_where_it_was(
+    services: Services,
+) -> None:
+    """Relabelling a shortfall is not a withdrawal.
+
+    The day already expected its contracted hours and already scored the
+    shortfall for not getting them. Booking TOIL over it trades one for the
+    other, so the balance afterwards is the balance before -- and a preview
+    saying it goes a day into deficit is describing a movement that never
+    happens.
+    """
+    with time_machine.travel(AFTER_THE_SPAN, tick=False):
+        plan = services.absence.plan(
+            MONDAY, MONDAY, AbsenceType.FLEXI, available_toil_days=0.0
+        )
+
+        assert plan.toil_after == 0.0
+        assert plan.warning is None
+
+        before = services.wallet.available_toil_days()
+        assert services.absence.book_plan(plan).success
+        invalidate_services(services)
+
+        assert services.wallet.available_toil_days() == before
+
+
+def test_a_span_across_today_charges_only_the_days_still_to_come(
+    services: Services,
+) -> None:
+    """Wednesday's preview of the whole week is about Thursday and Friday."""
+    with time_machine.travel(MID_SPAN, tick=False):
+        plan = services.absence.plan(
+            MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=2.0
+        )
+
+    assert len(plan.bookable) == 5
+    assert plan.toil_after == 0.0
+    assert plan.warning is None
+
+
+def test_toil_before_tracking_began_is_a_real_withdrawal(
+    configure: Configured,
+) -> None:
+    """A day Flexi was not watching expects nothing, so TOIL on it takes hours.
+
+    Hours recorded after the fact are somebody's memory of the day rather than
+    proof Flexi was there for it, which is the distinction the ledger draws.
+    """
+    services = configure(entitlement=(2025, 25.0), tracking_since=FRIDAY)
+    assert services.clock.correct(MONDAY, time(13, 0), time(17, 0)).success
+
+    plan = services.absence.plan(
+        MONDAY, MONDAY, AbsenceType.FLEXI, Portion.AM, available_toil_days=0.0
+    )
+
+    assert len(plan.bookable) == 1
+    assert plan.toil_after == -0.5
+    assert plan.warning is not None
+
+
+def test_a_punched_day_before_tracking_began_is_counted_already(
+    configure: Configured,
+) -> None:
+    """Something clocked in, so the ledger expects that day's hours of it."""
+    services = configure(entitlement=(2025, 25.0), tracking_since=FRIDAY)
+    work(services, MONDAY, hours=4, start_hour=13)
+
+    plan = services.absence.plan(
+        MONDAY, MONDAY, AbsenceType.FLEXI, Portion.AM, available_toil_days=0.0
+    )
+
+    assert len(plan.bookable) == 1
+    assert plan.toil_after == 0.0
+    assert plan.warning is None
+
+
+def test_a_refused_day_says_what_is_left_rather_than_what_it_is_short_by(
+    configure: Configured,
+) -> None:
+    """The shortfall on one day is at most one day, whatever the request.
+
+    So a year's booking two hundred days over the allowance read as "1 day
+    short of the request", two hundred times.
+    """
+    services = _configure(configure, days=0.5)
+
+    plan = services.absence.plan(MONDAY, MONDAY, AbsenceType.ANNUAL)
+
+    assert plan.reasons == ("Not enough annual leave — only 0.5 days left",)
+
+
 def test_a_plan_names_each_refusal_once(services: Services) -> None:
     """Two things to fix, not six sentences.
 
@@ -299,5 +414,5 @@ def test_a_plan_names_each_refusal_once(services: Services) -> None:
     assert len(plan.refused) == 5
     assert plan.reasons == (
         "That day is already booked in full",
-        "Not enough annual leave — 1 day short of the request",
+        "Not enough annual leave left",
     )

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+
+import time_machine
 
 from flexi.constants import AbsenceType, Portion
 from flexi.services.absence import PLAN_CHANGED, RemovalBooking
@@ -13,6 +15,9 @@ MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
 NEXT_FRIDAY = date(2026, 8, 21)
 BANK_HOLIDAY = DEFAULT_HOLIDAY
+BEFORE_THE_SPAN = datetime(2026, 8, 7, 9, 0, tzinfo=UTC)
+"""The Friday before MONDAY: TOIL draws on the balance only for days the
+balance has not already counted."""
 
 
 def test_a_working_week_books_five_days(services: Services) -> None:
@@ -63,9 +68,10 @@ def test_running_out_of_leave_mid_range_books_what_it_can(services: Services) ->
 
 def test_toil_across_a_range_warns_once(services: Services) -> None:
     """Not five times for five days."""
-    result = services.absence.book_range(
-        MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=1.0
-    )
+    with time_machine.travel(BEFORE_THE_SPAN, tick=False):
+        result = services.absence.book_range(
+            MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=1.0
+        )
     assert len(result.booked) == 5
     assert result.warning is not None
     assert "deficit" in result.warning
@@ -128,7 +134,7 @@ def test_a_span_refused_for_two_different_reasons_names_both(
     assert len(result.skipped) == 5
     assert result.message("booked") == (
         "Nothing booked: That day is already booked in full; "
-        "Not enough annual leave — 1 day short of the request"
+        "Not enough annual leave left"
     )
 
 
@@ -136,6 +142,38 @@ def test_a_single_day_reads_as_a_day(services: Services) -> None:
     """'1 day booked', not '1 days booked'."""
     result = services.absence.book_range(MONDAY, MONDAY, AbsenceType.SICK)
     assert result.message("booked") == "1 day booked"
+
+
+def test_a_week_of_afternoons_reads_as_afternoons(services: Services) -> None:
+    """Five afternoons are five afternoons and two and a half days.
+
+    The confirmation said "5 days, 2.5 used" and the receipt said "5 days of
+    annual leave booked", which reads as five whole days having gone.
+    """
+    result = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL, Portion.PM)
+
+    assert result.message("of annual leave booked") == (
+        "5 afternoons of annual leave booked"
+    )
+
+
+def test_clearing_afternoons_reads_as_afternoons(services: Services) -> None:
+    """The removal says it in the same unit the confirmation asked it in."""
+    services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL, Portion.PM)
+
+    result = services.absence.clear_range(MONDAY, FRIDAY)
+
+    assert result.message("removed") == "5 afternoons removed"
+
+
+def test_clearing_both_halves_of_a_day_reads_as_a_day(services: Services) -> None:
+    """A morning and an afternoon off one date are one day, not one morning."""
+    services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM)
+    services.absence.book(MONDAY, AbsenceType.SICK, Portion.PM)
+
+    result = services.absence.clear_range(MONDAY, MONDAY)
+
+    assert result.message("removed") == "1 day removed"
 
 
 def test_a_removal_plan_names_what_would_go(services: Services) -> None:

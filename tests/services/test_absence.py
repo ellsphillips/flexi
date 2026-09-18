@@ -16,6 +16,7 @@ from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import AbsenceType, Division, Portion
 from flexi.domain import leaveyear
 from flexi.models.database.db import (
@@ -30,10 +31,12 @@ from flexi.services.absence import (
     AbsenceService,
     covers_the_whole_day,
     snapshot_booking,
+    span_of,
 )
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.registry import build_services
 from flexi.services.settings import SettingsService, SettingsUpdate, parse_settings
+from tests.conftest import sessions_on
 
 
 def _next_weekday(start: date, weekday: int) -> date:
@@ -422,6 +425,122 @@ class TestBalance:
         result = svc.book(d2, AbsenceType.ANNUAL)
         assert result.success is False
         assert "Not enough annual leave" in result.message
+
+
+# ---------- an open session ----------
+
+
+class TestOpenSessions:
+    """What a session nobody has closed is worth to a booking decision."""
+
+    def test_the_afternoon_is_bookable_while_the_morning_is_running(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """Leaving at lunch is a decision people make at ten in the morning.
+
+        An open session used to be valued to the end of its own day, so at ten
+        the afternoon already counted as worked and booking it off was refused
+        for work nobody had recorded.
+        """
+        clock = build_services(session).clock
+        with time_machine.travel(datetime(2026, 6, 10, 10, 0, tzinfo=UTC), tick=False):
+            clock.clock_in(now=datetime(2026, 6, 10, 8, 30, tzinfo=UTC))
+
+            afternoon = absence.book(MIDSUMMER.date(), AbsenceType.FLEXI, Portion.PM)
+            morning = absence.book(MIDSUMMER.date(), AbsenceType.SICK, Portion.AM)
+
+        assert afternoon.success is True, afternoon.message
+        assert morning.success is False
+        assert "recorded work" in morning.message
+
+    def test_the_afternoon_stops_being_bookable_once_it_is_worked(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """The same session, an hour after lunch, does cover the afternoon."""
+        clock = build_services(session).clock
+        with time_machine.travel(datetime(2026, 6, 10, 13, 0, tzinfo=UTC), tick=False):
+            clock.clock_in(now=datetime(2026, 6, 10, 8, 30, tzinfo=UTC))
+
+            result = absence.book(MIDSUMMER.date(), AbsenceType.FLEXI, Portion.PM)
+
+        assert result.success is False
+        assert "recorded work" in result.message
+
+    def test_a_session_left_open_on_an_earlier_day_covers_the_rest_of_it(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """The window between a crash and the sweep on the next launch.
+
+        Yesterday is over, so a clock-out that never came is worth the rest of
+        that day and no more -- which is the ledger's rule, and the half of it
+        that has to stay.
+        """
+        yesterday = date(2026, 6, 9)
+        clock = build_services(session).clock
+        with time_machine.travel(datetime(2026, 6, 9, 9, 0, tzinfo=UTC), tick=False):
+            clock.clock_in(now=datetime(2026, 6, 9, 8, 30, tzinfo=UTC))
+
+        result = absence.book(yesterday, AbsenceType.FLEXI, Portion.PM)
+
+        assert result.success is False
+        assert "recorded work" in result.message
+
+    def test_span_of_reads_the_clock_when_it_is_not_handed_one(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """The exported helper stays usable on its own."""
+        clock = build_services(session).clock
+        clock.clock_in(now=datetime(2026, 6, 10, 8, 30, tzinfo=UTC))
+        running = sessions_on(session, MIDSUMMER.date())[0]
+
+        _started, ended = span_of(running)
+
+        assert ended == wallclock.now()
+
+
+# ---------- what a TOIL booking costs ----------
+
+
+class TestBalanceCost:
+    @pytest.fixture
+    def tracked_since_january(
+        self, session: Session, settings: SettingsService
+    ) -> None:
+        """Flexi has been watching all year, so every day in June is counted."""
+        stored = settings.get_settings()
+        assert stored is not None
+        stored.tracking_since = date(2026, 1, 1)
+        session.commit()
+
+    def test_toil_for_a_day_gone_by_does_not_warn(
+        self, absence: AbsenceService, tracked_since_january: None
+    ) -> None:
+        """The day already expected its hours and already scored the shortfall.
+
+        Booking TOIL over it trades the expectation for a withdrawal of the same
+        size. The balance reads afterwards what it read before, so a warning
+        that it is about to go a day into deficit describes nothing.
+        """
+        result = absence.book(
+            date(2026, 6, 9), AbsenceType.FLEXI, available_toil_days=0.0
+        )
+
+        assert result.success is True, result.message
+        assert result.warning is None
+
+    def test_toil_for_a_day_to_come_still_warns(
+        self, absence: AbsenceService, tracked_since_january: None
+    ) -> None:
+        """Tomorrow has not been counted yet, so booking it is a withdrawal."""
+        result = absence.book(
+            date(2026, 6, 11), AbsenceType.FLEXI, available_toil_days=0.0
+        )
+
+        assert result.success is True, result.message
+        assert (
+            result.warning
+            == "Booked, but this takes the flexi balance 1 day into deficit"
+        )
 
 
 # ---------- counts ----------

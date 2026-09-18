@@ -14,7 +14,7 @@ holiday, the first week of a leave year, and the last.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -22,8 +22,11 @@ from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.db import (
+    DEFAULT_CONTRACTED_MINUTES,
     AbsenceDay,
     BalanceAdjustment,
+    BankHolidayCache,
+    BankHolidayRefresh,
     ClockEvent,
     LeaveEntitlement,
     Settings,
@@ -31,7 +34,12 @@ from flexi.models.database.db import (
 )
 from flexi.services import samples
 from flexi.services.adjustments import AdjustmentService
+from flexi.services.registry import build_services
 from flexi.services.samples import ANCHOR, holidays_in, seed_demo
+
+DAY_WINDOW_END = time(19, 0)
+"""The right-hand edge of the punch strip. A session running past it is drawn
+off the end of the picture."""
 
 ANCHORS = [
     pytest.param(ANCHOR, id="the Thursday the screenshots are taken on"),
@@ -40,6 +48,7 @@ ANCHORS = [
     pytest.param(date(2026, 4, 7), id="the second day of a leave year"),
     pytest.param(date(2027, 4, 5), id="the last day of a leave year"),
     pytest.param(date(2028, 2, 29), id="a leap day"),
+    pytest.param(date(2027, 1, 14), id="a January anchor, so Christmas is behind it"),
 ]
 
 
@@ -49,6 +58,33 @@ def _worked(session: Session) -> set[date]:
 
 def _absent(session: Session) -> set[date]:
     return set(session.execute(select(AbsenceDay.date)).scalars())
+
+
+def _cached_holidays(session: Session) -> set[date]:
+    return set(session.execute(select(BankHolidayCache.date)).scalars())
+
+
+def _punches(session: Session, when: date) -> list[datetime]:
+    """Every clock reading on one date, in order."""
+    return sorted(
+        moment
+        for moment in session.execute(select(ClockEvent.timestamp)).scalars()
+        if moment.date() == when
+    )
+
+
+def _holidays_around(when: date) -> set[date]:
+    """Every bank holiday the seed could have had to step over.
+
+    Three leave years, because an anchor near either edge of one reaches into
+    its neighbour and `holidays_in` answers for a leave year rather than a
+    calendar year.
+    """
+    return {
+        day
+        for year in (when.year - 1, when.year, when.year + 1)
+        for day, _ in holidays_in(year)
+    }
 
 
 def test_reseeding_removes_existing_balance_corrections(session: Session) -> None:
@@ -76,7 +112,7 @@ def test_the_week_the_demo_opens_on_has_work_in_it(
     monday = anchor - timedelta(days=anchor.weekday())
     worked = _worked(session)
     absent = _absent(session)
-    holidays = {when for when, _ in holidays_in(monday.year)}
+    holidays = _holidays_around(monday)
 
     days = [monday + timedelta(days=n) for n in range(anchor.weekday() + 1)]
     accounted = [
@@ -117,8 +153,7 @@ def test_no_absence_lands_where_flexi_would_refuse_to_book_one(
     """
     seed_demo(session, anchor=anchor)
 
-    holidays = {when for when, _ in holidays_in(anchor.year)}
-    holidays |= {when for when, _ in holidays_in(anchor.year - 1)}
+    holidays = _holidays_around(anchor)
 
     for when in _absent(session):
         assert when.weekday() <= samples.FRIDAY, f"{when:%a %d %b} is a weekend"
@@ -191,9 +226,109 @@ def test_the_screenshot_anchor_still_seeds_what_it_always_did(
     seed_demo(session)
 
     assert holidays_in(2026) == (
+        (date(2026, 4, 6), "Easter Monday"),
         (date(2026, 5, 4), "Early May bank holiday"),
         (date(2026, 5, 25), "Spring bank holiday"),
         (date(2026, 8, 31), "Summer bank holiday"),
+        (date(2026, 12, 25), "Christmas Day"),
+        (date(2026, 12, 28), "Boxing Day"),
+        (date(2027, 1, 1), "New Year's Day"),
+        (date(2027, 3, 26), "Good Friday"),
+        (date(2027, 3, 29), "Easter Monday"),
     )
     assert max(_worked(session)) == ANCHOR
     assert session.execute(select(ClockEvent)).scalars().all()[-1].action.value == "in"
+
+
+@pytest.mark.parametrize("anchor", ANCHORS)
+def test_a_bank_holiday_is_never_a_day_with_work_on_it(
+    session: Session, anchor: date
+) -> None:
+    """Nobody clocks in on Christmas Day, and the demo should not say they did.
+
+    The seed used to know about three bank holidays, all of them in May and
+    August, so every Easter and every Christmas in the span was generated as an
+    ordinary working day.
+    """
+    seed_demo(session, anchor=anchor)
+
+    cached = _cached_holidays(session)
+    assert cached, "the demo has to know some bank holidays"
+    assert _worked(session) & cached == set()
+    assert _absent(session) & cached == set()
+
+
+def test_christmas_is_drawn_as_a_bank_holiday(session: Session) -> None:
+    """The one a reader notices, on a demo opened in the new year."""
+    seed_demo(session, anchor=date(2027, 1, 14))
+
+    assert date(2026, 12, 25) in _cached_holidays(session)
+    assert date(2026, 12, 25) not in _worked(session)
+
+
+def test_the_half_day_works_half_a_day(session: Session) -> None:
+    """Its morning is booked as annual leave, so its afternoon owes half a day.
+
+    Given a whole contract it drew a day off that also earned nearly four hours
+    of flexi and ran to 20:36, past the right-hand edge of the punch strip.
+    """
+    seed_demo(session)
+
+    half = (
+        session.execute(
+            select(AbsenceDay.date).where(AbsenceDay.portion != Portion.FULL)
+        )
+        .scalars()
+        .one()
+    )
+    start, finish = _punches(session, half)
+    contracted = timedelta(minutes=DEFAULT_CONTRACTED_MINUTES)
+
+    assert finish - start < contracted * 0.75
+    assert finish.time() < DAY_WINDOW_END
+
+
+@pytest.mark.parametrize(
+    ("now", "sessions", "punches"),
+    [
+        pytest.param(time(7, 0), 0, 0, id="before the arrival it would have seeded"),
+        pytest.param(time(10, 0), 1, 1, id="on the clock since the morning"),
+        pytest.param(time(13, 0), 1, 2, id="off the clock at lunch"),
+        pytest.param(time(15, 0), 2, 3, id="back from lunch and still on"),
+    ],
+)
+def test_the_anchor_day_records_nothing_later_than_now(
+    session: Session, now: time, sessions: int, punches: int
+) -> None:
+    """A demo seeded at nine cannot show a clock-in at twenty past one.
+
+    It did, and `flexi --demo` opened claiming a session that had not started,
+    a morning that had not happened, and a clock-out key that answered "That
+    clock-out is earlier than the clock-in".
+    """
+    seed_demo(session, anchor=ANCHOR, now=now)
+
+    readings = _punches(session, ANCHOR)
+    fetched = session.execute(select(BankHolidayRefresh.fetched_at)).scalars().one()
+    today = session.execute(
+        select(WorkSession.id).where(WorkSession.work_date == ANCHOR)
+    ).scalars()
+
+    assert len(list(today)) == sessions
+    assert len(readings) == punches
+    assert all(moment.time() <= now for moment in readings)
+    assert fetched.time() <= now
+
+
+@pytest.mark.parametrize("now", [time(10, 0), time(15, 0)])
+def test_the_seeded_open_session_can_be_clocked_out_of(
+    session: Session, now: time
+) -> None:
+    """The first key a stranger presses on the dashboard has to work."""
+    seed_demo(session, anchor=ANCHOR, now=now)
+
+    result = build_services(session).clock.clock_out(
+        now=datetime.combine(ANCHOR, now, tzinfo=UTC)
+    )
+
+    assert result.success, result.message
