@@ -8,6 +8,7 @@ a machine that had never run the application.
 
 from __future__ import annotations
 
+import stat
 import sys
 from pathlib import Path
 
@@ -123,3 +124,20 @@ def test_ensure_is_how_a_directory_gets_made(tmp_path: Path) -> None:
     assert locations.ensure(target) == target
     assert target.is_dir()
     assert locations.ensure(target) == target  # idempotent
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
+def test_a_directory_flexi_makes_is_private_to_its_owner(tmp_path: Path) -> None:
+    """The database under it holds sick days and the notes beside them.
+
+    A default umask leaves 0755, so on a shared machine every other account can
+    read them. `mkdir` carries the mode only to a directory it creates, and the
+    one on a machine that has run an older Flexi is already there.
+    """
+    fresh = tmp_path / "fresh"
+    already = tmp_path / "already"
+    already.mkdir()
+    already.chmod(0o755)
+
+    assert stat.S_IMODE(locations.ensure(fresh).stat().st_mode) == 0o700
+    assert stat.S_IMODE(locations.ensure(already).stat().st_mode) == 0o700

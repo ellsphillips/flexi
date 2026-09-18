@@ -8,8 +8,9 @@
    because Textual scopes variables declared inside a stylesheet to *that
    stylesheet only* — a `$c-accent` written here would be invisible to
    `styles/dashboard.tcss`. Going through the theme means every screen can use
-   these names without re-declaring them, and there is still exactly one place a
-   colour is written down.
+   these names without re-declaring them. A colour is chosen here; the copy in
+   `flexi.theme.FALLBACK` answers on a machine where this file cannot be read,
+   and a test holds the two together.
 
    Add a colour to the PALETTE block and every screen gets it. Do not declare
    `$` variables outside that block; they will not travel.

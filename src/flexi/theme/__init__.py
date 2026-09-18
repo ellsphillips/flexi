@@ -2,7 +2,9 @@
 
 Textual scopes CSS variables to the file that declares them, so the PALETTE
 block is parsed out of ``flexi.tcss`` and republished through a Textual
-``Theme``. That leaves exactly one place where a colour is written down.
+``Theme``. ``flexi.tcss`` is where a colour is chosen. :data:`FALLBACK` is a
+second copy of the entries Python asks for by name, for a machine where that
+file cannot be read, and ``tests/test_theme.py`` holds the two to each other.
 
 Two traps: an undefined variable fails during CSS parse at startup rather than
 at render, and ``App.theme = "flexi"`` raises unless ``register_theme`` has
@@ -80,18 +82,15 @@ PALETTE_DECLARATION: Final = re.compile(
 )
 
 # Fallbacks, used only if the stylesheet cannot be read. They are the same
-# values as the PALETTE block; a mismatch here is a bug, and
-# `tests/test_theme.py` asserts the two agree.
+# values as the PALETTE block, which is the one duplicated list of colours in
+# the design system; a mismatch here is a bug, and `tests/test_theme.py`
+# asserts the two agree.
 FALLBACK: Final[Mapping[str, str]] = MappingProxyType(
     {
         # Every colour Python asks for by name. The other twenty-six declarations
         # in the stylesheet are only ever read as `$c-...` from the stylesheet
         # itself, which could not be read at all if it could not be parsed -- so a
         # fallback for one of those would answer a question nobody could ask.
-        #
-        # Five of these were also written out as literal `fallback=` arguments at
-        # call sites, where three were unreachable, so the module that says there
-        # is "exactly one place where a colour is written down" had three.
         "c-ink": "#0F0E0D",
         "c-surface": "#171614",
         "c-raised": "#201E1B",

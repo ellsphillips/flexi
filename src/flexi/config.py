@@ -12,11 +12,20 @@ the property that matters rather than the count.
 
 from __future__ import annotations
 
+import re
+from collections import Counter
 from pathlib import Path
 from typing import Annotated
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from flexi.constants import AbsenceType, Granularity
 from flexi.locations import config_file
@@ -40,19 +49,30 @@ MAXIMUM_TICK_SECONDS = 60
 """Slowest supported live-clock refresh interval."""
 
 
+_KEY_COMPONENT = re.compile(r"[A-Za-z0-9_-]+|\S")
+"""One part of a chord: a Textual key name, or a single character."""
+
+
 def normalise_hotkey(value: str) -> str:
     """Return a canonical comma-separated Textual key list.
 
     Textual treats commas and plus signs as separators. Empty segments reach
     ``Binding`` and raise during module import, before Flexi can draw an error
-    or fall back. Outer whitespace is harmless and removed; whitespace inside
-    a key name and missing chord components are rejected as malformed config.
+    or fall back. Outer whitespace is harmless and removed.
+
+    A key is a Textual key name or the single character it stands for, so
+    `slash`, `/` and `ctrl+l` are all keys. A longer value is markup wherever
+    the key is drawn: the dashboard puts `period_cycle` in a border subtitle
+    and the help screen puts every key in a `Static`, and both read `[/]` as a
+    closing tag with nothing to close.
     """
     bindings = tuple(binding.strip() for binding in value.split(","))
     malformed = any(
         not binding
-        or any(character.isspace() for character in binding)
-        or any(not modifier for modifier in binding.split("+"))
+        or any(
+            _KEY_COMPONENT.fullmatch(component) is None
+            for component in binding.split("+")
+        )
         for binding in bindings
     )
     if malformed:
@@ -70,7 +90,6 @@ class Hotkeys(BaseModel):
     clock_toggle: str = "slash"
     toggle_jump_mode: str = "v"
     help: str = "question_mark"
-    log: str = "ctrl+l"
 
     # period
     period_day: str = "d"
@@ -104,6 +123,27 @@ class Hotkeys(BaseModel):
     def normalise_bindings(cls, value: str) -> str:
         """Validate every binding before Textual imports it."""
         return normalise_hotkey(value)
+
+    @model_validator(mode="after")
+    def reject_keys_bound_twice(self) -> Hotkeys:
+        """Refuse a key that two actions answer to.
+
+        Textual gives the key to one of them and says nothing about the other,
+        so the second action is unreachable and the help screen offers no clue
+        which one won. The whole section falls back, as it does for a
+        misspelled field name: a keymap with one dead binding exists in no file
+        and cannot be recovered by fixing the line that caused it.
+        """
+        counted = Counter(
+            key
+            for name in type(self).model_fields
+            for key in str(getattr(self, name)).split(",")
+        )
+        shared = sorted(key for key, count in counted.items() if count > 1)
+        if shared:
+            msg = f"One key, one action: {', '.join(shared)} is bound twice"
+            raise ValueError(msg)
+        return self
 
     def book(self, kind: AbsenceType) -> str:
         """The key that books one kind of absence.
@@ -163,16 +203,20 @@ def load_config(path: Path | None = None) -> Config:
 
     A malformed file yields the defaults rather than refusing to start: a typo
     in a keybinding should not lock somebody out of their own time records.
-    "Malformed" includes the wrong encoding. A file saved as UTF-16 -- which
-    Notepad and PowerShell's `>` both do without being asked -- raised
-    `UnicodeDecodeError`, which is a `ValueError` and not caught by either of
-    the other two, so it escaped. `CONFIG` is bound at module scope, so that was
-    not a TUI that would not start: it was `import flexi.config` raising, which
-    takes `flexi --version` down with it.
+    `CONFIG` is bound at module scope, so anything that escapes here is not a
+    TUI that will not start: it is `import flexi.config` raising, which takes
+    `flexi --version` down with it. A document nested past the interpreter's
+    recursion limit is malformed in exactly that way, and `RecursionError` is
+    no more its author's business than a syntax error is.
 
-    Not `errors="replace"`, and no encoding sniffing. Silently mis-decoding a
-    keybinding into a character nobody can type is worse than falling back to
-    the defaults and leaving the file for its author to fix.
+    PyYAML is handed the bytes rather than a decoded string, so a byte order
+    mark chooses the encoding: PowerShell's `>` writes UTF-16 without being
+    asked, and a file that says which encoding it is in is read in it. Bytes
+    that name no encoding are UTF-8, and bytes that decode as nothing at all
+    are malformed like any other bad input. No sniffing beyond the mark:
+    silently mis-decoding a keybinding into a character nobody can type is
+    worse than falling back to the defaults and leaving the file for its author
+    to fix.
 
     Section by section, though, and not wholesale. Validated as one document, a
     single unknown key under `defaults` -- and `extra="forbid"` makes an unknown
@@ -182,8 +226,8 @@ def load_config(path: Path | None = None) -> Config:
     """
     path = path or config_file()
     try:
-        raw: object = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        raw: object = yaml.safe_load(path.read_bytes())
+    except (OSError, yaml.YAMLError, RecursionError):
         return Config()
     if not isinstance(raw, dict):
         return Config()

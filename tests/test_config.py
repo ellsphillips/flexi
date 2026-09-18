@@ -9,6 +9,7 @@ their own time records.
 
 from __future__ import annotations
 
+import codecs
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,9 @@ from flexi.config import (
     section,
 )
 from flexi.constants import AbsenceType
+
+CLOCK_TOGGLE_C = "hotkeys:\n  clock_toggle: c\n"
+"""A valid file, spelled in whichever encoding a test is about."""
 
 
 def written(path: Path, text: str) -> Path:
@@ -69,6 +73,52 @@ def test_an_incomplete_hotkey_is_rejected_before_app_import(value: str) -> None:
         Hotkeys(clock_toggle=value)
 
 
+@pytest.mark.parametrize("value", ["[/]", "[b]", "[/b]", "[link=x]"])
+def test_a_hotkey_shaped_like_markup_is_rejected(value: str) -> None:
+    """Every key is drawn through Rich markup, and `[/]` closes nothing.
+
+    `period_cycle` goes in the month view's border subtitle, so a bracketed
+    value is a `MarkupError` before the dashboard draws; every other key goes
+    in a `Static` on the help screen, so it is a `MarkupError` the moment `?`
+    is pressed. Either way the file is valid and the application is gone.
+    """
+    with pytest.raises(ValidationError, match="complete key names"):
+        Hotkeys(period_cycle=value)
+
+
+@pytest.mark.parametrize("value", ["/", "[", "]", "!", "f1", "ctrl+l", "ctrl+shift+b"])
+def test_a_key_textual_understands_is_accepted(value: str) -> None:
+    """Textual maps a single character to its key name, and the docs use `/`."""
+    assert Hotkeys(clock_toggle=value).clock_toggle == value
+
+
+def test_one_key_may_only_answer_to_one_action() -> None:
+    """`book_annual: g` against the default `go_to_date: g` leaves A dead.
+
+    Textual gives the key to one of them and says nothing about the other, and
+    the help screen offers no clue which one won.
+    """
+    with pytest.raises(ValidationError, match="bound twice"):
+        Hotkeys(book_annual="g")
+
+
+def test_a_key_listed_beside_another_counts_as_bound() -> None:
+    """A comma-separated list is two bindings, not one string to compare."""
+    with pytest.raises(ValidationError, match="bound twice"):
+        Hotkeys(today="t,g")
+
+
+def test_a_hotkey_section_that_binds_a_key_twice_falls_back(tmp_path: Path) -> None:
+    """The whole section goes, as it does for a misspelled field name.
+
+    A keymap with one dead binding in it exists in no file and cannot be
+    recovered by fixing the line that caused it.
+    """
+    path = written(tmp_path / "config.yaml", "hotkeys:\n  book_annual: g\n")
+
+    assert load_config(path).hotkeys == Hotkeys()
+
+
 def test_a_malformed_hotkey_section_falls_back_to_safe_defaults(
     tmp_path: Path,
 ) -> None:
@@ -93,19 +143,66 @@ def test_a_file_that_is_not_yaml_at_all_gets_the_defaults(tmp_path: Path) -> Non
     assert load_config(broken) == Config()
 
 
-@pytest.mark.parametrize("encoding", ["utf-16", "utf-32"])
-def test_a_file_saved_in_the_wrong_encoding_gets_the_defaults(
-    tmp_path: Path, encoding: str
-) -> None:
-    """Notepad and PowerShell's `>` both write UTF-16 without being asked.
+def test_a_file_nested_too_deep_to_parse_gets_the_defaults(tmp_path: Path) -> None:
+    """A stack overflow is not a `YAMLError`, and `CONFIG` is read at import.
 
-    `UnicodeDecodeError` is a `ValueError`, so it was caught by neither `OSError`
-    nor `yaml.YAMLError` and escaped `load_config` entirely. `CONFIG` is bound at
-    module scope, so this was not a TUI that would not start -- it was
-    `import flexi.config` raising, which takes `flexi --version` with it.
+    Uncaught it is a raw `RecursionError` traceback out of `flexi clock in`,
+    `flexi balance` and the dashboard alike, from a file the docstring promises
+    yields the defaults.
+    """
+    deep = written(tmp_path / "config.yaml", "[" * 1000 + "]" * 1000)
+    with pytest.raises(RecursionError):
+        yaml.safe_load(deep.read_bytes())
+
+    assert load_config(deep) == Config()
+
+
+@pytest.mark.parametrize(
+    "encoded",
+    [
+        pytest.param(CLOCK_TOGGLE_C.encode("utf-8-sig"), id="utf-8-with-a-mark"),
+        pytest.param(CLOCK_TOGGLE_C.encode("utf-16"), id="utf-16"),
+        pytest.param(
+            codecs.BOM_UTF16_BE + CLOCK_TOGGLE_C.encode("utf-16-be"),
+            id="utf-16-big-endian",
+        ),
+    ],
+)
+def test_a_file_that_declares_its_encoding_is_read_in_it(
+    tmp_path: Path, encoded: bytes
+) -> None:
+    """PowerShell's `>` writes UTF-16 with a byte order mark without being asked.
+
+    Decoded as UTF-8 that file is a `UnicodeDecodeError` and every line in it
+    is discarded, so a Windows user's preferences are ignored in silence and
+    each edit changes nothing. A mark is a declaration, and PyYAML reads it
+    when it is handed the bytes.
     """
     path = tmp_path / "config.yaml"
-    path.write_bytes("hotkeys:\n  clock_toggle: c\n".encode(encoding))
+    path.write_bytes(encoded)
+
+    assert load_config(path).hotkeys.clock_toggle == "c"
+
+
+@pytest.mark.parametrize(
+    "encoded",
+    [
+        pytest.param(CLOCK_TOGGLE_C.encode("utf-16-le"), id="utf-16-with-no-mark"),
+        pytest.param(CLOCK_TOGGLE_C.encode("utf-32"), id="utf-32"),
+        pytest.param(b"hotkeys:\n  clock_toggle: \xe9\n", id="a-cp1252-byte"),
+    ],
+)
+def test_a_file_in_an_undeclared_encoding_gets_the_defaults(
+    tmp_path: Path, encoded: bytes
+) -> None:
+    """Undeclared is unreadable: UTF-32 wears a mark PyYAML reads as UTF-16.
+
+    Guessing is worse than falling back. A keybinding mis-decoded into a
+    character nobody can type reaches Textual as a real binding, where the
+    defaults leave the file for its author to fix.
+    """
+    path = tmp_path / "config.yaml"
+    path.write_bytes(encoded)
 
     assert load_config(path) == Config()
 
@@ -233,12 +330,12 @@ def test_a_bad_section_does_not_take_the_good_one_with_it(tmp_path: Path) -> Non
     """
     path = written(
         tmp_path / "config.yaml",
-        "hotkeys:\n  clock_toggle: x\ndefaults:\n  round_to_minutes: 1\n",
+        "hotkeys:\n  clock_toggle: c\ndefaults:\n  round_to_minutes: 1\n",
     )
 
     config = load_config(path)
 
-    assert config.hotkeys.clock_toggle == "x", "the section that read was discarded"
+    assert config.hotkeys.clock_toggle == "c", "the section that read was discarded"
     assert config.defaults == Defaults(), "and the one that did not falls back"
 
 

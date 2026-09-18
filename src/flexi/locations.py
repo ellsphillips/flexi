@@ -95,6 +95,18 @@ def backups_directory() -> Path:
 
 
 def ensure(directory: Path) -> Path:
-    """Create a directory and return it, for the moment before a write."""
-    directory.mkdir(parents=True, exist_ok=True)
+    """Create a directory, private to its owner, and return it.
+
+    For the moment before a write. What goes in here is clock times, sick days
+    and the notes beside them, and on a shared machine the 0755 a default umask
+    produces is readable by every other account on it. The XDG specification
+    asks for 0700 on a base directory for the same reason.
+
+    Both lines are needed: `mkdir` applies its mode to the leaf alone and the
+    umask masks it, and neither applies at all to a directory that is already
+    there. On Windows the mode is ignored and `chmod` reaches only the
+    read-only attribute, which 0o700 leaves clear.
+    """
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    directory.chmod(0o700)
     return directory
