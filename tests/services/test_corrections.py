@@ -29,6 +29,7 @@ from flexi.services.clock import (
 from flexi.services.registry import Services, build_services
 from tests.services.conftest import Configured
 
+SUNDAY = date(2026, 6, 7)
 MONDAY = date(2026, 6, 8)
 TUESDAY = date(2026, 6, 9)
 TODAY = date(2026, 6, 11)
@@ -202,6 +203,43 @@ def test_a_correction_may_not_claim_hours_a_running_session_is_claiming(
     assert day.worked == timedelta(hours=5)
 
 
+def test_a_correction_may_not_run_past_now(
+    clock: ClockService, session: Session
+) -> None:
+    """Hours that have not happened are a plan, and the clock will record them.
+
+    An afternoon meeting typed in at ten and then worked through is the same
+    two hours twice: once amended, once punched, and the balance is credited
+    for both.
+    """
+    result = clock.correct(TODAY, time(14, 0), time(16, 0), now=TODAY)
+
+    assert result.success is False
+    assert result.message == "A correction cannot run past now"
+    assert clock.clock_in(now=datetime.combine(TODAY, time(13, 0), tzinfo=UTC)).success
+    assert clock.clock_out(now=datetime.combine(TODAY, time(17, 0), tzinfo=UTC)).success
+    assert build_services(session).ledger.day(TODAY).worked == timedelta(hours=4)
+
+
+def test_a_correction_cannot_claim_an_hour_a_night_shift_claimed(
+    clock: ClockService,
+) -> None:
+    """A session belongs to the day it opened, and still spends the next one.
+
+    Ten at night to two in the morning is dated Sunday. Asking Monday's rows
+    alone leaves one until two free to be typed in again, and the hour is paid
+    for twice.
+    """
+    assert clock.clock_in(now=datetime.combine(SUNDAY, time(22, 0), tzinfo=UTC)).success
+    assert clock.clock_out(now=datetime.combine(MONDAY, time(2, 0), tzinfo=UTC)).success
+
+    result = clock.correct(MONDAY, time(1, 0), time(3, 0), now=TODAY)
+
+    assert result.success is False
+    assert "overlaps" in result.message
+    assert clock.correct(MONDAY, time(2, 0), time(4, 0), now=TODAY).success is True
+
+
 def test_a_day_booked_off_in_full_cannot_also_be_corrected(
     services: Services, clock: ClockService
 ) -> None:
@@ -231,6 +269,45 @@ def test_half_a_day_booked_leaves_the_other_half_correctable(
     assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM).success
 
     assert clock.correct(MONDAY, time(13, 0), time(17, 0), now=TODAY).success is True
+
+
+def test_a_correction_over_a_booked_morning_is_refused(
+    services: Services, clock: ClockService
+) -> None:
+    """The half is spent out of the allowance; working it again is paid twice.
+
+    The booking side refuses the mirror image through `DayFacts.has_work_in`,
+    and a rule the two ends read differently is a rule with a hole in it.
+    """
+    assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM).success
+
+    result = clock.correct(MONDAY, time(9, 0), time(17, 0), now=TODAY)
+
+    assert result.success is False
+    booked_off = f"The morning of {short_date(MONDAY)} is already booked off"
+    assert result.message == booked_off
+    assert clock.segments_on(MONDAY) == []
+
+
+def test_a_correction_running_past_midday_meets_a_booked_afternoon(
+    services: Services, clock: ClockService
+) -> None:
+    """Ending after twelve is what makes a stretch the afternoon's business."""
+    assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.PM).success
+
+    result = clock.correct(MONDAY, time(9, 0), time(13, 0), now=TODAY)
+
+    assert result.success is False
+    assert "afternoon" in result.message
+
+
+def test_a_booked_afternoon_leaves_the_morning_correctable(
+    services: Services, clock: ClockService
+) -> None:
+    """Stopping at twelve is the other half of the same boundary."""
+    assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.PM).success
+
+    assert clock.correct(MONDAY, time(9, 0), time(12, 0), now=TODAY).success is True
 
 
 def test_a_bank_holiday_can_still_be_corrected(configure: Configured) -> None:

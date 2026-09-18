@@ -10,15 +10,17 @@ went back it ran a live session backwards and then deleted it.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
+import time_machine
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent
 from flexi.models.database.moment import moment_of
+from flexi.services.clock import CORRECTION_BACKWARDS, CORRECTION_EMPTY
 from flexi.services.registry import build_services
 
 pytestmark = pytest.mark.usefixtures("in_london")
@@ -150,3 +152,24 @@ def test_a_backwards_session_is_refused_rather_than_voided(session: Session) -> 
     assert [event.action for event in session.query(ClockEvent).all()] == [
         ClockAction.IN
     ]
+
+
+def test_a_correction_inside_the_lost_hour_records_nothing(session: Session) -> None:
+    """The hour the clocks skip has no instants in it.
+
+    01:00 and 02:00 on the spring Sunday name the same moment, so a stretch
+    between them covers no time at all. Measured as the wall readings they were
+    typed as, they are an hour apart, and the guard against an empty correction
+    is walked straight past: a session of 0:00 goes into the table, indoors
+    among real ones.
+    """
+    service = build_services(session).clock
+    spring = date.fromisoformat(SPRING)
+
+    with time_machine.travel(_at("2026-03-30T09:00"), tick=False):
+        empty = service.correct(spring, time(1, 0), time(2, 0))
+        backwards = service.correct(spring, time(1, 30), time(2, 15))
+
+    assert (empty.success, empty.message) == (False, CORRECTION_EMPTY)
+    assert (backwards.success, backwards.message) == (False, CORRECTION_BACKWARDS)
+    assert session.query(ClockEvent).all() == []

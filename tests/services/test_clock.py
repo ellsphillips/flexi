@@ -344,6 +344,21 @@ def test_half_a_day_off_still_leaves_the_other_half_to_work(ready: Services) -> 
     assert ready.clock.get_open_session() is not None
 
 
+def test_clocking_in_during_a_booked_half_is_refused(ready: Services) -> None:
+    """The booked morning is spent out of the allowance and expects no work.
+
+    Worked as well, it is paid for twice: once out of the leave balance and
+    once into the flexi balance. `correct` draws the same line.
+    """
+    ready.absence.book(TUESDAY, AbsenceType.SICK, Portion.AM)
+
+    result = ready.clock.clock_in(now=datetime(2026, 8, 25, 9, 0))
+
+    assert result.success is False
+    assert result.message == "Cannot clock in during a booked morning"
+    assert ready.clock.get_open_session() is None
+
+
 # ---------- losing a race to another writer ----------
 
 

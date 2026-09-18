@@ -17,7 +17,8 @@ from datetime import date, time, timedelta
 import time_machine
 from sqlalchemy.orm import Session
 
-from flexi.constants import DayKind, Division
+from flexi.constants import AbsenceType, DayKind, Division
+from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import Services, build_services, invalidate_services
 from flexi.services.settings import SettingsUpdate
 from tests.services.conftest import CONTRACTED, Configured, work
@@ -269,3 +270,73 @@ def test_a_correction_after_setup_is_measured_against_the_contract(
 
         assert banked(services, INSTALLED) == before + timedelta(hours=3, minutes=30)
         assert services.ledger.day(tracked_day).expected == CONTRACTED
+
+
+# -- TOIL drawn against a day nothing was expected of -------------------------
+
+
+def test_a_toil_day_from_before_setup_withdraws_nothing(
+    configure: Configured,
+) -> None:
+    """Flexi expects nothing of the days before it, so it may charge for none.
+
+    Back-filling last quarter's absences from a spreadsheet is a record, not a
+    withdrawal. The day asked for no work, so there is no deficit for a day of
+    TOIL to pay off, and a balance just settled with `flexi balance zero` fell
+    by 7:24 for every one entered.
+    """
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
+        before = banked(services, INSTALLED)
+
+        assert services.absence.book(BEFORE_SETUP, AbsenceType.FLEXI).success
+        invalidate_services(services)
+
+        day = services.ledger.day(BEFORE_SETUP)
+        assert day.toil_taken == timedelta()
+        assert day.balance_effect == timedelta()
+        assert banked(services, INSTALLED) == before
+
+
+def test_a_toil_day_the_stamp_covers_still_costs_a_day(
+    configure: Configured,
+) -> None:
+    """The carve-out stops at the stamp, exactly as it does for a correction."""
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=LEAVE_YEAR_OPENED)
+
+        assert services.absence.book(BEFORE_SETUP, AbsenceType.FLEXI).success
+        invalidate_services(services)
+
+        day = services.ledger.day(BEFORE_SETUP)
+        assert day.toil_taken == CONTRACTED
+        assert day.balance_effect == -CONTRACTED
+
+
+def test_toil_on_a_day_that_became_a_bank_holiday_withdraws_nothing(
+    configure: Configured, session: Session
+) -> None:
+    """GOV.UK publishes a one-off holiday on a Monday already booked as TOIL.
+
+    The day stops expecting work and the clock refuses it, so a full day taken
+    out of the balance pays off a deficit that no longer exists -- and the
+    calendar beside it paints the day as the holiday it became.
+    """
+    booked = date(2026, 6, 15)
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=LEAVE_YEAR_OPENED)
+        assert services.absence.book(booked, AbsenceType.FLEXI).success
+        session.add(
+            BankHolidayCache(
+                division="england-and-wales",
+                date=booked,
+                title="A one-off bank holiday",
+            )
+        )
+        session.commit()
+        invalidate_services(services)
+
+        day = services.ledger.day(booked)
+        assert day.kind is DayKind.HOLIDAY
+        assert day.toil_taken == timedelta()
+        assert day.balance_effect == timedelta()

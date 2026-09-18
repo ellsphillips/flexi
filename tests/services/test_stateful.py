@@ -160,6 +160,20 @@ class TimesheetModel(RuleBasedStateMachine):
         self.sessions.append((self.open_since, closed_at, length < self.minimum))
         self.open_since = None
 
+    def _booked_over(self, moment: datetime) -> bool:
+        """Whether an absence booked on a date is spoken for at this moment.
+
+        A booked morning leaves the afternoon workable, so only a moment inside
+        the half that is booked is refused. Noon exactly is in neither half,
+        which is where the booking side puts the boundary too.
+        """
+        booked = self.observed_absences.get(moment.date(), {})
+        if covers_the_whole_day(booked):
+            return True
+        if Portion.AM in booked and moment.time() < time(12, 0):
+            return True
+        return Portion.PM in booked and moment.time() > time(12, 0)
+
     @rule()
     def clock_in(self) -> None:
         with time_machine.travel(self.now, tick=False):
@@ -170,7 +184,7 @@ class TimesheetModel(RuleBasedStateMachine):
         expected = (
             self.open_since is None
             and self.now.date() != HOLIDAY
-            and not covers_the_whole_day(booked)
+            and not self._booked_over(self.now)
         )
         assert result.success is expected, (
             f"clock in at {self.now} with open={self.open_since} "

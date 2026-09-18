@@ -35,23 +35,30 @@ def stage_clock_in(
     ``IntegrityError`` through the result-oriented service API. Its speculative
     IN event is deleted in the same transaction, preserving the immutable audit
     trail without an orphan.
+
+    The row is found by its clock-in, which is unique, rather than by a
+    ``RETURNING`` clause: SQLite gained one in 3.35, later than the libsqlite3
+    the distribution Pythons of RHEL 9, Debian 11 and Ubuntu 20.04 link
+    against, where an explicit clause is a syntax error on the first clock-in
+    of a fresh install. Whether the row is there is the same question
+    ``RETURNING`` answers.
     """
     event = punched(ClockAction.IN, opened_at, source=source)
     session.add(event)
     session.flush()
 
-    created_id = session.execute(
+    session.execute(
         insert(WorkSession)
         .values(clock_in_id=event.id, work_date=work_date)
         .on_conflict_do_nothing()
-        .returning(WorkSession.id)
-    ).scalar_one_or_none()
-    if created_id is None:
+    )
+    created = session.scalars(
+        select(WorkSession).where(WorkSession.clock_in_id == event.id)
+    ).one_or_none()
+    if created is None:
         session.delete(event)
         return None
-    return session.scalars(
-        select(WorkSession).where(WorkSession.id == created_id)
-    ).one()
+    return created
 
 
 def stage_clock_out(
@@ -70,13 +77,16 @@ def stage_clock_out(
     for deletion so committing the transaction cannot leave an orphaned audit
     row.  A conditional SQL update, rather than an ORM assignment, makes the
     check and link one database operation even on SQLite, which has no row lock
-    suitable for the preceding read.
+    suitable for the preceding read. Which writer won is read back off the
+    unique clock-out column rather than from a ``RETURNING`` clause: SQLite
+    gained one in 3.35, and the libsqlite3 several supported distributions ship
+    is older.
     """
     event = punched(ClockAction.OUT, closed_at, source=source)
     session.add(event)
     session.flush()
 
-    claimed_id = session.execute(
+    session.execute(
         update(WorkSession)
         .where(
             WorkSession.id == work_session_id,
@@ -88,10 +98,12 @@ def stage_clock_out(
             auto_closed=auto_closed,
             voided=voided,
         )
-        .returning(WorkSession.id)
-        .execution_options(synchronize_session="fetch")
-    ).scalar_one_or_none()
-    if claimed_id is None:
+        .execution_options(synchronize_session="evaluate")
+    )
+    claimed = session.scalars(
+        select(WorkSession).where(WorkSession.clock_out_id == event.id)
+    ).one_or_none()
+    if claimed is None:
         session.delete(event)
         return False
     return True

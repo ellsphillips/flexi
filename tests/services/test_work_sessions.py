@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, event, select
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction, EventSource
@@ -15,6 +17,21 @@ from flexi.services.work_sessions import stage_clock_in, stage_clock_out
 
 MONDAY = date(2026, 8, 10)
 NINE = datetime(2026, 8, 10, 9, tzinfo=UTC)
+
+
+@contextmanager
+def sent_to(engine: Engine) -> Iterator[list[str]]:
+    """Every statement the engine sends while the block runs."""
+    seen: list[str] = []
+
+    def record(*args: object) -> None:
+        seen.append(str(args[2]))
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        yield seen
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
 
 
 def test_two_writers_cannot_both_open_a_session(engine: Engine) -> None:
@@ -117,3 +134,31 @@ def test_a_voided_open_session_cannot_claim_a_clock_out(engine: Engine) -> None:
 
     assert closed is False
     assert clock_outs == []
+
+
+def test_clocking_asks_for_no_syntax_sqlite_3_34_lacks(engine: Engine) -> None:
+    """RETURNING arrived in SQLite 3.35; RHEL 9 and Debian 11 link 3.34.1.
+
+    SQLAlchemy withholds its own RETURNING below that version, and switching
+    the dialect's three flags off is what one of those machines looks like. An
+    explicit clause is not withheld, so it reaches the database as a syntax
+    error on the first clock-in of a fresh install.
+    """
+    engine.dialect.insert_returning = False
+    engine.dialect.update_returning = False
+    engine.dialect.delete_returning = False
+
+    with Session(engine) as session, sent_to(engine) as sent:
+        with atomic(session):
+            opened = stage_clock_in(session, NINE, MONDAY, source=EventSource.USER)
+        assert opened is not None
+        with atomic(session):
+            closed = stage_clock_out(
+                session,
+                opened.id,
+                NINE + timedelta(hours=8),
+                source=EventSource.USER,
+            )
+
+    assert closed is True
+    assert [one for one in sent if "RETURNING" in one.upper()] == []

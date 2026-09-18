@@ -235,7 +235,16 @@ class LedgerService:
                 contracted=contracted,
                 worked=worked,
                 expected=expected,
-                toil_taken=toil_taken_for(contracted, slices),
+                # A day before the stamp and a bank holiday both ask for
+                # nothing, and TOIL is a withdrawal against what a day asked
+                # for. Charged anyway, a back-filled day off or a Monday
+                # GOV.UK later declared a holiday takes 7:24 out of a balance
+                # that was already settled.
+                toil_taken=(
+                    toil_taken_for(contracted, slices)
+                    if is_tracked and title is None
+                    else timedelta()
+                ),
                 adjustment=corrections.get(when, timedelta()),
                 holiday_title=title,
                 absences=slices,

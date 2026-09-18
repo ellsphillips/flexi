@@ -7,9 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
-from flexi.constants import EventSource
+from flexi.constants import EventSource, Portion
 from flexi.domain.format import hm, short_date, spoken
-from flexi.domain.ledger import Segment
+from flexi.domain.ledger import MIDDAY_HOUR, Segment
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
@@ -89,8 +89,15 @@ class ClockService:
     def is_clocked_in(self) -> bool:
         return self.get_open_session() is not None
 
-    def _fully_booked(self, work_date: date) -> bool:
-        """Whether booked absence leaves no half of a date left to work.
+    def _booked_over(
+        self, work_date: date, opened_at: datetime, closed_at: datetime
+    ) -> Portion | None:
+        """Which booked portion a stretch of work collides with, or ``None``.
+
+        The inverse of `DayFacts.has_work_in`, which is the rule the booking
+        side runs on, so the two cannot disagree: a morning booked off and then
+        worked is a day paid for twice, once out of the leave allowance and
+        once into the flexi balance.
 
         Asked by both routes into a work session, which is the point: the guard
         used to live inline in `clock_in` only, so `correct` -- the other way a
@@ -102,7 +109,15 @@ class ClockService:
         a traceback.
         """
         stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
-        return covers_the_whole_day(self._session.execute(stmt).scalars().all())
+        booked = list(self._session.execute(stmt).scalars().all())
+        if covers_the_whole_day(booked):
+            return Portion.FULL
+        midday = wallclock.local(datetime.combine(work_date, time(MIDDAY_HOUR, 0)))
+        if Portion.AM in booked and opened_at < midday:
+            return Portion.AM
+        if Portion.PM in booked and closed_at > midday:
+            return Portion.PM
+        return None
 
     def sweep(self) -> None:
         """Close work left running on an earlier day.
@@ -140,9 +155,18 @@ class ClockService:
                     success=False, message="Cannot clock in on a bank holiday"
                 )
 
-            if self._fully_booked(work_date):
+            # The moment itself, not the rest of the day: a booked morning
+            # leaves the afternoon workable, and clocking in at one o'clock is
+            # what working it looks like.
+            booked = self._booked_over(work_date, moment, moment)
+            if booked is Portion.FULL:
                 return ClockResult(
                     success=False, message="Cannot clock in on an absence day"
+                )
+            if booked is not None:
+                return ClockResult(
+                    success=False,
+                    message=f"Cannot clock in during a booked {booked.noun}",
                 )
 
             work_session = stage_clock_in(
@@ -235,47 +259,70 @@ class ClockService:
         for merging them is better than a person looking at both and saying
         which is right.
 
-        A day already booked off in full is refused for the same reason. The
+        A part of the day already booked off is refused for the same reason. The
         absence spends a day of allowance and expects no work, so hours recorded
         on top of it are pure surplus: the day is paid for twice, once out of the
-        leave balance and once into the flexi balance. Half a day booked is left
-        alone, exactly as `clock_in` leaves it -- a booked morning and a worked
-        afternoon is an ordinary day.
+        leave balance and once into the flexi balance. The other half stays
+        correctable, exactly as `clock_in` leaves it -- a booked morning and a
+        worked afternoon is an ordinary day.
+
+        Hours that have not happened yet are refused too. A stretch ending after
+        now is a plan, and the hours it claims are the ones somebody is about to
+        clock for real.
 
         A bank holiday is deliberately *not* refused here, though `clock_in`
         refuses one. Nobody can clock in on a bank holiday, so a correction is
         the only way to record work that genuinely happened on one, and unlike
         booked leave it spends no allowance -- the surplus it earns is real.
         """
-        today = now or wallclock.today()
+        moment = wallclock.now()
+        today = now or moment.date()
         if day > today:
             return ClockResult(success=False, message=CORRECTION_FUTURE)
-        if closed < opened:
-            return ClockResult(success=False, message=CORRECTION_BACKWARDS)
-        if closed == opened:
-            return ClockResult(success=False, message=CORRECTION_EMPTY)
 
+        # Localised before they are measured. The hour the clocks skip in
+        # March holds no instants, so on that Sunday 01:00 and 02:00 name the
+        # same one and the span between them is nothing; read as wall times
+        # alone they are an hour apart.
         opened_at = wallclock.local(datetime.combine(day, opened))
         closed_at = wallclock.local(datetime.combine(day, closed))
+        span = wallclock.elapsed(opened_at, closed_at)
+        if span < timedelta():
+            return ClockResult(success=False, message=CORRECTION_BACKWARDS)
+        if span == timedelta():
+            return ClockResult(success=False, message=CORRECTION_EMPTY)
+
         with write_transaction(self._session):
-            if self._fully_booked(day):
+            booked = self._booked_over(day, opened_at, closed_at)
+            if booked is Portion.FULL:
                 return ClockResult(
                     success=False,
                     message=CORRECTION_BOOKED.format(day=short_date(day)),
                 )
+            if booked is not None:
+                half = f"{booked.noun} of {short_date(day)}"
+                return ClockResult(
+                    success=False, message=f"The {half} is already booked off"
+                )
             if any(
                 overlapping(existing, opened_at, closed_at)
-                for existing in self.segments_on(day)
+                for existing in self._segments_touching(day)
             ):
                 return ClockResult(
                     success=False,
                     message=CORRECTION_OVERLAP.format(day=short_date(day)),
                 )
+            # Last of the refusals: where a running session and the clock both
+            # object, naming the session is the more useful answer.
+            if closed_at > moment:
+                return ClockResult(
+                    success=False, message="A correction cannot run past now"
+                )
             recorded = stage_correction(self._session, opened_at, closed_at, day)
 
         return ClockResult(
             success=True,
-            message=f"Recorded {hm(closed_at - opened_at)} on {short_date(day)}",
+            message=f"Recorded {hm(span)} on {short_date(day)}",
             session=recorded,
             at=opened_at,
         )
@@ -305,9 +352,27 @@ class ClockService:
 
     def segments_on(self, day: date) -> list[Segment]:
         """Every stretch already recorded on a date, punched or corrected."""
+        return self._segments_dated(day, day)
+
+    def _segments_touching(self, day: date) -> list[Segment]:
+        """Every stretch that can claim time on a date, whenever it opened.
+
+        A session belongs to the day it started on, so one running from ten on
+        Monday night to two on Tuesday morning is dated Monday. It is still two
+        hours of Tuesday, and Tuesday's own rows do not mention it.
+        `overlapping` compares real instants, so a Monday that ended on Monday
+        cannot collide with anything here.
+        """
+        return self._segments_dated(day - timedelta(days=1), day)
+
+    def _segments_dated(self, start: date, end: date) -> list[Segment]:
         stmt = (
             select(WorkSession)
-            .where(WorkSession.work_date == day, WorkSession.voided.is_(False))
+            .where(
+                WorkSession.work_date >= start,
+                WorkSession.work_date <= end,
+                WorkSession.voided.is_(False),
+            )
             .options(
                 selectinload(WorkSession.clock_in_event),
                 selectinload(WorkSession.clock_out_event),

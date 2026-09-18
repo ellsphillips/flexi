@@ -7,11 +7,13 @@ them.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from textual.pilot import Pilot
-from textual.widgets import Digits, Input
+from textual.widgets import Digits, Input, Static
 
+from flexi.app import FlexiApp
+from flexi.components.expandable import ExpandableTable, RowKind
 from flexi.config import CONFIG
 from flexi.domain.format import digits as digits_of
 from flexi.domain.punch import Cell, strip
@@ -26,6 +28,10 @@ from tests.tui.conftest import (
 )
 
 
+def table(app: FlexiApp) -> ExpandableTable:
+    return app.screen.query_one("#records-table", ExpandableTable)
+
+
 async def record(pilot: Pilot[None], opened: str, closed: str) -> None:
     """Open the correction modal, fill it in, and confirm."""
     await pilot.press(CONFIG.hotkeys.new_session)
@@ -38,10 +44,10 @@ async def record(pilot: Pilot[None], opened: str, closed: str) -> None:
     await pilot.pause()
 
 
-async def test_the_key_records_work_on_the_day_being_looked_at(
+async def test_the_key_records_work_on_the_period_anchor(
     app_factory: AppFactory,
 ) -> None:
-    """It opens on the cursor, which is the day somebody has just noticed."""
+    """With the table unfocused there is no cursor to read, so the anchor answers."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -53,6 +59,60 @@ async def test_the_key_records_work_on_the_day_being_looked_at(
         after = app.services.ledger.day(when).worked
         assert after - before == timedelta(hours=1, minutes=30)
         assert "Recorded" in status_text(app)
+
+
+async def test_the_key_records_work_on_the_day_under_the_cursor(
+    app_factory: AppFactory,
+) -> None:
+    """The day somebody is looking at when they notice the morning is missing.
+
+    It opened on the period anchor whatever the cursor was on, so the modal
+    titled "Record work on Thu 11 Jun" wrote Thursday's hours while the cursor
+    sat on Monday.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        when = date(2026, 6, 8)  # a Monday, and not the anchor
+        assert dashboard(app).period.anchor != when
+        before = app.services.ledger.day(when).worked
+
+        widget = table(app)
+        widget.focus()
+        widget.focus_key(f"{RowKind.DAY}{when.isoformat()}")
+        await pilot.pause()
+
+        await pilot.press(CONFIG.hotkeys.new_session)
+        await pilot.pause()
+        assert showing(app, CorrectionModal)._day == when
+
+        modal = app.screen
+        modal.query_one("#correction-from", Input).value = "6:00"
+        modal.query_one("#correction-to", Input).value = "7:30"
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        after = app.services.ledger.day(when).worked
+        assert after - before == timedelta(hours=1, minutes=30)
+
+
+async def test_the_key_falls_back_to_the_anchor_on_a_row_that_names_no_day(
+    app_factory: AppFactory,
+) -> None:
+    """The last row is the period's total and belongs to no day."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        widget.focus()
+        widget.focus_key("t-period")
+        await pilot.pause()
+
+        await pilot.press(CONFIG.hotkeys.new_session)
+        await pilot.pause()
+
+        assert showing(app, CorrectionModal)._day == dashboard(app).period.anchor
 
 
 async def test_a_correction_is_drawn_apart_from_a_punched_session(
@@ -115,6 +175,32 @@ async def test_a_time_that_cannot_be_read_keeps_the_modal_open(
         await pilot.pause()
 
         showing(app, CorrectionModal)
+        assert "elevenish" in str(modal.query_one("#modal-error", Static).render())
+
+
+async def test_a_time_made_of_markup_is_quoted_back_rather_than_rendered(
+    app_factory: AppFactory,
+) -> None:
+    """The refusal quotes what was typed, and the error line rendered it.
+
+    `[/]` is a closing tag with nothing to close, so the sentence promised
+    under the fields took the whole application down with a `MarkupError`.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await pilot.press(CONFIG.hotkeys.new_session)
+        await pilot.pause()
+        modal = showing(app, CorrectionModal)
+        modal.query_one("#correction-from", Input).value = "[/]"
+        modal.query_one("#correction-to", Input).value = "17:00"
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert app._exception is None
+        showing(app, CorrectionModal)
+        assert "[/]" in str(modal.query_one("#modal-error", Static).render())
 
 
 async def test_an_empty_field_asks_for_it_rather_than_guessing(

@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+
+import pytest
+import time_machine
 from textual.widgets import Button, Input, Switch
 
+from flexi.app import FlexiApp
 from flexi.components.modules.clock import ClockModule
+from flexi.constants import ClockAction
 from flexi.messages import Scope
+from flexi.models.database.db import Base, ClockEvent, WorkSession
+from flexi.models.database.engine import create_db_engine, get_session
+from flexi.models.database.moment import moment_of
+from flexi.services.registry import build_services
+from flexi.services.settings import parse_settings
+from tests.conftest import sessions_on
 from tests.tui.conftest import WIDE, AppFactory, dashboard, status_text
 
 
@@ -185,3 +198,73 @@ async def test_a_tick_keeps_every_day_but_today(app_factory: AppFactory) -> None
         assert app.services.ledger.day(yesterday) is kept, (
             "a day nobody wrote to was rebuilt because a second passed"
         )
+
+
+# -- the day turning under an open session ---------------------------------
+
+MONDAY = date(2026, 6, 8)
+MONDAY_FIVE = datetime(2026, 6, 8, 17, 0, tzinfo=UTC)
+TUESDAY_TEN = datetime(2026, 6, 9, 10, 0, tzinfo=UTC)
+
+
+@pytest.fixture
+def monday_open(tmp_path: Path) -> Path:
+    """A configured database with Monday still on the clock."""
+    path = tmp_path / "flexi.db"
+    engine = create_db_engine(path)
+    Base.metadata.create_all(engine)
+    session = get_session(engine)
+
+    build_services(session).settings.save_settings(
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
+    )
+    event = ClockEvent(
+        action=ClockAction.IN,
+        timestamp=datetime(2026, 6, 8, 9, 0),
+        source="user",
+    )
+    session.add(event)
+    session.flush()
+    session.add(WorkSession(clock_in_id=event.id, work_date=MONDAY))
+    session.commit()
+    session.close()
+    engine.dispose()
+    return path
+
+
+async def test_the_key_after_midnight_starts_today_rather_than_ending_yesterday(
+    monday_open: Path,
+) -> None:
+    """The key acts on the fact the panel is showing.
+
+    Left running overnight, the panel says "off the clock" the moment the date
+    turns, because it reads today's ledger. The key read any open session, so
+    the morning's `/` closed Monday at Tuesday's time: nineteen hours of work
+    nobody did, on a session that cannot be edited or deleted. The application
+    sweeps on mount, so this only showed up on a Flexi left open overnight.
+    """
+    app = FlexiApp(db_path=monday_open)
+    with time_machine.travel(MONDAY_FIVE, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            assert app.services.clock.is_clocked_in()
+
+            with time_machine.travel(TUESDAY_TEN, tick=False):
+                await pilot.press("slash")
+                await pilot.pause()
+
+                monday = sessions_on(app._session, MONDAY)
+                assert len(monday) == 1
+                assert monday[0].auto_closed is True, "closed by the sweep, not the key"
+                closed = monday[0].clock_out_event
+                assert closed is not None, "the sweep closes what it sweeps"
+                worked = moment_of(closed) - moment_of(monday[0].clock_in_event)
+                assert worked < timedelta(hours=24), f"Monday was recorded as {worked}"
+
+                tuesday = sessions_on(app._session, TUESDAY_TEN.date())
+                assert len(tuesday) == 1, "the key should have started a new day"
