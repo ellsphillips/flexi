@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from threading import Thread
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert
@@ -27,6 +28,16 @@ __all__ = (
 GOVUK_URL = "https://www.gov.uk/bank-holidays.json"
 CACHE_MAX_AGE = timedelta(days=7)
 REQUEST_TIMEOUT = 5.0
+
+_FETCH_BUDGET = 2 * REQUEST_TIMEOUT
+"""The whole fetch, wall clock, from the calling thread's point of view.
+
+``httpx`` bounds connecting, reading, writing and pooling separately, and none
+of those bounds covers name resolution: ``getaddrinfo`` runs inside
+``socket.create_connection`` with no timeout of its own. A resolver that has
+gone away holds every command that fills an empty cache for as long as the
+operating system is willing to wait, which is around thirty seconds on macOS.
+"""
 
 type BankHolidayFetcher = Callable[[], object | None]
 """A source of an untrusted bank-holiday index, or ``None`` on failure."""
@@ -98,14 +109,32 @@ def fetch_bank_holiday_index() -> object | None:
     """
     import httpx
 
-    try:
-        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-            response = client.get(GOVUK_URL)
-            response.raise_for_status()
-            payload: object = response.json()
-            return payload
-    except (httpx.HTTPError, ValueError, OSError):
-        return None
+    fetched: list[object] = []
+
+    def request() -> None:
+        try:
+            with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+                response = client.get(GOVUK_URL)
+                response.raise_for_status()
+                fetched.append(response.json())
+        # The environment decides what `httpx.Client` raises before a request
+        # is even made: `ALL_PROXY=socks5://...` without the socks extra is an
+        # `ImportError`, a proxy URL with a bad port an `httpx.InvalidURL`, an
+        # `SSL_CERT_FILE` pointing at a removed bundle an `OSError`. Every
+        # caller here was promised `None`, and a traceback out of a
+        # fire-and-forget fetch takes the command line and the application
+        # down with it.
+        except Exception:  # noqa: BLE001 - documented to return None for any failure
+            return
+
+    # A daemon thread, so a resolver still waiting cannot hold the process open
+    # after the budget has passed. `ThreadPoolExecutor` returns on time and then
+    # joins its workers at interpreter shutdown, which moves the same wait to
+    # the moment the command appears to have finished.
+    worker = Thread(target=request, daemon=True)
+    worker.start()
+    worker.join(_FETCH_BUDGET)
+    return fetched[0] if fetched else None
 
 
 class BankHolidayService:

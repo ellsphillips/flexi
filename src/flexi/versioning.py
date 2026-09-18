@@ -7,10 +7,21 @@ from packaging.version import InvalidVersion, Version
 
 import flexi
 
-__all__ = ("PYPI_URL", "TIMEOUT_SECONDS", "available_update", "get_pypi_version")
+__all__ = (
+    "PYPI_URL",
+    "TIMEOUT_SECONDS",
+    "UPGRADE_HINT",
+    "available_update",
+    "get_pypi_version",
+)
 
 PYPI_URL = "https://pypi.org/pypi/flexi/json"
 TIMEOUT_SECONDS = 5.0
+UPGRADE_HINT = "Upgrade with the tool you installed it with, e.g. uv tool upgrade flexi"
+"""What to run, for a package the README also installs with pipx and pip.
+
+Nothing here can tell which of the three was used, so the sentence names one
+and says it is an example."""
 
 
 def get_pypi_version() -> str | None:
@@ -26,7 +37,12 @@ def get_pypi_version() -> str | None:
             response = client.get(PYPI_URL)
         response.raise_for_status()
         return str(response.json()["info"]["version"])
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+    # The environment decides what `httpx.Client` raises before a request is
+    # even made: `ALL_PROXY=socks5://...` without the socks extra is an
+    # `ImportError`, a proxy URL with a bad port an `httpx.InvalidURL`, an
+    # `SSL_CERT_FILE` pointing at a removed bundle an `OSError`. An optional
+    # update check owes the caller `None`, whatever the shell is exporting.
+    except Exception:  # noqa: BLE001 - documented to return None for any failure
         return None
 
 
@@ -40,7 +56,9 @@ def available_update() -> str | None:
     if latest is None:
         return None
     try:
-        newer = Version(latest) > Version(flexi.__version__)
+        published = Version(latest)
     except InvalidVersion:
         return None
-    return latest if newer else None
+    # The canonical form, so whitespace around a published version cannot reach
+    # a toast or the header stamp.
+    return str(published) if published > Version(flexi.__version__) else None

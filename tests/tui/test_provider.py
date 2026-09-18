@@ -132,10 +132,13 @@ async def test_the_palette_offers_nothing_that_needs_a_screen_that_is_not_there(
 ) -> None:
     """A command is only listed when the thing it acts on exists.
 
-    Half the catalogue is bound to the dashboard — its period, its modals. On
-    the setup screen there is no dashboard, and an entry that captured a missing
-    one would fail with an AttributeError the moment somebody chose it, which is
-    the least recoverable place for one to happen.
+    Most of the catalogue is bound to the dashboard — its period, its modals,
+    and every destination drawn from the period it holds. On the setup screen
+    there is no dashboard, and an entry that captured a missing one would fail
+    with an AttributeError the moment somebody chose it, which is the least
+    recoverable place for one to happen. The destinations are the subtler case:
+    they are safe to run and refuse to go anywhere, so listing them offers a
+    refusal four times over.
     """
     app = FlexiApp(db_path=unconfigured)
     async with app.run_test(size=WIDE) as pilot:
@@ -144,9 +147,9 @@ async def test_the_palette_offers_nothing_that_needs_a_screen_that_is_not_there(
         offered = await titles(app)
 
         assert "Clock in or out" in offered
-        assert "Go to Settings" in offered
+        assert "Help" in offered
+        assert not [title for title in offered if title.startswith("Go to")]
         assert not [title for title in offered if title.startswith("Period:")]
-        assert "Go to date…" not in offered
         assert "Refresh bank holidays" not in offered
 
 

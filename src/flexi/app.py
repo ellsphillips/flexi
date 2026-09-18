@@ -31,13 +31,7 @@ from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
 import flexi
-from flexi.components.chrome import (
-    NAV_BY_SCREEN,
-    NAV_ITEMS,
-    AppHeader,
-    NavBar,
-    stamped,
-)
+from flexi.components.chrome import NAV_ITEMS, AppHeader, NavBar, stamped
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import (
     HasFocusTarget,
@@ -62,7 +56,7 @@ from flexi.services.bank_holidays import (
 )
 from flexi.services.registry import build_services, invalidate_services
 from flexi.theme import THEME_NAME, flexi_theme
-from flexi.versioning import available_update
+from flexi.versioning import UPGRADE_HINT, available_update
 
 __all__ = ("UPDATE_NOTICE_SECONDS", "FlexiApp")
 
@@ -136,12 +130,7 @@ class FlexiApp(TextualApp[None]):
             The screen `action_go_to` pushed, so `f1` can dismiss it. Held
             rather than found with `isinstance(self.screen, ...)`: `App.screen`
             is typed as `Screen[object]` and narrowing it against a
-            `Screen[None]` gives mypy `Never`.
-
-            This used to be two consecutive string literals. Only the first is a
-            docstring; the second -- the longer one, carrying the reason -- was
-            an expression statement that evaluated and was thrown away, so the
-            explanation was invisible to `help()` and to every editor."""
+            `Screen[None]` gives mypy `Never`."""
             self._settings: SettingsScreen | None = None
             """The settings form, if it is open.
 
@@ -168,9 +157,10 @@ class FlexiApp(TextualApp[None]):
             self.services.clock.sweep()
             self.push_screen(DashboardScreen(self.services, id="dashboard"))
             if self.open_settings:
-                self.push_screen(
-                    SettingsScreen(self.services), callback=self._on_settings_saved
-                )
+                # Held like any other form, so `f4` cannot push a second over
+                # it and `f1` can close it.
+                self._settings = SettingsScreen(self.services)
+                self.push_screen(self._settings, callback=self._on_settings_saved)
         else:
             # The wordmark is part of the setup screen rather than a screen of
             # its own pushed over it. `Screen.dismiss` pops the top of the stack
@@ -192,6 +182,10 @@ class FlexiApp(TextualApp[None]):
             self.exit()
             return
         self.push_screen(DashboardScreen(self.services, id="dashboard"))
+        # Freshness is per division, and the division was only just answered.
+        # Without this a Scottish or Northern Irish first run reaches the
+        # dashboard with no calendar of its own until the next launch.
+        self.refresh_holidays()
 
     def on_unmount(self) -> None:
         # Textual cannot stop a synchronous request already inside a worker
@@ -210,7 +204,7 @@ class FlexiApp(TextualApp[None]):
 
         ``force`` is the explicit command-palette path. Normal startup respects
         a fresh cache; an explicit refresh always asks GOV.UK. The network lock
-        serialises repeated requests, while their completion messages serialize
+        serialises repeated requests, while their completion messages serialise
         validation and replacement naturally on the message loop.
         """
         if self._shutdown_event.is_set():
@@ -221,11 +215,18 @@ class FlexiApp(TextualApp[None]):
             return
         self.fetch_holiday_payload(forced=force)
 
-    @textual_work(thread=True)
+    @textual_work(thread=True, exit_on_error=False)
     def fetch_holiday_payload(self, *, forced: bool) -> None:
         """Fetch one untrusted calendar payload without touching persistence."""
         with self._holiday_refresh_lock:
-            payload = self._bank_holiday_fetcher()
+            try:
+                payload = self._bank_holiday_fetcher()
+            except Exception:  # noqa: BLE001 - an injected fetcher may raise anything
+                # A failed fetch is a completion with nothing in it. Letting it
+                # out of the worker would take the application down and leave
+                # the message below unposted, so an explicit refresh would
+                # report neither success nor failure.
+                payload = None
 
         # ``post_message`` is thread-safe and declines a closed message pump.
         # The event closes the smaller race where unmount begins immediately
@@ -258,7 +259,10 @@ class FlexiApp(TextualApp[None]):
                 severity="information" if fetched else "warning",
                 timeout=4,
             )
-        elif not fetched:
+        elif not fetched and not self.services.bank_holidays.is_available():
+            # Only when there is nothing cached. A calendar too old to trust is
+            # still the calendar every figure on screen is being derived from,
+            # and saying it is missing would be false.
             self.notify(
                 "No bank holiday calendar. Days off will count as working days.",
                 severity="warning",
@@ -281,7 +285,7 @@ class FlexiApp(TextualApp[None]):
         """
         self.refresh_open_screens()
 
-    @textual_work(thread=True)
+    @textual_work(thread=True, exit_on_error=False)
     def _check_for_updates(self) -> None:
         """Ask PyPI whether there is a newer Flexi, and say nothing if not."""
         latest = available_update()
@@ -290,7 +294,7 @@ class FlexiApp(TextualApp[None]):
         self.call_from_thread(self.update_offered, latest)
         self.notify(
             f"Update available: {stamped(flexi.__version__)} → {stamped(latest)}\n"
-            f"Run: uv tool upgrade flexi",
+            f"{UPGRADE_HINT}",
             severity="information",
             timeout=UPDATE_NOTICE_SECONDS,
         )
@@ -321,7 +325,21 @@ class FlexiApp(TextualApp[None]):
 
     def action_go_to(self, name: str) -> None:
         """Move to a destination from the one navigation table."""
+        board = self.dashboard()
+        if board is None:
+            # Setup is the only time there is no dashboard, and every
+            # destination is drawn from the period it holds. Settings is
+            # refused with the rest: saving it marks the install configured, so
+            # a form opened over the questions is a way to finish setup without
+            # answering the one that asks for an entitlement.
+            self.notify("Finish setup first.", severity="information", timeout=3)
+            return
         if name == self.nav:
+            # Settings has no nav item, so `self.nav` still names the
+            # destination underneath an open form. Asking for the destination
+            # you are on means closing the form over it, and nothing else:
+            # dismissing the destination too would take Leave down with it.
+            self._close_settings()
             return
         if name == "settings":
             # The guard above cannot cover this: `self.nav` is only ever set to
@@ -338,26 +356,17 @@ class FlexiApp(TextualApp[None]):
             self._settings = SettingsScreen(self.services)
             self.push_screen(self._settings, callback=self._on_settings_saved)
             return
-        board = self.dashboard()
-        if name == "insights" and board is not None:
+        if name == "insights":
             self._open(name, InsightsScreen(board.period))
             return
-        if name == "leave" and board is not None:
+        if name == "leave":
             self._open(name, LeaveScreen(self.services, board.period.anchor))
             return
-        if name == "dashboard":
-            # Insights and Leave are pushed screens, so returning to the
-            # dashboard means leaving whichever is open. Without this, f1 set
-            # the nav label and nothing else, and escape was the only way back.
-            self._close_pushed()
-            self.nav = name
-            return
-        item = NAV_BY_SCREEN.get(name)
-        self.notify(
-            f"{item.label if item else name} is not built yet.",
-            severity="information",
-            timeout=3,
-        )
+        # Insights and Leave are pushed screens, so returning to the dashboard
+        # means leaving whichever is open. Without the dismissal f1 moves the
+        # nav label and nothing else, and escape is the only way back.
+        self._close_pushed()
+        self.nav = name
 
     def on_nav_bar_selected(self, event: NavBar.Selected) -> None:
         """A tab was clicked. The keys and the pointer arrive at one place.
@@ -404,13 +413,22 @@ class FlexiApp(TextualApp[None]):
         Closing top-down means each `dismiss` is called on the screen that is
         actually there to be popped.
         """
-        if self._settings is not None:
-            form, self._settings = self._settings, None
-            form.dismiss(False)
+        self._close_settings()
         if self._pushed is None:
             return
         leaving, self._pushed = self._pushed, None
         leaving.dismiss(None)
+
+    def _close_settings(self) -> None:
+        """Dismiss the settings form if one is open, and forget it first.
+
+        One place knows to clear `_settings` before dismissing, so a callback
+        arriving during the dismissal cannot find the form it is closing.
+        """
+        if self._settings is None:
+            return
+        form, self._settings = self._settings, None
+        form.dismiss(False)
 
     def _back(self, screen: Screen[None], _result: object = None) -> None:
         """Leaving a pushed screen returns the nav bar to where the user is.
@@ -430,6 +448,10 @@ class FlexiApp(TextualApp[None]):
         if not saved:
             return
         self.refresh_open_screens()
+        # The region is one of the answers. Freshness is per division, so this
+        # is a no-op unless the one just chosen has no calendar of its own --
+        # and without it the rest of the session refuses every leave booking.
+        self.refresh_holidays()
 
     def refresh_open_screens(self, scope: Scope = Scope.ALL) -> None:
         """Something was written behind the screens. Redraw whichever are up.

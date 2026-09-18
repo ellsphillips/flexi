@@ -54,10 +54,13 @@ def close_stale_sessions(
         for ws in stale:
             opened = moment_of(ws.clock_in_event)
 
-            # If configured close is before clock-in, use 23:59
+            # If configured close is before clock-in, use 23:59 -- or the
+            # clock-in itself, on the half minute of the day that is later than
+            # that. A clock-out before its own clock-in is a negative segment,
+            # and the ledger does not clamp one: it subtracts it.
             effective_close = auto_close_time
             if effective_close < opened.time():
-                effective_close = time(23, 59)
+                effective_close = max(time(23, 59), opened.time())
 
             closed_at = wallclock.local(datetime.combine(ws.work_date, effective_close))
             if stage_clock_out(

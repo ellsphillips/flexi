@@ -53,6 +53,30 @@ def test_an_unreachable_index_is_not_an_error(failure: Exception) -> None:
         assert available_update() is None
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ImportError("Using SOCKS proxy, but the 'socksio' package is not installed"),
+        FileNotFoundError(2, "No such file or directory"),
+        IsADirectoryError(21, "Is a directory"),
+        httpx.InvalidURL("Invalid port: 'abc'"),
+    ],
+    ids=["socks-proxy", "missing-ca-file", "ca-file-is-a-directory", "bad-proxy-url"],
+)
+def test_a_shell_that_breaks_the_client_is_not_an_error(failure: Exception) -> None:
+    """The environment decides what `httpx.Client` raises, before any request.
+
+    `ALL_PROXY=socks5://...` without the socks extra is an `ImportError`, an
+    `SSL_CERT_FILE` naming a removed bundle an `OSError`, a proxy URL with a
+    bad port an `httpx.InvalidURL` — and none of those is an `HTTPError`. They
+    are raised from the constructor, so `Client.get` is never reached and the
+    suite's own no-internet seam does not mask them.
+    """
+    with patch("httpx.Client.__init__", side_effect=failure):
+        assert get_pypi_version() is None
+        assert available_update() is None
+
+
 @pytest.mark.parametrize("payload", [{}, {"info": {}}, {"info": None}, []])
 def test_a_malformed_answer_is_not_an_error(payload: Any) -> None:
     """PyPI is a third party; its response shape is not a guarantee."""
@@ -68,6 +92,16 @@ def test_an_unparseable_version_is_not_an_error() -> None:
 def test_a_newer_release_is_reported_by_name() -> None:
     """The caller needs the number to show it, so it comes back rather than True."""
     with patch("httpx.Client.get", return_value=_publishing("99.0.0")):
+        assert available_update() == "99.0.0"
+
+
+def test_the_reported_version_is_normalised() -> None:
+    """The canonical form, not the string PyPI happened to send.
+
+    PEP 440 admits surrounding whitespace, and the header stamps whatever it is
+    handed: a newline inside the number is a toast drawn over two lines.
+    """
+    with patch("httpx.Client.get", return_value=_publishing("\n 99.0.0 \t")):
         assert available_update() == "99.0.0"
 
 

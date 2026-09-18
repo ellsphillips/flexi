@@ -132,6 +132,25 @@ class TestFallbackTo2359:
         close_time = closing.timestamp.replace(tzinfo=None).time()
         assert close_time == time(23, 59)
 
+    def test_clock_in_after_the_fallback_closes_at_the_clock_in(
+        self, svc: ClockService, session: Session
+    ) -> None:
+        """A clock-out cannot precede its own clock-in.
+
+        23:59:30 is half a minute past the fallback, and a fallback that
+        ignores it makes the segment negative: thirty seconds off the balance
+        for a day nobody worked, drawn as 0:00 because `hm` hides the sign.
+        """
+        yesterday_late = datetime.combine(YESTERDAY, time(23, 59, 30), tzinfo=UTC)
+        svc.clock_in(now=yesterday_late)
+
+        closed = close_stale_sessions(session, time(18, 0))
+
+        closing = closed[0].clock_out_event
+        assert closing is not None
+        assert closing.timestamp >= closed[0].clock_in_event.timestamp
+        assert closing.timestamp.time() == time(23, 59, 30)
+
     def test_clock_in_at_auto_close_closes_at_that_time(
         self, svc: ClockService, session: Session
     ) -> None:

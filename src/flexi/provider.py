@@ -52,6 +52,11 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
         Command("Help", "Every binding on this screen", app.action_help),
     ]
 
+    if screen is None:
+        # Setup, where there is no dashboard. Every destination is drawn from
+        # the period it holds, so offering one here is offering a refusal.
+        return tuple(catalogue)
+
     catalogue.extend(
         Command(
             f"Go to {item.label}",
@@ -60,9 +65,6 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
         )
         for item in NAV_ITEMS
     )
-
-    if screen is None:
-        return tuple(catalogue)
 
     catalogue.extend(
         Command(

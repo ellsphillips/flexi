@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, TypedDict
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from flexi.constants import Division
 from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
+from flexi.services import bank_holidays
 from flexi.services.bank_holidays import (
     BankHolidayService,
     ParsedBankHoliday,
@@ -393,6 +395,69 @@ class TestFetchingTheIndex:
     ) -> None:
         monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
         assert fetch_bank_holiday_index() == SAMPLE_RESPONSE
+
+    def test_a_fetch_that_outlasts_its_budget_is_an_unusable_response(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`httpx` bounds connecting and reading; neither bound covers DNS.
+
+        `getaddrinfo` runs inside `socket.create_connection` with no timeout of
+        its own, so a resolver that has gone away holds every command that
+        fills an empty cache for as long as the operating system waits. The
+        answer arrives eventually here, and eventually is too late: the caller
+        has to be given the calendar it has rather than held for a resolver.
+        """
+        still_waiting = threading.Event()
+
+        def answers_eventually(
+            _self: httpx.Client, url: str, **_kwargs: Any
+        ) -> httpx.Response:
+            still_waiting.wait(timeout=10)
+            return httpx.Response(
+                200, json=SAMPLE_RESPONSE, request=httpx.Request("GET", url)
+            )
+
+        monkeypatch.setattr(bank_holidays, "_FETCH_BUDGET", 0.05)
+        monkeypatch.setattr(httpx.Client, "get", answers_eventually)
+
+        try:
+            assert fetch_bank_holiday_index() is None
+        finally:
+            still_waiting.set()
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            ImportError("Using SOCKS proxy, but 'socksio' is not installed"),
+            FileNotFoundError(2, "No such file or directory"),
+            IsADirectoryError(21, "Is a directory"),
+            httpx.InvalidURL("Invalid port: 'abc'"),
+        ],
+        ids=[
+            "socks-proxy",
+            "missing-ca-file",
+            "ca-file-is-a-directory",
+            "bad-proxy-url",
+        ],
+    )
+    def test_a_shell_that_breaks_the_client_is_an_unusable_response(
+        self, failure: Exception, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The client is built from the environment, and can fail being built.
+
+        `ALL_PROXY=socks5://...` without the socks extra raises `ImportError`,
+        an `SSL_CERT_FILE` naming a removed bundle an `OSError`, a proxy URL
+        with a bad port an `httpx.InvalidURL`. None is an `HTTPError`, and all
+        three come out of the constructor rather than the request, so the
+        documented `None` is all that stands between a shell variable and a
+        traceback out of every command that fills an empty cache.
+        """
+
+        def unbuildable(*_args: object, **_kwargs: object) -> None:
+            raise failure
+
+        monkeypatch.setattr(httpx.Client, "__init__", unbuildable)
+        assert fetch_bank_holiday_index() is None
 
     def test_an_explicitly_empty_calendar_is_valid(self) -> None:
         assert (

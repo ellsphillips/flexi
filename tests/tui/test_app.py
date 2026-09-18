@@ -17,7 +17,7 @@ from threading import get_ident
 
 import httpx
 import pytest
-from sqlalchemy import update
+from sqlalchemy import delete, update
 from textual.css.query import NoMatches
 from textual.pilot import Pilot
 from textual.widgets import Input, Select
@@ -28,7 +28,7 @@ from flexi.components.chrome import NavBar, VersionTag
 from flexi.components.modules.records import RecordsModule
 from flexi.constants import Division
 from flexi.context import flexi_app
-from flexi.models.database.db import BankHolidayRefresh, Base
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh, Base
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.insights import InsightsScreen
@@ -118,21 +118,50 @@ async def test_declining_setup_closes_the_application(unconfigured: Path) -> Non
 # -- what it tells you on the way in ---------------------------------------
 
 
+MISSING_CALENDAR = "No bank holiday calendar. Days off will count as working days."
+
+
+def empty_the_calendar(path: Path) -> None:
+    """Leave the database with no cached holidays for any division."""
+    with get_session(create_db_engine(path)) as session:
+        session.execute(delete(BankHolidayCache))
+        session.execute(delete(BankHolidayRefresh))
+        session.commit()
+
+
 async def test_an_empty_bank_holiday_calendar_is_reported_as_a_consequence(
     seeded_db: Path,
 ) -> None:
     """It says what the missing calendar will do, not that a fetch failed.
 
-    A stale cache and no connection is the state a first launch on a train
+    Nothing cached and no connection is the state a first launch on a train
     arrives in. Without the warning the only symptom is every bank holiday
     quietly counted as a day nobody worked.
 
-    The staleness is arranged here rather than inherited from the seed, which
-    used to carry a fixed `fetched_at` that happened to be ten days before the
-    frozen clock. Two tests then read as a matched pair -- one ageing the cache,
-    one not -- while only one of them said what it depended on, and the demo
-    paid for it: `flexi --demo` reached for GOV.UK on every launch and warned
-    about a calendar it had seeded itself.
+    The calendar is emptied here rather than aged, because an aged one is still
+    a calendar: the figures on screen are derived from it, and saying it is
+    missing would describe a state the application is not in.
+    """
+    empty_the_calendar(seeded_db)
+
+    app = FlexiApp(db_path=seeded_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        assert MISSING_CALENDAR in await said(app, pilot)
+
+
+async def test_a_calendar_too_old_to_trust_is_not_reported_as_missing(
+    seeded_db: Path,
+) -> None:
+    """Stale and offline is the ordinary state of a laptop on a train.
+
+    The refresh fails, and the week-old calendar underneath it goes on
+    answering every question correctly for the year it holds. Warning that the
+    days off will count as working days is false, and a warning that is false
+    once a week is a warning people learn to dismiss.
+
+    The staleness is arranged here rather than inherited from the seed, so the
+    one thing this test turns on is written down in it.
     """
     stale = NOW - CACHE_MAX_AGE - timedelta(days=1)
     with get_session(create_db_engine(seeded_db)) as session:
@@ -142,10 +171,60 @@ async def test_an_empty_bank_holiday_calendar_is_reported_as_a_consequence(
     app = FlexiApp(db_path=seeded_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-        assert (
-            "No bank holiday calendar. Days off will count as working days."
-            in await said(app, pilot)
-        )
+        assert app.services.bank_holidays.is_available(), "the calendar is still there"
+        assert MISSING_CALENDAR not in await said(app, pilot)
+
+
+async def test_a_fetcher_that_raises_still_leaves_a_working_application(
+    seeded_db: Path,
+) -> None:
+    """A background chore raising is not a reason to close somebody's timesheet.
+
+    A SOCKS proxy in the shell without `socksio` installed makes `httpx.Client`
+    raise `ImportError` before a request is made, on a machine where the
+    database and every screen are fine. The completion still has to be posted,
+    or the warning below is never said and an explicit refresh reports nothing.
+    """
+    empty_the_calendar(seeded_db)
+
+    def unreachable() -> object:
+        msg = "Using SOCKS proxy, but the 'socksio' package is not installed"
+        raise ImportError(msg)
+
+    app = FlexiApp(db_path=seeded_db, bank_holiday_fetcher=unreachable)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        announced = await said(app, pilot)
+
+        assert app.is_running
+        assert app.return_code is None
+        assert MISSING_CALENDAR in announced
+
+
+async def test_an_update_check_that_raises_still_leaves_a_working_application(
+    app_factory: AppFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check is optional, and a thread worker's default is to make it fatal.
+
+    `available_update` answers None for everything it cannot read, so this is
+    the case it does not cover -- and the one the application has to survive
+    anyway, because the update notice is worth nothing beside the dashboard.
+    """
+
+    def broken() -> str | None:
+        msg = "the environment broke httpx"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr("flexi.app.available_update", broken)
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert app.is_running
+        assert app.return_code is None
+        showing(app, DashboardScreen)
 
 
 async def test_a_calendar_fetched_this_week_is_left_alone(seeded_db: Path) -> None:
@@ -368,10 +447,12 @@ async def test_asking_for_the_destination_you_are_already_on_does_nothing(
 async def test_a_destination_that_needs_the_dashboard_says_so_when_there_is_none(
     unconfigured: Path,
 ) -> None:
-    """A destination that cannot be drawn yet says so.
+    """A destination that cannot be drawn yet says why.
 
     Insights reads the dashboard's period, so before setup there is nothing for
-    it to show — and a key that silently does nothing reads as a hang.
+    it to show — and a key that silently does nothing reads as a hang. What it
+    says has to be true of a screen that ships: the destination is there, the
+    answers it needs are not.
     """
     app = FlexiApp(db_path=unconfigured)
     async with app.run_test(size=WIDE) as pilot:
@@ -379,7 +460,7 @@ async def test_a_destination_that_needs_the_dashboard_says_so_when_there_is_none
         await pilot.press("f3")
         await pilot.pause()
 
-        assert "Insights is not built yet." in await said(app, pilot)
+        assert "Finish setup first." in await said(app, pilot)
         showing(app, SetupScreen)
 
 
@@ -404,29 +485,25 @@ async def test_the_clock_key_does_nothing_until_there_is_somewhere_to_clock(
         showing(app, SetupScreen)
 
 
-async def test_settings_saved_before_setup_has_finished_are_still_written(
+async def test_the_settings_form_cannot_open_over_the_setup_questions(
     unconfigured: Path,
 ) -> None:
-    """F4 works everywhere, including where there is no dashboard to redraw.
+    """Saving the settings form is what marks an install configured.
 
-    Saving rebuilds the services and then refreshes the dashboard with them.
-    On this path there is no dashboard, and reaching for one is how a defensive
-    `if` earns its keep: the answers still have to reach the database.
+    A form over the five questions is therefore a second way to finish setup,
+    and the one field it has no answer for is the entitlement. Escaping the
+    questions after saving it leaves an account with no allowance at all, and
+    the next launch goes straight to a dashboard that never asked.
     """
     app = FlexiApp(db_path=unconfigured)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         await pilot.press("f4")
         await pilot.pause()
-        showing(app, SettingsScreen)
-
-        await pilot.click("#btn-save")
-        await pilot.pause()
 
         showing(app, SetupScreen)
-        stored = app.services.settings.get_settings()
-        assert stored is not None
-        assert stored.auto_close_time == "18:00"
+        assert "Finish setup first." in await said(app, pilot)
+        assert not app.services.settings.is_setup_complete()
 
 
 async def test_the_clock_runs_on_the_screen_that_owns_it_from_anywhere(
@@ -552,6 +629,76 @@ async def test_returning_to_the_dashboard_when_nothing_was_pushed_only_relabels(
 
 
 # -- settings --------------------------------------------------------------
+
+
+ST_ANDREWS = date(2026, 11, 30)
+"""The one Scottish holiday the stub calendar below carries."""
+
+
+def scottish_calendar() -> object:
+    """A GOV.UK index holding Scotland and nothing else."""
+    return {
+        "scotland": {
+            "events": [{"title": "St Andrew\u2019s Day", "date": "2026-11-30"}]
+        }
+    }
+
+
+async def test_the_calendar_is_fetched_for_the_division_setup_chose(
+    unconfigured: Path,
+) -> None:
+    """The region is one of the five questions, and the fetch preceded it.
+
+    Freshness is held per division, so the fetch that runs before the question
+    caches a calendar for the wrong one: every Scottish bank holiday is then a
+    working day nobody worked, and every leave booking is refused, until some
+    later launch happens to fetch the right calendar.
+    """
+    app = FlexiApp(db_path=unconfigured, bank_holiday_fetcher=scottish_calendar)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-leave-start", Input).value = "04-06"
+        screen.query_one("#input-entitlement", Input).value = "28"
+        screen.query_one("#input-working-days", Input).value = "Tue-Thu"
+        screen.query_one("#select-division", Select).value = "scotland"
+        screen.query_one("#input-auto-close", Input).value = "18:30"
+        await pilot.pause()
+
+        screen.action_save()
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert app.services.bank_holidays.get_dates() == {ST_ANDREWS}
+
+
+async def test_changing_the_region_fetches_the_calendar_for_the_new_one(
+    seeded_db: Path,
+) -> None:
+    """The cache is keyed by division, so a new region starts with nothing.
+
+    Without the refetch the rest of the session counts every Scottish bank
+    holiday as a working day and the leave screen refuses every booking with
+    "Bank holiday data unavailable". A relaunch is the only recovery: every CLI
+    command fills an empty cache, and nothing on this path does.
+    """
+    app = FlexiApp(db_path=seeded_db, bank_holiday_fetcher=scottish_calendar)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await pilot.press("f4")
+        await pilot.pause()
+        showing(app, SettingsScreen).query_one(
+            "#select-division", Select
+        ).value = "scotland"
+        await pilot.click("#btn-save")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert app.services.bank_holidays.division is Division.SCOTLAND
+        assert app.services.bank_holidays.get_dates() == {ST_ANDREWS}
 
 
 async def test_leaving_settings_without_saving_rebuilds_nothing(
@@ -695,6 +842,58 @@ async def test_moving_between_destinations_leaves_none_of_them_behind(
         await pilot.pause()
         showing(app, DashboardScreen)
         assert app.nav == "dashboard"
+
+
+async def test_the_dashboard_key_closes_a_settings_form_over_the_dashboard(
+    app_factory: AppFactory,
+) -> None:
+    """F4 then F1 is somebody changing their mind about the form.
+
+    Settings has no nav item, so `self.nav` still says dashboard while the form
+    is up. The guard that refuses a move to where you already are has to tell
+    that case from an idle F1 on the dashboard, or escape is the only way out
+    of a form the Dashboard key is labelled to leave.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f4")
+        await pilot.pause()
+        showing(app, SettingsScreen)
+
+        await pilot.press("f1")
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert app._settings is None
+
+
+async def test_the_key_under_a_settings_form_closes_the_form_and_nothing_else(
+    app_factory: AppFactory,
+) -> None:
+    """F2, F4, F2 reveals the leave screen rather than rebuilding it.
+
+    The destination underneath is what the form was opened from, and it is
+    holding a year somebody scrolled to. Closing it as well would answer "show
+    me this screen" by throwing it away.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f2")
+        await pilot.pause()
+        opened = showing(app, LeaveScreen)
+
+        await pilot.press("f4")
+        await pilot.pause()
+        showing(app, SettingsScreen)
+
+        await pilot.press("f2")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert showing(app, LeaveScreen) is opened, "the leave screen was rebuilt"
+        assert app._settings is None
+        assert app.nav == "leave"
 
 
 async def test_the_stack_does_not_grow_however_long_somebody_browses(
