@@ -30,6 +30,7 @@ __all__ = (
     "NAV_BY_SCREEN",
     "NAV_ITEMS",
     "OVERFLOW_TEMPLATE",
+    "STATUS_WORDS",
     "AppFooter",
     "AppHeader",
     "BindingHint",
@@ -217,6 +218,23 @@ class AppHeader(Horizontal):
             tag.latest = latest
 
 
+STATUS_WORDS: Final[Mapping[Tone, str]] = MappingProxyType(
+    {
+        Tone.NEUTRAL: "",
+        Tone.OK: "done",
+        Tone.WARN: "warning",
+        Tone.ERR: "refused",
+        Tone.ACCENT: "mode",
+    }
+)
+"""What a status pill says when its caller names no word of its own.
+
+The message line is drawn in one colour whatever happened on it, so the tone
+reaches the reader through the pill or nowhere — and a pill with no label is
+not drawn at all.
+"""
+
+
 class StatusBar(Horizontal):
     """A transient line: what just happened, and one pill of state.
 
@@ -235,7 +253,7 @@ class StatusBar(Horizontal):
         if not self.is_mounted:
             return
         self.query_one("#status-message", Static).update(message)
-        self.query_one("#status-pill", Pill).set_state(pill, tone)
+        self.query_one("#status-pill", Pill).set_state(pill or STATUS_WORDS[tone], tone)
 
 
 def footer_key_cost(key_display: str, description: str) -> int:

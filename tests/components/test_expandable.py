@@ -66,11 +66,6 @@ class Harness(App[None]):
     def on_expandable_table_expanded(self, message: ExpandableTable.Expanded) -> None:
         self.posted.append(message)
 
-    def on_expandable_table_row_selected(
-        self, message: ExpandableTable.RowSelected
-    ) -> None:
-        self.posted.append(message)
-
 
 @asynccontextmanager
 async def mounted(table: ExpandableTable) -> AsyncIterator[Pilot[None]]:
@@ -420,11 +415,12 @@ async def test_a_key_belonging_to_no_group_belongs_to_nothing() -> None:
 # -- enter -------------------------------------------------------------------
 
 
-async def test_enter_opens_the_day_it_names() -> None:
-    """Enter means "show me this".
+async def test_enter_opens_the_day_and_lands_on_its_first_row() -> None:
+    """Enter means "show me this", and then puts you in it.
 
     A day that answered it by staying shut would have refused the only thing the
-    key means.
+    key means, and one that opened without moving the cursor leaves the reader
+    to find the sessions with a second key.
     """
     table = ExpandableTable()
     async with mounted(table) as pilot:
@@ -433,16 +429,10 @@ async def test_enter_opens_the_day_it_names() -> None:
         table.action_open_row()
         await pilot.pause()
         assert keys_of(table.visible_rows()) == [f"d-{MONDAY}", f"s-{MONDAY}-0"]
-        assert [type(message) for message in posted(pilot)] == [
-            ExpandableTable.Expanded,
-            ExpandableTable.RowSelected,
-        ]
-        selected = posted(pilot)[-1]
-        assert isinstance(selected, ExpandableTable.RowSelected)
-        assert selected.key == row_key(RowKind.DAY, MONDAY)
+        assert table.cursor_key == f"s-{MONDAY}-0"
 
 
-async def test_enter_on_a_day_already_open_names_it_without_closing_it() -> None:
+async def test_enter_on_a_day_already_open_keeps_it_open() -> None:
     """Enter never closes anything.
 
     Twice reading as open-then-shut would make it a second toggle, and space is
@@ -456,16 +446,31 @@ async def test_enter_on_a_day_already_open_names_it_without_closing_it() -> None
         table.action_open_row()
         await pilot.pause()
         assert keys_of(table.visible_rows()) == [f"d-{MONDAY}", f"s-{MONDAY}-0"]
-        assert [type(message) for message in posted(pilot)][-1] is (
-            ExpandableTable.RowSelected
-        )
+        assert table.cursor_key == f"s-{MONDAY}-0"
 
 
-async def test_enter_on_a_row_with_nothing_behind_it_still_names_the_row() -> None:
-    """A row with nothing behind it is still a row enter can name.
+async def test_enter_inside_an_open_day_does_not_shut_it() -> None:
+    """The cursor is on a child, and the key that means "open" cannot close.
 
-    The screen opens the editor on whatever enter names, and a day with no
-    sessions on it is exactly the day somebody presses enter on to add one.
+    A guard that asked whether the *child* was expanded found that it never is,
+    and closed the day the cursor was sitting in.
+    """
+    table = ExpandableTable()
+    async with mounted(table) as pilot:
+        await table_of(pilot, day(MONDAY, "morning", "afternoon"))
+        table.toggle(row_key(RowKind.DAY, MONDAY))
+        table.focus_key(f"s-{MONDAY}-1")
+        table.action_open_row()
+        await pilot.pause()
+        assert table.expanded == {row_key(RowKind.DAY, MONDAY)}
+        assert table.cursor_key == f"s-{MONDAY}-0"
+
+
+async def test_enter_on_a_row_with_nothing_behind_it_stays_put() -> None:
+    """A day with nothing recorded has nothing to drop into.
+
+    The cursor stays where the eye left it, because the alternative is a key
+    that sometimes moves and sometimes does not and never says which.
     """
     table = ExpandableTable()
     async with mounted(table) as pilot:
@@ -473,16 +478,12 @@ async def test_enter_on_a_row_with_nothing_behind_it_still_names_the_row() -> No
         table.focus_key(row_key(RowKind.DAY, MONDAY))
         table.action_open_row()
         await pilot.pause()
-        assert [type(message) for message in posted(pilot)] == [
-            ExpandableTable.RowSelected
-        ]
+        assert table.cursor_key == row_key(RowKind.DAY, MONDAY)
+        assert posted(pilot) == []
 
 
-async def test_enter_on_an_empty_table_names_nothing() -> None:
-    """A month with no records in it still takes keys.
-
-    A `RowSelected` carrying no row would send the screen looking for one.
-    """
+async def test_enter_on_an_empty_table_opens_nothing() -> None:
+    """A month with no records in it still takes keys."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot)

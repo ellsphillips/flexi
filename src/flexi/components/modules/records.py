@@ -332,9 +332,17 @@ class RecordsModule(Module):
         return Text(hm(ledger.worked), justify="right")
 
     def _delta_cell(self, ledger: DayLedger) -> Text:
-        if not ledger.expected and not ledger.worked:
+        """What the day did to the balance, which is what the period row totals.
+
+        Hours against expected is only part of it: a TOIL day spends the
+        surplus that paid for it and a correction moves the balance on its own.
+        A column without them does not add up to the figure printed under it.
+        """
+        if not (
+            ledger.expected or ledger.worked or ledger.toil_taken or ledger.adjustment
+        ):
             return Text("")
-        return self._signed(ledger.delta)
+        return self._signed(ledger.balance_effect)
 
     def _signed(self, value: timedelta) -> Text:
         if value > timedelta():

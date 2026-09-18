@@ -14,6 +14,8 @@ are asserted, and neither is allowed to stand in for the other.
 
 from __future__ import annotations
 
+import doctest
+import importlib
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -24,10 +26,13 @@ from typing import ClassVar
 
 import pytest
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.geometry import Offset
 from textual.message import Message
 from textual.pilot import Pilot
 
+import flexi.config
+from flexi.components import yearcalendar
 from flexi.components.yearcalendar import (
     AFTERNOON,
     BLANK,
@@ -695,17 +700,18 @@ async def test_stepping_back_from_january_lands_in_the_december_before_it() -> N
         assert calendar.selection.head == date(2025, 12, 15)
 
 
-async def test_home_and_end_go_to_the_ends_of_the_year_on_show() -> None:
-    """Home and end go to the ends of what is drawn.
+async def test_home_and_end_go_to_the_ends_of_the_leave_year() -> None:
+    """Home and end go to the ends of the period, not of the months drawn.
 
-    A leave year starts mid-month but the grid draws whole months, so the ends
-    are the ends of the blocks — which is what the cursor can actually reach.
+    A leave year starts and finishes mid-month and the grid draws whole months
+    around it, so the first and last drawn days are in the years either side.
+    Landing on one of them moves the screen off the year the cursor was in.
     """
-    async with shown(start=date(2026, 6, 15)) as calendar:
+    async with shown(start=date(2026, 6, 15), end=date(2026, 7, 20)) as calendar:
         calendar.action_first()
-        assert calendar.selection.head == JUNE
+        assert calendar.selection.head == date(2026, 6, 15)
         calendar.action_last()
-        assert calendar.selection.head == JULY_END
+        assert calendar.selection.head == date(2026, 7, 20)
 
 
 async def test_the_ends_of_a_calendar_with_no_year_in_it_are_nowhere() -> None:
@@ -741,6 +747,30 @@ async def test_clicking_a_day_puts_the_cursor_on_it() -> None:
         line = calendar.row_of(friday)
         assert line is not None
         click_at(calendar, x=sum(calendar.columns[:4]) + 1, y=line)
+        assert calendar.selection.head == friday
+
+
+async def test_a_click_lands_on_the_day_under_the_pointer() -> None:
+    """The grid sits inside the panel's border and pad, and a click carries them.
+
+    Read as content coordinates the offset is a row low and part of a column
+    right, so a click books leave on a day up to a week from the one pointed at.
+    """
+    calendar = YearCalendar(id="leave-calendar", classes="module")
+    async with mounted(calendar) as pilot:
+        calendar.show(JUNE, JULY_END, {}, today=JUNE)
+        await pilot.pause()
+        left, top = calendar.gutter.top_left
+        assert (left, top) == (2, 1), "a round border and a column of padding"
+
+        friday = date(2026, 6, 5)
+        line = calendar.row_of(friday)
+        assert line is not None
+        await pilot.click(
+            YearCalendar, offset=(left + sum(calendar.columns[:4]) + 1, top + line)
+        )
+        await pilot.pause()
+
         assert calendar.selection.head == friday
 
 
@@ -824,6 +854,53 @@ async def test_an_event_carrying_no_position_moves_nothing() -> None:
         calendar.go_to(date(2026, 6, 11))
         calendar.on_click(SimpleNamespace())
         assert calendar.selection.head == date(2026, 6, 11)
+
+
+# -- the examples in the module ---------------------------------------------
+
+
+def test_the_examples_in_the_calendar_module_are_run() -> None:
+    """`pytest` collects doctests from three source directories, not this one.
+
+    So the worked answers in `units_column` are prose until something runs
+    them, and prose goes stale.
+    """
+    results = doctest.testmod(yearcalendar, verbose=False)
+
+    assert results.attempted, "the module has examples to check"
+    assert results.failed == 0
+
+
+# -- the keys are the configured ones ---------------------------------------
+
+
+def test_paging_a_month_answers_to_the_configured_period_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One key, one action, across every screen that pages a period.
+
+    The brackets were written out here while the dashboard read them from the
+    configuration, so rebinding them moved the dashboard and left the leave
+    screen answering to the old key.
+    """
+    rebound = CONFIG.model_copy(
+        update={
+            "hotkeys": CONFIG.hotkeys.model_copy(
+                update={"period_prev": "comma", "period_next": "full_stop"}
+            )
+        }
+    )
+    monkeypatch.setattr(flexi.config, "CONFIG", rebound)
+    try:
+        keys = {
+            binding.action: binding.key
+            for binding in importlib.reload(yearcalendar).YearCalendar.BINDINGS
+            if isinstance(binding, Binding) and binding.action.startswith("month")
+        }
+    finally:
+        importlib.reload(yearcalendar)
+
+    assert keys == {"month(-1)": "comma", "month(1)": "full_stop"}
 
 
 # -- the legend --------------------------------------------------------------

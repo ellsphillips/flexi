@@ -44,7 +44,9 @@ class ClockModule(Module):
             yield Pill("off the clock", id="clock-pill")
             yield Switch(value=False, id="clock-switch")
         yield PunchStrip(id="clock-strip", now=self.now)
-        yield Static("", id="clock-detail", classes="caption")
+        # Markup off: the line can carry a bank-holiday title, which comes from
+        # GOV.UK and is drawn rather than interpreted.
+        yield Static("", id="clock-detail", classes="caption", markup=False)
         yield Button("Arrive", id="clock-button", classes="-primary")
 
     def on_mount(self) -> None:

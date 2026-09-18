@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta
 import pytest
 from rich.text import Text
 from textual.app import App, ComposeResult
+from textual.content import Content
 from textual.message import Message
 from textual.pilot import Pilot
 from textual.screen import Screen
@@ -41,6 +42,7 @@ from flexi.components.modules.records import (
 from flexi.components.punch import PunchStrip
 from flexi.constants import AbsenceType, DayKind, Granularity, Portion
 from flexi.domain.dates import DAYS_IN_WEEK
+from flexi.domain.format import MINUS
 from flexi.domain.ledger import AbsenceSlice, DayLedger
 from flexi.domain.period import Period
 from flexi.domain.punch import Window
@@ -56,7 +58,9 @@ from tests.services.conftest import (  # noqa: F401 - `configure` is used as a f
 )
 
 MONDAY = date(2026, 6, 8)
+WEDNESDAY = date(2026, 6, 10)
 THURSDAY = date(2026, 6, 11)
+FRIDAY = date(2026, 6, 12)
 SATURDAY = date(2026, 6, 13)
 NOW = datetime(2026, 6, 11, 14, 32)
 """The same Thursday afternoon the rest of the suite is drawn at."""
@@ -113,9 +117,14 @@ async def showing(
     granularity: Granularity = Granularity.WEEK,
     now: datetime = NOW,
     size: tuple[int, int] = WIDE,
+    first_weekday: int = 0,
 ) -> AsyncIterator[tuple[Pilot[None], Panel]]:
     """One module, mounted and drawn once."""
-    panel = Panel(module, period=Period.containing(anchor, granularity), now=now)
+    panel = Panel(
+        module,
+        period=Period.containing(anchor, granularity, first_weekday=first_weekday),
+        now=now,
+    )
     async with Harness(panel, services).run_test(size=size) as pilot:
         await pilot.pause()
         # Settled, not merely pumped: a module that measures itself after its
@@ -135,6 +144,16 @@ def only[M: Message](panel: Panel, kind: type[M]) -> M:
 def cell(text: object) -> Text:
     assert isinstance(text, Text)
     return text
+
+
+def as_delta(text: Text) -> timedelta:
+    """A ± cell read back as the duration it prints."""
+    printed = str(text)
+    if not printed:
+        return timedelta()
+    sign = -1 if printed.startswith(MINUS) else 1
+    hours, minutes = (int(part) for part in printed.lstrip(f"+{MINUS}").split(":"))
+    return sign * timedelta(hours=hours, minutes=minutes)
 
 
 @pytest.fixture
@@ -179,6 +198,27 @@ def test_a_bank_holiday_says_which_one_it_is() -> None:
 def test_a_bank_holiday_with_no_name_cached_still_reads_as_one() -> None:
     """The calendar is fetched from GOV.UK, and a title is their field to fill."""
     assert ClockModule()._detail(holiday("")) == "Bank holiday"
+
+
+async def test_a_bank_holiday_title_is_drawn_rather_than_interpreted(
+    configure: Configured,  # noqa: F811 - the imported fixture
+) -> None:
+    """The title is GOV.UK's field to fill, and square brackets are theirs to use.
+
+    Read as markup, `[/]` closes a tag that was never opened and takes the
+    dashboard down on every launch for as long as the calendar stays cached,
+    and `[@click=...]` turns a holiday into a link that runs an action.
+    """
+    title = "Spring bank holiday [/] [@click=app.quit]"
+    services = configure(holidays=((THURSDAY, title),))
+
+    module = ClockModule()
+    async with showing(module, services) as (_pilot, _panel):
+        visual = module.query_one("#clock-detail", Static).render()
+
+        assert isinstance(visual, Content)
+        assert visual.plain == title
+        assert not visual.spans, "nothing in a title is an action"
 
 
 def test_a_day_taken_off_reads_as_what_was_booked() -> None:
@@ -287,6 +327,26 @@ async def test_a_balance_level_with_the_contract_is_drawn_flat(
         assert str(module.query_one("#balance-detail", Static).render()) == (
             "Level with contracted hours"
         )
+
+
+@pytest.mark.parametrize(
+    ("minutes", "caption"),
+    [
+        (15, "0:15 banked"),
+        (-15, "0:15 owed"),
+        (23, "0:23 banked · +0.1 days"),
+    ],
+    ids=["a surplus under a tenth of a day", "a deficit under one", "the boundary"],
+)
+def test_a_balance_too_small_to_count_in_days_says_only_the_hours(
+    minutes: int, caption: str
+) -> None:
+    """A caption of "0 days" under a figure that is not zero contradicts it.
+
+    The caption is the same fact said a second way, and a way of saying it that
+    contradicts the headline says nothing.
+    """
+    assert BalanceModule()._detail(timedelta(minutes=minutes), CONTRACTED) == caption
 
 
 def test_a_balance_with_no_contract_behind_it_is_left_in_hours() -> None:
@@ -406,16 +466,65 @@ async def test_an_arrow_key_asks_for_the_neighbouring_day(flexi: Services) -> No
         assert only(panel, DateSelected).date == THURSDAY + timedelta(days=1)
 
 
-async def test_enter_asks_for_the_day_the_grid_is_anchored_on(
+async def test_the_headings_start_on_the_day_the_period_starts_its_week(
     flexi: Services,
 ) -> None:
-    """`enter` is what commits, so it has to say something even when nothing moved."""
+    """One fact, one source.
+
+    The heading row read the configuration and the grid read the period, so a
+    period starting its week anywhere else put M over a column of Sundays.
+    """
+    module = MonthView()
+    async with showing(module, flexi, first_weekday=6) as (_pilot, _panel):
+        row = module.query_one(".calendar-dotw-row")
+        initials = [str(label.render()) for label in row.query(Label)]
+
+        assert initials == ["S", "M", "T", "W", "T", "F", "S"]
+        assert month_grid(date(2026, 6, 1), first_weekday=6)[0].weekday() == 6
+
+
+async def test_clicking_a_day_asks_for_it(flexi: Services) -> None:
+    """A calendar you cannot click is a calendar that looks broken.
+
+    The grid the pointer lands on is the one drawn, which paging has moved away
+    from the anchor, so the date comes from what is on screen.
+    """
     module = MonthView()
     async with showing(module, flexi) as (pilot, panel):
-        module.action_select()
+        await pilot.click("#calendar-cell-1-0")
         await pilot.pause()
 
-        assert only(panel, DateSelected).date == THURSDAY
+        assert only(panel, DateSelected).date == MONDAY
+
+        module.action_month(1)
+        await pilot.pause()
+        await pilot.click("#calendar-cell-1-0")
+        await pilot.pause()
+
+        asked = [
+            message.date
+            for message in panel.posted
+            if isinstance(message, DateSelected)
+        ]
+        assert asked == [MONDAY, date(2026, 7, 6)]
+
+
+async def test_clicking_anything_that_is_not_a_day_asks_for_no_day(
+    flexi: Services,
+) -> None:
+    """A click bubbles, so the whole panel arrives here and most of it is furniture.
+
+    The month name reads as a day to anything that only asks whether a label
+    was clicked, and the arrow beside it pages rather than selects.
+    """
+    module = MonthView()
+    async with showing(module, flexi) as (pilot, panel):
+        await pilot.click("#calendar-label")
+        await pilot.click("#calendar-next")
+        await pilot.pause()
+
+        assert str(module.query_one("#calendar-label", Label).render()) == "July 2026"
+        assert panel.posted == []
 
 
 # -- the records ---------------------------------------------------------------
@@ -440,6 +549,37 @@ async def test_a_day_that_met_its_hours_exactly_is_drawn_without_a_sign(
 
         assert str(delta) == "0:00"
         assert delta.style == module.get_component_rich_style("record--muted")
+
+
+async def test_the_day_column_adds_up_to_the_period_under_it(
+    flexi: Services,
+) -> None:
+    """A reader who adds the ± column has to land on the figure printed under it.
+
+    The column showed hours against expected, and the period row shows what the
+    span did to the balance. A TOIL day withdraws from that balance without
+    working an hour against it, so a week containing one was out by a whole day.
+    """
+    corrected = flexi.adjustments.record(WEDNESDAY, timedelta(hours=3), "Correction")
+    assert corrected.success, corrected.message
+    booked = flexi.absence.book(FRIDAY, AbsenceType.FLEXI)
+    assert booked.success, booked.message
+    invalidate_services(flexi)
+
+    module = RecordsModule()
+    async with showing(module, flexi) as (_pilot, _panel):
+        rows = module.table.visible_rows()
+        days = [row for row in rows if row.key.startswith(RowKind.DAY)]
+        total = next(row for row in rows if row.key == row_key(RowKind.TOTAL, "period"))
+        withdrawn = next(row for row in days if row.key.endswith(str(FRIDAY)))
+
+        corrected_row = next(row for row in days if row.key.endswith(str(WEDNESDAY)))
+
+        assert str(cell(withdrawn.cells[3])) == "−7:24", "a day of TOIL, spent"
+        assert str(cell(corrected_row.cells[3])) == "−4:24", "a day, less a correction"
+        assert sum(
+            (as_delta(cell(row.cells[3])) for row in days), timedelta()
+        ) == as_delta(cell(total.cells[3]))
 
 
 async def test_a_records_panel_the_layout_has_dropped_offers_no_badges(

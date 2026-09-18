@@ -111,13 +111,6 @@ class ExpandableTable(DataTable[RenderableType]):
             self.key = key
             self.expanded = expanded
 
-    class RowSelected(Message):
-        """Enter was pressed on a row."""
-
-        def __init__(self, key: str) -> None:
-            super().__init__()
-            self.key = key
-
     def __init__(self, **kwargs: Unpack[DataTableOptions]) -> None:
         super().__init__(**kwargs)
         self.cursor_type = "row"
@@ -301,10 +294,14 @@ class ExpandableTable(DataTable[RenderableType]):
         self.expand_all()
 
     def action_open_row(self) -> None:
-        key = self.cursor_key
-        if key is None:
+        """Open the day under the cursor and drop into it.
+
+        Never a second toggle -- space is the toggle. Pressed on a row inside
+        an open day it moves to the top of that day rather than closing it.
+        """
+        group = self._group_at_cursor()
+        if group is None or not group.expandable:
             return
-        group = self.group_for(key)
-        if group is not None and group.expandable and key not in self._expanded:
-            self.toggle(key)
-        self.post_message(self.RowSelected(key))
+        if group.parent.key not in self._expanded:
+            self.toggle(group.parent.key)
+        self.focus_key(group.children[0].key)

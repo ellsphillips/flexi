@@ -69,9 +69,10 @@ StyleLookup = Callable[[str], Style]
 def absence_tokens(ledger: DayLedger, count: int, window: Window) -> list[str | None]:
     """The colour token, if any, each cell should wear.
 
-    The rule about which booking covers which cell belongs to the domain and is
-    asked of it. This had its own copy, which also recomputed the cell
-    boundaries `strip` had just worked out.
+    Which booking covers which cell is the domain's rule, asked of it here
+    through the same `edges` the strip itself is cut on, so the two cannot
+    disagree about where a cell begins. A day with nothing booked answers
+    before either is computed.
     """
     if not ledger.absences:
         return [None] * count

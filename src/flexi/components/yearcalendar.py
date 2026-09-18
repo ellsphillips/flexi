@@ -145,8 +145,8 @@ class YearCalendar(ScrollView, can_focus=True):
         Binding("shift+up", "extend(-7)", "Extend", show=False),
         Binding("shift+down", "extend(7)", "Extend", show=False),
         Binding("escape", "collapse", "One day", show=False),
-        Binding("left_square_bracket", "month(-1)", "Previous month", show=False),
-        Binding("right_square_bracket", "month(1)", "Next month", show=False),
+        Binding(CONFIG.hotkeys.period_prev, "month(-1)", "Previous month", show=False),
+        Binding(CONFIG.hotkeys.period_next, "month(1)", "Next month", show=False),
         Binding("home", "first", "Start", show=False),
         Binding("end", "last", "End", show=False),
     ]
@@ -168,6 +168,9 @@ class YearCalendar(ScrollView, can_focus=True):
     ) -> None:
         super().__init__(name=name, id=id, classes=classes, disabled=disabled)
         self.blocks: tuple[MonthBlock, ...] = ()
+        self._span: tuple[date, date] | None = None
+        """The first and last day of the shown period, which the grid draws
+        whole months around."""
         self.ledgers: dict[date, DayLedger] = {}
         self.selection = Selection.at(wallclock.today())
         self.first_weekday = 0
@@ -215,6 +218,7 @@ class YearCalendar(ScrollView, can_focus=True):
     ) -> None:
         """Lay out a span and draw what is booked on it."""
         self.first_weekday = first_weekday
+        self._span = (start, end)
         self.blocks = tuple(stitch(start, end, first_weekday=first_weekday))
         self.ledgers = ledgers
         self._today = today or wallclock.today()
@@ -270,12 +274,17 @@ class YearCalendar(ScrollView, can_focus=True):
         )
 
     def action_first(self) -> None:
-        if self.blocks:
-            self.set_selection(self.selection.go_to(self.blocks[0].first))
+        """The first day of the period, not of the month it starts in.
+
+        A leave year opens mid-month and the grid draws the whole month around
+        it, so the earliest drawn day is outside the year the screen is on.
+        """
+        if self._span is not None:
+            self.set_selection(self.selection.go_to(self._span[0]))
 
     def action_last(self) -> None:
-        if self.blocks:
-            self.set_selection(self.selection.go_to(self.blocks[-1].last))
+        if self._span is not None:
+            self.set_selection(self.selection.go_to(self._span[1]))
 
     def go_to(self, when: date) -> None:
         self.set_selection(self.selection.go_to(when))
@@ -447,6 +456,9 @@ class YearCalendar(ScrollView, can_focus=True):
         offset = getattr(event, "offset", None)
         if offset is None:
             return
+        # The grid starts inside the panel's border and padding, and the event
+        # measures from the panel's own corner.
+        offset -= self.gutter.top_left
         line = int(offset.y) + int(self.scroll_offset.y)
         # The columns are uneven -- the remainder is spread over the first few
         # -- so the edges are their running total, and the column somebody hit

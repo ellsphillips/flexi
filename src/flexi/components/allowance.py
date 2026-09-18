@@ -53,12 +53,14 @@ def paint_allowance(gauge: Gauge, allowance: Allowance, data: WalletData) -> Non
 def paint_balance(gauge: Gauge, data: WalletData) -> None:
     """TOIL has no entitlement -- it has a balance, which can go negative."""
     balance_days = data.balance_days
+    rounded = round(balance_days, 1)
+    hours = delta(data.balance.delta)
     gauge.display = True
     gauge.show(
         max(0.0, min(balance_days, TOIL_SCALE)),
-        readout=(
-            f"{delta(data.balance.delta)}  ({signed_days(round(balance_days, 1))}d)"
-        ),
+        # Under a tenth of a day the hours stand alone: "(0d)" beside a figure
+        # that is not zero reads as a contradiction rather than as a rounding.
+        readout=f"{hours}  ({signed_days(rounded)}d)" if rounded else hours,
         total=TOIL_SCALE,
         tone=Tone.OK if balance_days >= 0 else Tone.ERR,
     )
@@ -73,10 +75,14 @@ def paint_entitlement(gauge: Gauge, allowance: Allowance) -> None:
     read its remainder off the flexi balance.
     """
     total = allowance.total or 0.0
+    left = total - allowance.used
+    # An entitlement lowered below what is already booked leaves a negative
+    # remainder, and every other signed figure here writes its minus with U+2212.
+    remaining = signed_days(left) if left < 0 else days(left)
     gauge.display = True
     gauge.show(
         allowance.used,
-        readout=f"{days(total - allowance.used)} left of {days(total)}",
+        readout=f"{remaining} left of {days(total)}",
         total=total,
         target=allowance.pace,
         tone=pace_tone(allowance),

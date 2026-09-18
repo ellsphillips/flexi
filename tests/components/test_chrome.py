@@ -230,6 +230,34 @@ async def test_a_status_pushed_at_a_footer_that_is_not_mounted_is_dropped() -> N
         assert str(bar.query_one("#status-pill", Pill).render()) == ""
 
 
+async def test_a_status_says_in_a_word_what_its_tone_means() -> None:
+    """A refusal and a receipt read alike on a line drawn in one colour.
+
+    The tone reaches the pill and nowhere else, so a status bar whose pill has
+    no label reports the outcome in a colour nobody can see.
+    """
+    bar = StatusBar()
+    app = Jumpy()
+    async with app.run_test(size=WIDE) as pilot:
+        await app.mount(bar)
+        await pilot.pause()
+        pill = bar.query_one("#status-pill", Pill)
+
+        bar.set_status("There is recorded work in that part of the day", Tone.ERR)
+        await pilot.pause()
+        assert str(pill.render()) == "refused"
+        assert pill.display is True
+        assert pill.has_class("pill--err")
+
+        bar.set_status("Clocked in at 09:12", Tone.OK, pill="on the clock")
+        await pilot.pause()
+        assert str(pill.render()) == "on the clock", "a caller's own word wins"
+
+        bar.set_status("Showing June")
+        await pilot.pause()
+        assert pill.display is False, "a toneless status has no state to tag"
+
+
 # -- jump targets ------------------------------------------------------------
 
 

@@ -15,6 +15,7 @@ from types import MappingProxyType
 from typing import ClassVar, Final, Unpack
 
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
@@ -33,6 +34,7 @@ from flexi.domain.stitch import weekday_initials
 from flexi.messages import DateSelected, Scope
 
 __all__ = (
+    "CELL_PREFIX",
     "KIND_CLASSES",
     "WEEKS",
     "MonthView",
@@ -42,6 +44,9 @@ __all__ = (
 )
 
 WEEKS = 6
+
+CELL_PREFIX: Final = "calendar-cell-"
+"""What a day cell's id starts with, so a click can be told from a heading."""
 
 KIND_CLASSES: Final[Mapping[DayKind, str]] = MappingProxyType(
     {
@@ -69,7 +74,6 @@ class MonthView(Module):
         Binding("down", "move(7)", "Next week", show=False),
         Binding("comma", "month(-1)", "Previous month", show=False),
         Binding("full_stop", "month(1)", "Next month", show=False),
-        Binding("enter", "select", "Go to day", show=False),
     ]
 
     def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
@@ -89,12 +93,12 @@ class MonthView(Module):
             yield Button("›", id="calendar-next", classes="-quiet")
         with Container(classes="calendar"):
             with Horizontal(classes="calendar-dotw-row"):
-                for initial in weekday_initials(CONFIG.defaults.first_day_of_week):
+                for initial in weekday_initials(self.period.first_weekday):
                     yield Label(initial)
             for week in range(WEEKS):
                 with Horizontal(classes="calendar-row", id=f"calendar-row-{week}"):
                     for day in range(DAYS_IN_WEEK):
-                        yield Label("", id=f"calendar-cell-{week}-{day}")
+                        yield Label("", id=f"{CELL_PREFIX}{week}-{day}")
 
     def on_mount(self) -> None:
         self._visible = self.period.anchor.replace(day=1)
@@ -123,7 +127,7 @@ class MonthView(Module):
 
         for index, when in enumerate(grid):
             week, column = divmod(index, DAYS_IN_WEEK)
-            cell = self.query_one(f"#calendar-cell-{week}-{column}", Label)
+            cell = self.query_one(f"#{CELL_PREFIX}{week}-{column}", Label)
             cell.update(cell_text(when, today))
             # Written only when they differ. `set_classes` reapplies the whole
             # stylesheet to the tree whether or not anything changed, and the
@@ -159,14 +163,28 @@ class MonthView(Module):
     def action_month(self, offset: int) -> None:
         """Page the grid without moving the period.
 
-        Browsing ahead to see where the bank holidays fall should not change what
-        the records table is showing; ``enter`` is what commits a move.
+        Browsing ahead to see where the bank holidays fall should not change
+        what the records table is showing. The grid returns to the anchor's
+        month the next time the anchor moves.
         """
         self._visible = add_months(self._visible, offset).replace(day=1)
         self.rebuild()
 
-    def action_select(self) -> None:
-        self.post_message(DateSelected(self.period.anchor))
+    def on_click(self, event: events.Click) -> None:
+        """A day under the pointer is the same request an arrow key makes.
+
+        A click bubbles, so the month arrows and the headings arrive here too,
+        and none of them is a day. The date comes from the month on screen
+        rather than from the anchor, which a browsed grid has moved away from.
+        """
+        widget = event.widget
+        name = widget.id if isinstance(widget, Label) else None
+        if name is None or not name.startswith(CELL_PREFIX):
+            return
+        event.stop()
+        week, column = (int(part) for part in name.removeprefix(CELL_PREFIX).split("-"))
+        grid = month_grid(self._visible, first_weekday=self.period.first_weekday)
+        self.post_message(DateSelected(grid[week * DAYS_IN_WEEK + column]))
 
 
 def cell_text(when: date, today: date) -> Text:

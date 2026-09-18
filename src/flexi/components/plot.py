@@ -23,7 +23,14 @@ from flexi.components.options import WidgetOptions
 from flexi.domain.format import hm_hours
 from flexi.domain.plot import Bounds, Glyph, Mark, Series, plot
 
-__all__ = ("AXIS_WIDTH", "LEGEND_MARKS", "MIN_PLOT_HEIGHT", "PLOT_TONES", "Plot")
+__all__ = (
+    "AXIS_WIDTH",
+    "LEGEND_MARKS",
+    "LEGEND_MIN_SERIES",
+    "MIN_PLOT_HEIGHT",
+    "PLOT_TONES",
+    "Plot",
+)
 
 PLOT_TONES: Final[frozenset[str]] = frozenset(
     {"series", "compare", "target", "annual", "sick", "toil", "unpaid", "other"}
@@ -35,7 +42,11 @@ AXIS_WIDTH: Final = 6
 """Room for an axis label: five characters and the space after it."""
 
 MIN_PLOT_HEIGHT: Final = 2
-"""Below this there is no drawing left after the legend, so it is not drawn."""
+"""Below this, in either direction, there is no drawing left after the legend
+and the axis, so the plot is not drawn."""
+
+LEGEND_MIN_SERIES: Final = 2
+"""One series needs no legend: the panel title names it."""
 
 LEGEND_MARKS: Final[dict[Mark, str]] = {Mark.LINE: "──", Mark.BAR: "██"}
 """How a series is shown in the legend: as the thing it is drawn with."""
@@ -137,7 +148,7 @@ class Plot(Widget):
         wider than the panel is truncated by the terminal, which drops whichever
         series was listed last and says nothing about having done it.
         """
-        if len(self.series) < MIN_PLOT_HEIGHT:
+        if len(self.series) < LEGEND_MIN_SERIES:
             return Text()
         named = self.entries(named=True)
         room = self.content_size.width

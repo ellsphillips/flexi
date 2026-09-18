@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from flexi.components.modules.base import Module
     from flexi.components.modules.clock import ClockModule
     from flexi.components.modules.monthview import (
+        CELL_PREFIX,
         KIND_CLASSES,
         WEEKS,
         MonthView,
@@ -57,6 +58,7 @@ _MODULE_EXPORTS: Final = MappingProxyType(
         "base": ("Module",),
         "clock": ("ClockModule",),
         "monthview": (
+            "CELL_PREFIX",
             "KIND_CLASSES",
             "WEEKS",
             "MonthView",
@@ -103,6 +105,7 @@ __all__ = (  # noqa: RUF022
     "lean_class",
     "Module",
     "ClockModule",
+    "CELL_PREFIX",
     "KIND_CLASSES",
     "WEEKS",
     "MonthView",

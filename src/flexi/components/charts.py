@@ -21,7 +21,7 @@ from textual.widget import Widget
 from flexi.components.options import WidgetOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.domain.dates import week_start
-from flexi.domain.format import MINUS, delta, hm
+from flexi.domain.format import MINUS, delta, hm, signed_days
 from flexi.domain.format import days as fmt_days
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window
@@ -46,14 +46,14 @@ __all__ = (
 )
 
 BLOCK: Final = "█"
-BASELINE: Final = "─"
-"""Whole cells only, both arms.
+"""The bar cell. Whole cells only, both arms.
 
 An earlier draft drew eighths, which reads beautifully upward — `▁▂▃▄▅▆▇` are
 everywhere — and needs U+1FB0x Symbols for Legacy Computing to do the same
 downward. Those are missing from most terminal fonts, so half the chart rendered
 as tofu on the machines it was drawn for. Whole cells cost a quarter of a bar's
 precision and the exact figure is printed underneath anyway."""
+BASELINE: Final = "─"
 FULL: Final = "█"
 HEAT: Final = "■"
 AMENDED_HEAT: Final = "▒"
@@ -275,8 +275,15 @@ class Burndown(Widget):
             )
 
         text.append("\n")
+        # A negative remainder is signed with U+2212, like every other figure
+        # on the panel; `days` alone would write it with an ASCII hyphen.
+        left = (
+            signed_days(self.remaining)
+            if self.remaining < 0
+            else fmt_days(self.remaining)
+        )
         text.append(
-            f"{fmt_days(spent)} taken · {fmt_days(self.remaining)} left"
+            f"{fmt_days(spent)} taken · {left} left"
             f" · pace {fmt_days(round(self.pace or 0, 1))}",
             label,
         )
@@ -479,7 +486,7 @@ def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column
     return [
         Column(
             label=str(week.day),
-            value=total.total_seconds() / 3600,
+            value=total.total_seconds() / SECONDS_PER_HOUR,
             readout=delta(total),
         )
         for week, total in sorted(buckets.items())

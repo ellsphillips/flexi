@@ -80,6 +80,10 @@ class BalanceModule(Module):
             return delta(value)
         days = round(value / contracted, 1)
         word = "banked" if value > timedelta() else "owed"
+        if not days:
+            # Under a tenth of a day. "0 days" under a figure that is not zero
+            # reads as a contradiction rather than as a rounding.
+            return f"{hm(value)} {word}"
         return f"{hm(value)} {word} · {signed_days(days)} {plural(abs(days), 'day')}"
 
 

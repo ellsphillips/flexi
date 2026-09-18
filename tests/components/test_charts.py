@@ -272,6 +272,18 @@ async def test_a_burndown_fills_from_the_left_and_prints_its_own_figures() -> No
         assert caption == "10 taken · 15 left · pace 12"
 
 
+async def test_a_burndown_signs_an_overspent_remainder_like_the_rest() -> None:
+    """The entitlement can be lowered under what has already been booked.
+
+    Every other negative in the panel is written with U+2212, and the one
+    drawn with an ASCII hyphen is the one that reads as a rendering fault.
+    """
+    chart = Burndown()
+    async with mounted(chart, width=20):
+        chart.show(-2.0, 25.0, 12.0)
+        assert lines(chart)[1] == "27 taken · −2 left · pace 12"
+
+
 async def test_a_burndown_with_no_pace_draws_no_reference_mark() -> None:
     """Where you should be is not a thing that happened, and is sometimes unknown."""
     chart = Burndown()
