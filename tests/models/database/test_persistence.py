@@ -8,15 +8,17 @@ behind when it fails as well as when it succeeds.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import Engine, text
 
 from flexi.locations import backups_directory, database_file
-from flexi.models.database.backup import verify
+from flexi.models.database.backup import read_only, snapshot, verify
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import (
     DatabaseRevision,
@@ -118,6 +120,14 @@ class TestMigrationSuccess:
 # ---------- backup creation ----------
 
 
+class Halting(sqlite3.Connection):
+    """A connection whose copy stops partway through, as a full disk does."""
+
+    def backup(self, *args: Any, **kwargs: Any) -> None:
+        msg = "disk I/O error"
+        raise sqlite3.OperationalError(msg)
+
+
 class TestBackupCreation:
     def test_nonexistent_db_returns_none(self, tmp_path: Path) -> None:
         assert backup_database(tmp_path / "nope.db") is None
@@ -141,6 +151,27 @@ class TestBackupCreation:
         assert backup.suffix == ".bak"
         assert backup.stat().st_size == db_path.stat().st_size
 
+    def test_a_copy_that_fails_partway_through_does_not_stay(
+        self, db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """What is left otherwise is a truncated file named like a backup."""
+        backup_dir = tmp_path / "backups"
+        monkeypatch.setattr(
+            "flexi.models.database.backup.backups_directory", lambda: backup_dir
+        )
+        run_migrations(db_path)
+        real = sqlite3.connect
+        monkeypatch.setattr(
+            sqlite3,
+            "connect",
+            lambda database, **kwargs: real(database, factory=Halting, **kwargs),
+        )
+
+        with pytest.raises(sqlite3.OperationalError, match="disk I/O"):
+            snapshot(db_path)
+
+        assert list(backup_dir.glob("*.bak")) == []
+
     def test_no_backup_on_fresh_db(
         self, db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -152,6 +183,56 @@ class TestBackupCreation:
         run_migrations(db_path)
         backups = list(backup_dir.glob("*.bak"))
         assert backups == []
+
+
+class TestOpeningWithoutWriting:
+    """The connection every read of a database Flexi does not own goes through."""
+
+    def test_a_path_with_no_database_is_not_opened_into_existence(
+        self, db_path: Path
+    ) -> None:
+        """``sqlite3.connect`` creates the file; asking after one must not."""
+        with pytest.raises(FileNotFoundError, match="No database at"):
+            read_only(db_path)
+
+        assert not db_path.exists()
+
+    def test_a_copy_that_is_not_there_does_not_verify(self, db_path: Path) -> None:
+        assert verify(db_path) is False
+        assert not db_path.exists()
+
+    def test_nothing_can_be_written_through_it(self, db_path: Path) -> None:
+        run_migrations(db_path)
+
+        with (
+            closing(read_only(db_path)) as connection,
+            pytest.raises(sqlite3.OperationalError, match="readonly"),
+        ):
+            connection.execute("DELETE FROM alembic_version")
+
+    def test_the_database_reaches_sqlite_as_a_path(
+        self, db_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A path is not a URI, and one shape of path has no URI at all.
+
+        `Path.as_uri` renders a Windows UNC path as ``file://server/share/...``
+        and SQLite accepts no authority but an empty one, so a data directory
+        on a share cannot be read through one.
+        """
+        run_migrations(db_path)
+        seen: list[tuple[Any, dict[str, Any]]] = []
+        real = sqlite3.connect
+
+        def spy(database: Any, **kwargs: Any) -> sqlite3.Connection:
+            seen.append((database, kwargs))
+            connection: sqlite3.Connection = real(database, **kwargs)
+            return connection
+
+        monkeypatch.setattr(sqlite3, "connect", spy)
+        with closing(read_only(db_path)):
+            pass
+
+        assert seen == [(db_path, {})]
 
 
 # ---------- backup failure ----------
@@ -167,10 +248,12 @@ class TestBackupFailure:
             # Force current != head so the backup path is taken. Through
             # `current_revision`, which is what `run_migrations` now asks --
             # it settles the common case against a written-down revision
-            # rather than starting Alembic up to find out.
+            # rather than starting Alembic up to find out. A real revision,
+            # because a stamp this build cannot place is refused before the
+            # backup is reached.
             patch(
                 "flexi.models.database.migrate.current_revision",
-                return_value=DatabaseRevision(RevisionState.STAMPED, "fake_old"),
+                return_value=DatabaseRevision(RevisionState.STAMPED, "0014"),
             ),
             pytest.raises(RuntimeError, match="backup failed"),
         ):

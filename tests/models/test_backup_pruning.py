@@ -59,6 +59,27 @@ def test_the_snapshot_taken_before_a_reset_is_never_pruned(backups: Path) -> Non
     assert protected.is_file(), "the one file that cannot be recreated was pruned"
 
 
+def test_the_backup_just_taken_is_kept_whatever_its_timestamp_says(
+    backups: Path,
+) -> None:
+    """Age is the filesystem's account of a file, not the pruner's own.
+
+    The copy handed to `keep` was written by the migration that is about to
+    run. A restored or network-hosted directory can date it behind every file
+    already there, and deleting it removes the only way back from the upgrade
+    it was taken for.
+    """
+    routine(backups, migrate.MAX_BACKUPS)
+    fresh = backups / "db_20200101T000000Z.bak"
+    fresh.write_bytes(b"the copy this upgrade depends on")
+    os.utime(fresh, (0, 0))
+
+    migrate.prune_backups(backups, keep=fresh)
+
+    assert fresh.is_file(), "the copy the upgrade depends on was pruned"
+    assert len(list(backups.glob("*.bak"))) == migrate.MAX_BACKUPS
+
+
 def test_protected_snapshots_do_not_use_up_the_allowance(backups: Path) -> None:
     """Somebody who has reset twice still keeps ten routine backups."""
     for n in range(2):

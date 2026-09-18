@@ -7,8 +7,8 @@ cost of the command. So the question is asked twice: once cheaply, against
 :data:`HEAD`, with nothing but the SQLAlchemy already loaded; and only if that
 says there is work to do, expensively, by Alembic itself.
 
-:data:`HEAD` is the duplicate that buys it, and `tests/test_migrations.py` is
-what stops it drifting from the real head.
+:data:`HEAD` is the duplicate that buys it, and
+`tests/models/test_migrations.py` is what stops it drifting from the real head.
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ __all__ = (
     "MAX_BACKUPS",
     "DatabaseRevision",
     "MigrationConfig",
+    "MigrationRefusedError",
     "RevisionState",
     "alembic_config",
     "backup_database",
@@ -81,6 +82,15 @@ the script directory and compares.
 """
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class MigrationRefusedError(RuntimeError):
+    """A refusal to migrate. The database is exactly as it was.
+
+    Separate from the errors a bug raises, so the command line can say the one
+    sentence in it and nothing else: every one of these is a state a person can
+    act on.
+    """
 
 
 class RevisionState(StrEnum):
@@ -187,12 +197,12 @@ def current_revision(db_path: Path) -> DatabaseRevision:
                 return DatabaseRevision(RevisionState.UNSTAMPED)
             if len(rows) != 1:
                 msg = "Database carries multiple migration revisions"
-                raise RuntimeError(msg)
+                raise MigrationRefusedError(msg)
 
             revision = rows[0][0]
             if not isinstance(revision, str) or not revision:
                 msg = "Database carries an invalid migration revision"
-                raise RuntimeError(msg)
+                raise MigrationRefusedError(msg)
             return DatabaseRevision(RevisionState.STAMPED, revision)
     finally:
         engine.dispose()
@@ -217,11 +227,16 @@ def backup_database(db_path: Path | None = None) -> Path | None:
     return snapshot(db_path, prefix=ROUTINE_PREFIX)
 
 
-def prune_backups(directory: Path) -> None:
+def prune_backups(directory: Path, keep: Path | None = None) -> None:
     """Keep only the latest MAX_BACKUPS files, and every protected one.
 
     Housekeeping runs after a backup has already been taken, so a full disk or
     a read-only directory here must not fail the migration that motivated it.
+
+    ``keep`` is that backup, and it is held whatever its age says. Modification
+    times come from the filesystem, which on a share or a restored directory
+    can put the copy taken a moment ago behind the ten already there. The one
+    file the upgrade about to run depends on is then the one deleted.
 
     Snapshots taken before a reset are never pruned. They are the only copy of
     records somebody chose to erase, `flexi init` calls them the one way back,
@@ -235,12 +250,36 @@ def prune_backups(directory: Path) -> None:
                 for path in directory.glob("*.bak")
                 if not path.name.startswith(PROTECTED_PREFIX)
             ),
-            key=lambda p: p.stat().st_mtime,
+            key=lambda path: (path == keep, path.stat().st_mtime, path.name),
         )
         for old in backups[:-MAX_BACKUPS]:
             old.unlink()
     except OSError:
         _LOGGER.warning("could not prune old backups", exc_info=True)
+
+
+def _refuse_a_newer_database(cfg: MigrationConfig, stamp: str, db_path: Path) -> None:
+    """Stop unless this build knows the revision the database is stamped with.
+
+    A stamp Alembic cannot place belongs to a Flexi that shipped migrations
+    this one has never heard of, which is what a downgrade leaves behind.
+    Alembic's own answer is to fail inside the upgrade, once the recovery copy
+    has been taken. Every command after it takes another, until the ten that
+    survive are all copies of a database this build cannot read.
+    """
+    from alembic.script import ScriptDirectory
+    from alembic.util.exc import CommandError
+
+    try:
+        ScriptDirectory.from_config(cfg).get_revision(stamp)
+    except CommandError as error:
+        msg = (
+            f"The database at {db_path} was written by a newer Flexi"
+            f" (revision {stamp}; this is {flexi.__version__}, which knows up to"
+            f" {HEAD}). Upgrade Flexi, or restore a backup from"
+            f" {backups_directory()}."
+        )
+        raise MigrationRefusedError(msg) from error
 
 
 def run_migrations(db_path: Path | None = None) -> None:
@@ -252,9 +291,9 @@ def run_migrations(db_path: Path | None = None) -> None:
     forty milliseconds, on every command, to conclude there was nothing to do.
 
     Missing and schema-empty databases are fresh and need no recovery copy.
-    Existing unstamped schemas are refused. A stamped database is handed to
-    Alembic only after its snapshot passes
-    :func:`flexi.models.database.backup.verify`.
+    Existing unstamped schemas are refused, as is a stamp this build has never
+    heard of. A stamped database is handed to Alembic only after its snapshot
+    passes :func:`flexi.models.database.backup.verify`.
     """
     if db_path is None:
         db_path = database_file()
@@ -268,7 +307,7 @@ def run_migrations(db_path: Path | None = None) -> None:
         revision = current_revision(db_path)
         if revision.state is RevisionState.UNSTAMPED:
             msg = "Database has an unstamped schema; migration refused"
-            raise RuntimeError(msg)
+            raise MigrationRefusedError(msg)
         if revision.state is RevisionState.STAMPED and revision.revision == HEAD:
             return
 
@@ -276,22 +315,27 @@ def run_migrations(db_path: Path | None = None) -> None:
         revision = current_revision(db_path)
         if revision.state is RevisionState.UNSTAMPED:
             msg = "Database has an unstamped schema; migration refused"
-            raise RuntimeError(msg)
-        if revision.state is RevisionState.STAMPED:
-            if revision.revision == HEAD:
-                return
-
-            backup = backup_database(db_path)
-            if backup is None:
-                msg = "Database file exists but backup failed"
-                raise RuntimeError(msg)
-            if not verify(backup):
-                msg = "Database backup did not verify; migration refused"
-                raise RuntimeError(msg)
-
-            prune_backups(backups_directory())
+            raise MigrationRefusedError(msg)
+        # Only a stamped database carries one, so this is the same question as
+        # the state, narrowed to the revision the checks below need.
+        stamp = revision.revision
+        if stamp == HEAD:
+            return
 
         from alembic import command
 
         with alembic_config(db_path) as cfg:
+            if stamp is not None:
+                _refuse_a_newer_database(cfg, stamp, db_path)
+
+                backup = backup_database(db_path)
+                if backup is None:
+                    msg = "Database file exists but backup failed"
+                    raise MigrationRefusedError(msg)
+                if not verify(backup):
+                    msg = "Database backup did not verify; migration refused"
+                    raise MigrationRefusedError(msg)
+
+                prune_backups(backups_directory(), keep=backup)
+
             command.upgrade(cfg, "head")

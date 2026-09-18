@@ -24,7 +24,7 @@ from pathlib import Path
 from flexi import wallclock
 from flexi.locations import backups_directory, ensure
 
-__all__ = ("PROTECTED_PREFIX", "ROUTINE_PREFIX", "snapshot", "verify")
+__all__ = ("PROTECTED_PREFIX", "ROUTINE_PREFIX", "read_only", "snapshot", "verify")
 
 PROTECTED_PREFIX = "pre-init_"
 """A snapshot taken before a reset. Never aged out by the migration pruner."""
@@ -54,26 +54,52 @@ def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
         target = directory / f"{prefix}{source.stem}_{stamp}_{attempt}.bak"
         attempt += 1
 
-    with (
-        closing(sqlite3.connect(source)) as origin,
-        closing(sqlite3.connect(target)) as copy,
-    ):
-        origin.backup(copy)
+    try:
+        with (
+            closing(sqlite3.connect(source)) as origin,
+            closing(sqlite3.connect(target)) as copy,
+        ):
+            origin.backup(copy)
+    except BaseException:
+        # Outside the handles, which Windows will not let go of a file it still
+        # holds. What is left otherwise is a truncated file named like a
+        # backup, in the directory the recovery copies live in.
+        target.unlink(missing_ok=True)
+        raise
     return target
+
+
+def read_only(database: Path) -> sqlite3.Connection:
+    """A connection to an existing database that cannot write to it.
+
+    Opened by path rather than through a ``file:...?mode=ro`` URI.
+    :meth:`Path.as_uri` renders a Windows UNC path as
+    ``file://server/share/...`` and SQLite accepts no authority but an empty
+    one, so a data directory on a network share is refused as an invalid URI
+    before it is ever looked for.
+
+    The file has to be there: ``sqlite3.connect`` creates an empty database
+    where ``mode=ro`` returns an error, and the question being asked of it is
+    usually whether the database exists at all.
+    """
+    if not database.is_file():
+        msg = f"No database at {database}"
+        raise FileNotFoundError(msg)
+    connection = sqlite3.connect(database)
+    connection.execute("PRAGMA query_only = 1")
+    return connection
 
 
 def verify(backup: Path) -> bool:
     """The copy opens, passes an integrity check, and carries a stamp."""
     try:
-        with closing(
-            sqlite3.connect(f"{backup.absolute().as_uri()}?mode=ro", uri=True)
-        ) as connection:
+        with closing(read_only(backup)) as connection:
             ok = connection.execute("PRAGMA integrity_check").fetchone()
             if not ok or ok[0] != "ok":
                 return False
             stamped = connection.execute(
                 "SELECT 1 FROM alembic_version LIMIT 1"
             ).fetchone()
-    except sqlite3.DatabaseError:
+    except (OSError, sqlite3.DatabaseError):
         return False
     return stamped is not None

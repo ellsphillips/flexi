@@ -11,6 +11,14 @@ or a booked absence -- because that is the earliest day Flexi can be shown to
 have been in use. A database with neither has never recorded anything, so there
 is no deficit worth keeping and it takes the date of this migration.
 
+A settled balance is the one thing that cannot be dated from its earliest
+record. `flexi balance zero` writes a single adjustment sized to absorb the
+deficit accumulated since the start of its leave year, counted under the rule
+that every day before the install counted. Untracking any of those days would
+leave that row absorbing a deficit nothing charges any more, and the balance
+reads hundreds of hours in surplus. So a database carrying an adjustment is
+dated no later than the opening day of the leave year its earliest one falls in.
+
 Nullable, and null means "count every day", which is what the code did before.
 Nothing here can produce a null; the column stays nullable so that a row written
 by an older Flexi against a newer schema is readable rather than a constraint
@@ -28,7 +36,9 @@ Create Date: 2026-08-27
 
 """
 
+import calendar
 from collections.abc import Sequence
+from datetime import date
 
 import sqlalchemy as sa
 from alembic import op
@@ -48,15 +58,47 @@ EARLIEST_RECORD = sa.text("""
     )
 """)
 
+EARLIEST_SETTLEMENT = sa.text("SELECT MIN(date) FROM balance_adjustments")
+
+LEAVE_YEAR = sa.text("SELECT leave_year_start FROM settings LIMIT 1")
+
+
+def _clamped(year: int, month: int, day: int) -> date:
+    """That day of that month, or the month's last day where it is shorter."""
+    return date(year, month, min(day, calendar.monthrange(year, month)[1]))
+
+
+def _opening_day(when: date, leave_year_start: str) -> date:
+    """The first day of the leave year containing ``when``.
+
+    The rule `flexi.domain.leaveyear` states, restated: a frozen revision keeps
+    its own arithmetic.
+    """
+    month, day = (int(part) for part in leave_year_start.split("-"))
+    this_year = _clamped(when.year, month, day)
+    if when >= this_year:
+        return this_year
+    return _clamped(when.year - 1, month, day)
+
 
 def upgrade() -> None:
     op.add_column("settings", sa.Column("tracking_since", sa.Date(), nullable=True))
 
     connection = op.get_bind()
+    leave_year_start = connection.execute(LEAVE_YEAR).scalar()
+    if leave_year_start is None:
+        return
+
     earliest = connection.execute(EARLIEST_RECORD).scalar()
-    stamp = earliest or wallclock.today().isoformat()
+    stamp = date.fromisoformat(earliest) if earliest else wallclock.today()
+    settled = connection.execute(EARLIEST_SETTLEMENT).scalar()
+    if settled is not None:
+        opening = _opening_day(date.fromisoformat(settled), str(leave_year_start))
+        stamp = min(stamp, opening)
+
     connection.execute(
-        sa.text("UPDATE settings SET tracking_since = :stamp"), {"stamp": str(stamp)}
+        sa.text("UPDATE settings SET tracking_since = :stamp"),
+        {"stamp": stamp.isoformat()},
     )
 
 

@@ -11,6 +11,7 @@ from flexi.models.database import backup, db, engine, invariants, lease, migrate
 from flexi.models.database.backup import (
     PROTECTED_PREFIX,
     ROUTINE_PREFIX,
+    read_only,
     snapshot,
     verify,
 )
@@ -67,6 +68,7 @@ from flexi.models.database.migrate import (
     MAX_BACKUPS,
     DatabaseRevision,
     MigrationConfig,
+    MigrationRefusedError,
     RevisionState,
     alembic_config,
     backup_database,
@@ -104,6 +106,7 @@ __all__ = (
     "LeaseMode",
     "LeaveEntitlement",
     "MigrationConfig",
+    "MigrationRefusedError",
     "RevisionState",
     "Settings",
     "WorkSession",
@@ -133,6 +136,7 @@ __all__ = (
     "moment_of",
     "prune_backups",
     "punched",
+    "read_only",
     "register_clock_event_immutability",
     "register_work_session_action_invariants",
     "run_migrations",

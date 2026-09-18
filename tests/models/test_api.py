@@ -19,7 +19,7 @@ from flexi.models.database import backup, db, engine, invariants, lease, migrate
 LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
     (
         backup,
-        ("PROTECTED_PREFIX", "ROUTINE_PREFIX", "snapshot", "verify"),
+        ("PROTECTED_PREFIX", "ROUTINE_PREFIX", "read_only", "snapshot", "verify"),
     ),
     (
         db,
@@ -88,6 +88,7 @@ LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
             "MAX_BACKUPS",
             "DatabaseRevision",
             "MigrationConfig",
+            "MigrationRefusedError",
             "RevisionState",
             "alembic_config",
             "backup_database",

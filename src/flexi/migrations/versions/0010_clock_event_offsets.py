@@ -80,12 +80,16 @@ def _offset_minutes(aware: datetime) -> int:
 
 
 def upgrade() -> None:
+    # Read before the DDL. SQLite autocommits an ALTER TABLE, so a zone this
+    # machine cannot resolve has to be refused while the schema is still the
+    # one the stamp claims.
+    zone = _zone()
+    already_wall = os.environ.get(LEGACY_CLOCK, "utc").lower() == "wall"
+
     op.add_column(
         "clock_events", sa.Column("utc_offset_minutes", sa.Integer(), nullable=True)
     )
 
-    zone = _zone()
-    already_wall = os.environ.get(LEGACY_CLOCK, "utc").lower() == "wall"
     connection = op.get_bind()
 
     rows = connection.execute(
