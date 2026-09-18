@@ -281,6 +281,10 @@ class DashboardScreen(Screen[None]):
         press costs one visible break; the status bar is the receipt.
         """
         clock = self._services.clock
+        # A session left running overnight is drawn as closed the moment the
+        # date turns, and `sweep` is what makes that true in the database. Ask
+        # first, or the morning's `/` closes yesterday at this morning's time.
+        clock.sweep()
         if clock.is_clocked_in():
             self._report(clock.clock_out())
         else:
@@ -300,8 +304,9 @@ class DashboardScreen(Screen[None]):
     def action_correct(self) -> None:
         """Record work on the selected day that nobody clocked at the time.
 
-        Opens on the day under the cursor, which is the day somebody is looking
-        at when they notice the morning is missing.
+        Opens on the day under the records cursor, which is the day somebody is
+        looking at when they notice the morning is missing, and on the period
+        anchor when the table does not hold the cursor.
         """
 
         def record(correction: Correction | None) -> None:
@@ -314,7 +319,15 @@ class DashboardScreen(Screen[None]):
                 scope=Scope.CLOCK,
             )
 
-        self.app.push_screen(CorrectionModal(self.period.anchor), callback=record)
+        self.app.push_screen(CorrectionModal(self._selected_day()), callback=record)
+
+    def _selected_day(self) -> date:
+        """The day the records cursor is on, or the anchor if it is elsewhere."""
+        for records in self.query(RecordsModule):
+            iso = records.selected_date() if records.has_focus_within else None
+            if iso is not None:
+                return date.fromisoformat(iso)
+        return self.period.anchor
 
     def action_corrections(self) -> None:
         """Read back every correction in the period, as a set rather than singly."""
@@ -346,7 +359,7 @@ class DashboardScreen(Screen[None]):
             AbsenceModal(
                 when,
                 kind,
-                remaining=self._services.absence.get_remaining_annual_leave(),
+                remaining=self._services.absence.get_remaining_annual_leave(when),
                 toil_days=available_toil_days(self._services),
             ),
             callback=book,

@@ -6,12 +6,14 @@ after their first day -- so it is the one most likely to rot unnoticed.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+import time_machine
 from textual.pilot import Pilot
-from textual.widgets import Input, Select
+from textual.widgets import Input, Select, Static
 
 from flexi.app import FlexiApp
 from flexi.components.wordmark import Wordmark
@@ -275,6 +277,88 @@ async def test_what_was_answered_is_what_was_saved(fresh_db: Path) -> None:
         assert settings.get_active_entitlement_days(None) == 28.0
 
 
+# -- the year the allowance is filed under ---------------------------------
+
+FEBRUARY = datetime(2026, 2, 16, 10, 0, tzinfo=UTC)
+"""A day the two leave years disagree about: 2026 from 1 January, 2025 from 6 April."""
+
+
+def entitlement_note(app: FlexiApp) -> str:
+    """The sentence under the entitlement field."""
+    ask = showing(app, SetupScreen).query_one("#ask-entitlement", Question)
+    return str(ask.query_one(".note", Static).render())
+
+
+def filed(db_path: Path) -> list[tuple[int, float]]:
+    """Every entitlement in the database, by year."""
+    with get_session(create_db_engine(db_path)) as session:
+        return [
+            (row.year, row.days) for row in SettingsService(session).all_entitlements()
+        ]
+
+
+async def test_the_note_names_the_year_the_answer_is_filed_under(
+    fresh_db: Path,
+) -> None:
+    """The form offers 6 April and the stored default is 1 January.
+
+    Set up in February the note worked its year out of the setting nobody had
+    answered yet and the save filed the days under the one on the form: 28
+    days said to be "for 2026", written against 2025, and nothing at all for
+    2026 when April came round.
+    """
+    with time_machine.travel(FEBRUARY, tick=False):
+        app = FlexiApp(db_path=fresh_db)
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            assert entitlement_note(app) == "days for 2025, halves allowed"
+
+            await _answer(app, "Mon-Fri")
+            await pilot.pause()
+            showing(app, SetupScreen).action_save()
+            await pilot.pause()
+            await pilot.pause()
+
+    assert filed(fresh_db) == [(2025, 28.0)]
+
+
+async def test_the_note_follows_the_start_that_is_typed(fresh_db: Path) -> None:
+    """A leave year running with the calendar files February under this year."""
+    with time_machine.travel(FEBRUARY, tick=False):
+        app = FlexiApp(db_path=fresh_db)
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            await _answer(app, "Mon-Fri")
+            screen = showing(app, SetupScreen)
+            screen.query_one("#input-leave-start", Input).value = "01-01"
+            await pilot.pause()
+            assert entitlement_note(app) == "days for 2026, halves allowed"
+
+            screen.action_save()
+            await pilot.pause()
+            await pilot.pause()
+
+    assert filed(fresh_db) == [(2026, 28.0)]
+
+
+async def test_a_start_half_typed_leaves_the_note_where_it_was(
+    fresh_db: Path,
+) -> None:
+    """Half a date is not an answer yet, and a note that flashes is noise."""
+    with time_machine.travel(FEBRUARY, tick=False):
+        app = FlexiApp(db_path=fresh_db)
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            field = showing(app, SetupScreen).query_one("#input-leave-start", Input)
+            field.value = "01-01"
+            await pilot.pause()
+
+            field.value = "01-"
+            await pilot.pause()
+
+            assert entitlement_note(app) == "days for 2026, halves allowed"
+
+
 async def test_the_wordmark_lands_and_the_questions_arrive_under_it(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -313,20 +397,19 @@ async def test_the_wordmark_lands_and_the_questions_arrive_under_it(
         assert stored.leave_year_start == "04-06"
 
 
-async def test_a_key_the_questions_do_not_claim_cuts_the_animation_short(
-    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("key", ["f5", "x", "space"])
+async def test_any_key_cuts_the_animation_short(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch, key: str
 ) -> None:
     """A splash that cannot be skipped is a splash that is in the way.
 
     Somebody setting Flexi up a second time — a new machine, a reset database —
     should not have to sit through the word turning in.
 
-    Not *any* key, despite what the screen's own docstring says: the leave-year
-    field is focused from the moment the screen mounts, so every printable key
-    is claimed by an Input that is still clipped to nothing and the screen never
-    sees it. F5 is a key nothing underneath wants, so it is the one that gets
-    through. The second assertion is the half of that which is a real hazard —
-    the skip key must not end up typed into the invisible first answer.
+    A printable key is the case that used to fail both ways: the leave-year
+    field was focused from the moment the screen mounted, so the key went into
+    an Input clipped to nothing — the animation played on, and the field
+    arrived holding `x` where its default should have been.
     """
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
@@ -336,13 +419,35 @@ async def test_a_key_the_questions_do_not_claim_cuts_the_animation_short(
         questions = showing(app, SetupScreen).query_one("#setup-questions")
         assert not questions.has_class("-arrived")
 
-        await pilot.press("f5")
+        await pilot.press(key)
         await revealed(pilot)
 
         assert questions.has_class("-arrived"), "the word stopped and let them in"
         assert app.screen.query_one("#input-leave-start", Input).value == "04-06", (
             "and the key that skipped it was not typed into anything"
         )
+
+
+async def test_the_quit_key_quits_during_the_animation(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Skipping a splash is not a reason to hold somebody in the program.
+
+    Every key is stopped at the screen so that the one that cuts the animation
+    short does nothing else, and ctrl+q was stopped with the rest: the
+    documented quit key took two presses, one to skip and one to leave.
+    """
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        showing(app, SetupScreen)
+
+        await pilot.press("ctrl+q")
+        await pilot.pause()
+
+        assert not app.is_running
 
 
 async def test_once_the_questions_are_up_tab_moves_between_them_again(

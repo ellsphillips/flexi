@@ -1,6 +1,6 @@
 """Insights: how the balance and the allowances actually moved.
 
-Four questions, four forms, and each form was chosen because the data has that
+Five questions, five forms, and each form was chosen because the data has that
 job. Nothing here is a chart for the sake of having one — the dashboard already
 answers "where am I"; this answers "how did I get here".
 """
@@ -32,7 +32,7 @@ from flexi.components.plot import Plot
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
 from flexi.context import service_app
-from flexi.domain.format import day_month, delta, hm
+from flexi.domain.format import day_month, delta, hm, stamp
 from flexi.domain.period import Period
 from flexi.domain.plot import Mark, Series
 from flexi.messages import Scope
@@ -130,7 +130,14 @@ class RunningBalance(Module):
             rule=0.0,
             empty_message="Nothing recorded yet",
         )
-        self.set_subtitle(f"{delta(timedelta(hours=running[-1]))} on {day_month(end)}")
+        # The line starts at zero on the period's first day. Over the leave year
+        # that is the balance; over a month it is the drift within the month,
+        # and captioning it "on 11 Jun" made it read as the dashboard's figure.
+        total = delta(timedelta(hours=running[-1]))
+        if period.granularity is Granularity.YEAR:
+            self.set_subtitle(f"{total} on {day_month(end)}")
+        else:
+            self.set_subtitle(f"{total} this period")
 
 
 class LeaveBurndown(Module):
@@ -157,7 +164,9 @@ class LeaveBurndown(Module):
             annual.remaining, annual.total or 0.0, annual.pace
         )
         start, end = data.leave_year
-        self.set_subtitle(f"{start.strftime('%b %y')}–{end.strftime('%b %y')}")
+        # The same span as the dashboard's Balance panel names, said the same
+        # way: a leave year that starts on the 6th is not "Apr 26".
+        self.set_subtitle(f"{stamp(start, '%-d %b %y')}–{stamp(end, '%-d %b %y')}")
 
 
 class ShapeOfTheWeeks(Module):
@@ -203,18 +212,24 @@ class YearAtAGlance(Module):
         self.rebuild()
 
     def rebuild(self) -> None:
-        today = self.now.date()
-        start, _ = self.services.absence.leave_year_bounds(today)
-        ledgers = self.services.ledger.days(start, today, now=self.now)
-        self.query_one("#heatmap", YearHeatmap).show(
-            ledgers, first_weekday=self.period.first_weekday
-        )
+        # The leave year the period is in, whatever the period has been zoomed
+        # to: a panel titled "The leave year" that stays on this one while the
+        # header says 2025/26 is two panels disagreeing about which year is up.
+        year = self.period.zoom(Granularity.YEAR)
+        end = min(year.end, self.now.date())
+        heatmap = self.query_one("#heatmap", YearHeatmap)
+        if end < year.start:
+            heatmap.show([], first_weekday=self.period.first_weekday)
+            self.set_subtitle("not started")
+            return
+        ledgers = self.services.ledger.days(year.start, end, now=self.now)
+        heatmap.show(ledgers, first_weekday=self.period.first_weekday)
         worked = sum((item.worked for item in ledgers), start=timedelta())
         self.set_subtitle(f"{hm(worked)} worked")
 
 
 class InsightsScreen(Screen[None]):
-    """The four questions the dashboard does not answer."""
+    """The five questions the dashboard does not answer."""
 
     HELP_LABEL = "Insights"
 
@@ -258,7 +273,9 @@ class InsightsScreen(Screen[None]):
         mark_width(self, self.size.width)
 
     def jump_targets(self) -> dict[str, str]:
+        """Every panel, including the full-width one the headline figure is."""
         return {
+            "running-balance": "r",
             "balance-history": "b",
             "leave-burndown": "l",
             "week-ribbon": "s",

@@ -38,7 +38,11 @@ from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
 from flexi.screens.settings import ALL_REQUIRED, parse_answers
 from flexi.services.registry import Services
-from flexi.services.settings import DEFAULT_ENTITLEMENT_DAYS, parse_entitlement_days
+from flexi.services.settings import (
+    DEFAULT_ENTITLEMENT_DAYS,
+    parse_entitlement_days,
+    parse_month_day,
+)
 from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
 
 __all__ = (
@@ -47,6 +51,7 @@ __all__ = (
     "FORM_WIDTH",
     "GUTTER",
     "HEADING_ROWS",
+    "LEAVE_YEAR_START",
     "NOTE_WIDTH",
     "QUESTION_ROWS",
     "RAIL_WIDTH",
@@ -56,9 +61,19 @@ __all__ = (
     "Question",
     "Rail",
     "SetupScreen",
+    "entitlement_year",
     "form_rows",
     "sized",
 )
+
+LEAVE_YEAR_START = "04-06"
+"""What the first question is pre-filled with.
+
+The stored default is 1 January, and the form answers 6 April, so the note
+under the entitlement worked out one year while the save filed it under the
+other: set up in February, the 25 days the form said were "for 2026" were
+written against 2025.
+"""
 
 GUTTER = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
@@ -216,6 +231,16 @@ class SetupScreen(Screen[bool]):
 
     HELP_LABEL = "Setup"
 
+    AUTO_FOCUS: ClassVar[str] = ""
+    """Nothing is focused while the splash plays.
+
+    Textual focuses the first input on mount, which is under a block at zero
+    height: a key pressed at the logo went into the leave-year field, which
+    arrived holding `x1 ` in place of its default, and did not skip the
+    animation it was meant to skip. `on_wordmark_landed` focuses the field once
+    there is something to see.
+    """
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "cancel", "Cancel"),
         Binding("ctrl+s", "save", "Save"),
@@ -255,11 +280,11 @@ class SetupScreen(Screen[bool]):
         self._plays = animate
 
     def _asks(self) -> list[Question]:
-        year = self._settings_svc.active_leave_year()
+        year = entitlement_year(LEAVE_YEAR_START)
         return [
             Question(
                 "Leave year starts",
-                Input("04-06", id="input-leave-start", placeholder="MM-DD"),
+                Input(LEAVE_YEAR_START, id="input-leave-start", placeholder="MM-DD"),
                 "6 April, for most schemes",
                 id="ask-leave-start",
             ),
@@ -314,6 +339,20 @@ class SetupScreen(Screen[bool]):
                         id="setup-tail",
                     )
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Keep the entitlement note on the year the typed start files it under."""
+        if event.input.id != "input-leave-start":
+            return
+        try:
+            year = entitlement_year(event.value)
+        except ValueError:
+            # Half a date is not an answer yet; the note keeps the last year it
+            # could work out rather than flashing at every keystroke.
+            return
+        self.query_one("#ask-entitlement", Question).query_one(".note", Static).update(
+            f"days for {year}, halves allowed"
+        )
+
     def on_mount(self) -> None:
         """Tell the wordmark how wide to be.
 
@@ -356,10 +395,16 @@ class SetupScreen(Screen[bool]):
         Somebody setting Flexi up a second time should not have to watch it
         again, and a splash that cannot be skipped is a splash that is in the
         way. Once the questions are up the keys belong to them.
+
+        `ctrl+q` skips the animation and then goes on to quit: the key that
+        means "not now" is not a key to swallow. `escape` is kept here, because
+        cancelling this screen ends the program, and a press meant for the logo
+        should not.
         """
         if not self.query_one("#setup-questions").has_class("-arrived"):
             self.query_one("#setup-wordmark", Wordmark).skip()
-            event.stop()
+            if event.key != "ctrl+q":
+                event.stop()
 
     def on_descendant_focus(self, _event: events.DescendantFocus) -> None:
         self._mark_the_live_question()
@@ -411,6 +456,11 @@ class SetupScreen(Screen[bool]):
 
     def action_cancel(self) -> None:
         self.dismiss(False)
+
+
+def entitlement_year(start: str) -> int:
+    """The leave year an allowance typed today would be filed under."""
+    return leaveyear.active_year(wallclock.today(), *parse_month_day(start))
 
 
 def form_rows(questions: int) -> int:

@@ -17,7 +17,8 @@ from textual.binding import Binding
 
 import flexi.screens
 from flexi.components.chrome import NavItemLabel, footer_key_cost, keys_that_fit
-from flexi.screens.help import HelpScreen, collect_bindings
+from flexi.components.expandable import ExpandableTable
+from flexi.screens.help import HelpScreen, collect_bindings, declared_by_flexi
 from flexi.screens.insights import InsightsScreen
 from flexi.screens.modals import FlexiModal
 from tests.conftest import settled
@@ -211,3 +212,58 @@ async def test_help_closes_on_escape(app_factory: AppFactory) -> None:
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, HelpScreen)
+
+
+async def test_help_leaves_out_the_keys_the_widget_only_inherited(
+    app_factory: AppFactory,
+) -> None:
+    """A Flexi table is still a `DataTable`, and the filter asked the widget.
+
+    So the Records group advertised Cursor Left and Page Right — a row cursor
+    moves up and down — and the dashboard's group opened with Focus Next and
+    Copy selected text.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        app.screen.query_one("#records-table", ExpandableTable).focus()
+        await pilot.pause()
+
+        groups = collect_bindings(app.screen)
+        descriptions = {
+            description for entries in groups.values() for _, description in entries
+        }
+        assert "Book absence" in descriptions, "Flexi's own are still listed"
+        for inherited in (
+            "Cursor Left",
+            "Page Left",
+            "Page Right",
+            "Focus Next",
+            "Copy selected text",
+        ):
+            assert inherited not in descriptions
+
+
+async def test_help_lists_every_key_an_action_answers_to(
+    app_factory: AppFactory,
+) -> None:
+    """`left,h` is one binding in the source and two in `active_bindings`.
+
+    Keeping the first of the pair left the vim keys off the one page that
+    lists the keyboard, and the key strip has no room for them either.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f2")
+        await pilot.pause()
+
+        groups = collect_bindings(app.screen)
+        calendar = dict(groups["Leave calendar"])
+        assert "← / h" in calendar
+        assert calendar["← / h"] == "Back a day"
+        assert {"↓ / j", "↑ / k", "→ / l"} <= set(calendar)
+
+
+def test_a_binding_no_class_declares_belongs_to_nobody() -> None:
+    """The walk falls off the end of the MRO for a node with no bindings at all."""
+    assert not declared_by_flexi(object(), Binding("x", "nothing", "Nothing"))

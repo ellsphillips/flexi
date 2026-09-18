@@ -14,7 +14,7 @@ from typing import ClassVar
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container, VerticalScroll
-from textual.screen import ModalScreen
+from textual.screen import ModalScreen, Screen
 from textual.widgets import Static
 
 from flexi.components.common import KeyHint, Rule
@@ -55,33 +55,51 @@ class HelpScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
-def collect_bindings(screen: object) -> dict[str, list[tuple[str, str]]]:
+def collect_bindings(screen: Screen[object]) -> dict[str, list[tuple[str, str]]]:
     """Group a screen's active bindings by the widget that declared them.
 
     Flexi's own only. Textual gives every scrollable container eight bindings of its
     own, and listing Scroll Up and Page Left turns a keyboard reference into a list
     of things nobody came here to learn.
+
+    One row per action, carrying every key that runs it: `left,h` is one Binding
+    in the source and two in `active_bindings`, and keeping the first of them
+    left the vim keys off the only page that lists the keyboard.
     """
     groups: dict[str, list[tuple[str, str]]] = {}
-    seen: set[tuple[str, str]] = set()
-    active = getattr(screen, "active_bindings", {})
-    app = getattr(screen, "app", None)
-    for node, binding, _enabled, _tooltip in active.values():
-        if not binding.description or not declared_by_flexi(node):
+    rows: dict[tuple[str, str], int] = {}
+    for node, binding, _enabled, _tooltip in screen.active_bindings.values():
+        if not binding.description or not declared_by_flexi(node, binding):
             continue
         owner = label_for(node)
-        marker = (owner, binding.action)
-        if marker in seen:
-            continue
-        seen.add(marker)
-        display = app.get_key_display(binding) if app else binding.key
-        groups.setdefault(owner, []).append((display, binding.description))
+        listed = groups.setdefault(owner, [])
+        display = screen.app.get_key_display(binding)
+        where = rows.get((owner, binding.action))
+        if where is None:
+            rows[owner, binding.action] = len(listed)
+            listed.append((display, binding.description))
+        else:
+            keys, description = listed[where]
+            listed[where] = (f"{keys} / {display}", description)
     return groups
 
 
-def declared_by_flexi(node: object) -> bool:
-    """True when the binding was declared by Flexi rather than by Textual."""
-    return type(node).__module__.startswith("flexi.")
+def declared_by_flexi(node: object, binding: Binding) -> bool:
+    """True when this key was declared by Flexi rather than inherited from Textual.
+
+    Asked of the binding rather than of the widget holding it. A Flexi table is
+    still a `DataTable`, so a filter on the widget's own module let Cursor Left
+    and Page Right through on the strength of the subclass they were inherited
+    into.
+    """
+    for cls in type(node).__mro__:
+        own = cls.__dict__.get("BINDINGS")
+        if own is None:
+            continue
+        declared = {(item.key, item.action) for item in Binding.make_bindings(own)}
+        if (binding.key, binding.action) in declared:
+            return cls.__module__.startswith("flexi.")
+    return False
 
 
 def label_for(node: object) -> str:
@@ -91,7 +109,8 @@ def label_for(node: object) -> str:
     entry for the leave screen or its calendar, so the help modal filed their
     eleven keys under `LeaveScreen` and `YearCalendar` -- and nothing said so,
     because a missing entry falls back to the class name and a class name is a
-    string like any other. `tests/tui/test_modals.py` now refuses a Flexi class
-    that declares bindings and no `HELP_LABEL`.
+    string like any other.
+    `tests/test_layering.py::test_every_class_with_keys_says_what_to_call_it`
+    refuses a Flexi class that declares bindings and no `HELP_LABEL`.
     """
     return str(getattr(type(node), "HELP_LABEL", type(node).__name__))

@@ -19,6 +19,8 @@ from flexi.components.charts import (
 )
 from flexi.components.chrome import AppHeader
 from flexi.components.modules.base import Module
+from flexi.components.plot import Plot
+from flexi.config import CONFIG
 from flexi.constants import DayKind, Granularity
 from flexi.domain.ledger import DayLedger
 from flexi.messages import Scope
@@ -106,13 +108,13 @@ async def test_f1_returns_to_the_dashboard(app_factory: AppFactory) -> None:
         assert app.nav == "dashboard"
 
 
-async def test_all_four_charts_draw(app_factory: AppFactory) -> None:
+async def test_every_chart_draws(app_factory: AppFactory) -> None:
     """It renders every panel with data rather than an empty state."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
         await pilot.pause()
-        for chart in (DivergingBars, Burndown, WeekRibbon, YearHeatmap):
+        for chart in (Plot, DivergingBars, Burndown, WeekRibbon, YearHeatmap):
             assert app.screen.query_one(chart)
         text = screen_text(app)
         assert "Nothing recorded yet" not in text
@@ -412,3 +414,118 @@ async def test_narrow_collapses_every_island_to_one_column(
         assert app.screen.has_class("-narrow")
         widths = {one.region.width for one in islands(app)}
         assert len(widths) == 1, f"islands should share one width, got {widths}"
+
+
+async def test_every_panel_on_the_screen_has_a_jump_key(
+    app_factory: AppFactory,
+) -> None:
+    """Both ways round, so the next panel added cannot go without a badge.
+
+    The running balance is the headline chart and was the one panel with no
+    key: in jump mode every island but that one grew a badge.
+    """
+    app = app_factory()
+    async with app.run_test(size=(120, 44)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        insights = showing(app, InsightsScreen)
+        mounted = {module.id for module in insights.query(Module)}
+
+        assert mounted == set(insights.jump_targets())
+
+
+async def test_the_heatmap_follows_the_period_the_header_names(
+    app_factory: AppFactory,
+) -> None:
+    """It read today's leave year whatever the period said.
+
+    Four panels moved with `[` and the fifth, titled "The leave year", went on
+    painting this one — so the two year-shaped panels disagreed about which
+    year was on screen.
+    """
+    app = app_factory()
+    async with app.run_test(size=(120, 44)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        heatmap = app.screen.query_one(YearHeatmap)
+        assert max(heatmap.ledgers) == date(2026, 6, 11)
+
+        await pilot.press("left_square_bracket")
+        await pilot.pause()
+
+        heatmap = app.screen.query_one(YearHeatmap)
+        assert min(heatmap.ledgers) == date(2025, 4, 6)
+        assert max(heatmap.ledgers) == date(2026, 4, 5)
+
+
+async def test_the_heatmap_says_a_year_has_not_started(
+    app_factory: AppFactory,
+) -> None:
+    """Next year has no days behind it, and an empty grid looks like a bug."""
+    app = app_factory()
+    async with app.run_test(size=(120, 44)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        await pilot.press("right_square_bracket")
+        await pilot.pause()
+
+        insights = showing(app, InsightsScreen)
+        assert str(insights.query_one("#year-heatmap").border_subtitle) == "not started"
+        assert insights.query_one(YearHeatmap).ledgers == {}
+
+
+async def test_the_heatmap_draws_a_year_even_when_the_period_is_a_week(
+    app_factory: AppFactory,
+) -> None:
+    """A year-shaped panel narrowed to one column answers a question nobody asked."""
+    app = app_factory()
+    async with app.run_test(size=(120, 44)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        await pilot.press(CONFIG.hotkeys.period_cycle)
+        await pilot.pause()
+
+        heatmap = app.screen.query_one(YearHeatmap)
+        assert min(heatmap.ledgers) == date(2026, 4, 6)
+
+
+async def test_the_running_balance_says_which_span_its_figure_covers(
+    app_factory: AppFactory,
+) -> None:
+    """The line starts at zero on the period's first day.
+
+    Over the leave year that is the balance the dashboard shows; over a month
+    it is the drift within the month, and "+4:10 on 11 Jun" beside a dashboard
+    reading +19:48 is two screens disagreeing about one number.
+    """
+    app = app_factory()
+    async with app.run_test(size=(120, 44)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+        insights = showing(app, InsightsScreen)
+        assert str(insights.query_one("#running-balance").border_subtitle).endswith(
+            "on 11 Jun"
+        )
+
+        await pilot.press(CONFIG.hotkeys.period_cycle)
+        await pilot.pause()
+
+        insights = showing(app, InsightsScreen)
+        assert insights.period.granularity is not Granularity.YEAR
+        assert str(insights.query_one("#running-balance").border_subtitle).endswith(
+            "this period"
+        )
+
+
+async def test_the_leave_panel_names_the_year_the_dashboard_names(
+    app_factory: AppFactory,
+) -> None:
+    """One span, three panels, three spellings: `Apr 26` is not the 6th."""
+    app = app_factory()
+    async with app.run_test(size=(120, 44)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+
+        insights = showing(app, InsightsScreen)
+        subtitle = str(insights.query_one("#leave-burndown").border_subtitle)
+        assert subtitle == "6 Apr 26–5 Apr 27"

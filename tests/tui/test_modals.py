@@ -14,7 +14,7 @@ from textual.app import ComposeResult
 from textual.widgets import Button, Input, RadioSet, Static
 
 from flexi.components.common import Rule
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Portion
 from flexi.screens.help import HelpScreen
 from flexi.screens.modals import AbsenceModal, FlexiModal, selected_name
 from tests.tui.conftest import WIDE, AppFactory, showing
@@ -226,3 +226,121 @@ async def test_a_group_with_no_keys_in_it_is_not_given_a_heading(
 
         headings = [str(rule.render()) for rule in showing(app, HelpScreen).query(Rule)]
         assert headings == ["Dashboard"]
+
+
+# -- enter, and what has focus when it is pressed --------------------------
+
+
+async def test_enter_on_the_cancel_button_cancels(app_factory: AppFactory) -> None:
+    """The modal's enter binding is priority, so it won over the focused button.
+
+    A key pressed to back out of a dialog then answered yes to it. The binding
+    stands down while a button other than Confirm holds focus, and the button's
+    own enter does what the pointer would.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("A")
+        await pilot.pause()
+        modal = showing(app, AbsenceModal)
+        modal.query_one("#absence-date", Input).value = FREE_MONDAY.isoformat()
+        modal.query_one("#modal-cancel", Button).focus()
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert not isinstance(app.screen, AbsenceModal)
+        assert app.services.absence.for_date(FREE_MONDAY) == []
+
+
+async def test_enter_on_the_confirm_button_still_confirms(
+    app_factory: AppFactory,
+) -> None:
+    """The one button enter is allowed to answer for."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("A")
+        await pilot.pause()
+        modal = showing(app, AbsenceModal)
+        modal.query_one("#absence-date", Input).value = FREE_MONDAY.isoformat()
+        modal.query_one("#modal-confirm", Button).focus()
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert not isinstance(app.screen, AbsenceModal)
+        assert len(app.services.absence.for_date(FREE_MONDAY)) == 1
+
+
+async def test_enter_in_a_field_confirms(app_factory: AppFactory) -> None:
+    """Nothing but a button stands the binding down, so a field still submits."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("A")
+        await pilot.pause()
+        modal = showing(app, AbsenceModal)
+        modal.query_one("#absence-date", Input).value = FREE_MONDAY.isoformat()
+        modal.query_one("#absence-note", Input).focus()
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert len(app.services.absence.for_date(FREE_MONDAY)) == 1
+
+
+# -- the radio sets --------------------------------------------------------
+
+
+async def test_arrowing_to_a_type_books_the_type_arrowed_to(
+    app_factory: AppFactory,
+) -> None:
+    """The highlight moved and the answer did not, so enter booked annual leave."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("A")
+        await pilot.pause()
+        modal = showing(app, AbsenceModal)
+        modal.query_one("#absence-date", Input).value = FREE_MONDAY.isoformat()
+        modal.query_one("#absence-type", RadioSet).focus()
+        await pilot.pause()
+
+        await pilot.press("down")
+        await pilot.pause()
+        assert selected_name(modal, "#absence-type", fallback="?") == "sick"
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        booked = app.services.absence.for_date(FREE_MONDAY)
+        assert [row.absence_type for row in booked] == [AbsenceType.SICK]
+
+
+async def test_arrowing_back_to_a_portion_books_that_portion(
+    app_factory: AppFactory,
+) -> None:
+    """Up as well as down: a half day chosen by arrow was written as a full one."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("A")
+        await pilot.pause()
+        modal = showing(app, AbsenceModal)
+        modal.query_one("#absence-date", Input).value = FREE_MONDAY.isoformat()
+        modal.query_one("#absence-portion", RadioSet).focus()
+        await pilot.pause()
+
+        await pilot.press("up")
+        await pilot.pause()
+        assert selected_name(modal, "#absence-portion", fallback="?") == "pm"
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert app.services.absence.for_date(FREE_MONDAY)[0].portion is Portion.PM

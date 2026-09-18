@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 import pytest
 from textual.pilot import Pilot
-from textual.widgets import Input
+from textual.widgets import Button, Input, Static
 
 from flexi.app import FlexiApp
 from flexi.components.common import Gauge, Tone
@@ -14,7 +14,12 @@ from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.messages import Scope
 from flexi.screens.leave import LeaveScreen, preview
-from flexi.screens.modals import AbsenceModal, ConfirmModal, GoToDateModal
+from flexi.screens.modals import (
+    AbsenceModal,
+    ConfirmModal,
+    GoToDateModal,
+    selected_name,
+)
 from flexi.services.absence import (
     PLAN_CHANGED,
     AbsencePlan,
@@ -312,13 +317,59 @@ async def test_space_cycles_the_portion_before_booking(app_factory: AppFactory) 
 
 
 async def test_other_absence_goes_through_the_modal(app_factory: AppFactory) -> None:
-    """It needs a note, and a note needs somewhere to be typed."""
+    """It needs a note, and a note needs somewhere to be typed.
+
+    On the type that was pressed: the modal opened on Annual whatever the key,
+    so a day of jury service was written as annual leave and came out of the
+    entitlement.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        before = app.services.absence.get_remaining_annual_leave()
+
         await pilot.press("O")
         await pilot.pause()
-        assert isinstance(app.screen, AbsenceModal)
+        modal = showing(app, AbsenceModal)
+        assert selected_name(modal, "#absence-type", fallback="?") == "other"
+
+        modal.query_one("#absence-note", Input).value = "jury service"
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        booked = app.services.absence.for_date(FREE_MONDAY)
+        assert [row.absence_type for row in booked] == [AbsenceType.OTHER]
+        assert app.services.absence.get_remaining_annual_leave() == before
+
+
+async def test_the_modal_opens_on_the_portion_that_was_cycled(
+    app_factory: AppFactory,
+) -> None:
+    """Every indicator on the screen said morning; the modal booked a full day."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+        modal = showing(app, AbsenceModal)
+        assert selected_name(modal, "#absence-portion", fallback="?") == "am"
+        assert selected_name(modal, "#absence-type", fallback="?") == "annual", (
+            "`e` still opens on annual leave"
+        )
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert app.services.absence.for_date(FREE_MONDAY)[0].portion is Portion.AM
 
 
 async def test_cancelling_the_modal_books_nothing(app_factory: AppFactory) -> None:
@@ -625,6 +676,17 @@ async def test_every_panel_is_jumpable(app_factory: AppFactory) -> None:
             assert leave.query(f"#{widget_id}"), f"{widget_id} is not mounted"
 
 
+async def test_the_wallet_names_the_year_the_dashboard_names(
+    app_factory: AppFactory,
+) -> None:
+    """One span, three panels, three spellings: `Apr 26` is not the 6th."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        wallet = app.screen.query_one("#leave-wallet")
+        assert str(wallet.border_subtitle) == "6 Apr 26–5 Apr 27"
+
+
 async def test_the_rail_gives_way_when_there_is_no_room(
     app_factory: AppFactory,
 ) -> None:
@@ -847,6 +909,15 @@ async def test_the_modal_shows_the_span_it_would_book(
         await pilot.press("enter")
         await pilot.pause()
         await pilot.pause()
+        assert isinstance(app.screen, ConfirmModal), "a span asks first, as `A` does"
+        assert (
+            app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY + timedelta(days=4))
+            == []
+        ), "and writes nothing until it is answered"
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
         booked = app.services.absence.in_range(
             FREE_MONDAY, FREE_MONDAY + timedelta(days=4)
         )
@@ -959,3 +1030,179 @@ async def test_saving_settings_moves_the_leave_year_under_an_open_planner(
         assert showing(app, LeaveScreen).period == moved, (
             "a booking redraws the year; it does not re-read where it starts"
         )
+
+
+# -- the cursor, the grid and the fold -------------------------------------
+
+
+async def test_the_planner_opens_with_the_cursor_on_the_year_it_draws(
+    app_factory: AppFactory,
+) -> None:
+    """The cursor lands on the year that is drawn.
+
+    Browsing last year on the dashboard and pressing f2 drew last year's grid
+    with the cursor still on today, which is not a day on it, so `A` booked a
+    day nobody could see and said so about a date off screen.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("y")
+        await pilot.pause()
+        await pilot.press("left_square_bracket")
+        await pilot.pause()
+
+        await open_leave(pilot)
+        screen = showing(app, LeaveScreen)
+        head = calendar(app).selection.head
+        assert screen.period.contains(head)
+        assert calendar(app).row_of(head) is not None, "the cursor is on the grid"
+        assert head == screen.period.anchor
+
+
+async def test_the_cursor_is_on_screen_on_a_year_that_began_in_january(
+    app_factory: AppFactory,
+) -> None:
+    """A leave year starting five months ago opens scrolled to January.
+
+    The grid is taller than the panel, and nothing scrolled to the cursor on
+    open: the Selected panel named today and the tile it named was below the
+    fold.
+    """
+    app = app_factory()
+    async with app.run_test(size=(120, 30)) as pilot:
+        settings = app.services.settings
+        current = settings.resolved()
+        settings.save_settings(
+            SettingsUpdate(
+                leave_year_start=(1, 1),
+                working_days=current.working_days,
+                division=current.division,
+                auto_close=current.auto_close,
+            )
+        )
+
+        await open_leave(pilot)
+        await pilot.pause()
+        grid = calendar(app)
+        row = grid.row_of(TODAY)
+        assert row is not None
+        top = int(grid.scroll_offset.y)
+        assert top <= row < top + grid.size.height, (
+            f"today is on row {row}, showing {top}..{top + grid.size.height}"
+        )
+
+
+# -- what the selection costs ----------------------------------------------
+
+
+async def test_a_bank_holiday_is_not_counted_as_a_working_day(
+    app_factory: AppFactory,
+) -> None:
+    """The sidebar said five and the booking that followed said four of five."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(date(2026, 8, 31))  # the Summer bank holiday
+        await pilot.pause()
+        for _ in range(4):
+            await pilot.press("shift+right")
+        await pilot.pause()
+
+        detail = showing(app, LeaveScreen).query_one("#leave-selection-detail", Static)
+        assert "4 working days" in str(detail.render())
+
+        await pilot.press("A")
+        await pilot.pause()
+        showing(app, ConfirmModal)
+        assert "4 days of 5" in screen_text(app)
+
+
+async def test_a_selection_reaching_past_the_drawn_year_still_counts(
+    app_factory: AppFactory,
+) -> None:
+    """The grid holds one leave year and the selection is not confined to it.
+
+    Dragged over the boundary the calendar reloads on the new year, so the
+    anchor is a day it no longer holds a ledger for; the weekday pattern is
+    what answers for that day.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(date(2027, 4, 5))  # a Monday, the last day of the year
+        await pilot.pause()
+        await pilot.press("shift+right")
+        await pilot.pause()
+        await pilot.pause()
+
+        screen = showing(app, LeaveScreen)
+        assert screen.period.start == date(2027, 4, 6), "the grid followed the cursor"
+        detail = screen.query_one("#leave-selection-detail", Static)
+        assert "2 working days" in str(detail.render())
+
+
+# -- the keyboard on a dialog ----------------------------------------------
+
+
+async def test_enter_on_the_cancel_button_keeps_the_bookings(
+    app_factory: AppFactory,
+) -> None:
+    """Cancel is the one button that has to be trustworthy.
+
+    Tabbing to it and pressing enter removed the five days it was backing out
+    of: the modal's enter binding is priority, so it answered over the focused
+    button.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        for _ in range(6):
+            await pilot.press("shift+right")
+        await pilot.pause()
+        await pilot.press("A")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        await pilot.press("x")
+        await pilot.pause()
+        removal = showing(app, ConfirmModal)
+        removal.query_one("#modal-cancel", Button).focus()
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, LeaveScreen)
+        kept = app.services.absence.in_range(
+            FREE_MONDAY, FREE_MONDAY + timedelta(days=6)
+        )
+        assert len(kept) == 5, "cancel is the one button that has to be trustworthy"
+
+
+# -- what the modal says is left -------------------------------------------
+
+
+async def test_the_allowance_hint_answers_for_the_year_being_booked(
+    app_factory: AppFactory,
+) -> None:
+    """Next April is next year's allowance, and the hint read this year's."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        settings = app.services.settings
+        settings.save_entitlement(2027, 30.0)
+
+        await open_leave(pilot)
+        calendar(app).go_to(date(2027, 4, 12))
+        await pilot.pause()
+        await pilot.pause()
+
+        await pilot.press("e")
+        await pilot.pause()
+        modal = showing(app, AbsenceModal)
+        assert modal._remaining == 30.0
+        assert "30 days annual leave left" in modal._allowance_hint()

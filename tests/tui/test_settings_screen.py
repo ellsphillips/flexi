@@ -24,8 +24,9 @@ from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.leave import LeaveScreen
-from flexi.screens.settings import SettingsScreen
-from tests.tui.conftest import WIDE, AppFactory, showing
+from flexi.screens.settings import SettingsScreen, describe_working_days
+from flexi.services.settings import parse_working_days
+from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
 
 async def open_settings(pilot: Pilot[None]) -> None:
@@ -64,7 +65,7 @@ async def test_the_fields_arrive_holding_what_is_stored(
         assert screen.query_one("#input-leave-start", Input).value == (
             row.leave_year_start
         )
-        assert screen.query_one("#input-working-days", Input).value == row.working_days
+        assert screen.query_one("#input-working-days", Input).value == "Mon-Fri"
         assert screen.query_one("#input-auto-close", Input).value == row.auto_close_time
         assert screen.query_one("#select-division", Select).value == (
             row.bank_holiday_division
@@ -88,7 +89,7 @@ async def test_the_screen_opens_before_any_settings_exist(tmp_path: Path) -> Non
         await pilot.pause()
         screen = showing(app, SettingsScreen)
         assert screen.query_one("#input-leave-start", Input).value == "01-01"
-        assert screen.query_one("#input-working-days", Input).value == "0,1,2,3,4"
+        assert screen.query_one("#input-working-days", Input).value == "Mon-Fri"
         assert screen.query_one("#input-auto-close", Input).value == "18:00"
 
 
@@ -428,3 +429,139 @@ async def test_a_button_the_screen_does_not_own_does_nothing(
         await pilot.pause()
 
         showing(app, SettingsScreen), "neither saved nor dismissed"
+
+
+# -- the working pattern, in words -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("days", "shown"),
+    [
+        ((0, 1, 2, 3, 4), "Mon-Fri"),
+        ((1, 3), "Tue, Thu"),
+        ((0, 2, 4), "Mon, Wed, Fri"),
+        ((2,), "Wed"),
+    ],
+)
+def test_the_working_pattern_reads_as_days(days: tuple[int, ...], shown: str) -> None:
+    """A run collapses; anything else is listed. Both re-parse to what they say."""
+    assert describe_working_days(days) == shown
+    assert parse_working_days(shown) == list(days)
+
+
+async def test_the_pattern_field_names_days_rather_than_numbering_them(
+    app_factory: AppFactory,
+) -> None:
+    """`0,1,2,3,4` invites a reader to count from one.
+
+    `1,2,3,4,5` is a valid answer and a working week that runs Tuesday to
+    Saturday: every Monday stops being a working day and every Saturday becomes
+    a full day of deficit, with nothing refused and nothing said.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        field = showing(app, SettingsScreen).query_one("#input-working-days", Input)
+        assert field.value == "Mon-Fri"
+        assert field.placeholder == "Mon-Fri"
+
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        row = app.services.settings.get_settings()
+        assert row is not None
+        assert row.working_days == "0,1,2,3,4", "and it saves what it always saved"
+
+
+# -- the form fits the screen ----------------------------------------------
+
+
+async def test_every_entitlement_year_can_be_reached(app_factory: AppFactory) -> None:
+    """The third year a long-term user reaches was clipped out of the dialog.
+
+    The rows sat in a fixed-height container under a capped dialog, so the
+    allowance was invisible and unexplained — and tab still moved the cursor
+    into a field nobody could read.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        for year, days in ((2026, 25.0), (2027, 26.0), (2028, 27.0)):
+            app.services.settings.save_entitlement(year, days)
+
+        await open_settings(pilot)
+        assert "2026" in screen_text(app)
+
+        showing(app, SettingsScreen).query_one("#ent-2028", Input).focus()
+        await pilot.wait_for_scheduled_animations()
+        await pilot.pause()
+
+        assert "2028" in screen_text(app), "the field holding focus is drawn"
+
+
+async def test_a_short_terminal_can_reach_the_whole_form(
+    app_factory: AppFactory,
+) -> None:
+    """Twenty-four rows is a form taller than its terminal.
+
+    The way out has to be on screen, and the questions under it have to be
+    reachable: the entitlements sat in a container that clipped rather than
+    scrolled, so on a short terminal they were a row nobody could bring into
+    view.
+    """
+    app = app_factory()
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.services.settings.save_entitlement(2026, 25.0)
+
+        await open_settings(pilot)
+        await pilot.pause()
+
+        shown = screen_text(app)
+        assert "Save" in shown
+        assert "Back" in shown
+
+        showing(app, SettingsScreen).query_one("#ent-2026", Input).focus()
+        await pilot.wait_for_scheduled_animations()
+        await pilot.pause()
+
+        assert "2026" in screen_text(app), "the field holding focus is drawn"
+
+
+async def test_an_added_year_is_shown_and_not_only_announced(
+    app_factory: AppFactory,
+) -> None:
+    """The toast says it was added, so the row has to be somewhere to be seen."""
+    app = app_factory()
+    async with app.run_test(size=(80, 24)) as pilot:
+        for year, days in ((2026, 25.0), (2027, 26.0), (2028, 27.0)):
+            app.services.settings.save_entitlement(year, days)
+
+        await open_settings(pilot)
+        await pilot.click("#btn-add-year")
+        await pilot.pause()
+        await pilot.wait_for_scheduled_animations()
+        await pilot.pause()
+
+        assert "2029" in screen_text(app)
+
+
+# -- enter ------------------------------------------------------------------
+
+
+async def test_enter_in_a_field_saves(app_factory: AppFactory) -> None:
+    """Every other form in Flexi takes enter for an answer; this one ignored it."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        screen = showing(app, SettingsScreen)
+        field = screen.query_one("#input-auto-close", Input)
+        field.focus()
+        field.value = "19:00"
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        row = app.services.settings.get_settings()
+        assert row is not None
+        assert row.auto_close_time == "19:00"

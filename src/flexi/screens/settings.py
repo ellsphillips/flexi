@@ -8,17 +8,19 @@ from.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Button, Footer, Input, Label, Select, Static
 
 from flexi.components.options import ScreenOptions
 from flexi.constants import Division
+from flexi.domain.dates import DAY_NAMES
 from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
@@ -31,6 +33,7 @@ __all__ = (
     "ALL_REQUIRED",
     "NO_DIVISION",
     "SettingsScreen",
+    "describe_working_days",
     "parse_answers",
 )
 
@@ -65,6 +68,25 @@ def parse_answers(node: Widget) -> SettingsUpdate:
     )
 
 
+_COLLAPSE_FROM = 3
+"""Days from which a run reads better as `Mon-Fri` than as a list of names."""
+
+
+def describe_working_days(days: Sequence[int]) -> str:
+    """Weekday indices as the names the same field takes back.
+
+    The form reads `Mon-Fri` and `0,1,2,3,4` alike, and a field holding the
+    numbers invites a reader to count from one: `1,2,3,4,5` is a valid answer
+    and a working week that runs Tuesday to Saturday.
+    """
+    names = [DAY_NAMES[day][:3].capitalize() for day in days]
+    if len(names) >= _COLLAPSE_FROM and list(days) == list(
+        range(days[0], days[-1] + 1)
+    ):
+        return f"{names[0]}-{names[-1]}"
+    return ", ".join(names)
+
+
 class SettingsScreen(Screen[bool]):
     """Settings edit screen. Returns True when saved."""
 
@@ -79,11 +101,18 @@ class SettingsScreen(Screen[bool]):
     #settings-dialog {
         width: 66;
         height: auto;
-        max-height: 36;
+        max-height: 90%;
         border: thick $primary;
         padding: 1 2;
         background: $surface;
     }
+    /* The questions scroll and the buttons do not. A third leave year is a
+       row the dialog has no room for, and clipped rows still take focus:
+       tab moved the cursor into a field nobody could read. */
+    #settings-body {
+        height: 1fr;
+    }
+    #entitlements-list { height: auto; }
     .settings-row {
         height: 3;
         layout: horizontal;
@@ -99,6 +128,7 @@ class SettingsScreen(Screen[bool]):
         Input { width: 1fr; }
     }
     .settings-buttons {
+        dock: bottom;
         height: 3;
         layout: horizontal;
         align: right middle;
@@ -122,38 +152,38 @@ class SettingsScreen(Screen[bool]):
         # a slug compared against a member that never matched.
         month, day = self._svc.get_leave_year_start()
         leave_start = f"{month:02d}-{day:02d}"
-        working = ",".join(str(index) for index in self._svc.get_working_day_indices())
+        working = describe_working_days(self._svc.get_working_day_indices())
         division = self._svc.get_division().value
         auto_close = f"{self._svc.get_auto_close_time():%H:%M}"
 
         with Container(id="settings-dialog"):
-            yield Static("Settings\n")
+            with VerticalScroll(id="settings-body"):
+                yield Static("Settings\n")
 
-            with Horizontal(classes="settings-row"):
-                yield Label("Leave year start")
-                yield Input(leave_start, id="input-leave-start")
+                with Horizontal(classes="settings-row"):
+                    yield Label("Leave year start")
+                    yield Input(leave_start, id="input-leave-start")
 
-            with Horizontal(classes="settings-row"):
-                yield Label("Working days")
-                yield Input(working, id="input-working-days")
+                with Horizontal(classes="settings-row"):
+                    yield Label("Working days")
+                    yield Input(working, id="input-working-days", placeholder="Mon-Fri")
 
-            with Horizontal(classes="settings-row"):
-                yield Label("Bank holiday region")
-                yield Select(Division.choices(), value=division, id="select-division")
+                with Horizontal(classes="settings-row"):
+                    yield Label("Bank holiday region")
+                    yield Select(
+                        Division.choices(), value=division, id="select-division"
+                    )
 
-            with Horizontal(classes="settings-row"):
-                yield Label("Auto-close time")
-                yield Input(auto_close, id="input-auto-close")
+                with Horizontal(classes="settings-row"):
+                    yield Label("Auto-close time")
+                    yield Input(auto_close, id="input-auto-close")
 
-            yield Static("\nEntitlements by year:")
-            with Vertical(id="entitlements-list"):
-                for year, days in self.entitlement_drafts.items():
-                    with Horizontal(classes="entitlement-row"):
-                        yield Label(str(year))
-                        yield Input(
-                            days,
-                            id=f"ent-{year}",
-                        )
+                yield Static("\nEntitlements by year:")
+                with Vertical(id="entitlements-list"):
+                    for year, days in self.entitlement_drafts.items():
+                        with Horizontal(classes="entitlement-row"):
+                            yield Label(str(year))
+                            yield Input(days, id=f"ent-{year}")
 
             with Horizontal(classes="settings-buttons"):
                 yield Button("Add Next Year", id="btn-add-year")
@@ -189,16 +219,20 @@ class SettingsScreen(Screen[bool]):
             default_days = str(DEFAULT_ENTITLEMENT_DAYS)
 
         self.entitlement_drafts[next_year] = default_days
-        self.query_one("#entitlements-list", Vertical).mount(
-            Horizontal(
-                Label(str(next_year)),
-                Input(default_days, id=f"ent-{next_year}"),
-                classes="entitlement-row",
-            )
+        row = Horizontal(
+            Label(str(next_year)),
+            Input(default_days, id=f"ent-{next_year}"),
+            classes="entitlement-row",
         )
+        self.query_one("#entitlements-list", Vertical).mount(row)
+        self.call_after_refresh(row.scroll_visible)
         self.notify(
             f"Added {next_year}; save to keep it",
         )
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        """Enter saves, as it does on the first-run form and in every modal."""
+        self._save()
 
     def _save(self) -> None:
         """Write every field, or none of them.

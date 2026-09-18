@@ -192,8 +192,13 @@ async def test_the_rails_say_how_far_through_the_day_and_the_period(
 
         assert day.label == "TODAY"
         assert 0.0 < day.share < 1.0, "the seed's today is part-worked"
+
         assert period.label == "WEEK"
-        assert period.share > 1.0, "the seed's week is over its expected hours"
+        shown = dashboard(app).period
+        week = app.services.ledger.summary(shown.start, shown.end)
+        assert (period.done, period.total) == (week.worked, week.expected), (
+            "the second rail reads the period on screen, not the day"
+        )
 
 
 async def test_the_period_rail_follows_the_granularity(app_factory: AppFactory) -> None:

@@ -12,6 +12,8 @@ a note explaining it" is a real case and does not deserve a key of its own.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Mapping
+from collections.abc import Set as AbstractSet
 from datetime import date
 from typing import ClassVar
 
@@ -29,7 +31,8 @@ from flexi.components.yearcalendar import YearCalendar, legend
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity, Portion, Verdict
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import delta, plural
+from flexi.domain.format import delta, plural, stamp
+from flexi.domain.ledger import DayLedger
 from flexi.domain.period import Period
 from flexi.domain.stitch import Selection
 from flexi.messages import Scope
@@ -53,6 +56,7 @@ __all__ = (
     "LeaveScreen",
     "nothing_doing",
     "preview",
+    "working_day",
 )
 
 SIDEBAR: tuple[AbsenceType, ...] = (
@@ -144,7 +148,16 @@ class LeaveScreen(Screen[None]):
         self.query_one("#leave-legend", Vertical).border_title = "Book"
         self.query_one("#leave-legend-body", Static).update(legend())
         self.rebuild()
-        self.query_one(YearCalendar).focus()
+        calendar = self.query_one(YearCalendar)
+        if not self.period.contains(calendar.selection.head):
+            # Opened from a dashboard browsing another leave year: the cursor
+            # starts on today, which is not a day on this grid, and every
+            # booking key acts on the cursor.
+            calendar.go_to(self.period.anchor)
+        calendar.focus()
+        # Deferred: the calendar has no size until the first layout, so a scroll
+        # asked for now is clamped to the top and the cursor stays below the fold.
+        self.call_after_refresh(calendar.scroll_to_day, calendar.selection.head)
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)
@@ -188,6 +201,7 @@ class LeaveScreen(Screen[None]):
             today=self.now.date(),
             first_weekday=CONFIG.defaults.first_day_of_week,
         )
+        calendar.scroll_to_day(calendar.selection.head)
         calendar.border_subtitle = self._booked_subtitle()
         self._draw_wallet()
         self._draw_selection()
@@ -219,9 +233,10 @@ class LeaveScreen(Screen[None]):
         self.query_one("#leave-wallet-line", Static).update(
             f"ANNUAL {left} · TOIL {delta(data.balance.delta)}"
         )
+        start, end = data.leave_year
         self.query_one(
             "#leave-wallet", Vertical
-        ).border_subtitle = f"{data.leave_year[0]:%b %y}–{data.leave_year[1]:%b %y}"
+        ).border_subtitle = f"{stamp(start, '%-d %b %y')}–{stamp(end, '%-d %b %y')}"
 
     def _draw_selection(self) -> None:
         selection = self.selection
@@ -229,7 +244,10 @@ class LeaveScreen(Screen[None]):
         # the settings row, so extending the selection to a month cost 31
         # queries on every cursor move and every resize.
         pattern = set(self._services.settings.get_working_day_indices())
-        working = sum(1 for when in selection.days() if when.weekday() in pattern)
+        ledgers = self.calendar.ledgers
+        working = sum(
+            1 for when in selection.days() if working_day(when, ledgers, pattern)
+        )
         booked = self._services.absence.in_range(selection.start, selection.end)
 
         self.query_one("#leave-selection-label", Static).update(selection.label())
@@ -288,10 +306,10 @@ class LeaveScreen(Screen[None]):
     def action_book(self, kind: str) -> None:
         """Book the selection, asking first when there is something to ask about.
 
-        The plan layer exists so a confirmation can be a question rather than a
-        receipt, and only the command line was using it: the screen called
-        `book_range`, which plans and commits in one breath, so it booked eleven
-        days, refused the twelfth and said so afterwards.
+        The plan layer is what makes the confirmation a question rather than a
+        receipt: every span on this screen is planned, previewed and then
+        committed, so the twelfth day being refused is something said before
+        the other eleven are written.
 
         One day still books on the keystroke. It is one row, `x` removes it, and
         a dialog in front of every single-day booking would cost more than it
@@ -300,23 +318,27 @@ class LeaveScreen(Screen[None]):
         """
         absence_type = AbsenceType(kind)
         if absence_type.requires_note:
-            self.action_edit()
+            self.action_edit(absence_type)
             return
 
         selection = self.selection
-        plan = self._services.absence.plan(
-            selection.start,
-            selection.end,
-            absence_type,
-            self.portion,
-            available_toil_days=available_toil_days(self._services),
+        self._offer(
+            self._services.absence.plan(
+                selection.start,
+                selection.end,
+                absence_type,
+                self.portion,
+                available_toil_days=available_toil_days(self._services),
+            )
         )
 
+    def _offer(self, plan: AbsencePlan) -> None:
+        """Write a day, ask about a span, or say why there is nothing to write."""
         if plan.is_empty:
             self._after_write(nothing_doing(plan), ok=False)
             return
 
-        if selection.start == selection.end:
+        if plan.start == plan.end:
             self._commit(plan)
             return
 
@@ -327,7 +349,7 @@ class LeaveScreen(Screen[None]):
         self.app.push_screen(
             ConfirmModal(
                 preview(plan),
-                title=f"Book {absence_type.phrase}?",
+                title=f"Book {plan.absence_type.phrase}?",
             ),
             callback=confirm,
         )
@@ -374,33 +396,38 @@ class LeaveScreen(Screen[None]):
         result = self._services.absence.remove_plan(plan)
         self._after_write(result.message("removed"), ok=result.success)
 
-    def action_edit(self) -> None:
-        """The modal, for the cases a single keystroke cannot express."""
+    def action_edit(self, kind: AbsenceType = AbsenceType.ANNUAL) -> None:
+        """The modal, for the cases a single keystroke cannot express.
+
+        Opened on the type that was pressed and the portion that was cycled, so
+        `O` asks for a note about other absence rather than about a day of
+        annual leave.
+        """
         selection = self.selection
 
         def book(booking: AbsenceBooking | None) -> None:
             if booking is None:
                 return
-            result = self._services.absence.book_range(
-                booking.when,
-                booking.until,
-                booking.kind,
-                booking.portion,
-                note=booking.note,
-                available_toil_days=available_toil_days(self._services),
-            )
-            self._after_write(
-                result.message(f"of {booking.kind.phrase} booked"),
-                ok=result.success,
-                warning=result.warning,
+            self._offer(
+                self._services.absence.plan(
+                    booking.when,
+                    booking.until,
+                    booking.kind,
+                    booking.portion,
+                    note=booking.note,
+                    available_toil_days=available_toil_days(self._services),
+                )
             )
 
         self.app.push_screen(
             AbsenceModal(
                 selection.start,
-                AbsenceType.ANNUAL,
+                kind,
                 until=None if selection.single else selection.end,
-                remaining=self._services.absence.get_remaining_annual_leave(),
+                portion=self.portion,
+                remaining=self._services.absence.get_remaining_annual_leave(
+                    selection.start
+                ),
                 toil_days=available_toil_days(self._services),
             ),
             callback=book,
@@ -488,6 +515,21 @@ def preview(plan: AbsencePlan) -> str:
     if plan.warning:
         lines.append(plan.warning)
     return "\n".join(lines)
+
+
+def working_day(
+    when: date, ledgers: Mapping[date, DayLedger], pattern: AbstractSet[int]
+) -> bool:
+    """Whether leave spent on a date would cost a day.
+
+    The drawn year knows about bank holidays; the weekday pattern answers for a
+    date outside it, which a selection reaches by being dragged past the end of
+    the year on screen.
+    """
+    day = ledgers.get(when)
+    if day is None:
+        return when.weekday() in pattern
+    return day.is_working_day and not day.is_holiday
 
 
 def nothing_doing(plan: AbsencePlan) -> str:

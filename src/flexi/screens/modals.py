@@ -36,6 +36,7 @@ __all__ = (
     "CorrectionsModal",
     "FlexiModal",
     "GoToDateModal",
+    "PressingRadioSet",
     "correction_line",
     "selected_name",
 )
@@ -77,7 +78,9 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
             with VerticalScroll(classes="modal-body"):
                 yield from self.compose_body()
             yield from self.compose_aside()
-            yield Static("", id="modal-error", classes="modal-error")
+            # Literal, not markup: a parser quotes what was typed back, and
+            # "[/]" in a time field is a closing tag with nothing to close.
+            yield Static("", id="modal-error", classes="modal-error", markup=False)
             with Horizontal(classes="modal-actions"):
                 yield Button("Cancel", id="modal-cancel", classes="-quiet")
                 yield Button(self.confirm_label, id="modal-confirm", classes="-primary")
@@ -94,6 +97,20 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
         as at the top.
         """
         return iter(())
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
+        """Stand `enter` down while a button other than Confirm holds focus.
+
+        The binding is priority, so it wins over the focused widget; on a Cancel
+        button that means the key somebody pressed to back out of "Remove
+        leave?" is the key that removes it. Standing the action down lets the
+        button's own `enter` press it, and :meth:`on_button_pressed` answers.
+        """
+        del parameters
+        if action == "confirm":
+            focused = self.focused
+            return not (isinstance(focused, Button) and focused.id != "modal-confirm")
+        return True
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -125,6 +142,30 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
             self.action_confirm()
         else:
             self.action_cancel()
+
+
+class PressingRadioSet(RadioSet):
+    """A radio set whose arrows move the pressed dot, not only the highlight.
+
+    Textual's arrows move a highlight and leave the answer where it was, so
+    arrowing to Sickness and pressing enter booked annual leave. Here the
+    option under the highlight is the option that is read.
+    """
+
+    HELP_LABEL = "Options"
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("down,right", "press_next", "Next option", show=False),
+        Binding("up,left", "press_previous", "Previous option", show=False),
+    ]
+
+    def action_press_next(self) -> None:
+        self.action_next_button()
+        self.action_toggle_button()
+
+    def action_press_previous(self) -> None:
+        self.action_previous_button()
+        self.action_toggle_button()
 
 
 class ConfirmModal(FlexiModal[bool]):
@@ -179,6 +220,7 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         kind: AbsenceType = AbsenceType.ANNUAL,
         *,
         until: date | None = None,
+        portion: Portion = Portion.FULL,
         remaining: float | None = None,
         toil_days: float | None = None,
     ) -> None:
@@ -186,6 +228,7 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         self._when = when
         self._until = until if until and until != when else None
         self._kind = kind
+        self._portion = portion
         self._remaining = remaining
         self._toil_days = toil_days
 
@@ -201,15 +244,15 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
             )
 
         yield Label("Type", classes="overline")
-        with RadioSet(id="absence-type"):
+        with PressingRadioSet(id="absence-type"):
             for kind in AbsenceType:
                 yield RadioButton(kind.label, value=kind is self._kind, name=kind.value)
 
         yield Label("How much", classes="overline")
-        with RadioSet(id="absence-portion"):
+        with PressingRadioSet(id="absence-portion"):
             for portion in Portion:
                 yield RadioButton(
-                    portion.label, value=portion is Portion.FULL, name=portion.value
+                    portion.label, value=portion is self._portion, name=portion.value
                 )
 
         yield Label("Note", classes="overline")
@@ -231,10 +274,7 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
 
     def result(self) -> AbsenceBooking:
         raw = self.query_one("#absence-date", Input).value.strip()
-        try:
-            when = parse_date(raw, reference=self._when)
-        except ValueError as error:
-            raise ValueError(str(error)) from error
+        when = parse_date(raw, reference=self._when)
 
         kind = AbsenceType(
             selected_name(self, "#absence-type", fallback=AbsenceType.ANNUAL.value)
@@ -251,10 +291,7 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         until = when
         if self._until:
             raw_until = self.query_one("#absence-until", Input).value.strip()
-            try:
-                until = parse_date(raw_until, reference=self._until)
-            except ValueError as error:
-                raise ValueError(str(error)) from error
+            until = parse_date(raw_until, reference=self._until)
             if until < when:
                 msg = "The last day is before the first"
                 raise ValueError(msg)
