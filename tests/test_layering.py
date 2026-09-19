@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from flexi.config import Hotkeys
+
 SRC = Path(__file__).resolve().parent.parent / "src" / "flexi"
 
 FORBIDDEN: dict[str, frozenset[str]] = {
@@ -229,6 +231,55 @@ def test_every_class_with_keys_says_what_to_call_it(path: Path) -> None:
             f"{node.name} declares BINDINGS but no HELP_LABEL, so the help "
             f"modal would file its keys under {node.name!r}."
         )
+
+
+PREFERRED_KEYS: frozenset[str] = frozenset(
+    str(getattr(Hotkeys(), name)) for name in Hotkeys.model_fields
+)
+"""Every key a `config.yaml` can move."""
+
+SPELLED_OUT_ANYWAY: frozenset[tuple[str, str]] = frozenset({("leave.py", "space")})
+"""Bindings that write one of those keys out again, and why.
+
+`LeaveScreen`'s `space` cycles the portion under the cursor, and there is no
+`Hotkeys` field for it. One cannot be added while `hotkeys.expand` holds
+`space`: `Hotkeys.reject_keys_bound_twice` refuses a key two fields name, so
+the shipped defaults would refuse themselves and every install would fall back
+to them.
+"""
+
+
+def binding_keys(node: ast.ClassDef) -> Iterator[str]:
+    """Every key a class writes out as a literal in a `Binding(...)`."""
+    for call in ast.walk(node):
+        if not isinstance(call, ast.Call):
+            continue
+        named = call.func
+        if not isinstance(named, ast.Name) or named.id != "Binding" or not call.args:
+            continue
+        first = call.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            yield first.value
+
+
+@pytest.mark.parametrize("path", sorted(SRC.rglob("*.py")), ids=lambda p: p.name)
+def test_a_key_a_preference_names_is_read_from_the_preference(path: Path) -> None:
+    """A binding that spells out a configurable key ignores the config file.
+
+    `hotkeys.expand` named `space` and the records table wrote `space` again, so
+    rebinding it moved the entry in the help modal and nothing else: the table
+    went on answering to the key it had always answered to, and the key that
+    was chosen did nothing at all.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in declares_bindings(tree):
+        for key in binding_keys(node):
+            assert (
+                key not in PREFERRED_KEYS or (path.name, key) in SPELLED_OUT_ANYWAY
+            ), (
+                f"{path.name} binds {key!r} as a literal, and `config.yaml` can "
+                f"move it. Read it from `CONFIG.hotkeys`."
+            )
 
 
 CLOCK_READS: frozenset[tuple[str, str]] = frozenset(

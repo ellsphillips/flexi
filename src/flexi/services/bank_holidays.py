@@ -11,13 +11,19 @@ from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import Division
-from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
+from flexi.domain.format import printable
+from flexi.models.database.db import (
+    BankHolidayAttempt,
+    BankHolidayCache,
+    BankHolidayRefresh,
+)
 from flexi.services.transactions import atomic
 
 __all__ = (
     "CACHE_MAX_AGE",
     "GOVUK_URL",
     "REQUEST_TIMEOUT",
+    "RETRY_AFTER",
     "BankHolidayFetcher",
     "BankHolidayService",
     "ParsedBankHoliday",
@@ -37,6 +43,16 @@ of those bounds covers name resolution: ``getaddrinfo`` runs inside
 ``socket.create_connection`` with no timeout of its own. A resolver that has
 gone away holds every command that fills an empty cache for as long as the
 operating system is willing to wait, which is around thirty seconds on macOS.
+"""
+
+RETRY_AFTER = timedelta(hours=1)
+"""How long an empty calendar waits before GOV.UK is asked for it again.
+
+Opening the database fills a calendar that is not there, and every command
+opens the database. Offline that is the whole fetch budget in front of `flexi
+clock in`, once per command, for as long as the machine stays offline. An
+explicit `flexi holidays refresh` is never held back by this: it is the command
+whose job is the asking.
 """
 
 type BankHolidayFetcher = Callable[[], object | None]
@@ -63,6 +79,12 @@ def parse_bank_holidays(
 
     A missing title is accepted as an empty label because the date is the fact
     the ledger needs. A title that is present but is not text is malformed.
+
+    Titles are stripped of the characters a terminal obeys, here rather than at
+    each place one is drawn. A title reaches a status bar, a records row, a
+    leave plan and a tooltip, and what is cached is what every one of them
+    reads: sanitising at the sinks leaves a poisoned row in the database and
+    whichever sink is added next unprotected.
     """
     if not isinstance(payload, Mapping):
         return None
@@ -93,7 +115,7 @@ def parse_bank_holidays(
         if when in seen_dates:
             return None
         seen_dates.add(when)
-        parsed.append(ParsedBankHoliday(date=when, title=raw_title))
+        parsed.append(ParsedBankHoliday(date=when, title=printable(raw_title)))
 
     return tuple(parsed)
 
@@ -209,9 +231,16 @@ class BankHolidayService:
         Fetching is injected, so this service owns validation and persistence
         without constructing a concrete HTTP client. The default free-function
         boundary still imports ``httpx`` only when a fetch is requested.
+
+        A fetch that comes back with nothing is written down, so that the next
+        command to find an empty calendar can decline to wait for the same
+        answer.
         """
         data = self._fetcher()
-        return self.cache_payload(data)
+        if self.cache_payload(data):
+            return True
+        self._remember_attempt()
+        return False
 
     def cache_payload(self, payload: object) -> bool:
         """Validate and atomically cache a supplied bank-holiday index.
@@ -232,6 +261,11 @@ class BankHolidayService:
         with atomic(self._session):
             self._session.execute(
                 delete(BankHolidayCache).where(BankHolidayCache.division == division)
+            )
+            self._session.execute(
+                delete(BankHolidayAttempt).where(
+                    BankHolidayAttempt.division == division
+                )
             )
             self._session.execute(
                 insert(BankHolidayRefresh)
@@ -259,10 +293,39 @@ class BankHolidayService:
         stale cache still answers every question correctly for the year it
         holds, so paying a network round trip for it would put a timeout in
         front of `flexi clock in` once a week. An empty one answers nothing.
+
+        Empty and recently asked for is the third case. GOV.UK was unreachable
+        a minute ago and nothing about this machine has changed since, so the
+        wait would buy the same silence a second time.
         """
         if self.is_available():
             return True
+        if self.asked_recently():
+            return False
         return self.fetch_and_cache()
+
+    def asked_recently(self) -> bool:
+        """Whether this division was asked for inside :data:`RETRY_AFTER`."""
+        stmt = select(BankHolidayAttempt.attempted_at).where(
+            BankHolidayAttempt.division == self.division
+        )
+        attempted_at = self._session.execute(stmt).scalar_one_or_none()
+        if attempted_at is None:
+            return False
+        return wallclock.utc_now() - attempted_at.replace(tzinfo=UTC) < RETRY_AFTER
+
+    def _remember_attempt(self) -> None:
+        """Record that GOV.UK was asked and had nothing to give."""
+        now = wallclock.utc_now().replace(tzinfo=None)
+        with atomic(self._session):
+            self._session.execute(
+                insert(BankHolidayAttempt)
+                .values(division=self.division.value, attempted_at=now)
+                .on_conflict_do_update(
+                    index_elements=(BankHolidayAttempt.division,),
+                    set_={"attempted_at": now},
+                )
+            )
 
     def titles_between(self, start: date, end: date) -> dict[date, str] | None:
         """The holidays in a span, or None when there is no calendar at all.

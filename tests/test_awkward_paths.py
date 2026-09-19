@@ -82,15 +82,18 @@ def test_a_database_under_an_awkward_path_migrates_and_reads_back(
     assert setup.is_initialised(db) is True
 
 
-def test_the_check_is_read_only_wherever_the_path_leads(tmp_path: Path) -> None:
-    """Escaping the path must not lose `mode=ro` along with the punctuation.
+def test_the_check_never_creates_the_database_it_looks_for(tmp_path: Path) -> None:
+    """Asking whether a machine is set up may not set it up.
 
-    That flag is the invariant `flexi.locations` exists to protect: asking
-    whether a machine is set up may not leave a zero-byte database behind on
-    one that never was.
+    The probe opens by path rather than through a `file:...?mode=ro` URI, which
+    is what carries the punctuation safely on a Windows share as well as here.
+    A connection by path creates what it cannot find, so the file is looked for
+    first -- and a zero-byte database left on a machine that never had one
+    stats exactly like an install.
     """
     missing = tmp_path / "a#b" / "db.db"
     missing.parent.mkdir(parents=True)
 
+    assert setup.stamped_and_configured(missing) is False
     assert setup.is_initialised(missing) is False
     assert not missing.exists()

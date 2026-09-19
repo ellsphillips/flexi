@@ -73,7 +73,7 @@ else:
 
 MAX_BACKUPS = 10
 
-HEAD = "0015"
+HEAD = "0016"
 """The revision a fully migrated database is stamped with.
 
 Written down so the common case -- already at head -- can be settled without

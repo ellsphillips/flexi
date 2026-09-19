@@ -124,6 +124,31 @@ async def test_a_month_step_clamps_to_a_shorter_month(app_factory: AppFactory) -
         assert calendar(app).selection.head == date(2026, 9, 30)
 
 
+async def test_home_and_end_reach_the_ends_of_the_year_without_leaving_it(
+    app_factory: AppFactory,
+) -> None:
+    """The grid draws whole months, so its first drawn day is in the year before.
+
+    Landing on that day would take the screen off the leave year the cursor was
+    in, and that year is what every figure beside the calendar is measured over.
+    The widget knows the rule; this is the screen agreeing with it.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_leave(pilot)
+        year = showing(app, LeaveScreen).period
+
+        await pilot.press("home")
+        await pilot.pause()
+        assert calendar(app).selection.head == date(2026, 4, 6)
+        assert showing(app, LeaveScreen).period == year
+
+        await pilot.press("end")
+        await pilot.pause()
+        assert calendar(app).selection.head == date(2027, 4, 5)
+        assert showing(app, LeaveScreen).period == year
+
+
 async def test_t_brings_the_cursor_back_to_today(app_factory: AppFactory) -> None:
     """Somewhere in October, one key is the way back to the day you are on."""
     app = app_factory()

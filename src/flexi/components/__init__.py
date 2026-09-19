@@ -2,7 +2,7 @@
 
 Every leaf module remains a supported deep-import path. The facade adds a
 single discoverable namespace while keeping package import itself free of
-Textual and Rich initialization. The two leaf-level ``FULL`` glyphs are named
+Textual and Rich initialisation. The two leaf-level ``FULL`` glyphs are named
 semantically here so import order can never decide which one a caller receives.
 """
 

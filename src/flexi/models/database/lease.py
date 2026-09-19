@@ -22,6 +22,8 @@ from pathlib import Path
 from time import monotonic, sleep
 from typing import BinaryIO
 
+from flexi.locations import ensure
+
 __all__ = (
     "DEFAULT_LEASE_TIMEOUT",
     "LEASE_POLL_INTERVAL",
@@ -166,7 +168,11 @@ def database_lease(
         raise ValueError(msg)
 
     lock_file = lease_path(database)
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    # Through `ensure`, like every other writer: the lease can be the first
+    # thing to create the data directory -- `flexi init` takes one before it
+    # snapshots -- and a default umask would leave it readable by every other
+    # account on the machine.
+    ensure(lock_file.parent)
     deadline = monotonic() + timeout
 
     with lock_file.open("a+b") as handle:

@@ -642,9 +642,11 @@ class AbsenceService:
     ) -> float:
         """How many *days* of a type were booked in a span, a half counting half.
 
-        ``valid_only`` drops markers on days the working pattern no longer
-        covers: an allowance is drawn against days that could be booked, while
-        the balance is drawn against days that were.
+        ``valid_only`` drops markers on days Flexi no longer asks for work on
+        -- a Saturday under a changed working pattern, a Monday GOV.UK has since
+        declared a bank holiday. Neither the allowance nor the balance is drawn
+        against one: the ledger charges no TOIL on a day it expects nothing of.
+        The raw count is what a plan compares against, before any of that.
         """
         stmt = select(AbsenceDay).where(
             AbsenceDay.absence_type == absence_type,

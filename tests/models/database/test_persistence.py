@@ -232,7 +232,7 @@ class TestOpeningWithoutWriting:
         with closing(read_only(db_path)):
             pass
 
-        assert seen == [(db_path, {})]
+        assert [database for database, _ in seen] == [db_path]
 
 
 # ---------- backup failure ----------

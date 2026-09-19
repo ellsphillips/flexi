@@ -51,7 +51,7 @@ class Services:
 
     The SQLAlchemy session is an implementation detail of those services, not
     part of this public bundle. Construction is the free :func:`build_services`
-    function because building a value is not behavior of the value itself.
+    function because building a value is not behaviour of the value itself.
     """
 
     settings: SettingsService

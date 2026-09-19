@@ -37,6 +37,7 @@ from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import CACHE_MAX_AGE, BankHolidayService
 from flexi.services.samples import NOW
+from flexi.versioning import UPGRADE_HINT
 from tests.tui.conftest import (
     READABLE,
     WIDE,
@@ -403,7 +404,7 @@ async def test_a_newer_release_is_announced_with_the_command_that_installs_it(
         ]
         assert announced, "a newer version should be announced"
         assert "99.0.0" in announced[0]
-        assert "uv tool upgrade flexi" in announced[0]
+        assert UPGRADE_HINT in announced[0]
 
 
 async def test_being_up_to_date_is_said_with_silence(app_factory: AppFactory) -> None:
@@ -1011,7 +1012,7 @@ async def test_a_newer_release_is_offered_in_the_header_not_only_in_a_toast(
 
         assert str(tag.render()) == f"v{flexi.__version__} → v99.0.0"
         assert tag.has_class("-outdated")
-        assert "uv tool upgrade flexi" in str(tag.tooltip)
+        assert UPGRADE_HINT in str(tag.tooltip), "one sentence, said everywhere"
 
 
 async def test_a_destination_opened_afterwards_hears_about_the_release(
@@ -1048,3 +1049,28 @@ async def test_a_current_build_leaves_every_header_quiet(
         await pilot.pause()
 
         assert not version_tag(app).has_class("-outdated")
+
+
+async def test_preferences_that_were_ignored_are_said_on_the_way_in(
+    app_factory: AppFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`BINDINGS` read the file before there was a screen to report it on.
+
+    A section that falls back is otherwise invisible from both sides: the file
+    sits there looking as though it is in force, and the keys are the ones
+    nobody chose.
+    """
+    monkeypatch.setattr("flexi.app.CONFIG_PROBLEM", "hotkeys could not be used")
+    app = app_factory()
+
+    async with app.run_test(size=WIDE) as pilot:
+        assert "hotkeys could not be used" in await said(app, pilot)
+
+
+async def test_a_config_file_nobody_got_wrong_is_not_mentioned(
+    app_factory: AppFactory,
+) -> None:
+    app = app_factory()
+
+    async with app.run_test(size=WIDE) as pilot:
+        assert not any("preferences" in note for note in await said(app, pilot))

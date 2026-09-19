@@ -142,7 +142,7 @@ async def test_the_calendar_marks_today_the_selection_and_the_period(
 async def test_the_calendar_moves_the_period_by_posting_the_day_it_landed_on(
     app_factory: AppFactory,
 ) -> None:
-    """The calendar owns its cursor; the screen owns the period.
+    """The calendar asks for a day; the screen owns the period.
 
     Arrowing onto a day in another week has to take the whole dashboard with it,
     or the calendar highlights one week while the records table below it still

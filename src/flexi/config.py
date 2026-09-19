@@ -32,15 +32,31 @@ from flexi.locations import config_file
 
 __all__ = (
     "CONFIG",
+    "CONFIG_PROBLEM",
+    "IGNORED",
     "MAXIMUM_MINIMUM_SESSION_SECONDS",
     "MAXIMUM_TICK_SECONDS",
+    "UNUSABLE",
     "Config",
     "Defaults",
     "Hotkeys",
     "load_config",
     "normalise_hotkey",
+    "read_config",
     "section",
 )
+
+UNUSABLE = "Flexi could not read {path}, so none of its preferences are in force."
+
+IGNORED = (
+    "Flexi is using its own preferences: {sections} in {path} could not be used.\n{why}"
+)
+"""What a file that was read and then dropped says for itself.
+
+A section falls back whole, so somebody who misspells one key under `defaults`
+loses the period they open on as well. Unsaid, the file sits there looking as
+though it is in force -- which is the state the fallback is most likely to be
+met in, because nothing about it is visible from either side."""
 
 MAXIMUM_MINIMUM_SESSION_SECONDS = 3600
 """Largest supported threshold for deciding a newly closed session was a slip."""
@@ -199,7 +215,15 @@ class Config(BaseModel):
 
 
 def load_config(path: Path | None = None) -> Config:
-    """Read the config file, falling back to defaults section by section.
+    """The preferences, with anything the file got wrong quietly replaced.
+
+    :func:`read_config` for the same answer with the reason attached.
+    """
+    return read_config(path)[0]
+
+
+def read_config(path: Path | None = None) -> tuple[Config, str]:
+    """The preferences, and one line about whatever in the file was ignored.
 
     A malformed file yields the defaults rather than refusing to start: a typo
     in a keybinding should not lock somebody out of their own time records.
@@ -227,25 +251,62 @@ def load_config(path: Path | None = None) -> Config:
     path = path or config_file()
     try:
         raw: object = yaml.safe_load(path.read_bytes())
+    except FileNotFoundError:
+        # No file at all is no preference, and the commonest run of all.
+        return Config(), ""
     except (OSError, yaml.YAMLError, RecursionError):
-        return Config()
+        return Config(), UNUSABLE.format(path=path)
+    if raw is None:
+        # An empty file, which says nothing and gets nothing wrong.
+        return Config(), ""
     if not isinstance(raw, dict):
-        return Config()
-    return Config(
-        hotkeys=section(Hotkeys, raw.get("hotkeys")),
-        defaults=section(Defaults, raw.get("defaults")),
+        return Config(), UNUSABLE.format(path=path)
+
+    hotkeys, hotkeys_why = section(Hotkeys, raw.get("hotkeys"))
+    defaults, defaults_why = section(Defaults, raw.get("defaults"))
+    dropped = {"hotkeys": hotkeys_why, "defaults": defaults_why}
+    named = [name for name, why in dropped.items() if why]
+    problem = (
+        IGNORED.format(
+            sections=" and ".join(named),
+            path=path,
+            why=next(why for why in dropped.values() if why),
+        )
+        if named
+        else ""
     )
+    return Config(hotkeys=hotkeys, defaults=defaults), problem
 
 
-def section[T: BaseModel](model: type[T], raw: object) -> T:
-    """One section of the file, or that section's defaults."""
+def section[T: BaseModel](model: type[T], raw: object) -> tuple[T, str]:
+    """One section of the file, and why it was dropped if it was.
+
+    The reason is empty when the section was taken as written, and when the
+    file does not mention it.
+    """
     if not isinstance(raw, dict):
-        return model()
+        return model(), ""
     try:
-        return model.model_validate(raw)
-    except ValidationError:
-        return model()
+        return model.model_validate(raw), ""
+    except ValidationError as invalid:
+        return model(), _first_complaint(invalid)
 
 
-CONFIG: Config = load_config()
-"""The loaded config. Read at class-definition time by every ``BINDINGS`` list."""
+def _first_complaint(invalid: ValidationError) -> str:
+    """The first thing pydantic objected to, as a phrase somebody can act on.
+
+    One, not all of them: the section falls back whole either way, and the line
+    has to fit on a status bar and in a toast.
+    """
+    first = invalid.errors()[0]
+    field = ".".join(str(part) for part in first["loc"])
+    said = str(first["msg"]).removeprefix("Value error, ")
+    return f"{field}: {said}." if field else f"{said}."
+
+
+CONFIG, CONFIG_PROBLEM = read_config()
+"""The loaded config. Read at class-definition time by every ``BINDINGS`` list.
+
+Bound as a pair so the reason travels with the answer. Whoever reads `CONFIG`
+is the only one placed to say that the file behind it was ignored, and a module
+that read the file twice could not promise the same answer both times."""

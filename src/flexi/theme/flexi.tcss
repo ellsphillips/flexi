@@ -23,8 +23,9 @@
 
    Every value below is a fixed OKLCH hue rendered at a chosen lightness and
    chroma, not an eyeballed hex. The three day-type colours that carry series
-   identity in a chart — toil, annual, sick — pass the dataviz validator's
-   all-pairs CVD check. See docs/DESIGN-SYSTEM.md §3 before changing any of them.
+   identity in a chart — toil, annual, sick — clear an all-pairs separation
+   check under deutan, protan and tritan simulation. See docs/DESIGN-SYSTEM.md
+   §3 before changing any of them.
    ========================================================================== */
 
 

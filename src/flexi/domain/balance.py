@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from flexi.constants import AbsenceType
+from flexi.domain.format import whole_minutes
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 
 __all__ = (
@@ -104,6 +105,22 @@ class BalanceSummary:
     @property
     def is_deficit(self) -> bool:
         return self.delta < ZERO
+
+    def as_shown(self) -> BalanceSummary:
+        """The same summary in the whole minutes every surface prints.
+
+        Each term floored before the subtraction, so the balance a reader sees
+        is the one they get by doing the arithmetic on the lines above it. Left
+        to the exact figures the two disagree by a minute whenever the sessions
+        carry seconds: 2:00:09 worked against 3:42 expected shows ``2:00``,
+        ``3:42`` and ``−1:41``.
+        """
+        return BalanceSummary(
+            worked=whole_minutes(self.worked),
+            expected=whole_minutes(self.expected),
+            toil_taken=whole_minutes(self.toil_taken),
+            adjustment=whole_minutes(self.adjustment),
+        )
 
     def __add__(self, other: BalanceSummary) -> BalanceSummary:
         return BalanceSummary(

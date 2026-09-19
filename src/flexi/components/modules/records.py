@@ -36,7 +36,7 @@ from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.config import CONFIG
 from flexi.constants import DayKind, Granularity
 from flexi.domain.balance import BalanceSummary, accumulate
-from flexi.domain.format import clock, delta, hm
+from flexi.domain.format import clock, delta, hm, whole_minutes
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window, cell_count
 from flexi.messages import Scope
@@ -277,7 +277,11 @@ class RecordsModule(Module):
                     cells=(
                         Text("", style=total),
                         Text(f"  {LAST} expected", style=total),
-                        Text(hm(ledger.expected), style=total, justify="right"),
+                        Text(
+                            hm(whole_minutes(ledger.expected)),
+                            style=total,
+                            justify="right",
+                        ),
                         self._delta_cell(ledger),
                     ),
                 )
@@ -287,6 +291,7 @@ class RecordsModule(Module):
     def _total_group(self, total: BalanceSummary) -> RowGroup:
         """The period's own line, under a rule."""
         style = self.get_component_rich_style("record--total")
+        shown = total.as_shown()
         label = (
             "Day"
             if self.period.granularity is Granularity.DAY
@@ -298,8 +303,8 @@ class RecordsModule(Module):
                 cells=(
                     Text(label, style=style),
                     Text("", style=style),
-                    Text(hm(total.worked), style=style, justify="right"),
-                    self._signed(total.delta),
+                    Text(hm(shown.worked), style=style, justify="right"),
+                    self._signed(shown.delta),
                 ),
             )
         )
@@ -329,7 +334,7 @@ class RecordsModule(Module):
                 style=self.get_component_rich_style("record--muted"),
                 justify="right",
             )
-        return Text(hm(ledger.worked), justify="right")
+        return Text(hm(whole_minutes(ledger.worked)), justify="right")
 
     def _delta_cell(self, ledger: DayLedger) -> Text:
         """What the day did to the balance, which is what the period row totals.
@@ -342,7 +347,10 @@ class RecordsModule(Module):
             ledger.expected or ledger.worked or ledger.toil_taken or ledger.adjustment
         ):
             return Text("")
-        return self._signed(ledger.balance_effect)
+        # From the figures the table prints rather than the exact ones, so the
+        # column adds up to the total under it. Read off the exact ones, a day
+        # carrying seconds shows `2:00` worked, `3:42` expected and `−1:41`.
+        return self._signed(accumulate((ledger,)).as_shown().delta)
 
     def _signed(self, value: timedelta) -> Text:
         if value > timedelta():
@@ -422,4 +430,5 @@ class RecordsModule(Module):
 
 def totals_subtitle(total: BalanceSummary) -> str:
     """Worked against expected for the whole period, in the module's live slot."""
-    return f"{hm(total.worked)} of {hm(total.expected)}"
+    shown = total.as_shown()
+    return f"{hm(shown.worked)} of {hm(shown.expected)}"

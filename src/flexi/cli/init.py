@@ -30,7 +30,7 @@ from rich.text import Text
 
 from flexi.cli import ui
 from flexi.domain.format import plural
-from flexi.models.database.backup import snapshot, verify
+from flexi.models.database.backup import read_only, snapshot, verify
 from flexi.models.database.lease import (
     DatabaseBusyError,
     LeaseMode,
@@ -113,13 +113,7 @@ def describe(db_path: Path) -> Contents:
         # transaction and leaves the handle open, and this runs immediately
         # before the reset that deletes the file. Windows refuses to delete a
         # file anything still has open.
-        with closing(
-            sqlite3.connect(
-                f"{db_path.absolute().as_uri()}?mode=ro",
-                uri=True,
-                timeout=READ_TIMEOUT,
-            )
-        ) as connection:
+        with closing(read_only(db_path, timeout=READ_TIMEOUT)) as connection:
             # Ask whether the file is a database at all before asking what is
             # in it. "not a database" and "no such table" both arrive as
             # DatabaseError, and the loop below has to forgive the second --

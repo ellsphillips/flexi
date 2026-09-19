@@ -315,3 +315,26 @@ if loaded_heavy:
     subprocess.run(  # noqa: S603 - fixed interpreter and in-repository script
         [sys.executable, "-c", script], check=True
     )
+
+
+def test_the_date_grammar_is_paid_for_by_the_options_that_take_one() -> None:
+    """`flexi --version` builds two `ParamType`s and converts nothing with them.
+
+    The entry point imports this package at module scope for `TypedDate` and
+    `Utf8Text`, and the date grammar was most of what that import cost.
+    """
+    script = """
+import sys
+
+import flexi.cli
+
+if "flexi.domain.dates" in sys.modules:
+    raise AssertionError("importing flexi.cli loaded the date grammar")
+
+flexi.cli.TypedDate().convert("2026-06-11", None, None)
+if "flexi.domain.dates" not in sys.modules:
+    raise AssertionError("converting a date did not reach the grammar")
+"""
+    subprocess.run(  # noqa: S603 - fixed interpreter and in-repository script
+        [sys.executable, "-c", script], check=True
+    )

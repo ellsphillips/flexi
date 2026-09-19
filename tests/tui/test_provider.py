@@ -153,6 +153,35 @@ async def test_the_palette_offers_nothing_that_needs_a_screen_that_is_not_there(
         assert "Refresh bank holidays" not in offered
 
 
+@pytest.mark.parametrize(
+    "destination",
+    ["insights", "leave", "settings"],
+)
+async def test_the_palette_offers_nothing_that_would_move_a_hidden_screen(
+    app_factory: AppFactory, destination: str
+) -> None:
+    """The dashboard is underneath, and its period is not the one on screen.
+
+    "Period: month" chosen from Insights moved the dashboard nobody could see
+    and left the chart exactly where it was, so the command appeared to do
+    nothing at all. The way back to those entries is "Go to Dashboard", which
+    is still offered.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        app.action_go_to(destination)
+        await pilot.pause()
+        offered = await titles(app)
+
+        assert "Go to Dashboard" in offered
+        assert "Clock in or out" in offered
+        assert "Refresh bank holidays" in offered
+        assert not [title for title in offered if title.startswith("Period:")]
+        assert "Go to today" not in offered
+        assert "Go to date…" not in offered
+        assert not [title for title in offered if title.startswith("Book ")]
+
+
 # -- searching -------------------------------------------------------------
 
 

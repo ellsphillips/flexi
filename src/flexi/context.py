@@ -84,6 +84,10 @@ class CommandApplication(Protocol):
         """Return the mounted dashboard, if it is available."""
         ...
 
+    def showing_dashboard(self) -> bool:
+        """Whether the dashboard is the destination in front of the user."""
+        ...
+
     def action_clock_toggle(self) -> None:
         """Toggle the current clock state."""
         ...

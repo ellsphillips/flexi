@@ -40,7 +40,8 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
     Kept outside :class:`FlexiCommands` so extension code can inspect or adapt
     the catalogue without constructing a Textual provider. The tuple is a
     snapshot: commands that depend on a dashboard are included only when the
-    dashboard exists at the moment this function is called.
+    dashboard exists at the moment this function is called, and only when it is
+    the destination in front of the user.
     """
     screen = app.dashboard()
     catalogue = [
@@ -65,6 +66,21 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
         )
         for item in NAV_ITEMS
     )
+    catalogue.append(
+        Command(
+            "Refresh bank holidays",
+            "Re-fetch the GOV.UK calendar for the configured division",
+            partial(app.refresh_holidays, force=True),
+        )
+    )
+
+    if not app.showing_dashboard():
+        # The period, the date under the cursor and the day a booking lands on
+        # all belong to the dashboard. Insights and Leave hold spans of their
+        # own and sit on top of it, so offering one here is offering to move a
+        # screen nobody can see. "Go to Dashboard" is above, and they are all
+        # there.
+        return tuple(catalogue)
 
     catalogue.extend(
         Command(
@@ -92,13 +108,6 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
             partial(screen.open_absence_modal, screen.period.anchor, kind),
         )
         for kind in AbsenceType
-    )
-    catalogue.append(
-        Command(
-            "Refresh bank holidays",
-            "Re-fetch the GOV.UK calendar for the configured division",
-            partial(app.refresh_holidays, force=True),
-        )
     )
     return tuple(catalogue)
 

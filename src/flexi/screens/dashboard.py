@@ -272,13 +272,17 @@ class DashboardScreen(Screen[None]):
         event.stop()
         self.toggle_clock()
 
-    def toggle_clock(self) -> None:
+    def toggle_clock(self) -> tuple[str, Tone]:
         """Clock in, or clock out. It never asks.
 
         An earlier draft confirmed an early clock-out and fired at lunchtime every day,
         because clocking out for lunch is the normal thing this application is for.
         Clock events are immutable and a second `/` opens a new session, so a mistaken
         press costs one visible break; the status bar is the receipt.
+
+        The receipt is handed back as well as shown, because `/` is bound on the
+        application and works from Leave and Insights too -- where this screen's
+        own footer is underneath the one the user is reading.
         """
         clock = self._services.clock
         # A session left running overnight is drawn as closed the moment the
@@ -286,9 +290,8 @@ class DashboardScreen(Screen[None]):
         # first, or the morning's `/` closes yesterday at this morning's time.
         clock.sweep()
         if clock.is_clocked_in():
-            self._report(clock.clock_out())
-        else:
-            self._report(clock.clock_in())
+            return self._report(clock.clock_out())
+        return self._report(clock.clock_in())
 
     # -- absence -----------------------------------------------------------
 
@@ -400,17 +403,25 @@ class DashboardScreen(Screen[None]):
 
     # -- reporting ---------------------------------------------------------
 
-    def _report(self, result: Outcome, scope: Scope = Scope.CLOCK) -> None:
-        """Put a service result on the status bar, and redraw if it wrote."""
+    def _report(self, result: Outcome, scope: Scope = Scope.CLOCK) -> tuple[str, Tone]:
+        """Put a service result on the status bar, and redraw if it wrote.
+
+        Returns what was said, for a caller that has a second footer to say it
+        on.
+        """
         success = result.success
-        message = with_time(result.message, result)
         if success and result.warning:
-            self.status(result.warning, Tone.WARN)
+            receipt = (result.warning, Tone.WARN)
         else:
-            self.status(message, Tone.OK if success else Tone.ERR)
+            receipt = (
+                with_time(result.message, result),
+                Tone.OK if success else Tone.ERR,
+            )
+        self.status(*receipt)
         if success:
             self.refresh_modules(scope)
             self._start_tick_if_open()
+        return receipt
 
     def status(self, message: str, tone: Tone = Tone.NEUTRAL) -> None:
         """Say what just happened."""

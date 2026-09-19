@@ -45,6 +45,31 @@ async def test_slash_clocks_out_and_back_in(app_factory: AppFactory) -> None:
         assert "Clocked in" in status_text(app)
 
 
+@pytest.mark.parametrize("destination", ["insights", "leave"])
+async def test_the_receipt_lands_on_the_screen_in_front_of_you(
+    app_factory: AppFactory, destination: str
+) -> None:
+    """`/` is bound on the application and works from every destination.
+
+    The dashboard does the clocking and confirms it on its own footer, which is
+    underneath Leave and Insights. Without this the key toggles the clock and
+    the only visible footer says nothing, so the only way to tell whether it
+    worked is to go back to the dashboard.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        app.action_go_to(destination)
+        await pilot.pause()
+        assert app.screen is not dashboard(app)
+
+        await pilot.press("slash")
+        await pilot.pause()
+
+        assert not app.services.clock.is_clocked_in()
+        assert "Clocked out" in status_text(app)
+        assert app.nav == destination, "the receipt does not move anybody"
+
+
 async def test_the_button_does_the_same_thing(app_factory: AppFactory) -> None:
     """It works for a pointer, because the point of Textual is that one works."""
     app = app_factory()

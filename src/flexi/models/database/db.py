@@ -34,6 +34,7 @@ __all__ = (
     "SETTINGS_SINGLETON_KEY",
     "AbsenceDay",
     "BalanceAdjustment",
+    "BankHolidayAttempt",
     "BankHolidayCache",
     "BankHolidayRefresh",
     "Base",
@@ -147,6 +148,22 @@ class BankHolidayRefresh(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+
+
+class BankHolidayAttempt(Base):
+    """When a division was last asked for and answered with nothing usable.
+
+    Its own table rather than a column on :class:`BankHolidayRefresh`, which
+    records a complete calendar. A failed fetch is not one, and a row in that
+    table claiming otherwise would turn an install with no calendar at all into
+    one whose year happens to hold no holidays -- every bank holiday a working
+    day, quietly.
+    """
+
+    __tablename__ = "bank_holiday_attempts"
+
+    division: Mapped[str] = mapped_column(String(30), primary_key=True)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime())
 
 
 class BankHolidayCache(Base):

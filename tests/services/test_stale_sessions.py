@@ -231,3 +231,52 @@ def test_a_session_closed_under_the_sweep_is_not_reported_as_swept(
     )
 
     assert close_stale_sessions(session, time(18, 0)) == []
+
+
+class TestASessionDatedAfterToday:
+    """The machine's clock was ahead, and then somebody put it right.
+
+    Nothing reached the session that left behind. `clock in` answered "Already
+    clocked in", the sweep closes only days that have been and gone, and there
+    is no way to delete a session -- so clocking was shut until that date came
+    round.
+    """
+
+    def test_the_sweep_leaves_it_alone(self, svc: ClockService) -> None:
+        """A day that has not happened is not a day that was left open."""
+        svc.clock_in(now=NOW + timedelta(days=3))
+
+        svc.sweep()
+
+        assert svc.is_clocked_in()
+
+    def test_clocking_out_closes_it_and_names_the_day(self, svc: ClockService) -> None:
+        svc.clock_in(now=NOW + timedelta(days=3))
+
+        result = svc.clock_out()
+
+        assert result.success, result.message
+        assert "Fri 14 Aug 2026" in result.message
+        assert not svc.is_clocked_in()
+
+    def test_the_hours_it_was_carrying_are_discarded(
+        self, svc: ClockService, session: Session
+    ) -> None:
+        """They were read off a clock that was wrong.
+
+        The events stay -- they are immutable, and the day can be put back with
+        a correction -- but nothing derived from the session counts them.
+        """
+        svc.clock_in(now=NOW + timedelta(days=3))
+
+        svc.clock_out()
+
+        closed = session.query(WorkSession).one()
+        assert closed.voided is True
+        assert closed.clock_out_id is not None
+
+    def test_clocking_in_works_again_afterwards(self, svc: ClockService) -> None:
+        svc.clock_in(now=NOW + timedelta(days=3))
+        svc.clock_out()
+
+        assert svc.clock_in().success is True

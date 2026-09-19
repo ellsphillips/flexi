@@ -17,7 +17,6 @@ the result was a receipt.
 
 from __future__ import annotations
 
-import unicodedata
 from collections.abc import Mapping
 from datetime import date
 from types import MappingProxyType
@@ -34,7 +33,7 @@ from flexi.constants import (
 )
 from flexi.domain.dates import Preference, parse_span
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import long_date, plural, short_date
+from flexi.domain.format import long_date, plural, printable, short_date
 from flexi.services.absence import AbsencePlan, RemovalBooking
 from flexi.services.registry import Services, available_toil_days
 
@@ -70,24 +69,6 @@ VERDICT_NOTE: Final[Mapping[Verdict, str]] = MappingProxyType(
         Verdict.BANK_HOLIDAY: "bank holiday",
     }
 )
-
-_CONTROL_CATEGORIES: Final = frozenset({"Cc", "Cf"})
-"""Unicode categories a terminal reads as instructions rather than as text."""
-
-
-def _printable(text: str) -> str:
-    """A label with the characters a terminal would obey taken out of it.
-
-    A bank holiday title comes from GOV.UK and is echoed straight to the
-    screen. An ESC, a BEL or a carriage return in one recolours the terminal,
-    retitles the window or fakes a line of output, and Click strips only the
-    CSI form. Letters, punctuation and spaces survive intact.
-    """
-    return "".join(
-        character
-        for character in text
-        if unicodedata.category(character) not in _CONTROL_CATEGORIES
-    )
 
 
 def _booking_line(booking: RemovalBooking) -> str:
@@ -150,7 +131,7 @@ def render(plan: AbsencePlan) -> str:
         if day.verdict is Verdict.BOOK:
             lines.append(f"  {short_date(day.date)}")
         elif day.verdict.is_skip:
-            note = _printable(day.detail or VERDICT_NOTE.get(day.verdict, "skipped"))
+            note = printable(day.detail or VERDICT_NOTE.get(day.verdict, "skipped"))
             lines.append(f"  {short_date(day.date)}   — {note}")
         else:
             lines.append(f"  {short_date(day.date)}   ✗ {day.reason}")

@@ -175,11 +175,14 @@ class VersionTag(Static):
         return installed
 
     def watch_latest(self, latest: str) -> None:
+        # Imported here rather than at module scope: `flexi.versioning` costs
+        # httpx, and every screen sits inside this module's chrome. Nothing
+        # reaches this line without the update check having paid for it.
+        from flexi.versioning import UPGRADE_HINT
+
         self.set_class(bool(latest), "-outdated")
         self.tooltip = (
-            f"Version {latest} is available. Run: uv tool upgrade flexi"
-            if latest
-            else None
+            f"Version {latest} is available. {UPGRADE_HINT}" if latest else None
         )
         # With layout: the tag grows by the width of an arrow and a version, and
         # a plain refresh redraws it inside the width it had before.

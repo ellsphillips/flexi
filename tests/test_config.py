@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from flexi.config import (
     CONFIG,
+    CONFIG_PROBLEM,
     MAXIMUM_MINIMUM_SESSION_SECONDS,
     MAXIMUM_TICK_SECONDS,
     Config,
@@ -25,6 +26,7 @@ from flexi.config import (
     Hotkeys,
     load_config,
     normalise_hotkey,
+    read_config,
     section,
 )
 from flexi.constants import AbsenceType
@@ -402,3 +404,107 @@ def test_loaded_config_is_deeply_immutable(
 
     with pytest.raises(ValidationError, match="Instance is frozen"):
         setattr(targets[target_name], attribute, replacement)
+
+
+# -- saying that the file was ignored ----------------------------------------
+
+
+def test_a_file_taken_as_written_has_nothing_to_report(tmp_path: Path) -> None:
+    path = written(tmp_path / "config.yaml", CLOCK_TOGGLE_C)
+
+    config, problem = read_config(path)
+
+    assert config.hotkeys.clock_toggle == "c"
+    assert problem == ""
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("", id="an empty file"),
+        pytest.param("# nothing but a comment\n", id="comments only"),
+    ],
+)
+def test_a_file_that_says_nothing_is_not_a_complaint(tmp_path: Path, text: str) -> None:
+    """Silence is not a mistake, and reporting it would cry wolf every run."""
+    path = written(tmp_path / "config.yaml", text)
+
+    assert read_config(path) == (Config(), "")
+
+
+def test_a_machine_with_no_config_file_reports_nothing(tmp_path: Path) -> None:
+    """The commonest run of all. Nothing was ignored, because nothing was said."""
+    assert read_config(tmp_path / "never-written.yaml") == (Config(), "")
+
+
+def test_an_unreadable_file_says_none_of_it_is_in_force(tmp_path: Path) -> None:
+    broken = written(tmp_path / "config.yaml", "hotkeys: [unclosed\n")
+
+    _config, problem = read_config(broken)
+
+    assert str(broken) in problem
+    assert "could not read" in problem
+
+
+def test_a_file_that_is_not_a_mapping_says_so_too(tmp_path: Path) -> None:
+    path = written(tmp_path / "config.yaml", "- clock_toggle: c\n")
+
+    _config, problem = read_config(path)
+
+    assert str(path) in problem
+
+
+def test_a_dropped_section_names_itself_and_the_line_that_lost_it(
+    tmp_path: Path,
+) -> None:
+    """The section falls back whole, so the key that caused it has to be named.
+
+    Without it the file sits there looking as though it is in force, and the
+    period somebody chose to open on has gone with the key they misspelled.
+    """
+    path = written(
+        tmp_path / "config.yaml",
+        "hotkeys:\n  clock_toggle: c\ndefaults:\n  round_to_minutes: 1\n",
+    )
+
+    config, problem = read_config(path)
+
+    assert config.hotkeys.clock_toggle == "c", "the section that read is kept"
+    assert "defaults" in problem
+    assert "hotkeys" not in problem, "only the section that went is named"
+    assert "round_to_minutes" in problem
+    assert str(path) in problem
+
+
+def test_a_key_bound_twice_is_reported_in_the_words_the_validator_used(
+    tmp_path: Path,
+) -> None:
+    """A model-level refusal has no field to name, only a sentence."""
+    path = written(tmp_path / "config.yaml", "hotkeys:\n  book_annual: g\n")
+
+    _config, problem = read_config(path)
+
+    assert "hotkeys" in problem
+    assert "bound twice" in problem
+    assert "Value error" not in problem, "pydantic's own prefix is not for reading"
+
+
+def test_both_sections_going_names_both(tmp_path: Path) -> None:
+    path = written(
+        tmp_path / "config.yaml",
+        "hotkeys:\n  nonsense: c\ndefaults:\n  round_to_minutes: 1\n",
+    )
+
+    _config, problem = read_config(path)
+
+    assert "hotkeys and defaults" in problem
+
+
+def test_the_module_level_pair_travels_together() -> None:
+    """`CONFIG` and `CONFIG_PROBLEM` come from one read of one file.
+
+    Read twice they could disagree, and the reason is only worth anything
+    beside the answer it explains.
+    """
+    assert isinstance(CONFIG, Config)
+    assert isinstance(CONFIG_PROBLEM, str)

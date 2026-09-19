@@ -16,7 +16,13 @@ from datetime import date, timedelta
 
 from flexi.constants import Granularity
 from flexi.domain import leaveyear
-from flexi.domain.dates import add_months, days_between, week_start
+from flexi.domain.dates import (
+    SUPPORTED_FIRST,
+    SUPPORTED_LAST,
+    add_months,
+    days_between,
+    week_start,
+)
 from flexi.domain.format import day_month, long_date, month_title
 
 __all__ = ("Period",)
@@ -117,20 +123,39 @@ class Period:
         weekday in a week, the same day number in a month, clamped to the last
         day of a shorter one, so stepping forward from 31 January lands on
         28 February rather than raising.
+
+        The calendar ends, and paging stops at the end of it. A page that would
+        leave the window a typed date is read into stays where it is, and the
+        unchanged label is what says there is no next one. That window is a
+        year short of ``date``'s own at each end because leave-year arithmetic
+        reads a year either side of the date it is given. Without this, ``y``
+        then ``]`` from a date in 9998 is a ``ValueError`` out of
+        :func:`flexi.domain.leaveyear.step`.
         """
+        try:
+            moved = self._stepped(count)
+        except (OverflowError, ValueError):
+            # Past what `date` itself holds. `leaveyear` and `add_months` both
+            # meet that edge before the window below can be asked about it.
+            return self
+        if not SUPPORTED_FIRST <= moved <= SUPPORTED_LAST:
+            return self
+        return replace(self, anchor=moved)
+
+    def _stepped(self, count: int) -> date:
+        """Where the anchor lands ``count`` spans away."""
         match self.granularity:
             case Granularity.DAY:
-                return replace(self, anchor=self.anchor + timedelta(days=count))
+                return self.anchor + timedelta(days=count)
             case Granularity.WEEK:
-                return replace(self, anchor=self.anchor + timedelta(weeks=count))
+                return self.anchor + timedelta(weeks=count)
             case Granularity.MONTH:
-                return replace(self, anchor=add_months(self.anchor, count))
+                return add_months(self.anchor, count)
             case Granularity.YEAR:  # pragma: no branch
                 # Asked of `leaveyear`, for the reason `end` is: twelve months
                 # from a clamped 29 February is a date inside the year it came
                 # from, so this key used to do nothing at all.
-                anchor = leaveyear.step(self.anchor, *self.year_start, count)
-                return replace(self, anchor=anchor)
+                return leaveyear.step(self.anchor, *self.year_start, count)
 
     def zoom(self, granularity: Granularity) -> Period:
         """The same anchor, seen at a different width."""

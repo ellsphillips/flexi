@@ -13,8 +13,7 @@ import click
 
 from flexi import wallclock
 from flexi.cli import report
-from flexi.domain.balance import BalanceSummary
-from flexi.domain.format import SECONDS_PER_MINUTE, delta, hm, long_date, stamp
+from flexi.domain.format import delta, hm, long_date, stamp
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services, settlement_date, zero_balance
 
@@ -33,19 +32,6 @@ nobody can act on, printed where it has nothing to do with anything.
 """
 
 
-def _whole_minutes(value: timedelta) -> timedelta:
-    """A duration floored to the minute these figures are drawn in.
-
-    Every row is printed by `hm`, which shows whole minutes, and the balance is
-    the sum of the rows. Formatting the exact figures instead leaves the three
-    lines disagreeing by a minute whenever the sessions carry seconds and the
-    balance is negative: 2:00:09 worked against 3:42 expected prints
-    `2:00 / 3:42 / −1:41`. Flooring each term first is what makes the sum of
-    what is shown equal the total that is shown.
-    """
-    return timedelta(minutes=value // timedelta(seconds=1) // SECONDS_PER_MINUTE)
-
-
 def show(services: Services, as_of: date | None = None) -> int:
     """Print the running balance and what it is made of."""
     now = wallclock.today()
@@ -62,13 +48,7 @@ def show(services: Services, as_of: date | None = None) -> int:
         return 1
 
     start, _ = services.absence.leave_year_bounds(today)
-    exact = services.ledger.balance(today)
-    summary = BalanceSummary(
-        worked=_whole_minutes(exact.worked),
-        expected=_whole_minutes(exact.expected),
-        toil_taken=_whole_minutes(exact.toil_taken),
-        adjustment=_whole_minutes(exact.adjustment),
-    )
+    summary = services.ledger.balance(today).as_shown()
 
     click.echo(
         f"leave year   {stamp(start, '%-d %b %Y')} → {stamp(today, '%-d %b %Y')}"

@@ -14,6 +14,7 @@ already knew.
 from __future__ import annotations
 
 import functools
+import sqlite3
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -33,6 +34,10 @@ else:
 
     class FlexiApplication(Protocol):
         """Runtime-resolvable application result without an eager Textual import."""
+
+        @property
+        def return_code(self) -> int | None:
+            """The code the application exited with, once it has exited."""
 
         def run(self) -> object:
             """Run the application."""
@@ -70,7 +75,10 @@ __all__ = (
     "open_app",
     "open_database",
     "requires_setup",
+    "run_app",
     "run_demo",
+    "set_up_here",
+    "unreadable",
 )
 
 
@@ -91,15 +99,21 @@ __all__ = (
 def cli(ctx: click.Context, *, demo: bool = False) -> None:
     """Track flexitime from the terminal."""
     from flexi.cli import output
+    from flexi.config import CONFIG_PROBLEM
 
     output.prepare(ctx)
+
+    # Not at module scope: `flexi.config` costs pydantic, and `--version` and
+    # `--help` are answered during parsing and never reach this callback.
+    if CONFIG_PROBLEM:
+        click.secho(CONFIG_PROBLEM, fg="yellow", err=True)
 
     if demo and ctx.invoked_subcommand is not None:
         msg = "--demo opens the sample application; it does not take a command."
         raise click.UsageError(msg)
     if demo:
         needs_a_terminal(ctx)
-        run_demo()
+        run_demo(ctx)
         return
 
     # Nothing is opened here. A guard in the group callback runs before click
@@ -113,11 +127,11 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
     # guard exists to stop clock, leave and balance inventing answers from
     # defaults nobody chose -- not to make the application decline to open.
     migrate()
-    if not is_initialised():
+    if not set_up_here():
         ask_the_questions(ctx, database_file())
         return
     needs_a_terminal(ctx)
-    launch().run()
+    run_app(ctx, launch())
 
 
 NOT_INITIALISED = (
@@ -151,6 +165,44 @@ def needs_a_terminal(ctx: click.Context) -> None:
         ctx.exit(1)
 
 
+def unreadable() -> click.ClickException:
+    """The one sentence for a database Flexi cannot read.
+
+    Said in the same words wherever the file is met, because the next move is
+    the same in all of them: put this one aside, or bring a copy back from the
+    directory beside it.
+    """
+    return click.ClickException(
+        UNREADABLE.format(path=database_file(), backups=backups_directory())
+    )
+
+
+def set_up_here() -> bool:
+    """Whether this machine has a Flexi, with a damaged one said out loud.
+
+    A missing, empty or unstamped database answers False, which offers `flexi
+    init`. A file that is not a database at all, or one whose pages are torn,
+    raises instead: its owner has records, and "not set up on this machine yet"
+    would send them to the one command that starts again.
+    """
+    try:
+        return is_initialised()
+    except sqlite3.DatabaseError as error:
+        raise unreadable() from error
+
+
+def run_app(ctx: click.Context, app: FlexiApplication) -> None:
+    """Run the application, and carry what it exited with out to the shell.
+
+    Textual sets a return code of 1 when a screen raises, and prints the
+    traceback itself. Without this the shell is told the run went fine, so a
+    cron entry reports success and `flexi && something` carries on.
+    """
+    app.run()
+    if app.return_code:
+        ctx.exit(app.return_code)
+
+
 def migrate() -> None:
     """Bring the schema to head, or say in one sentence what stopped it.
 
@@ -160,8 +212,6 @@ def migrate() -> None:
     arrives as a traceback whose last line is the only readable part of it.
     Anything else still raises: a traceback is the right answer to a bug.
     """
-    import sqlite3
-
     from sqlalchemy.exc import DatabaseError
 
     from flexi.models.database.migrate import run_migrations
@@ -169,8 +219,7 @@ def migrate() -> None:
     try:
         run_migrations()
     except (sqlite3.DatabaseError, DatabaseError) as error:
-        message = UNREADABLE.format(path=database_file(), backups=backups_directory())
-        raise click.ClickException(message) from error
+        raise unreadable() from error
     except RuntimeError as error:
         # A busy lease and a refused migration are both written for a person to
         # read. Some of them name the file they are about; the rest are one
@@ -221,7 +270,7 @@ def requires_setup(
         @functools.wraps(command)
         @click.pass_context
         def guarded(ctx: click.Context, /, *args: object, **kwargs: object) -> None:
-            if not is_initialised():
+            if not set_up_here():
                 click.secho(NOT_INITIALISED, fg="yellow", err=True)
                 ctx.exit(1)
             services = open_database(ctx, fill=fill)
@@ -288,7 +337,7 @@ def holidays_refresh(services: ServiceRegistry) -> int:
     return holidays_cli.run(services)
 
 
-def run_demo() -> None:
+def run_demo(ctx: click.Context) -> None:
     """Launch against a temporary database holding the sample data.
 
     The same seed the screenshots and the regression tests use, so what a new
@@ -313,8 +362,9 @@ def run_demo() -> None:
         path = Path(directory) / "demo.db"
         with database_scope(path) as (engine, session):
             Base.metadata.create_all(engine)
-            seed_demo(session, anchor=wallclock.today())
-        FlexiApp(db_path=path).run()
+            moment = wallclock.now()
+            seed_demo(session, anchor=moment.date(), now=moment.time())
+        run_app(ctx, FlexiApp(db_path=path))
 
 
 @cli.command()
@@ -327,12 +377,12 @@ def init(ctx: click.Context) -> None:
     """
     db_path = database_file()
 
-    if is_initialised():
+    if set_up_here():
         already_set_up(ctx, db_path)
         return
 
     migrate()
-    if is_initialised():
+    if set_up_here():
         click.secho("Flexi is set up.", fg="green")
         return
     ask_the_questions(ctx, db_path, then_open=False)
@@ -356,10 +406,10 @@ def already_set_up(ctx: click.Context, db_path: Path) -> None:
     if choice is None:
         return
     if choice is init_cli.Choice.OPEN:
-        open_app()
+        open_app(ctx)
         return
     if choice is init_cli.Choice.SETTINGS:
-        open_app(settings=True)
+        open_app(ctx, settings=True)
         return
 
     if not init_cli.confirm_reset(contents):
@@ -369,8 +419,8 @@ def already_set_up(ctx: click.Context, db_path: Path) -> None:
     ask_the_questions(ctx, db_path, then_open=False)
 
 
-def open_app(*, settings: bool = False) -> None:
-    launch(settings=settings).run()
+def open_app(ctx: click.Context, *, settings: bool = False) -> None:
+    run_app(ctx, launch(settings=settings))
 
 
 def erase(db_path: Path) -> None:
@@ -404,9 +454,9 @@ def ask_the_questions(
         )
         ctx.exit(1)
 
-    launch(splash=True).run()
+    run_app(ctx, launch(splash=True))
 
-    if not is_initialised():
+    if not set_up_here():
         click.echo("Setup was not completed.")
         ctx.exit(1)
     if not then_open:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -84,3 +86,22 @@ def test_database_scope_holds_a_shared_lease_until_cleanup(tmp_path: Path) -> No
 
     with database_lease(database, LeaseMode.EXCLUSIVE, timeout=0):
         pass
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
+def test_a_lease_that_makes_the_data_directory_makes_it_private(
+    tmp_path: Path,
+) -> None:
+    """The lease can be the first writer, so it owes the same 0700 as the rest.
+
+    `flexi init` takes an exclusive one before it snapshots, and a reset on a
+    machine whose data directory has gone recreates it here. A plain `mkdir`
+    leaves whatever the umask says, which on a shared machine is readable by
+    every other account.
+    """
+    database = tmp_path / "share" / "flexi" / "records.db"
+
+    with database_lease(database, LeaseMode.SHARED):
+        pass
+
+    assert stat.S_IMODE(database.parent.stat().st_mode) == 0o700

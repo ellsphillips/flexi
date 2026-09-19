@@ -69,7 +69,7 @@ def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
     return target
 
 
-def read_only(database: Path) -> sqlite3.Connection:
+def read_only(database: Path, *, timeout: float = 5.0) -> sqlite3.Connection:
     """A connection to an existing database that cannot write to it.
 
     Opened by path rather than through a ``file:...?mode=ro`` URI.
@@ -81,11 +81,16 @@ def read_only(database: Path) -> sqlite3.Connection:
     The file has to be there: ``sqlite3.connect`` creates an empty database
     where ``mode=ro`` returns an error, and the question being asked of it is
     usually whether the database exists at all.
+
+    ``timeout`` is how long a query waits on a database somebody else is
+    writing to, and defaults to SQLite's own five seconds. A reader with
+    somebody in front of it wants a shorter one: five seconds per table with
+    nothing on screen reads as a hang.
     """
     if not database.is_file():
         msg = f"No database at {database}"
         raise FileNotFoundError(msg)
-    connection = sqlite3.connect(database)
+    connection = sqlite3.connect(database, timeout=timeout)
     connection.execute("PRAGMA query_only = 1")
     return connection
 

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 from pathlib import Path
 from typing import Never
 
+import click
 import pytest
 
 import flexi.models.database.engine as database_engine
@@ -34,8 +35,8 @@ def test_seed_failure_closes_demo_resources(monkeypatch: pytest.MonkeyPatch) -> 
     def create_session(_engine: object) -> ClosableSession:
         return session
 
-    def fail_to_seed(_session: object, *, anchor: date) -> Never:
-        del anchor
+    def fail_to_seed(_session: object, *, anchor: date, now: time) -> Never:
+        del anchor, now
         msg = "demo seed failed"
         raise RuntimeError(msg)
 
@@ -45,6 +46,6 @@ def test_seed_failure_closes_demo_resources(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(samples, "seed_demo", fail_to_seed)
 
     with pytest.raises(RuntimeError, match="demo seed failed"):
-        main.run_demo()
+        main.run_demo(click.Context(main.cli))
 
     assert events == ["session closed", "engine disposed"]

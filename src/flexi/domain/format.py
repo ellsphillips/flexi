@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import date, datetime, timedelta
 
 __all__ = (
@@ -22,10 +23,12 @@ __all__ = (
     "long_date",
     "month_title",
     "plural",
+    "printable",
     "short_date",
     "signed_days",
     "spoken",
     "stamp",
+    "whole_minutes",
 )
 
 MINUS = "−"
@@ -56,6 +59,25 @@ def is_level(value: timedelta) -> bool:
         False
     """
     return abs(value) < LEVEL
+
+
+def whole_minutes(value: timedelta) -> timedelta:
+    """A duration floored to the minute every figure here is drawn in.
+
+    Every reading is printed by :func:`hm`, which shows whole minutes, and a
+    total is the sum of the readings. Formatting the exact figures instead
+    leaves the lines disagreeing by a minute whenever the sessions carry
+    seconds: 2:00:09 worked against 3:42 expected prints ``2:00``, ``3:42`` and
+    a balance of ``−1:41``. Flooring each term first is what makes the sum of
+    what is shown equal the total that is shown.
+
+    Examples:
+        >>> whole_minutes(timedelta(minutes=2, seconds=9))
+        datetime.timedelta(seconds=120)
+        >>> whole_minutes(timedelta(minutes=-2, seconds=-9)) == timedelta(minutes=-3)
+        True
+    """
+    return timedelta(minutes=value // timedelta(seconds=1) // SECONDS_PER_MINUTE)
 
 
 def hm(value: timedelta) -> str:
@@ -139,6 +161,30 @@ def digits(value: timedelta) -> str:
     if is_level(value):
         return ZERO
     return f"{'+' if value > timedelta() else '-'}{hm(value)}"
+
+
+_CONTROL_CATEGORIES = frozenset({"Cc", "Cf"})
+"""Unicode categories a terminal reads as instructions rather than as text."""
+
+
+def printable(text: str) -> str:
+    """A label with the characters a terminal would obey taken out of it.
+
+    Bank holiday titles come from GOV.UK and absence notes come from whatever
+    was pasted into a field, and both are drawn straight at a screen. An ESC, a
+    BEL or a carriage return in one recolours the terminal, retitles the window
+    or fakes a line of output, and Click strips only the CSI form. Letters,
+    punctuation and spaces survive intact.
+
+    Examples:
+        >>> printable("Boxing Day" + chr(27) + "[31m" + chr(13))
+        'Boxing Day[31m'
+    """
+    return "".join(
+        character
+        for character in text
+        if unicodedata.category(character) not in _CONTROL_CATEGORIES
+    )
 
 
 def stamp(when: date, pattern: str) -> str:

@@ -32,6 +32,7 @@ import time_machine
 from click.testing import CliRunner
 
 import flexi.__main__ as main
+from flexi import wallclock
 from flexi.__main__ import cli
 from flexi.cli import init as init_cli
 from flexi.cli import ui
@@ -120,7 +121,8 @@ class _Opened:
 
     Holds the three things `__main__` decides about it: which database it was
     pointed at, whether the splash animation was earned, and whether it was told
-    to land on the settings screen.
+    to land on the settings screen. `return_code` is the one thing it decides
+    back, and Textual sets it to 1 when a screen raises.
     """
 
     def __init__(self, db_path: Path | None, on_run: OnRun | None) -> None:
@@ -128,6 +130,7 @@ class _Opened:
         self.show_splash = False
         self.open_settings = False
         self.ran = False
+        self.return_code: int | None = None
         self._on_run = on_run
 
     def run(self) -> None:
@@ -249,6 +252,33 @@ def test_the_demo_opens_a_working_life_rather_than_an_empty_week(
 
     assert counted, "the application was never opened"
     assert counted[0] > 0
+
+
+def test_the_demo_records_nothing_that_has_not_happened_yet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The seed stops at the wall clock, and `--demo` has to hand it the real one.
+
+    Its default is the time the screenshots are drawn at, which is the middle
+    of the afternoon. Opened before then, the demo showed a session clocked in
+    at a moment that had not arrived, under a clock-out key that refuses.
+    """
+    latest: list[str | None] = []
+
+    def read_it(app: _Opened) -> None:
+        with sqlite3.connect(f"file:{app.db_path}?mode=ro", uri=True) as sample:
+            latest.append(
+                sample.execute("SELECT max(timestamp) FROM clock_events").fetchone()[0]
+            )
+
+    at_a_terminal(monkeypatch)
+    instead_of_the_application(monkeypatch, read_it)
+
+    CliRunner().invoke(cli, ["--demo"])
+
+    assert latest, "the application was never opened"
+    assert latest[0] is not None, "the demo seeded no clock events at all"
+    assert datetime.fromisoformat(latest[0]) <= wallclock.now().replace(tzinfo=None)
 
 
 def test_the_demo_flag_does_not_take_a_command(
@@ -418,6 +448,65 @@ def test_a_file_that_is_not_a_database_names_it_and_the_backups() -> None:
     assert "Traceback" not in result.output
 
 
+def test_a_corrupt_database_is_not_reported_as_a_machine_with_no_flexi() -> None:
+    """The advice that answer carries is the one thing its owner must not act on.
+
+    "Not set up on this machine yet. Run `flexi init`" arrives in front of a
+    file holding a year of records, and `flexi init` offers to erase it. The
+    copies taken before every migration are the way back, so the message names
+    them.
+    """
+    db = database_file()
+    db.parent.mkdir(parents=True, exist_ok=True)
+    db.write_bytes(b"\x00 not a database " * 128)
+
+    result = CliRunner().invoke(cli, ["balance", "show"])
+
+    assert result.exit_code == 1
+    assert "not set up on this machine yet" not in result.output
+    assert str(db) in result.output
+    assert str(backups_directory()) in result.output
+    assert "Traceback" not in result.output
+    assert db.read_bytes().startswith(b"\x00 not a database"), "nothing was touched"
+
+
+def test_a_torn_database_says_the_same_thing_as_a_corrupt_one(home: Path) -> None:
+    """A half-written page reads as malformed rather than as "not a database".
+
+    Both are `sqlite3.DatabaseError` and neither is "no such table", which is
+    the one doubt that means there is no Flexi here.
+    """
+    with home.open("r+b") as pages:
+        pages.seek(1024)
+        pages.write(b"\xff" * 4096)
+
+    result = CliRunner().invoke(cli, ["balance", "show"])
+
+    assert result.exit_code == 1
+    assert "not set up on this machine yet" not in result.output
+    assert str(backups_directory()) in result.output
+    assert "Traceback" not in result.output
+
+
+def test_a_directory_where_the_database_goes_names_it_and_the_backups() -> None:
+    """A half-finished restore, or a sync client, can leave one.
+
+    Nothing about it stats like a database, so the guard answers "not set up"
+    and sends its owner here. SQLite then refuses to open it, and without this
+    that refusal is `sqlalchemy.exc.OperationalError: unable to open database
+    file` with no mention of which file or what to do about it.
+    """
+    db = database_file()
+    db.mkdir(parents=True)
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    assert result.exit_code == 1
+    assert str(db) in result.output
+    assert str(backups_directory()) in result.output
+    assert "Traceback" not in result.output
+
+
 def test_a_schema_with_no_stamp_says_where_the_database_is() -> None:
     """Alembic cannot upgrade what it cannot place, and refuses to guess."""
     db = database_file()
@@ -478,6 +567,63 @@ def test_a_fault_that_is_not_about_the_file_still_raises(
     assert isinstance(result.exception, ValueError)
 
 
+# -- what the shell is told --------------------------------------------------
+
+
+def crashing(app: _Opened) -> None:
+    """What Textual leaves behind when a screen raises: a code of 1."""
+    app.return_code = 1
+
+
+@pytest.mark.parametrize(
+    ("command", "arrange"),
+    [
+        pytest.param([], "set-up", id="bare flexi"),
+        pytest.param(["--demo"], "none", id="the demo"),
+        pytest.param(["init"], "menu", id="open, from the init menu"),
+    ],
+)
+def test_an_application_that_crashed_does_not_report_success(
+    command: list[str],
+    arrange: str,
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+) -> None:
+    """Every way into the application carries its exit code back out.
+
+    A crashed Textual prints its own traceback and sets a return code of 1. The
+    shell was told 0 regardless, so a cron entry reported a clean run and
+    `flexi && next-thing` carried on as though nothing had happened.
+    """
+    at_a_terminal(monkeypatch)
+    if arrange != "none":
+        request.getfixturevalue("home")
+    if arrange == "menu":
+        choosing(monkeypatch, init_cli.Choice.OPEN)
+    instead_of_the_application(monkeypatch, crashing)
+
+    result = CliRunner().invoke(cli, command)
+
+    assert result.exit_code == 1, result.output
+
+
+def test_a_setup_form_that_crashed_is_not_asked_whether_it_finished(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The crash is the answer. "Setup was not completed" is the wrong sentence.
+
+    It reads as though the form was closed, which invites another run at it;
+    the traceback Textual has already printed is what needs reading.
+    """
+    at_a_terminal(monkeypatch)
+    instead_of_the_application(monkeypatch, crashing)
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    assert result.exit_code == 1
+    assert "Setup was not completed" not in result.output
+
+
 # -- the guard ---------------------------------------------------------------
 
 
@@ -506,6 +652,23 @@ def test_a_command_before_setup_is_refused_and_told_what_to_run(
     assert "not set up on this machine yet" in result.output
     assert "flexi init" in result.output
     assert not database_file().exists(), "refusing must not leave a database behind"
+
+
+def test_preferences_that_were_ignored_are_said_out_loud(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A section of the config file that fell back is invisible otherwise.
+
+    The file sits there looking as though it is in force, and the preferences
+    in it are the ones nobody chose.
+    """
+    monkeypatch.setattr("flexi.config.CONFIG_PROBLEM", "config.yaml could not be used")
+
+    result = CliRunner().invoke(cli, ["balance", "show"])
+
+    assert result.exit_code == 0, result.output
+    assert "config.yaml could not be used" in result.stderr
+    assert "config.yaml could not be used" not in result.stdout, "not the output"
 
 
 def test_help_is_reachable_on_a_machine_with_no_database() -> None:
@@ -557,6 +720,38 @@ def test_refreshing_the_calendar_asks_gov_uk_once(
     monkeypatch.setattr(httpx.Client, "get", counted)
 
     CliRunner().invoke(cli, ["holidays", "refresh"])
+
+    assert len(asked) == 1
+
+
+def test_an_empty_calendar_is_not_asked_for_on_every_command(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Opening the database fills an empty calendar, and every command opens it.
+
+    Offline that put the whole fetch budget in front of `flexi clock in`, once
+    per command, all day. GOV.UK was unreachable a moment ago and nothing about
+    the machine has changed since.
+    """
+    engine = create_db_engine(home)
+    session = get_session(engine)
+    session.query(BankHolidayCache).delete()
+    session.query(BankHolidayRefresh).delete()
+    session.commit()
+    session.close()
+    engine.dispose()
+
+    asked: list[str] = []
+
+    def counted(*_args: object, **_kwargs: object) -> None:
+        asked.append("gov.uk")
+        msg = "the test suite does not make network requests"
+        raise httpx.ConnectError(msg)
+
+    monkeypatch.setattr(httpx.Client, "get", counted)
+
+    CliRunner().invoke(cli, ["balance", "show"])
+    CliRunner().invoke(cli, ["balance", "show"])
 
     assert len(asked) == 1
 

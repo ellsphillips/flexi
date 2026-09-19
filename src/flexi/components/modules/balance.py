@@ -53,7 +53,9 @@ class BalanceModule(Module):
     def rebuild(self) -> None:
         services = self.services
         today = self.now.date()
-        summary = services.ledger.balance(today, now=self.now)
+        # In the whole minutes it is drawn in, so the digits here and the
+        # figure `flexi balance show` prints are the same number.
+        summary = services.ledger.balance(today, now=self.now).as_shown()
         contracted = services.settings.get_contracted()
 
         readout = self.query_one("#balance-digits", Digits)

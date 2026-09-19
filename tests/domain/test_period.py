@@ -7,6 +7,7 @@ from hypothesis import strategies as st
 
 from flexi.constants import Granularity
 from flexi.domain import leaveyear
+from flexi.domain.dates import SUPPORTED_FIRST, SUPPORTED_LAST
 from flexi.domain.period import Period
 from tests import strategies
 
@@ -338,3 +339,50 @@ def test_paging_lands_on_a_different_span_every_time(
         return
     assert (moved.start, moved.end) != (period.start, period.end)
     assert (moved.start > period.end) if count > 0 else (moved.end < period.start)
+
+
+# -- the end of the calendar -------------------------------------------------
+
+
+EDGES = [
+    pytest.param(Granularity.DAY, SUPPORTED_LAST, (1, 1), 1, id="a day past the end"),
+    pytest.param(Granularity.WEEK, SUPPORTED_LAST, (1, 1), 1, id="a week past the end"),
+    pytest.param(
+        Granularity.MONTH, SUPPORTED_LAST, (1, 1), 1, id="a month past the end"
+    ),
+    pytest.param(Granularity.YEAR, SUPPORTED_LAST, (1, 1), 1, id="a year past the end"),
+    pytest.param(
+        Granularity.DAY, SUPPORTED_FIRST, (1, 1), -1, id="a day before the start"
+    ),
+    pytest.param(
+        Granularity.WEEK, SUPPORTED_FIRST, (1, 1), -1, id="a week before the start"
+    ),
+    pytest.param(
+        Granularity.MONTH, SUPPORTED_FIRST, (1, 1), -1, id="a month before the start"
+    ),
+    pytest.param(
+        Granularity.YEAR, SUPPORTED_FIRST, (4, 6), -1, id="a leave year before year one"
+    ),
+]
+
+
+@pytest.mark.parametrize(("granularity", "anchor", "year_start", "count"), EDGES)
+def test_paging_off_the_end_of_the_calendar_stays_where_it_is(
+    granularity: Granularity, anchor: date, year_start: tuple[int, int], count: int
+) -> None:
+    """`y` then `]` from a date in 9998 raised out of the leave-year arithmetic.
+
+    The window is a year short of `date`'s own at each end, because a leave
+    year reaches into the calendar year on either side of the date it holds.
+    Paging is the one way to walk past it: the parser refuses a date outside it.
+    """
+    period = Period(granularity, anchor, year_start)
+
+    assert period.shift(count) == period
+
+
+def test_paging_back_from_the_edge_still_works() -> None:
+    """Stopping at the end is not the same as being stuck there."""
+    period = Period(Granularity.YEAR, SUPPORTED_LAST)
+
+    assert period.shift(-1).label == "9997"

@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Final
 import click
 
 from flexi import wallclock
-from flexi.domain.dates import Preference, parse_date
 from flexi.services.outcome import Outcome
 
 # These imports describe attributes that PEP 562 resolves lazily at runtime.
@@ -175,6 +174,11 @@ class TypedDate(click.ParamType[date]):
         param: click.Parameter | None,
         ctx: click.Context | None,
     ) -> date:
+        # The grammar is imported by the two options that take a date rather
+        # than by this module. It is most of what importing `flexi.cli` costs,
+        # and `flexi --version` imports it to build a decorator it never runs.
+        from flexi.domain.dates import Preference, parse_date
+
         try:
             return parse_date(
                 str(value), reference=wallclock.today(), prefer=Preference.CURRENT

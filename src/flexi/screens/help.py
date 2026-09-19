@@ -18,6 +18,7 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Static
 
 from flexi.components.common import KeyHint, Rule
+from flexi.config import CONFIG
 
 __all__ = ("HelpScreen", "collect_bindings", "declared_by_flexi", "label_for")
 
@@ -29,7 +30,7 @@ class HelpScreen(ModalScreen[None]):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss_help", "Close", show=True),
-        Binding("question_mark", "dismiss_help", "Close", show=False),
+        Binding(CONFIG.hotkeys.help, "dismiss_help", "Close", show=False),
     ]
 
     def __init__(self, groups: dict[str, list[tuple[str, str]]]) -> None:

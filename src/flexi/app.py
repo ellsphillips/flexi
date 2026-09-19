@@ -31,7 +31,7 @@ from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
 import flexi
-from flexi.components.chrome import NAV_ITEMS, AppHeader, NavBar, stamped
+from flexi.components.chrome import NAV_ITEMS, AppFooter, AppHeader, NavBar, stamped
 from flexi.components.jump_overlay import JumpOverlay
 from flexi.components.jumper import (
     HasFocusTarget,
@@ -40,7 +40,7 @@ from flexi.components.jumper import (
     Jumper,
     Refreshable,
 )
-from flexi.config import CONFIG
+from flexi.config import CONFIG, CONFIG_PROBLEM
 from flexi.messages import BankHolidayRefreshCompleted, Scope
 from flexi.models.database.engine import database_scope
 from flexi.provider import FlexiCommands
@@ -176,6 +176,12 @@ class FlexiApp(TextualApp[None]):
             )
         self._check_for_updates()
         self.refresh_holidays()
+        if CONFIG_PROBLEM:
+            # Once, on the way in. `BINDINGS` read `CONFIG` before there was a
+            # screen to say it on, so this is the first moment there is one.
+            self.notify(
+                CONFIG_PROBLEM, severity="warning", timeout=UPDATE_NOTICE_SECONDS
+            )
 
     def _on_setup_done(self, completed: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
         if not completed:
@@ -492,6 +498,16 @@ class FlexiApp(TextualApp[None]):
                 return screen
         return None
 
+    def showing_dashboard(self) -> bool:
+        """Whether the dashboard is the destination in front of the user.
+
+        Asked of what is open rather than of `self.screen`: the command palette
+        is a screen of its own, pushed over whatever was there, so while a
+        command is being chosen `self.screen` is the palette. What the command
+        would act on is the destination underneath.
+        """
+        return self._pushed is None and self._settings is None
+
     # -- clocking ----------------------------------------------------------
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
@@ -506,11 +522,22 @@ class FlexiApp(TextualApp[None]):
         return not isinstance(self.focused, Input | TextArea)
 
     def action_clock_toggle(self) -> None:
-        """One key, from anywhere. The dashboard owns the confirmation."""
-        screen = self.dashboard()
-        if screen is None:
+        """One key, from anywhere, and the receipt lands where the eye is.
+
+        The dashboard does the clocking and reports to its own footer, which
+        sits underneath Leave and Insights. Without the receipt on the visible
+        footer, `/` from either of those toggles the clock and says nothing at
+        all, and the only way to tell is to go back to the dashboard.
+        """
+        board = self.dashboard()
+        if board is None:
             return
-        screen.toggle_clock()
+        message, tone = board.toggle_clock()
+        if self.screen is board:
+            return
+        for footer in self.screen.query(AppFooter):
+            footer.set_status(message, tone)
+        self.refresh_open_screens(Scope.CLOCK)
 
     # -- help --------------------------------------------------------------
 

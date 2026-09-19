@@ -42,7 +42,7 @@ from flexi.components.modules.records import (
 from flexi.components.punch import PunchStrip
 from flexi.constants import AbsenceType, DayKind, Granularity, Portion
 from flexi.domain.dates import DAYS_IN_WEEK
-from flexi.domain.format import MINUS
+from flexi.domain.format import MINUS, digits
 from flexi.domain.ledger import AbsenceSlice, DayLedger
 from flexi.domain.period import Period
 from flexi.domain.punch import Window
@@ -329,6 +329,24 @@ async def test_a_balance_level_with_the_contract_is_drawn_flat(
         )
 
 
+async def test_the_headline_is_the_figure_the_command_line_prints(
+    configure: Configured,  # noqa: F811 - the imported fixture
+) -> None:
+    """Two surfaces, one balance. They disagreed by a minute over seconds.
+
+    `flexi balance show` floors each term before subtracting, so the lines it
+    prints add up to the total under them. The headline took the exact figures,
+    so a day carrying nine seconds read 0:01 off the command line.
+    """
+    services = configure(entitlement=(2026, 25.0))
+    work(services, THURSDAY, hours=2 + 9 / 3600)
+    expected = digits(services.ledger.balance(THURSDAY).as_shown().delta)
+
+    module = BalanceModule()
+    async with showing(module, services, anchor=THURSDAY, now=NOW):
+        assert module.query_one("#balance-digits", Digits).value == expected
+
+
 @pytest.mark.parametrize(
     ("minutes", "caption"),
     [
@@ -580,6 +598,34 @@ async def test_the_day_column_adds_up_to_the_period_under_it(
         assert sum(
             (as_delta(cell(row.cells[3])) for row in days), timedelta()
         ) == as_delta(cell(total.cells[3]))
+
+
+async def test_the_sign_column_reads_the_cells_beside_it_not_the_exact_figures(
+    configure: Configured,  # noqa: F811 - the imported fixture
+) -> None:
+    """A session carrying seconds left a row disagreeing with its own cells.
+
+    Worked and expected are printed in whole minutes and the ± cell was the
+    exact difference, so 2:00:09 against 7:24 drew `2:00`, `7:24` and `−5:23`.
+    `flexi balance show` already floored each term before subtracting; this is
+    the same rule, said once.
+    """
+    services = configure(entitlement=(2026, 25.0))
+    work(services, THURSDAY, hours=2 + 9 / 3600)
+
+    module = RecordsModule()
+    async with showing(
+        module, services, granularity=Granularity.DAY, anchor=THURSDAY
+    ) as (_pilot, _panel):
+        rows = module.table.visible_rows()
+        day = next(item for item in rows if item.key == row_key(RowKind.DAY, THURSDAY))
+        total = next(
+            item for item in rows if item.key == row_key(RowKind.TOTAL, "period")
+        )
+
+        assert str(cell(day.cells[2])) == "2:00"
+        assert str(cell(day.cells[3])) == "−5:24"
+        assert as_delta(cell(total.cells[3])) == as_delta(cell(day.cells[3]))
 
 
 async def test_a_records_panel_the_layout_has_dropped_offers_no_badges(

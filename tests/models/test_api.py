@@ -30,6 +30,7 @@ LEAF_APIS: tuple[tuple[ModuleType, tuple[str, ...]], ...] = (
             "SETTINGS_SINGLETON_KEY",
             "AbsenceDay",
             "BalanceAdjustment",
+            "BankHolidayAttempt",
             "BankHolidayCache",
             "BankHolidayRefresh",
             "Base",

@@ -18,10 +18,16 @@ import httpx
 import pytest
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import Division
-from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
+from flexi.models.database.db import (
+    BankHolidayAttempt,
+    BankHolidayCache,
+    BankHolidayRefresh,
+)
 from flexi.services import bank_holidays
 from flexi.services.bank_holidays import (
+    BankHolidayFetcher,
     BankHolidayService,
     ParsedBankHoliday,
     fetch_bank_holiday_index,
@@ -656,6 +662,119 @@ class TestFillingTheCache:
 
         assert svc.is_fresh() is False, "the fixture should be stale"
         assert svc.fill_if_empty() is True, "and stale is good enough to keep"
+
+
+def test_a_title_cannot_carry_instructions_to_a_terminal() -> None:
+    """Sanitised where it is read, not where it is drawn.
+
+    A title reaches a status bar, a records row, a leave plan and a tooltip,
+    and what is cached is what every one of them reads. Stripping at the sinks
+    leaves the poisoned row in the database and the next sink unprotected.
+    """
+    payload = {
+        "england-and-wales": {
+            "events": [
+                {
+                    "title": "Boxing Day" + chr(27) + "[31m PWNED" + chr(7) + chr(13),
+                    "date": "2026-12-28",
+                }
+            ]
+        }
+    }
+
+    parsed = parse_bank_holidays(payload, Division.ENGLAND_AND_WALES)
+
+    assert parsed is not None
+    assert parsed[0].title == "Boxing Day[31m PWNED", "the words stay; the codes go"
+
+
+def unreachable(asked: list[str]) -> BankHolidayFetcher:
+    """A GOV.UK with nothing to say, that counts how often it was asked."""
+
+    def fetch() -> object | None:
+        asked.append("gov.uk")
+        return None
+
+    return fetch
+
+
+class TestNotAskingTwiceForTheSameSilence:
+    """Opening the database fills an empty calendar, and every command opens it.
+
+    Offline, that put the whole fetch budget in front of `flexi clock in`, once
+    per command, for as long as the machine stayed offline.
+    """
+
+    def test_a_failed_fetch_is_not_repeated_by_the_next_command(
+        self, session: Session
+    ) -> None:
+        asked: list[str] = []
+        svc = BankHolidayService(
+            session, reading(Division.ENGLAND_AND_WALES), unreachable(asked)
+        )
+
+        assert svc.fill_if_empty() is False
+        assert svc.fill_if_empty() is False
+        assert asked == ["gov.uk"], "the second command asked again"
+
+    def test_the_cooldown_runs_out(self, session: Session) -> None:
+        """An hour later the machine may well be somewhere else."""
+        asked: list[str] = []
+        svc = BankHolidayService(
+            session, reading(Division.ENGLAND_AND_WALES), unreachable(asked)
+        )
+        svc.fill_if_empty()
+
+        stale = wallclock.utc_now() - bank_holidays.RETRY_AFTER - timedelta(minutes=1)
+        attempt = session.get(BankHolidayAttempt, Division.ENGLAND_AND_WALES.value)
+        assert attempt is not None
+        attempt.attempted_at = stale.replace(tzinfo=None)
+        session.commit()
+
+        assert svc.fill_if_empty() is False
+        assert len(asked) == 2
+
+    def test_the_command_whose_job_is_the_asking_is_never_held_back(
+        self, session: Session
+    ) -> None:
+        """`flexi holidays refresh` is somebody saying "try again, now"."""
+        asked: list[str] = []
+        svc = BankHolidayService(
+            session, reading(Division.ENGLAND_AND_WALES), unreachable(asked)
+        )
+
+        assert svc.fetch_and_cache() is False
+        assert svc.fetch_and_cache() is False
+        assert len(asked) == 2
+
+    def test_a_calendar_that_arrives_clears_the_cooldown(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing should be left behind saying GOV.UK was no use."""
+        svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
+        assert svc.fill_if_empty() is False, "the suite refuses outbound requests"
+        assert svc.asked_recently() is True
+
+        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        assert svc.fetch_and_cache() is True
+
+        assert svc.asked_recently() is False
+        assert session.get(BankHolidayAttempt, Division.ENGLAND_AND_WALES.value) is None
+
+    def test_one_division_does_not_silence_another(self, session: Session) -> None:
+        """The cooldown is per calendar, because so is the cache."""
+        asked: list[str] = []
+        england = BankHolidayService(
+            session, reading(Division.ENGLAND_AND_WALES), unreachable(asked)
+        )
+        scotland = BankHolidayService(
+            session, reading(Division.SCOTLAND), unreachable(asked)
+        )
+
+        england.fill_if_empty()
+        scotland.fill_if_empty()
+
+        assert len(asked) == 2
 
 
 class TestTellingEmptyFromAbsent:

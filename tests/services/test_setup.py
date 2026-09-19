@@ -97,6 +97,24 @@ def test_an_unopenable_database_is_never_remembered_as_ready(
     assert setup.is_initialised(unreadable) is True
 
 
+def test_a_file_that_is_not_a_database_is_not_answered_as_absent(
+    tmp_path: Path,
+) -> None:
+    """The third doubt, and the one the two above must not swallow.
+
+    "No such table" is `OperationalError` and means there is no Flexi here.
+    "File is not a database" and "database disk image is malformed" are the
+    plain `DatabaseError`, and they mean the opposite: something is there and
+    cannot be read. Answering False sends its owner to `flexi init`, which
+    offers to erase it.
+    """
+    db = tmp_path / "db.db"
+    db.write_bytes(b"\x00 not a database " * 128)
+
+    with pytest.raises(sqlite3.DatabaseError):
+        setup.is_initialised(db)
+
+
 def test_a_stamp_table_with_no_stamp_in_it_is_not_an_install(tmp_path: Path) -> None:
     """A migration interrupted between creating the table and writing the row.
 

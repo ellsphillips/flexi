@@ -858,12 +858,12 @@ def test_a_database_from_a_newer_flexi_is_refused_before_it_is_copied(
     are all copies of a database this build cannot read.
     """
     upgrade(db, HEAD)
-    stamped_as(db, "0016")
+    stamped_as(db, "0017")
 
     with pytest.raises(MigrationRefusedError, match="written by a newer Flexi"):
         run_migrations(db)
 
-    assert revision_of(db) == "0016"
+    assert revision_of(db) == "0017"
     assert not list(backups_directory().glob("*.bak"))
 
 

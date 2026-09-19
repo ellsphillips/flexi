@@ -49,12 +49,14 @@ def is_initialised(db_path: Path | None = None) -> bool:
     Memoised per resolved path rather than globally, because the demo, the test
     suite and a ``--db`` override each point somewhere different inside one
     process.
+
+    Raises:
+        sqlite3.DatabaseError: The database is there and cannot be read. See
+            :func:`stamped_and_configured`.
     """
     path = (db_path or database_file()).expanduser()
     if path in _INITIALISED:
         return True
-    if not path.is_file():
-        return False
 
     answer = stamped_and_configured(path)
     if answer:
@@ -82,28 +84,44 @@ def clear_initialisation_cache() -> None:
 def stamped_and_configured(path: Path) -> bool:
     """The database carries a migration stamp and a complete settings row.
 
-    ``mode=ro`` refuses to create the file, which is the invariant
-    :mod:`flexi.locations` exists to protect. It is a URI, so the path has to be
-    escaped into one rather than pasted into one: ``?`` opens the query string
-    and ``#`` opens a fragment, so a home directory containing either was
-    truncated to the part before it, and a fully configured Flexi answered "not
-    set up on this machine yet" on every run. ``as_uri`` percent-encodes both,
-    and SQLite decodes them back.
+    Opened by path with ``query_only`` set, not through a ``file:...?mode=ro``
+    URI. :meth:`Path.as_uri` renders a Windows UNC path as
+    ``file://server/share/...`` and SQLite accepts no authority but an empty
+    one, so a data directory on a network share is refused as an invalid URI
+    before it is ever looked for. The file must already exist: connecting to a
+    missing path creates a zero-byte database, and not creating one is the
+    invariant :mod:`flexi.locations` exists to protect.
+
+    :func:`flexi.models.database.backup.read_only` opens a connection the same
+    way. Importing it costs the SQLAlchemy and Alembic this module's docstring
+    refuses, so the three lines are said again here instead.
+
+    Raises:
+        sqlite3.DatabaseError: The file is not a database, or is damaged. That
+            is not "no Flexi here", and the advice that answer carries -- run
+            `flexi init` -- is the last thing its owner should act on.
     """
+    if not path.is_file():
+        return False
+
     try:
-        connection = sqlite3.connect(f"{path.absolute().as_uri()}?mode=ro", uri=True)
+        connection = sqlite3.connect(path)
     except sqlite3.Error:
         return False
 
     try:
+        connection.execute("PRAGMA query_only = 1")
+
         # No stamp, no Flexi. A zero-byte file left behind by a crashed
         # invocation reaches exactly this line, and must answer False -- it
-        # stats like an install and is not one.
+        # stats like an install and is not one. `OperationalError` alone: "no
+        # such table" arrives as one, "file is not a database" and "database
+        # disk image is malformed" do not, and they mean the opposite thing.
         try:
             stamped = connection.execute(
                 "SELECT 1 FROM alembic_version LIMIT 1"
             ).fetchone()
-        except sqlite3.DatabaseError:
+        except sqlite3.OperationalError:
             return False
         if stamped is None:
             return False

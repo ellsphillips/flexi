@@ -103,6 +103,12 @@ class WalletService:
         booked for next month is invisible to it. Subtracting those bookings is
         what stops the interface cheerfully accepting an unlimited number of
         future TOIL days and only mentioning the deficit once they arrive.
+
+        ``valid_only``, because the ledger asks nothing of a day Flexi never
+        asked for work on: a Monday GOV.UK has since declared a bank holiday
+        costs the balance nothing when it arrives, so counting it as committed
+        here would hold back a day of TOIL nobody is ever charged for. It is
+        the filter the wallet's own TOIL figure already uses.
         """
         today = today or wallclock.today()
         contracted = self._settings.get_contracted()
@@ -111,6 +117,6 @@ class WalletService:
         banked = self._ledger.balance(today).delta / contracted
         _, year_end = self._absence.leave_year_bounds(today)
         committed = self._absence.count_days(
-            AbsenceType.FLEXI, today + timedelta(days=1), year_end
+            AbsenceType.FLEXI, today + timedelta(days=1), year_end, valid_only=True
         )
         return banked - committed

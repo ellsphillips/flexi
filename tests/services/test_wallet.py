@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.leaveyear import fraction_elapsed
 from flexi.domain.wallet import Pace
+from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import (
     Services,
     available_toil_days,
@@ -150,6 +151,32 @@ def test_a_toil_day_spends_the_balance(services: Services) -> None:
 def test_available_toil_is_the_balance_in_days(services: Services) -> None:
     """It answers the question the booking modal asks."""
     work(services, MONDAY, hours=7.4 + 7.4)
+    assert available_toil_days(services, MONDAY) == pytest.approx(1.0, abs=0.05)
+
+
+def test_toil_booked_on_a_day_since_made_a_holiday_is_not_held_back(
+    services: Services, session: Session
+) -> None:
+    """The ledger asks nothing of a bank holiday, so it takes no TOIL on one.
+
+    Counting the booking as committed anyway holds back a day of TOIL nothing
+    will ever be charged for -- and the wallet's own TOIL allowance, which
+    drops the same markers, disagreed with this figure.
+    """
+    work(services, MONDAY, hours=7.4 + 7.4)
+    friday = date(2026, 6, 12)
+    services.absence.book(friday, AbsenceType.FLEXI)
+    invalidate_services(services)
+    assert available_toil_days(services, MONDAY) == pytest.approx(0.0, abs=0.05)
+
+    session.add(
+        BankHolidayCache(
+            division="england-and-wales", date=friday, title="Declared since"
+        )
+    )
+    session.commit()
+    invalidate_services(services)
+
     assert available_toil_days(services, MONDAY) == pytest.approx(1.0, abs=0.05)
 
 

@@ -20,6 +20,7 @@ from textual.widgets import DataTable
 from textual.widgets.data_table import CellDoesNotExist, RowDoesNotExist
 
 from flexi.components.options import DataTableOptions
+from flexi.config import CONFIG
 
 __all__ = (
     "ExpandableTable",
@@ -94,8 +95,8 @@ class ExpandableTable(DataTable[RenderableType]):
     HELP_LABEL = "Records table"
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("space", "toggle_row", "Expand", show=True),
-        Binding("shift+space", "toggle_all", "Expand all", show=False),
+        Binding(CONFIG.hotkeys.expand, "toggle_row", "Expand", show=True),
+        Binding(CONFIG.hotkeys.expand_all, "toggle_all", "Expand all", show=False),
         Binding("enter", "open_row", "Open", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),

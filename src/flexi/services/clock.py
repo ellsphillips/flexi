@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
 from flexi.constants import EventSource, Portion
-from flexi.domain.format import hm, short_date, spoken
+from flexi.domain.format import hm, long_date, short_date, spoken
 from flexi.domain.ledger import MIDDAY_HOUR, Segment
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
@@ -199,11 +199,18 @@ class ClockService:
         moment = wallclock.local(now) if now is not None else wallclock.now()
         length = moment - moment_of(open_session.clock_in_event)
 
+        # Dated after today: this machine's clock was ahead when the session was
+        # opened. Nothing else reaches such a session. `clock in` answers
+        # "Already clocked in", the sweep closes only days that have been and
+        # gone, and there is no way to delete one -- so it holds the clock shut
+        # until that date comes round. Closing it here is the way out.
+        ahead = open_session.work_date > moment.date()
+
         # A session cannot run backwards. That is a fault in the data, not a
         # slip of the finger, and voiding it deletes real work with no way back:
         # a session opened at 01:30 on the morning the clocks go back used to be
         # discarded here, for up to an hour, with a message blaming the user.
-        if length < timedelta():
+        if length < timedelta() and not ahead:
             return ClockResult(
                 success=False,
                 message="That clock-out is earlier than the clock-in",
@@ -221,6 +228,20 @@ class ClockService:
             )
         if not closed:
             return ClockResult(success=False, message="Not clocked in")
+
+        # The hours on a session dated in the future were read off a clock that
+        # was wrong, so they are discarded rather than counted. The events stay,
+        # and a day that was really worked goes back on the record as a
+        # correction.
+        if ahead:
+            return ClockResult(
+                success=True,
+                message=(
+                    "Discarded — that session is dated "
+                    f"{long_date(open_session.work_date)}, which is still to come"
+                ),
+                session=open_session,
+            )
 
         # Clocking in and straight back out is a slip of the finger. The events
         # stay — they are immutable, and the audit trail is the point — but the

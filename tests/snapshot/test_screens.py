@@ -36,7 +36,7 @@ SHOTS = Path(__file__).resolve().parent.parent.parent / "docs" / "shots"
 
 WIDE = (120, 36)
 NARROW = (84, 28)
-TINY = (64, 22)
+TINY = (63, 22)  # one column under TINY_COLUMNS, so the -tiny rules apply
 
 CASES: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
     ("dashboard-wide", WIDE, []),
