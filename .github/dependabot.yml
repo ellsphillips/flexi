@@ -16,9 +16,13 @@ updates:
       interval: monthly
     commit-message:
       prefix: "build"
+    # uv.lock only. Without this Dependabot rewrites every floor in pyproject
+    # to whatever it just locked, and a floor is meant to say the oldest
+    # version the code runs on.
+    versioning-strategy: lockfile-only
     groups:
-      # One pull request a month rather than fifteen. Flexi pins nothing
-      # tightly except textual, which is the one worth reading a diff for.
+      # One pull request a month, not fifteen. textual is the one pin worth
+      # reading a diff for.
       dependencies:
         patterns: ["*"]
         exclude-patterns: ["textual"]

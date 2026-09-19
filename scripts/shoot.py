@@ -38,25 +38,17 @@ from flexi.models.database.engine import create_db_engine, get_session  # noqa: 
 from flexi.services.samples import NOW, TIMEZONE, seed_demo  # noqa: E402
 
 # The same pin the snapshot suite applies in `tests/conftest.py`, through the
-# same seam. Without it the documented way to regenerate the shots bakes the
-# developer's timezone into them -- an hour of British Summer Time that the
-# suite, running under UTC, then rejects. The command that fixes a failing
-# snapshot cannot be the command that causes one.
-#
-# It was `TZ` and `time.tzset`, which is POSIX only: on Windows it pinned
-# nothing, so the one platform where a contributor could not verify their own
-# shots was the one where they came out wrong.
+# same seam. Without it the shots carry the developer's own timezone, an hour
+# of British Summer Time that the suite then rejects under UTC.
 PINNED = wallclock.pinned(ZoneInfo(TIMEZONE))
 
 
 def refuse_the_network() -> None:
-    """No GOV.UK, no PyPI -- the same as the snapshot suite.
+    """No GOV.UK, no PyPI, as in the snapshot suite.
 
     The application fills an empty bank holiday cache at mount and asks PyPI
-    for a newer version, both in worker threads. Left alone, the shots came out
-    with whatever GOV.UK returned on the day, so April gained a bank holiday
-    the demo never seeded and the balance moved by seven hours. A screenshot
-    that depends on the machine's internet is not a screenshot of anything.
+    for a newer version, both in worker threads. Left alone, the shots carry
+    whatever GOV.UK returned on the day.
     """
 
     def refused(*_args: object, **_kwargs: object) -> None:
@@ -72,7 +64,7 @@ SHOTS = ROOT / "docs" / "shots"
 
 WIDE = (120, 36)
 NARROW = (84, 28)
-TINY = (64, 22)
+TINY = (63, 22)  # one column under TINY_COLUMNS, so the -tiny rules apply
 
 # The shots the README points at. Wider and taller than the regression set, so
 # each one has room to show the whole feature rather than a corner of it.
@@ -168,12 +160,10 @@ async def main() -> None:
     db = ROOT / ".demo.db"
     db.unlink(missing_ok=True)
 
-    # Seeded under the frozen clock as well as captured under it, which is what
+    # Seeded under the frozen clock as well as captured under it, as
     # `tests/snapshot/test_screens.py` does. The two have to match.
     #
-    # `finally`, because the unlink used to sit after the block: one failing
-    # shot left `.demo.db` in the repo root, and until `*.db` was ignored that
-    # was a scratch database sitting in `git status` waiting to be committed.
+    # `finally`, so a failing shot does not leave `.demo.db` in the repo root.
     try:
         with PINNED, time_machine.travel(NOW, tick=False):
             build_database(db).close()

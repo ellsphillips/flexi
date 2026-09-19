@@ -22,8 +22,8 @@ jobs:
       matrix:
         # Windows as well as Linux, because that is the first moment anything
         # checks the data directory resolves and the application paints there.
-        # macOS is left out on purpose: it shares every path assumption with
-        # Linux, and the test matrix already covers it three interpreters deep.
+        # macOS shares every path assumption with Linux and the test matrix
+        # already covers it three interpreters deep.
         os: [ubuntu-latest, windows-latest]
     env:
       # uv puts the interpreter under `bin` on POSIX and `Scripts` on Windows,
@@ -32,9 +32,7 @@ jobs:
       #
       # Relative, and inside the workspace: bash on Windows rewrites absolute
       # POSIX paths on the way to a native binary, and a venv the job cannot
-      # name afterwards is a job that skips itself. A src layout is what keeps
-      # this honest -- the checkout is the working directory and `flexi` is
-      # still only importable from the wheel.
+      # name afterwards is a job that skips itself.
       PROBE: ${{ matrix.os == 'windows-latest' && '.probe/Scripts/python.exe' || '.probe/bin/python' }}
     defaults:
       run:
@@ -43,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # No `version:`: setup-uv reads `tool.uv.required-version` from pyproject.
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
@@ -53,14 +52,17 @@ jobs:
       - name: Install it somewhere that has no source tree
         run: |
           uv venv .probe
-          # The wheel brings the runtime dependencies and is the only copy of
-          # flexi on the path -- no editable install, no src/ on sys.path. The
-          # dev group brings the test toolchain, taken from pyproject rather
-          # than named here: a hand-picked list of plugins has to be kept in
-          # step with `addopts` by hand, and the day `-n auto --timeout=120`
-          # was added for the matrix this job started failing on an
-          # unrecognised argument, saying nothing at all about the wheel.
-          uv pip install --python "$PROBE" dist/*.whl --group dev
+          # The toolchain comes from the lockfile, so a release on PyPI
+          # cannot turn this job red between two runs of the same commit.
+          # `uv pip install` never reads uv.lock, hence the export.
+          uv export --locked --no-emit-project --no-hashes --group dev -o .probe-reqs.txt
+          uv pip install --python "$PROBE" -r .probe-reqs.txt
+          # `--no-deps`, so the wheel is the only copy of flexi on the path and
+          # the resolution stays the locked one. `uv pip check` then still reads
+          # the wheel's own Requires-Dist and says so if it names something the
+          # export did not bring.
+          uv pip install --python "$PROBE" --no-deps dist/*.whl
+          uv pip check --python "$PROBE"
 
       - name: Its data files travelled with it
         # Run against the installed package, not the checkout: a wheel missing
@@ -77,7 +79,7 @@ jobs:
         # temporary file: that the real data directory resolves somewhere
         # absolute and platform-appropriate. `%LOCALAPPDATA%` unset in a
         # service account, or an XDG variable inherited from a shell, both land
-        # here rather than in somebody's first run.
+        # here rather than in a user's first run.
         run: |
           "$PROBE" -c "
           from flexi.locations import config_file, database_file
@@ -88,7 +90,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         # One copy. The wheel is pure Python and identical from either runner,
-        # and `release.yaml` downloads this by name -- two uploads called `dist`
+        # and `release.yaml` downloads this by name: two uploads called `dist`
         # is an error, and the release would stop at the artefact check.
         if: matrix.os == 'ubuntu-latest'
         with:

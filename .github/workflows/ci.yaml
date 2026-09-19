@@ -16,13 +16,11 @@ permissions:
   contents: read
 
 # Three concerns, three reusable workflows, and the same three called by
-# `release.yaml` -- which is what makes a release verified by exactly what a
-# pull request is verified by. `tests/test_pipelines.py` asserts that the two
-# lists stay the same, so the guarantee is enforced rather than remembered.
+# `release.yaml`, so a release is verified by what a pull request is verified
+# by. `tests/test_pipelines.py` asserts that the two lists stay the same.
 #
-# They are separate files because they answer separate questions, and because
-# the job names read as `Static / …`, `Tests / …` and `Package / …` in the
-# checks list rather than twenty-two lines of `verify / …`.
+# Separate files, so the job names read as `Static / …`, `Tests / …` and
+# `Package / …` in the checks list.
 jobs:
   static:
     name: Static
@@ -45,11 +43,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # The one check name to require in the branch ruleset. The matrix job
-      # names carry their own parameters -- "macos-latest · Python 3.14 · TZ
-      # UTC" -- so requiring them by name means editing the ruleset every time
-      # a row is added, and the ruleset silently protecting nothing until
-      # somebody does. This name never changes, and it fails if any row did.
+      # The one check name the `dev` and `main` rulesets require. Matrix job
+      # names carry their parameters ("macos-latest · Python 3.14 · TZ UTC"),
+      # so requiring those by name means editing the ruleset for every new row.
+      # This name never changes, and it fails if any row did.
       - name: Every check succeeded
         env:
           RESULTS: ${{ needs.static.result }} ${{ needs.tests.result }} ${{ needs.package.result }}

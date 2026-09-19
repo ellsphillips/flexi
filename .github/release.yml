@@ -1,0 +1,7 @@
+# `--generate-notes` reads this. Dependabot's monthly bump is a lockfile diff,
+# not a line in a release note.
+changelog:
+  exclude:
+    authors:
+      - dependabot
+      - "dependabot[bot]"

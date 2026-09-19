@@ -4,9 +4,9 @@ name: Static
 # the formatter, the type checker, and whether the lockfile still describes
 # what pyproject asks for.
 #
-# One job, because these are four readings of the same checkout and splitting
-# them into four would mean four `uv sync` runs to save nothing. They fail with
-# the tool's own message, which already names the file and the line.
+# One job, because these are readings of the same checkout and splitting them
+# would mean a `uv sync` each to save nothing. They fail with the tool's own
+# message, which already names the file and the line.
 on:
   workflow_call:
 
@@ -21,6 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # No `version:`: setup-uv reads `tool.uv.required-version` from pyproject.
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
@@ -39,3 +40,9 @@ jobs:
 
       - name: mypy
         run: uv run mypy
+
+      # mypy follows `sys.platform`, so the ctypes lease and the msvcrt prompt
+      # are analysed on no runner without this. `--no-warn-unreachable` because
+      # the POSIX code after a win32 early return is unreachable in this view.
+      - name: mypy, the Windows view
+        run: uv run mypy --platform win32 --no-warn-unreachable

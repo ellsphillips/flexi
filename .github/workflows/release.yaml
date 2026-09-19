@@ -1,9 +1,9 @@
 name: Release
 
-# Publishing is deliberately hard to do by accident. Four things must all be
-# true before anything reaches PyPI:
+# Publishing is hard to do by accident. Four things must all be true before
+# anything reaches PyPI:
 #
-#   1. the commit is on main
+#   1. the ref is main, for the push and for a manual dispatch alike
 #   2. the version in pyproject is one PyPI has never seen
 #   3. the whole suite passes, and the built wheel installs and boots
 #   4. a human approves the `pypi` environment in the Actions UI
@@ -35,6 +35,16 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       publish: ${{ steps.published.outputs.publish }}
     steps:
+      # `workflow_dispatch` accepts any ref. The `pypi` environment refuses
+      # every branch but main at the end; this says so in seconds instead of
+      # after thirty jobs.
+      - name: The ref is main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Releases run from main. This ref is $GITHUB_REF."
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - id: version
@@ -46,24 +56,25 @@ jobs:
 
       - id: published
         name: Has PyPI seen it before?
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          version="${{ steps.version.outputs.version }}"
           if ! code=$(curl --silent --show-error \
             --retry 3 --retry-all-errors --retry-delay 2 \
             --connect-timeout 5 --max-time 20 \
             --output /dev/null --write-out '%{http_code}' \
-            "https://pypi.org/pypi/${PACKAGE}/${version}/json"); then
-            echo "::error::Could not establish whether ${PACKAGE} ${version} exists on PyPI."
+            "https://pypi.org/pypi/${PACKAGE}/${VERSION}/json"); then
+            echo "::error::Could not establish whether ${PACKAGE} ${VERSION} exists on PyPI."
             exit 1
           fi
           case "$code" in
             200)
               echo "publish=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::${PACKAGE} ${version} is already on PyPI. Nothing to release."
+              echo "::notice::${PACKAGE} ${VERSION} is already on PyPI. Nothing to release."
               ;;
             404)
               echo "publish=true" >> "$GITHUB_OUTPUT"
-              echo "::notice::${PACKAGE} ${version} is new. Continuing to verification."
+              echo "::notice::${PACKAGE} ${VERSION} is new. Continuing to verification."
               ;;
             *)
               echo "::error::PyPI returned HTTP ${code}; refusing to assume the version is new."
@@ -72,10 +83,9 @@ jobs:
           esac
 
   # The same three workflows `ci.yaml` calls, so a release is verified by
-  # exactly what a pull request is verified by. It used to be a narrower copy
-  # -- ubuntu only, two interpreters, no timezone matrix -- which meant the run
-  # that published was the least tested run in the repository.
-  # `tests/test_pipelines.py` asserts that this list and CI's stay the same.
+  # exactly what a pull request is verified by. `tests/test_pipelines.py`
+  # asserts that this list and CI's stay the same; `artefact` below needs all
+  # three, so the gate cannot be short one.
   static:
     name: Static
     needs: guard
@@ -130,8 +140,8 @@ jobs:
       # cannot mint one.
       id-token: write
     # The approval gate. This environment has a required reviewer, so the run
-    # pauses here until somebody presses the button in the Actions UI, and it
-    # is restricted to main so no other branch can reach it.
+    # pauses here until a human presses the button in the Actions UI, and it is
+    # restricted to main so no other branch can reach it.
     environment:
       name: pypi
       url: https://pypi.org/project/flexi/${{ needs.guard.outputs.version }}
@@ -141,7 +151,13 @@ jobs:
           name: dist
           path: dist
 
+      # Named here, not read from pyproject: this job never checks the
+      # repository out, so setup-uv would fall back to whatever uv is newest
+      # that day for the one command that holds a PyPI credential. Keep it in
+      # step with `tool.uv.required-version`.
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.26"
 
       - name: Upload
         # --check-url makes a re-run of an interrupted upload a no-op rather
@@ -160,6 +176,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Tag and release
+        # Drafted, not published: the generated notes are PR titles, and the
+        # release is the page a stranger arriving from PyPI reads first.
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.guard.outputs.version }}
@@ -167,5 +185,6 @@ jobs:
           git tag "v${VERSION}"
           git push origin "v${VERSION}"
           gh release create "v${VERSION}" \
+            --draft \
             --title "v${VERSION}" \
             --generate-notes

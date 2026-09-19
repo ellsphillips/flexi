@@ -28,11 +28,8 @@ async def _boot(db: Path) -> str:
 
 
 def main() -> int:
-    # The same `ignore_cleanup_errors` as `flexi --demo`, for the same reason:
-    # a bank holiday fetch still finishing as the application closes reopens
-    # the database, and Windows will not delete a file that is open. This job
-    # answers "does the wheel boot", and it must not go red over a temporary
-    # file it could not remove afterwards.
+    # This job answers "does the wheel boot". It must not go red over a
+    # temporary file Windows declines to delete.
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db = Path(tmp) / "smoke.db"
 
