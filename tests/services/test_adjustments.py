@@ -26,8 +26,7 @@ from tests.services.conftest import CONTRACTED, Configured, work
 MONDAY = date(2026, 6, 8)
 FRIDAY = date(2026, 6, 12)
 NEW_YEAR = ((date(2026, 1, 1), "New Year's Day"),)
-"""A holiday well away from the test week, so the calendar answers rather than
-saying it has no data."""
+"""A holiday well away from the test week, so the calendar answers at all."""
 
 
 @pytest.fixture
@@ -38,21 +37,20 @@ def services(configure: Configured) -> Services:
     )
 
 
-# -- the arithmetic --------------------------------------------------------
+# the arithmetic
 
 
-def test_an_adjustment_moves_the_balance(services: Services) -> None:
-    """It is counted like any other term in the sum."""
+def test_adjustment_moves_the_balance(services: Services) -> None:
     work(services, MONDAY, hours=7.4)
     services.adjustments.record(MONDAY, timedelta(hours=3), "carried over")
     invalidate_services(services)
     assert services.ledger.balance(MONDAY).delta == timedelta(hours=3)
 
 
-def test_a_committed_adjustment_invalidates_a_cached_balance(
+def test_committed_adjustment_invalidates_the_cache(
     services: Services,
 ) -> None:
-    """A caller cannot accidentally keep reading a pre-write derivation."""
+    """A caller cannot keep reading a derivation taken before the write."""
     before = services.ledger.balance(MONDAY).delta
 
     services.adjustments.record(MONDAY, timedelta(hours=3), "carried over")
@@ -60,7 +58,7 @@ def test_a_committed_adjustment_invalidates_a_cached_balance(
     assert services.ledger.balance(MONDAY).delta == before + timedelta(hours=3)
 
 
-def test_it_only_counts_from_the_date_it_takes_effect(services: Services) -> None:
+def test_adjustment_counts_from_its_own_date(services: Services) -> None:
     """A correction dated Friday does not move Monday's balance."""
     services.adjustments.record(FRIDAY, timedelta(hours=5), "carried over")
     invalidate_services(services)
@@ -68,8 +66,7 @@ def test_it_only_counts_from_the_date_it_takes_effect(services: Services) -> Non
     assert services.ledger.balance(FRIDAY).adjustment == timedelta(hours=5)
 
 
-def test_the_summary_reports_it_separately(services: Services) -> None:
-    """A settled balance has to be able to say it was settled."""
+def test_summary_reports_adjustments_separately(services: Services) -> None:
     services.adjustments.record(MONDAY, timedelta(hours=2), "carried over")
     invalidate_services(services)
     summary = services.ledger.summary(MONDAY, FRIDAY)
@@ -85,11 +82,10 @@ def test_adjustments_add_up(services: Services) -> None:
     assert services.ledger.balance(MONDAY).adjustment == timedelta(hours=1)
 
 
-# -- the refusals ----------------------------------------------------------
+# the refusals
 
 
-def test_an_adjustment_needs_a_reason(services: Services) -> None:
-    """A correction nobody can explain is one nobody can undo with confidence."""
+def test_adjustment_needs_a_reason(services: Services) -> None:
     result = services.adjustments.record(MONDAY, timedelta(hours=1), "   ")
     assert not result.success
     assert "reason" in result.message
@@ -99,15 +95,13 @@ def test_an_adjustment_needs_a_reason(services: Services) -> None:
     ("seconds", "minutes"),
     [(20, None), (29, None), (30, None), (31, 1), (40, 1), (-40, -1), (90, 2)],
 )
-def test_a_correction_lands_on_the_nearest_minute(
+def test_correction_lands_on_the_nearest_minute(
     services: Services, seconds: int, minutes: int | None
 ) -> None:
-    """Nearest, not truncated, and nothing is a refusal rather than a row.
+    """Nearest minute, not truncated, and zero minutes is a refusal.
 
-    Forty seconds is the case the service's own docstring is about: truncated
-    it reads as +0:00 while the balance moves by forty seconds. Thirty is
-    refused and ninety is two minutes because Python rounds a half to even,
-    and those two are what tell rounding from truncation.
+    Thirty seconds is refused and ninety is two minutes, because Python rounds
+    a half to even; those two rows are what tell rounding from truncation.
     """
     result = services.adjustments.record(MONDAY, timedelta(seconds=seconds), "rounding")
 
@@ -119,7 +113,7 @@ def test_a_correction_lands_on_the_nearest_minute(
         assert result.adjustment.minutes == minutes
 
 
-def test_removing_something_that_is_not_there_says_so(services: Services) -> None:
+def test_removing_an_unknown_id_says_so(services: Services) -> None:
     """The command line takes an id typed by hand, so it takes wrong ones too."""
     result = services.adjustments.remove(404)
     assert not result.success
@@ -127,7 +121,6 @@ def test_removing_something_that_is_not_there_says_so(services: Services) -> Non
 
 
 def test_removing_one_puts_the_balance_back(services: Services) -> None:
-    """One row in, one row out."""
     recorded = services.adjustments.record(MONDAY, timedelta(hours=4), "carried over")
     assert recorded.adjustment is not None
     invalidate_services(services)
@@ -189,27 +182,23 @@ def test_removal_reserves_an_adjustment_before_reading_it(
     assert services.adjustments.all() == []
 
 
-# -- reading them back -----------------------------------------------------
+# reading them back
 
 
-def test_every_correction_ever_made_is_listed_newest_first(
+def test_corrections_are_listed_newest_first(
     services: Services,
 ) -> None:
-    """The recent one is the one somebody is looking for.
-
-    `flexi balance log` prints this list in the order it comes back.
-    """
+    """`flexi balance log` prints this list in the order it comes back."""
     services.adjustments.record(MONDAY, timedelta(hours=2), "carried over")
     services.adjustments.record(FRIDAY, timedelta(hours=-1), "and back again")
 
     assert [row.date for row in services.adjustments.all()] == [FRIDAY, MONDAY]
 
 
-# -- zeroing ---------------------------------------------------------------
+# zeroing
 
 
-def test_zeroing_settles_the_balance_to_the_given_date(services: Services) -> None:
-    """It leaves the balance reading nothing at the end of that day."""
+def test_zeroing_settles_the_balance_to_a_date(services: Services) -> None:
     work(services, MONDAY, hours=2)  # a short day: 2h worked against 7h24
     invalidate_services(services)
     assert services.ledger.balance(MONDAY).delta != timedelta()
@@ -220,7 +209,7 @@ def test_zeroing_settles_the_balance_to_the_given_date(services: Services) -> No
 
 
 def test_zeroing_leaves_the_next_day_behaving_normally(services: Services) -> None:
-    """Settling is a line under the past, not a change to how days are counted."""
+    """Settling draws a line under the past; it does not change the counting."""
     work(services, MONDAY, hours=2)
     zero_balance(services, MONDAY)
     invalidate_services(services)
@@ -234,12 +223,8 @@ def test_zeroing_leaves_the_next_day_behaving_normally(services: Services) -> No
 def test_zeroing_defaults_to_yesterday(services: Services) -> None:
     """Today is not over.
 
-    Absorbing today's contracted hours before they have been worked would leave
-    the evening looking like unearned overtime.
-
-    The whole body used to sit inside `if result.success:`, so the two failures
-    it exists to catch — defaulting to today, or refusing outright — made it
-    pass having asserted nothing at all.
+    Absorbing today's contracted hours before they are worked reads as unearned
+    overtime.
     """
     tuesday = MONDAY + timedelta(days=1)
     work(services, MONDAY, hours=9)
@@ -256,22 +241,12 @@ def test_zeroing_defaults_to_yesterday(services: Services) -> None:
 
 
 @pytest.mark.parametrize("ahead", [0, 1, 90])
-def test_zeroing_to_a_day_that_has_not_finished_is_refused(
-    services: Services, ahead: int
-) -> None:
+def test_zeroing_an_unfinished_day_is_refused(services: Services, ahead: int) -> None:
     """Today included: `settlement_date`'s rule is yesterday or earlier.
 
-    `flexi balance zero --as-of friday` on a Tuesday resolved to that Friday and
-    wrote the row, and the confirmation prompt named exactly the date the user
-    had asked for, so nothing on screen said anything was wrong. The row was
-    then invisible -- the ledger filters adjustments on `date <= end` -- until
-    its date arrived.
-
-    That is worse than a dormant credit. The correction is sized against a
-    projection in which every day between now and then was worked zero hours, so
-    once the date arrives the week's real hours read as pure surplus: precisely
-    the unearned overtime `settlement_date` exists to prevent, stretched over
-    several days.
+    A future correction is sized against a projection where every day until then
+    was worked zero hours, and the ledger hides it (`date <= end`) until its date
+    arrives. The week's real hours then read as pure surplus.
     """
     work(services, MONDAY, hours=2)
     invalidate_services(services)
@@ -286,7 +261,7 @@ def test_zeroing_to_a_day_that_has_not_finished_is_refused(
 
 
 def test_zeroing_twice_is_refused_the_second_time(services: Services) -> None:
-    """It says so rather than writing a row that does nothing."""
+    """It says so instead of writing a row worth zero minutes."""
     work(services, MONDAY, hours=2)
     assert zero_balance(services, MONDAY).success
 
@@ -295,15 +270,13 @@ def test_zeroing_twice_is_refused_the_second_time(services: Services) -> None:
     assert "already zero" in again.message
 
 
-def test_zeroing_earlier_than_a_line_already_drawn_is_refused(
+def test_zeroing_behind_an_existing_line_is_refused(
     services: Services,
 ) -> None:
     """Two overlapping settlements absorb the period they share twice.
 
     A line is sized from the balance up to its own date, so an earlier one
-    cannot see a later one. Left to stand, the second row hands back the whole
-    deficit the first already cancelled and the rest of the leave year reads as
-    surplus nobody worked.
+    cannot see a later one and hands back a deficit already cancelled.
     """
     work(services, MONDAY, hours=2)
     assert zero_balance(services, FRIDAY).success
@@ -320,8 +293,8 @@ def test_zeroing_earlier_than_a_line_already_drawn_is_refused(
     assert services.ledger.balance(FRIDAY).delta == settled
 
 
-def test_zeroing_an_earlier_leave_year_is_still_allowed(services: Services) -> None:
-    """Each leave year accumulates from its own start, so the two do not overlap."""
+def test_zeroing_an_earlier_leave_year_is_allowed(services: Services) -> None:
+    """Each leave year accumulates from its own start, so the two cannot overlap."""
     work(services, MONDAY, hours=2)
     assert zero_balance(services, FRIDAY).success
 
@@ -331,8 +304,7 @@ def test_zeroing_an_earlier_leave_year_is_still_allowed(services: Services) -> N
     assert len(services.adjustments.all()) == 2
 
 
-def test_a_settlement_reports_itself_in_hours_and_minutes(services: Services) -> None:
-    """The one line saying what was written uses the unit every other line does."""
+def test_settlement_reports_hours_and_minutes(services: Services) -> None:
     work(services, MONDAY, hours=2)
 
     result = zero_balance(services, MONDAY)
@@ -362,7 +334,6 @@ def test_zeroing_recomputes_after_an_external_commit(
 
 
 def test_zeroing_records_why(services: Services) -> None:
-    """A year from now the row has to explain itself."""
     work(services, MONDAY, hours=2)
     result = zero_balance(services, MONDAY)
     assert result.adjustment is not None
@@ -370,12 +341,10 @@ def test_zeroing_records_why(services: Services) -> None:
 
 
 def test_zeroing_without_a_reason_writes_nothing(services: Services) -> None:
-    """The refusal has to survive the extra layer.
+    """The refusal has to survive the registry.
 
-    `zero_balance` computes the correction and hands it to `record`, which turns
-    a blank reason down. If the registry took the refusal for a success it would
-    drop the memoised ledger — reporting a settled balance that was never
-    written, until the next launch recomputed it and put the deficit back.
+    `zero_balance` hands the correction to `record`, which turns a blank reason
+    down; taking that for a success would drop the memoised ledger.
     """
     work(services, MONDAY, hours=2)
 
@@ -387,8 +356,7 @@ def test_zeroing_without_a_reason_writes_nothing(services: Services) -> None:
     assert services.ledger.balance(MONDAY).delta != timedelta()
 
 
-def test_the_records_survive_it(services: Services, session: Session) -> None:
-    """Settling never deletes the evidence of what actually happened."""
+def test_zeroing_keeps_the_records(services: Services, session: Session) -> None:
     work(services, MONDAY, hours=2)
     zero_balance(services, MONDAY)
     invalidate_services(services)

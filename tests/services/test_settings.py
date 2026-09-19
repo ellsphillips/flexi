@@ -49,9 +49,8 @@ def _do_setup(svc: SettingsService) -> None:
             auto_close_time="18:00",
         )
     )
-    # The active leave year, not a fixed one. A hardcoded 2026 here is compared
-    # against the real clock by get_active_entitlement_days, so the test would
-    # have started failing on 1 January 2027 with nothing having changed.
+    # The active leave year, not a fixed one: `get_active_entitlement_days`
+    # compares it against the clock.
     svc.save_entitlement(svc.active_leave_year(), 25.0)
 
 
@@ -67,14 +66,13 @@ class TestSetupComplete:
         assert svc.is_setup_complete() is True
 
     @pytest.mark.parametrize("field", REQUIRED_SETTINGS)
-    def test_every_required_field_is_one_this_gate_checks(
+    def test_every_required_field_gates_setup(
         self, svc: SettingsService, session: Session, field: str
     ) -> None:
         """One list of required settings, read by both gates that ask.
 
         `flexi clock in` reads `REQUIRED_SETTINGS` over a read-only connection
-        and bare `flexi` asks this. A field listed in one and not the other is
-        the dashboard opening on a database the command line calls unconfigured.
+        and bare `flexi` asks this.
         """
         _do_setup(svc)
         stored = svc.get_settings()
@@ -85,14 +83,10 @@ class TestSetupComplete:
 
         assert svc.is_setup_complete() is False
 
-    def test_a_new_required_setting_moves_this_gate_with_it(
+    def test_new_required_setting_gates_setup(
         self, svc: SettingsService, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Adding to the list is the whole change; nothing here has to be edited.
-
-        Spelled out here as well, a fifth required setting would leave bare
-        `flexi` opening the dashboard on a database `flexi clock in` refuses.
-        """
+        """Adding to the list is the whole change; nothing here has to be edited."""
         _do_setup(svc)
         monkeypatch.setattr(
             "flexi.services.settings.REQUIRED_SETTINGS",
@@ -182,11 +176,7 @@ class TestHelpers:
 
 class TestLeaveEntitlements:
     def test_they_are_listed_in_year_order(self, svc: SettingsService) -> None:
-        """`_add_next_year` takes `ents[-1]`, so the order is load-bearing.
-
-        Moved here from `tests/tui/test_settings_screen.py`, which held three
-        service round-trips under a name that promised a screen test.
-        """
+        """`_add_next_year` takes `ents[-1]`, so the order is load-bearing."""
         svc.save_entitlement(2027, 25.0)
         svc.save_entitlement(2026, 22.0)
 
@@ -214,7 +204,7 @@ class TestLeaveEntitlements:
             pytest.param(float("-inf"), id="negative-infinity"),
         ],
     )
-    def test_invalid_allowances_are_rejected_before_persistence(
+    def test_invalid_allowances_are_not_stored(
         self, svc: SettingsService, days: float
     ) -> None:
         with pytest.raises(ValueError, match="finite and zero or more"):
@@ -223,7 +213,7 @@ class TestLeaveEntitlements:
         assert svc.get_entitlement(2026) is None
 
     @pytest.mark.parametrize("raw", ["-1", "nan", "inf", "twenty five"])
-    def test_user_entered_allowances_share_one_error_contract(self, raw: str) -> None:
+    def test_typed_allowances_share_one_error(self, raw: str) -> None:
         with pytest.raises(ValueError, match="Entitlement must be a number") as raised:
             parse_entitlement_days(raw)
 
@@ -310,7 +300,7 @@ class TestParseMonthDay:
         with pytest.raises(ValueError, match="not valid for month"):
             parse_month_day(typed)
 
-    def test_leap_day_is_a_valid_leave_year_boundary(self) -> None:
+    def test_leap_day_is_a_valid_year_start(self) -> None:
         assert parse_month_day("02-29") == (2, 29)
 
 
@@ -328,7 +318,7 @@ class TestParseMonthDay:
         ("8:5", "08:05"),
     ],
 )
-def test_the_auto_close_time_is_normalised_on_the_way_in(
+def test_auto_close_time_is_normalised(
     svc: SettingsService, typed: str, stored: str
 ) -> None:
     """A field labelled "auto-close time" invites `6pm` as readily as `18:00`."""
@@ -346,19 +336,8 @@ def test_the_auto_close_time_is_normalised_on_the_way_in(
 
 
 @pytest.mark.parametrize("typed", ["half six", "25:00", "18:99", "", "6 o clock"])
-def test_a_time_that_cannot_be_read_is_refused_rather_than_stored(
-    svc: SettingsService, typed: str
-) -> None:
-    """It used to be stored unchecked, and then nothing would open.
-
-    Saving succeeded, `is_initialised()` said yes, and every command after it
-    died unpacking the value -- from `open_database` on the CLI and from
-    `App.on_mount` before a screen was drawn. The only way out was Start again,
-    which erases the records.
-
-    Both screens already wrap `save_settings` in `except ValueError: notify`, so
-    refusing here is what puts the message in front of somebody.
-    """
+def test_unreadable_time_is_refused_on_save(svc: SettingsService, typed: str) -> None:
+    """Both screens wrap `save_settings` in `except ValueError: notify`."""
     with pytest.raises(ValueError, match=r"time|range"):
         svc.save_settings(
             parse_settings(
@@ -371,17 +350,12 @@ def test_a_time_that_cannot_be_read_is_refused_rather_than_stored(
 
 
 @pytest.mark.parametrize("stored", ["6pm", "half six", "25:00", ""])
-def test_a_stored_time_that_cannot_be_read_falls_back(
+def test_unreadable_stored_time_falls_back(
     svc: SettingsService, session: Session, stored: str
 ) -> None:
     """Databases written before the validation still exist, and must open.
 
-    Raising on read is not a settings error, it is an application that will not
-    start -- with no way in to correct the setting.
-
-    `6pm` is here because it is what the original bug wrote; the other three are
-    here because `6pm` is *readable*, so on its own this test asserted the
-    parser and never once reached the fallback it is named after.
+    `6pm` parses, so the unreadable three are what reach the fallback.
     """
     _do_setup(svc)
     session.execute(
@@ -392,18 +366,14 @@ def test_a_stored_time_that_cannot_be_read_falls_back(
     assert svc.get_auto_close_time() == time(18, 0)
 
 
-def test_a_time_with_no_settings_row_at_all_falls_back(svc: SettingsService) -> None:
+def test_auto_close_falls_back_with_no_row(svc: SettingsService) -> None:
     """`App.on_mount` reads this before setup has been offered."""
     assert svc.get_auto_close_time() == time(18, 0)
 
 
 @pytest.mark.parametrize("typed", ["13pm", "0am", "24pm"])
-def test_an_hour_that_cannot_take_a_meridiem_is_refused(typed: str) -> None:
-    """`13pm` is a typo, and reading it as 1am or 1pm is a guess.
-
-    Guessing puts the auto-close an hour or twelve from where somebody meant it,
-    and they find out when a day closes at the wrong time weeks later.
-    """
+def test_impossible_meridiem_hour_is_refused(typed: str) -> None:
+    """`13pm` is a typo, and reading it as 1am or 1pm is a guess."""
     with pytest.raises(ValueError, match="does not take am or pm"):
         parse_clock_time(typed)
 
@@ -411,26 +381,22 @@ def test_an_hour_that_cannot_take_a_meridiem_is_refused(typed: str) -> None:
 # ---- reading settings that are not there ----
 
 
-def test_the_day_window_falls_back_before_setup(svc: SettingsService) -> None:
+def test_day_window_falls_back_before_setup(svc: SettingsService) -> None:
     """The punch strip is drawn on the splash screen, before there is a row."""
     assert svc.get_day_window() == Window.parse(
         DEFAULT_WINDOW_START, DEFAULT_WINDOW_END
     )
 
 
-def test_the_working_week_falls_back_before_setup(svc: SettingsService) -> None:
-    """Monday to Friday, rather than a week with no working days in it.
-
-    An empty list makes every day a non-working day, which would draw a calendar
-    of weekends and refuse every booking on it.
-    """
+def test_working_week_falls_back_before_setup(svc: SettingsService) -> None:
+    """An empty week makes every day a non-working day and refuses every booking."""
     assert svc.get_working_day_indices() == [0, 1, 2, 3, 4]
 
 
-def test_a_stored_working_week_that_cannot_be_read_falls_back(
+def test_unreadable_working_week_falls_back(
     svc: SettingsService, session: Session
 ) -> None:
-    """A settings problem is not a reason to refuse to open somebody's records."""
+    """A settings problem is not a reason to refuse to open the records."""
     _do_setup(svc)
     session.execute(text("UPDATE settings SET working_days = 'weekdays'"))
     session.commit()
@@ -438,14 +404,10 @@ def test_a_stored_working_week_that_cannot_be_read_falls_back(
     assert svc.get_working_day_indices() == [0, 1, 2, 3, 4]
 
 
-def test_a_leave_year_start_that_cannot_be_read_falls_back(
+def test_unreadable_leave_year_start_falls_back(
     svc: SettingsService, session: Session
 ) -> None:
-    """It raised, where the four accessors beside it fall back.
-
-    A settings problem is not a reason to refuse to open somebody's records --
-    there would be no way in to correct the setting.
-    """
+    """Raising would leave no way in to correct the setting."""
     _do_setup(svc)
     session.execute(text("UPDATE settings SET leave_year_start = 'April the 1st'"))
     session.commit()
@@ -453,14 +415,12 @@ def test_a_leave_year_start_that_cannot_be_read_falls_back(
     assert svc.get_leave_year_start() == (1, 1)
 
 
-def test_a_day_window_that_cannot_be_read_falls_back(
+def test_unreadable_day_window_falls_back(
     svc: SettingsService, session: Session
 ) -> None:
-    """It handed its strings straight on to `Window.parse`, which raises.
+    """`Window.parse` raises, and this is read inside a widget's `render`.
 
-    Inside a widget's `render`, where Textual logs the traceback and swallows
-    it — so the symptom is a blank panel and no message. `save_settings`
-    normalises the leave year and the auto-close time and does not normalise
+    `save_settings` normalises the leave year and the auto-close time but not
     these two, so an unreadable pair is reachable.
     """
     _do_setup(svc)
@@ -472,20 +432,15 @@ def test_a_day_window_that_cannot_be_read_falls_back(
     )
 
 
-def test_the_division_falls_back_before_setup(svc: SettingsService) -> None:
-    """Something has to be asked of GOV.UK before anybody has chosen a region."""
+def test_division_falls_back_before_setup(svc: SettingsService) -> None:
+    """Something has to be asked of GOV.UK before a region has been chosen."""
     assert svc.get_division() is DEFAULT_DIVISION
 
 
-def test_a_stored_division_this_build_does_not_know_falls_back(
+def test_unknown_stored_division_falls_back(
     svc: SettingsService, session: Session
 ) -> None:
-    """A region GOV.UK has stopped publishing must not close the application.
-
-    The column is a free-text slug, and the three members are what this build
-    understands. Raising here would refuse to open the records of anybody whose
-    row was written by a version that knew a fourth.
-    """
+    """The column is a free-text slug, so it may name a region this build lacks."""
     _do_setup(svc)
     session.execute(text("UPDATE settings SET bank_holiday_division = 'mercia'"))
     session.commit()
@@ -496,15 +451,10 @@ def test_a_stored_division_this_build_does_not_know_falls_back(
 # ---- the optional fields ----
 
 
-def test_the_optional_fields_keep_their_values_when_they_are_not_passed(
+def test_omitted_optional_fields_keep_their_values(
     svc: SettingsService,
 ) -> None:
-    """The setup screen writes four fields; the settings screen writes seven.
-
-    Every save from the setup screen would otherwise reset a contracted day and
-    a punch-strip window that somebody had already changed, because those three
-    arrive as `None` from that call site.
-    """
+    """The setup screen writes four fields; the settings screen writes seven."""
     svc.save_settings(
         parse_settings(
             leave_year_start="01-01",
@@ -530,7 +480,7 @@ def test_the_optional_fields_keep_their_values_when_they_are_not_passed(
     assert svc.get_day_window() == Window.parse("08:00", "19:00")
 
 
-def test_the_optional_fields_are_updated_when_they_are_passed(
+def test_passed_optional_fields_are_updated(
     svc: SettingsService,
 ) -> None:
     """A shorter contracted day is what a part-time week is made of."""
@@ -552,7 +502,7 @@ def test_the_optional_fields_are_updated_when_they_are_passed(
     assert svc.get_day_window() == Window.parse("07:30", "20:30")
 
 
-def test_raw_settings_are_parsed_into_an_immutable_domain_value() -> None:
+def test_parse_settings_returns_a_frozen_value() -> None:
     update = parse_settings(
         leave_year_start="4/1",
         working_days="Fri, Mon, Mon",
@@ -618,19 +568,19 @@ def test_clock_time_never_loses_precision(value: time) -> None:
     "window",
     [Window(time(19), time(8)), Window(time(8), time(8))],
 )
-def test_a_day_window_must_move_forwards(window: Window) -> None:
+def test_day_window_must_move_forwards(window: Window) -> None:
     with pytest.raises(ValueError, match="after its start"):
         validate_window(window)
 
 
-def test_a_valid_window_formats_without_losing_its_type() -> None:
+def test_valid_window_is_returned_and_formatted() -> None:
     window = Window(time(8), time(19))
 
     assert validate_window(window) is window
     assert format_window(window) == ("08:00", "19:00")
 
 
-def test_a_partial_raw_window_is_refused() -> None:
+def test_partial_raw_window_is_refused() -> None:
     with pytest.raises(ValueError, match="provided together"):
         parse_settings(
             leave_year_start="01-01",
@@ -641,7 +591,7 @@ def test_a_partial_raw_window_is_refused() -> None:
         )
 
 
-def test_an_unknown_raw_division_is_refused() -> None:
+def test_unknown_raw_division_is_refused() -> None:
     with pytest.raises(ValueError, match="not a valid Division"):
         parse_settings(
             leave_year_start="01-01",
@@ -693,7 +643,7 @@ def test_an_unknown_raw_division_is_refused() -> None:
         ),
     ],
 )
-def test_directly_constructed_updates_are_validated_before_writing(
+def test_constructed_updates_are_validated(
     svc: SettingsService, update: SettingsUpdate, message: str
 ) -> None:
     with pytest.raises(ValueError, match=message):
@@ -755,12 +705,8 @@ def test_failed_commits_are_rolled_back(
 # ---- the closed vocabularies ----
 
 
-def test_every_absence_type_has_a_key_that_books_it() -> None:
-    """The year calendar's legend derives from this rather than restating it.
-
-    It used to hardcode `[("A", "annual"), ("S", "sick"), ("T", "toil")]` while
-    `CONFIG.hotkeys` owned those keys, so rebinding one made the legend lie.
-    """
+def test_every_absence_type_has_a_booking_key() -> None:
+    """The year calendar's legend derives from `CONFIG.hotkeys`."""
     keys = {kind: CONFIG.hotkeys.book(kind) for kind in AbsenceType}
 
     assert all(keys.values()), keys

@@ -1,14 +1,8 @@
 """Who closes the database, and when.
 
-Every command used to close its own session and dispose its own engine on the
-last line. `ctx.exit` raises `click.exceptions.Exit`, so on any path that
-reported a failure those lines were unreachable -- which is to say the session
-and the engine leaked on exactly the invocations where something had already
-gone wrong. The same three lines were hand-written at eight sites, so getting it
-right anywhere did not get it right anywhere else.
-
-Closing is registered on the Click context now, once, where the database is
-opened. `Context.call_on_close` runs on the way out however the command leaves.
+Closing is registered once on the Click context, where the database is opened.
+`Context.call_on_close` runs however the command leaves, including through the
+`click.exceptions.Exit` that `ctx.exit` raises to report a failure.
 """
 
 from __future__ import annotations
@@ -154,7 +148,7 @@ def _closings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return closed
 
 
-def test_the_database_is_closed_when_a_command_succeeds(
+def test_database_is_closed_on_success(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     closed = _closings(monkeypatch)
@@ -165,13 +159,10 @@ def test_the_database_is_closed_when_a_command_succeeds(
     assert closed == ["closed"]
 
 
-def test_the_database_is_closed_when_a_command_fails(
+def test_database_is_closed_on_a_reported_failure(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`clock out` with nothing running reports a failure and exits 1.
-
-    This is the path the hand-written cleanup could never reach.
-    """
+    """`clock out` with nothing running reports a failure and exits 1."""
     closed = _closings(monkeypatch)
 
     result = CliRunner().invoke(cli, ["clock", "out"])
@@ -181,10 +172,9 @@ def test_the_database_is_closed_when_a_command_fails(
     assert closed == ["closed"], "the failure path leaked the session and the engine"
 
 
-def test_the_database_is_closed_when_a_command_raises(
+def test_database_is_closed_on_an_exception(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Nothing hand-written could have covered this one at all."""
     closed = _closings(monkeypatch)
 
     def explode(*_args: object, **_kwargs: object) -> None:
@@ -198,15 +188,10 @@ def test_the_database_is_closed_when_a_command_raises(
     assert closed == ["closed"]
 
 
-def test_a_command_uses_one_registry_rather_than_building_a_second(
+def test_command_builds_one_registry(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Two graphs means two memo caches, and `invalidate` only clears one.
-
-    Watched at the seam that opens the database, which is also the one that
-    hands the registry to the command: `requires_setup` passes it, so there is
-    no second lookup that could reach a different one.
-    """
+    """Two registries mean two memo caches, and `invalidate` clears one."""
     seen: list[Services] = []
     original = main.open_database
 
@@ -226,7 +211,6 @@ def test_a_command_uses_one_registry_rather_than_building_a_second(
 def test_partial_database_open_is_closed(
     failure_at: FailurePoint, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Preparation cannot leak resources acquired before its failing step."""
     events: list[str] = []
     install_failing_open(monkeypatch, Preparation(failure_at, events))
 

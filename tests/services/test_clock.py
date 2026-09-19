@@ -73,8 +73,8 @@ class TestClockOut:
     ) -> None:
         started = datetime.now(tz=UTC)
         svc.clock_in(now=started)
-        # An hour, not an instant: clocking straight back out is a slip of the
-        # finger, and that path is discarded rather than recorded.
+        # An hour, not an instant: clocking straight back out is treated as a
+        # slip of the finger and discarded.
         result = svc.clock_out(now=started + timedelta(hours=1))
         assert result.success is True
         assert result.at is not None, "a clock-out records the moment it recorded"
@@ -144,13 +144,13 @@ class TestRejections:
 
 
 class TestRollback:
-    def test_commit_failure_is_rolled_back_without_partial_state(
+    def test_commit_failure_rolls_back_completely(
         self,
         svc: ClockService,
         session: Session,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """If commit fails after flush, no partial state should remain."""
+        """A commit that fails after the flush leaves no partial state."""
         rollback = Mock(wraps=session.rollback)
         monkeypatch.setattr(session, "commit", Mock(side_effect=RuntimeError("boom")))
         monkeypatch.setattr(session, "rollback", rollback)
@@ -212,16 +212,7 @@ class TestBankHolidayDivision:
         session.commit()
         return build_services(session)
 
-    def test_a_scottish_user_is_blocked_on_a_scottish_holiday(
-        self, session: Session
-    ) -> None:
-        """The guard used to run against England & Wales whatever was configured.
-
-        `ClockService` built its own `BankHolidayService` inside `clock_in`, and
-        that constructor defaulted the division. So two of the three regions we
-        offer had it exactly backwards: allowed on their own bank holiday,
-        blocked on a day they were expected at work.
-        """
+    def test_scottish_user_blocked_on_scottish_holiday(self, session: Session) -> None:
         services = self._configured(session, "scotland")
         at = datetime.combine(SCOTTISH_HOLIDAY, time(9), tzinfo=UTC)
 
@@ -230,29 +221,21 @@ class TestBankHolidayDivision:
         assert result.success is False
         assert "bank holiday" in result.message
 
-    def test_a_scottish_user_may_work_an_english_bank_holiday(
-        self, session: Session
-    ) -> None:
+    def test_scottish_user_works_english_holiday(self, session: Session) -> None:
         services = self._configured(session, "scotland")
         at = datetime.combine(ENGLISH_HOLIDAY, time(9), tzinfo=UTC)
 
         assert services.clock.clock_in(now=at).success is True
 
-    def test_an_english_user_is_blocked_on_an_english_holiday(
-        self, session: Session
-    ) -> None:
+    def test_english_user_blocked_on_english_holiday(self, session: Session) -> None:
         services = self._configured(session, "england-and-wales")
         at = datetime.combine(ENGLISH_HOLIDAY, time(9), tzinfo=UTC)
 
         assert services.clock.clock_in(now=at).success is False
 
 
-def test_every_result_the_status_bar_sees_satisfies_the_protocol() -> None:
-    """Green or red is one decision, made in one place.
-
-    That place typed its parameter as `object` and read it with getattr, so
-    it was the one thing --strict could not check.
-    """
+def test_every_result_satisfies_the_outcome_protocol() -> None:
+    """The status bar takes any result as an `Outcome`, so the shape is checked."""
     for result in (
         ClockResult(success=True, message="Clocked in"),
         AbsenceResult(success=False, message="no"),
@@ -301,14 +284,8 @@ def ready(session: Session) -> Services:
 TUESDAY = date(2026, 8, 25)
 
 
-def test_two_halves_off_do_not_break_clocking_in(ready: Services) -> None:
-    """A sick morning and an annual afternoon is a case the service documents.
-
-    The clock asked `scalar_one_or_none()` for "is there an absence today",
-    which raises outright when there are two rows — so the one arrangement
-    `AbsenceService` goes out of its way to permit was the one that made
-    `flexi clock in` traceback the next morning.
-    """
+def test_two_half_day_absences_refuse_the_clock(ready: Services) -> None:
+    """`AbsenceService` permits two half-day bookings, so the lookup takes two rows."""
     ready.absence.book(TUESDAY, AbsenceType.SICK, Portion.AM)
     ready.absence.book(TUESDAY, AbsenceType.ANNUAL, Portion.PM)
     assert len(ready.absence.for_date(TUESDAY)) == 2
@@ -319,7 +296,7 @@ def test_two_halves_off_do_not_break_clocking_in(ready: Services) -> None:
     assert result.message == "Cannot clock in on an absence day"
 
 
-def test_a_full_day_off_refuses_the_clock(ready: Services) -> None:
+def test_full_day_off_refuses_the_clock(ready: Services) -> None:
     ready.absence.book(TUESDAY, AbsenceType.ANNUAL, Portion.FULL)
 
     result = ready.clock.clock_in(now=datetime(2026, 8, 25, 9, 0))
@@ -329,13 +306,8 @@ def test_a_full_day_off_refuses_the_clock(ready: Services) -> None:
     assert ready.clock.get_open_session() is None
 
 
-def test_half_a_day_off_still_leaves_the_other_half_to_work(ready: Services) -> None:
-    """The booking rule already says so: a half day may be booked over work.
-
-    Refusing the reverse made the two halves of one rule disagree — you could
-    book a sick morning after working it, but not work the afternoon after
-    booking the morning.
-    """
+def test_half_day_off_leaves_the_other_half(ready: Services) -> None:
+    """A half day may be booked over work, so work may follow a booked half."""
     ready.absence.book(TUESDAY, AbsenceType.SICK, Portion.AM)
 
     result = ready.clock.clock_in(now=datetime(2026, 8, 25, 13, 0))
@@ -344,11 +316,11 @@ def test_half_a_day_off_still_leaves_the_other_half_to_work(ready: Services) -> 
     assert ready.clock.get_open_session() is not None
 
 
-def test_clocking_in_during_a_booked_half_is_refused(ready: Services) -> None:
-    """The booked morning is spent out of the allowance and expects no work.
+def test_clocking_into_a_booked_half_is_refused(ready: Services) -> None:
+    """A booked morning worked as well is paid for twice.
 
-    Worked as well, it is paid for twice: once out of the leave balance and
-    once into the flexi balance. `correct` draws the same line.
+    Once out of the leave balance and once into the flexi balance. `correct`
+    draws the same line.
     """
     ready.absence.book(TUESDAY, AbsenceType.SICK, Portion.AM)
 
@@ -365,21 +337,16 @@ def test_clocking_in_during_a_booked_half_is_refused(ready: Services) -> None:
 class TestConcurrentWriters:
     """The stale-read arms, which only a second writer can reach.
 
-    Both actions read the open session, decide, and then write. The read is not
-    a lock -- SQLite has no row lock suitable for it -- so the write is
-    conditional and the database is the authority. These are the two paths
-    where the conditional write declines.
+    SQLite has no suitable row lock, so the write is conditional and the
+    database is the authority. These are the two paths where it declines.
     """
 
-    def test_a_clock_in_that_loses_the_insert_is_refused_not_raised(
+    def test_lost_insert_race_is_refused(
         self, svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The partial unique index is what actually admits one open session.
+        """`ON CONFLICT DO NOTHING` turns the loser into `None`.
 
-        Reaching it means the open-session read came back empty and a session
-        existed by the time the insert ran. `ON CONFLICT DO NOTHING` turns the
-        loser into `None`; without this arm it is an `IntegrityError` out of a
-        service whose entire contract is a result object.
+        The partial unique index alone would raise `IntegrityError`.
         """
         assert svc.clock_in().success is True
         monkeypatch.setattr(ClockService, "get_open_session", lambda _self: None)
@@ -393,14 +360,13 @@ class TestConcurrentWriters:
             "the speculative IN event goes with the session it could not open"
         )
 
-    def test_a_clock_out_that_loses_the_update_is_refused_not_raised(
+    def test_lost_update_race_is_refused(
         self, svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The conditional UPDATE is what actually closes a session.
+        """The conditional UPDATE is what closes a session.
 
-        Reaching this means the session read as open and was closed before the
-        update ran. The candidate OUT event is discarded with it, so committing
-        cannot leave an audit row belonging to nothing.
+        The candidate OUT event is discarded with it, so committing cannot
+        leave an audit row belonging to nothing.
         """
         opened = svc.clock_in()
         assert opened.session is not None

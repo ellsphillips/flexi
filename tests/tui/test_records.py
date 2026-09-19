@@ -38,12 +38,10 @@ def table(app: FlexiApp) -> ExpandableTable:
 
 
 def absence_key(app: FlexiApp, when: date) -> str:
-    """The row key of the booking on a day, looked up rather than counted.
+    """The row key of the booking on a day, looked up by id.
 
-    The key carries a database id. Writing one out fixes the test to the order
-    the demo seed happens to insert its absences in, and the two that did broke
-    the day the seed stopped booking annual leave over a bank holiday -- a
-    change with nothing to do with what they assert.
+    The key carries a database id, so writing one out would fix the test to the
+    order the demo seed inserts its absences in.
     """
     booked = app.services.absence.in_range(when, when)
     assert booked, f"the seed has nothing booked on {when}"
@@ -53,14 +51,9 @@ def absence_key(app: FlexiApp, when: date) -> str:
 async def prefilled(app: FlexiApp, pilot: Pilot[None]) -> tuple[date, AbsenceType]:
     """The day and the type the booking dialog arrived already holding.
 
-    Read off the fields somebody is about to press enter on rather than the
-    arguments the modal was constructed with: the whole promise of a pre-filled
-    dialog is that what it shows is what it will book.
-
-    Settled first, and inside the helper rather than at each call site. The
-    modal chooses its type in work deferred to after its first layout, so a
-    `pause` returns with the dialog mounted and nothing pressed on it -- which
-    on a loaded Windows runner is what the assertion saw.
+    Read off the fields, because the promise of a pre-filled dialog is that what
+    it shows is what it books. The modal chooses its type in work deferred past
+    its first layout, so this waits on `settled` and not on a bare `pause`.
     """
     await settled(pilot)
     modal = showing(app, AbsenceModal)
@@ -70,8 +63,8 @@ async def prefilled(app: FlexiApp, pilot: Pilot[None]) -> tuple[date, AbsenceTyp
     return when, AbsenceType(pressed.name)
 
 
-async def test_a_week_is_seven_rows_and_a_total(app_factory: AppFactory) -> None:
-    """It shows every day in the period, worked or not, plus the period line."""
+async def test_week_is_seven_rows_and_a_total(app_factory: AppFactory) -> None:
+    """Every day in the period appears, worked or not, then the period line."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -81,7 +74,6 @@ async def test_a_week_is_seven_rows_and_a_total(app_factory: AppFactory) -> None
 
 
 async def test_space_opens_the_day_under_the_cursor(app_factory: AppFactory) -> None:
-    """It reveals the sessions that produced the figures on the row."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -99,7 +91,7 @@ async def test_space_opens_the_day_under_the_cursor(app_factory: AppFactory) -> 
 
 
 async def test_expanding_does_not_move_the_cursor(app_factory: AppFactory) -> None:
-    """It restores the cursor by key, so rows inserted above do not shift it."""
+    """The cursor is restored by key, so rows inserted above do not move it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -115,10 +107,9 @@ async def test_expanding_does_not_move_the_cursor(app_factory: AppFactory) -> No
         assert widget.cursor_key == target
 
 
-async def test_a_day_with_nothing_recorded_does_not_open(
+async def test_day_with_nothing_recorded_does_not_open(
     app_factory: AppFactory,
 ) -> None:
-    """It leaves `space` inert where there is nothing behind the row."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -129,7 +120,7 @@ async def test_a_day_with_nothing_recorded_does_not_open(
 
 
 async def test_shift_space_opens_and_closes_everything(app_factory: AppFactory) -> None:
-    """It inverts the majority, so one key always does the visible thing."""
+    """Expand-all inverts the majority, so one key does the visible thing."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -143,14 +134,13 @@ async def test_shift_space_opens_and_closes_everything(app_factory: AppFactory) 
         assert widget.expanded == set()
 
 
-async def test_loading_a_period_costs_the_same_whatever_its_length(
+async def test_period_load_cost_does_not_grow_with_length(
     app_factory: AppFactory,
 ) -> None:
-    """It reads a period in a fixed number of queries, not one per day.
+    """A period is read in a fixed number of queries, not one per day.
 
-    Asserting a *constant* rather than a literal count is the property that
-    matters and the one that survives a new lookup being added: the v1 shape
-    issued a query per day per concern, so a month cost thirty-one times a week.
+    The count is compared against a shorter period, so adding a lookup to both
+    needs no new literal here.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -179,10 +169,9 @@ async def test_loading_a_period_costs_the_same_whatever_its_length(
         assert count_queries(28) == count_queries(7)
 
 
-async def test_the_rails_say_how_far_through_the_day_and_the_period(
+async def test_rails_report_the_day_and_the_period(
     app_factory: AppFactory,
 ) -> None:
-    """It answers 'am I nearly done' without reading a table."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -201,8 +190,7 @@ async def test_the_rails_say_how_far_through_the_day_and_the_period(
         )
 
 
-async def test_the_period_rail_follows_the_granularity(app_factory: AppFactory) -> None:
-    """It relabels itself rather than always saying WEEK."""
+async def test_period_rail_follows_the_granularity(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("m")
@@ -210,7 +198,7 @@ async def test_the_period_rail_follows_the_granularity(app_factory: AppFactory) 
         assert app.screen.query_one("#rail-period", ProgressRail).label == "MONTH"
 
 
-async def test_the_period_rail_gives_way_when_there_is_no_room(
+async def test_period_rail_hides_when_there_is_no_room(
     app_factory: AppFactory,
 ) -> None:
     """Below 100 columns two rails leave each other no bar, so one goes."""
@@ -221,10 +209,9 @@ async def test_the_period_rail_gives_way_when_there_is_no_room(
         assert app.screen.query_one("#rail-period", ProgressRail).display is False
 
 
-async def test_the_period_total_is_in_the_border_subtitle(
+async def test_period_total_is_in_the_border_subtitle(
     app_factory: AppFactory,
 ) -> None:
-    """It puts the period's figures in the module's live slot."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -232,16 +219,10 @@ async def test_the_period_total_is_in_the_border_subtitle(
         assert " of " in subtitle
 
 
-async def test_the_period_total_counts_a_correction_as_the_wallet_does(
+async def test_period_total_agrees_with_the_wallet(
     app_factory: AppFactory,
 ) -> None:
-    """Two panels on one screen, showing one span, must agree about it.
-
-    The total row summed `worked - expected - toil` by hand and dropped the
-    adjustment term `BalanceSummary.delta` carries, so a recorded correction
-    moved the wallet's figure and left the table's alone. Both accumulate the
-    same ledgers through the domain now.
-    """
+    """Both read `BalanceSummary.delta`, so both carry the adjustment term."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -260,18 +241,15 @@ async def test_the_period_total_counts_a_correction_as_the_wallet_does(
         assert after.strip() == delta(summary.delta)
 
 
-# -- booking from a row ----------------------------------------------------
+# --- booking from a row ---------------------------------------------------
 
 
-async def test_a_books_an_absence_on_the_day_under_the_cursor(
+async def test_a_books_an_absence_on_the_cursor_day(
     app_factory: AppFactory,
 ) -> None:
-    """The row you are looking at is the day you mean.
+    """The table is the only widget on the dashboard with a cursor of its own.
 
-    The table is the only place on the dashboard with a cursor of its own, so a
-    booking key pressed in it has to follow that cursor rather than the period's
-    anchor — otherwise browsing down to Wednesday and pressing `a` books
-    Thursday, and the receipt is the first anyone hears of it.
+    A booking key pressed in it follows that cursor, not the period's anchor.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -287,15 +265,10 @@ async def test_a_books_an_absence_on_the_day_under_the_cursor(
         assert await prefilled(app, pilot) == (date(2026, 6, 10), AbsenceType.ANNUAL)
 
 
-async def test_a_on_a_row_that_names_no_day_falls_back_to_the_period(
+async def test_a_on_the_total_row_books_the_period_anchor(
     app_factory: AppFactory,
 ) -> None:
-    """The last row of the table is the period's total, and belongs to no day.
-
-    A cursor parked there still has to answer "book what, when": the period's
-    anchor is the same day every other key on the screen would have used, which
-    makes the fallback the one answer that cannot surprise anybody.
-    """
+    """The total row belongs to no day, so the period's anchor answers for it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -311,15 +284,13 @@ async def test_a_on_a_row_that_names_no_day_falls_back_to_the_period(
         assert when == dashboard(app).period.anchor
 
 
-async def test_the_wallet_asks_the_screen_to_open_the_booking(
+async def test_wallet_asks_the_screen_to_open_the_booking(
     app_factory: AppFactory,
 ) -> None:
-    """A panel cannot push a modal, and should not know the leave figures.
+    """The wallet asks for a type and the screen supplies the rest.
 
-    The wallet asks for a type and the screen supplies the day, the remaining
-    allowance and the TOIL balance the dialog needs. A panel that pushed its own
-    modal would have to fetch all three again, and could disagree with the
-    gauges it is drawn beside.
+    A panel cannot push a modal, and the day, the remaining allowance and the
+    TOIL balance all come from the screen.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -333,19 +304,13 @@ async def test_the_wallet_asks_the_screen_to_open_the_booking(
         )
 
 
-# -- deleting from a row ---------------------------------------------------
+# --- deleting from a row --------------------------------------------------
 
 
 async def test_x_on_a_booking_asks_before_it_removes_it(
     app_factory: AppFactory,
 ) -> None:
-    """Leave is the one thing on this screen that a keystroke can destroy.
-
-    A clock event can be corrected by clocking again; a day of annual leave that
-    vanishes on a mistyped key is an entitlement somebody has to notice is
-    missing. The question names the type and the day, so agreeing to it is not
-    agreeing to whatever the cursor happened to be on.
-    """
+    """The question names the type and the day, so agreeing to it is specific."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -375,11 +340,7 @@ async def test_x_on_a_booking_asks_before_it_removes_it(
 async def test_declining_the_question_leaves_the_booking_alone(
     app_factory: AppFactory,
 ) -> None:
-    """Escape on a confirmation is an answer, and the answer is no.
-
-    A dialog that removed the day whatever you pressed would be worse than no
-    dialog at all, because it teaches people to press escape and believe it.
-    """
+    """Escape on a confirmation is an answer, and the answer is no."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -401,7 +362,7 @@ async def test_declining_the_question_leaves_the_booking_alone(
         assert [row.date for row in after] == [row.date for row in before]
 
 
-async def test_confirming_does_not_delete_a_booking_changed_under_the_modal(
+async def test_booking_changed_under_the_modal_is_kept(
     app_factory: AppFactory,
 ) -> None:
     """The accepted question identifies the row it described, not its slot."""
@@ -430,14 +391,10 @@ async def test_confirming_does_not_delete_a_booking_changed_under_the_modal(
         assert status_text(app) == PLAN_CHANGED
 
 
-async def test_x_on_a_worked_day_says_sessions_cannot_be_deleted_yet(
+async def test_x_on_a_worked_day_says_not_implemented(
     app_factory: AppFactory,
 ) -> None:
-    """The key is offered on every row, so it owes an answer on every row.
-
-    Deleting a session is not built. Saying so on the status bar is the
-    difference between a feature that is missing and a key that is broken.
-    """
+    """The key is offered on every row, so every row owes it an answer."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -453,15 +410,10 @@ async def test_x_on_a_worked_day_says_sessions_cannot_be_deleted_yet(
         assert sessions_on(app._session, date(2026, 6, 10))
 
 
-async def test_x_where_there_is_nothing_to_delete_says_nothing(
+async def test_x_with_nothing_to_delete_says_nothing(
     app_factory: AppFactory,
 ) -> None:
-    """Some rows carry no record, and the key owes them silence.
-
-    The period total belongs to no day, and a table with no rows has no cursor
-    at all. Neither is a failure worth a message — a status line that reports every key
-    that did not apply is one nobody reads when it reports something that did.
-    """
+    """The period total belongs to no day, and an empty table has no cursor."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -483,16 +435,10 @@ async def test_x_where_there_is_nothing_to_delete_says_nothing(
         showing(app, DashboardScreen)
 
 
-async def test_x_on_a_booking_that_has_already_gone_says_so(
+async def test_x_on_a_booking_already_gone_says_so(
     app_factory: AppFactory,
 ) -> None:
-    """The row is a snapshot and the database is not.
-
-    The key carries the id the row was drawn with, which the same booking
-    removed in another window — or by the CLI in another terminal — no longer
-    answers to. Confirming a removal and then failing to find it is how a
-    "removed" receipt gets printed for a booking that is still there.
-    """
+    """The row is a snapshot: the id it carries can be gone by the keypress."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()

@@ -1,20 +1,11 @@
 """A database path is a path, not a URL and not a config value.
 
-Flexi's database lives wherever the machine puts application data, and that is
-somebody's home directory with somebody's name in it. Three layers used to
-paste that path into a syntax with its own opinion about punctuation:
-
-* ``sqlite3.connect(f"file:{path}?mode=ro")`` -- ``?`` opens the query string
-  and ``#`` opens a fragment, so the path was truncated at either and a fully
-  configured Flexi reported "not set up on this machine yet", every run.
-* ``create_engine(f"sqlite:///{path}")`` -- the same ``?``, so the application
-  went looking for a database with half a path.
-* Alembic's ``set_main_option`` -- ConfigParser reads ``%`` as an
-  interpolation, so a migration raised ``ValueError`` rather than running.
-
-None of the three is exotic. ``#`` and ``%`` are legal in a filename on all
-three platforms, and ``%`` is what Windows itself writes environment variables
-with.
+The database lives under a home directory, so its path holds whatever
+punctuation the platform allows. In a ``file:`` URI ``?`` opens a query string
+and ``#`` opens a fragment, and ConfigParser reads ``%`` as an interpolation,
+so a path pasted into either syntax is truncated or raises. ``#`` and ``%`` are
+legal in a filename on all three platforms, and ``%`` is what Windows writes
+environment variables with.
 """
 
 from __future__ import annotations
@@ -64,15 +55,11 @@ def _configure(db: Path) -> None:
 
 
 @pytest.mark.parametrize("directory", AWKWARD)
-def test_a_database_under_an_awkward_path_migrates_and_reads_back(
-    tmp_path: Path, directory: str
-) -> None:
+def test_awkward_path_migrates_and_reads_back(tmp_path: Path, directory: str) -> None:
     """The whole first run, on a path with punctuation in it.
 
-    Migrating, writing the settings row, and being recognised afterwards are
-    three different layers and each one broke differently. Asserting on
-    `is_initialised` at the end is what makes this a test of the round trip
-    rather than of one of them.
+    Migrating, writing the settings row and being recognised afterwards are
+    three separate layers, and `is_initialised` covers the round trip.
     """
     db = tmp_path / directory / "db.db"
 
@@ -82,14 +69,12 @@ def test_a_database_under_an_awkward_path_migrates_and_reads_back(
     assert setup.is_initialised(db) is True
 
 
-def test_the_check_never_creates_the_database_it_looks_for(tmp_path: Path) -> None:
+def test_check_never_creates_the_database(tmp_path: Path) -> None:
     """Asking whether a machine is set up may not set it up.
 
-    The probe opens by path rather than through a `file:...?mode=ro` URI, which
-    is what carries the punctuation safely on a Windows share as well as here.
-    A connection by path creates what it cannot find, so the file is looked for
-    first -- and a zero-byte database left on a machine that never had one
-    stats exactly like an install.
+    The probe opens by path, which carries the punctuation safely on a Windows
+    share too. A connection by path creates what it cannot find, so the file is
+    looked for first: a zero-byte database stats like an install.
     """
     missing = tmp_path / "a#b" / "db.db"
     missing.parent.mkdir(parents=True)

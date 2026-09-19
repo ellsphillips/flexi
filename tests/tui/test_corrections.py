@@ -1,9 +1,4 @@
-"""The two keys: record work that was not clocked, and read back what was.
-
-`n` was declared in the keymap and bound to nothing at all, so the config
-promised a key that did not exist. It records a correction now, and `N` reviews
-them.
-"""
+"""The two keys: `n` records work that was not clocked, `N` reviews it."""
 
 from __future__ import annotations
 
@@ -44,10 +39,10 @@ async def record(pilot: Pilot[None], opened: str, closed: str) -> None:
     await pilot.pause()
 
 
-async def test_the_key_records_work_on_the_period_anchor(
+async def test_work_is_recorded_on_the_period_anchor(
     app_factory: AppFactory,
 ) -> None:
-    """With the table unfocused there is no cursor to read, so the anchor answers."""
+    """With the table unfocused there is no cursor, so the anchor answers."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -61,15 +56,10 @@ async def test_the_key_records_work_on_the_period_anchor(
         assert "Recorded" in status_text(app)
 
 
-async def test_the_key_records_work_on_the_day_under_the_cursor(
+async def test_work_is_recorded_under_the_cursor(
     app_factory: AppFactory,
 ) -> None:
-    """The day somebody is looking at when they notice the morning is missing.
-
-    It opened on the period anchor whatever the cursor was on, so the modal
-    titled "Record work on Thu 11 Jun" wrote Thursday's hours while the cursor
-    sat on Monday.
-    """
+    """The modal title names the day, so it has to be the day that is written."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -97,7 +87,7 @@ async def test_the_key_records_work_on_the_day_under_the_cursor(
         assert after - before == timedelta(hours=1, minutes=30)
 
 
-async def test_the_key_falls_back_to_the_anchor_on_a_row_that_names_no_day(
+async def test_row_with_no_day_falls_back_to_the_anchor(
     app_factory: AppFactory,
 ) -> None:
     """The last row is the period's total and belongs to no day."""
@@ -115,15 +105,10 @@ async def test_the_key_falls_back_to_the_anchor_on_a_row_that_names_no_day(
         assert showing(app, CorrectionModal)._day == dashboard(app).period.anchor
 
 
-async def test_a_correction_is_drawn_apart_from_a_punched_session(
+async def test_correction_is_drawn_apart_from_a_punch(
     app_factory: AppFactory,
 ) -> None:
-    """The strip is where the two kinds of record sit side by side.
-
-    Inside the drawn day window on purpose: a correction before 07:00 is a real
-    thing to record and simply falls outside what the strip draws, which would
-    make this pass or fail on the window rather than on the fill.
-    """
+    """The times are inside the drawn window, so the assertion turns on the fill."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -142,10 +127,9 @@ async def test_a_correction_is_drawn_apart_from_a_punched_session(
         assert Cell.ON in drawn, "the punched session is still drawn as one"
 
 
-async def test_a_refusal_is_reported_rather_than_written(
+async def test_refusal_is_reported_and_not_written(
     app_factory: AppFactory,
 ) -> None:
-    """The modal collects; the service decides. A refusal has to reach the bar."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -158,7 +142,7 @@ async def test_a_refusal_is_reported_rather_than_written(
         assert app.services.ledger.day(when).worked == before
 
 
-async def test_a_time_that_cannot_be_read_keeps_the_modal_open(
+async def test_unreadable_time_keeps_the_modal_open(
     app_factory: AppFactory,
 ) -> None:
     """What was typed stays on screen beside what was wrong with it."""
@@ -178,14 +162,10 @@ async def test_a_time_that_cannot_be_read_keeps_the_modal_open(
         assert "elevenish" in str(modal.query_one("#modal-error", Static).render())
 
 
-async def test_a_time_made_of_markup_is_quoted_back_rather_than_rendered(
+async def test_time_made_of_markup_is_quoted_back(
     app_factory: AppFactory,
 ) -> None:
-    """The refusal quotes what was typed, and the error line rendered it.
-
-    `[/]` is a closing tag with nothing to close, so the sentence promised
-    under the fields took the whole application down with a `MarkupError`.
-    """
+    """`[/]` is a closing tag with nothing to close, and Rich raises `MarkupError`."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -203,7 +183,7 @@ async def test_a_time_made_of_markup_is_quoted_back_rather_than_rendered(
         assert "[/]" in str(modal.query_one("#modal-error", Static).render())
 
 
-async def test_an_empty_field_asks_for_it_rather_than_guessing(
+async def test_empty_field_is_asked_for_again(
     app_factory: AppFactory,
 ) -> None:
     app = app_factory()
@@ -218,10 +198,9 @@ async def test_an_empty_field_asks_for_it_rather_than_guessing(
         showing(app, CorrectionModal)
 
 
-async def test_the_review_key_lists_the_corrections_in_the_period(
+async def test_review_lists_the_corrections_in_the_period(
     app_factory: AppFactory,
 ) -> None:
-    """Read as a set, which is how somebody checks what they claimed."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -236,10 +215,9 @@ async def test_the_review_key_lists_the_corrections_in_the_period(
         assert "1:30 recorded" in shown
 
 
-async def test_the_review_says_so_when_there_is_nothing_to_review(
+async def test_review_says_when_there_is_nothing_to_review(
     app_factory: AppFactory,
 ) -> None:
-    """An empty dialog reads as one that failed to load."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -251,7 +229,7 @@ async def test_the_review_says_so_when_there_is_nothing_to_review(
         assert "Nothing recorded after the fact" in screen_text(app)
 
 
-async def test_the_review_closes_on_escape(app_factory: AppFactory) -> None:
+async def test_review_closes_on_escape(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -284,13 +262,7 @@ async def test_cancelling_the_correction_writes_nothing(
 async def test_recording_a_correction_moves_the_balance_on_screen(
     app_factory: AppFactory,
 ) -> None:
-    """The whole point of writing the morning down is the figure it feeds.
-
-    Read off the widget rather than the service: the arithmetic being right and
-    the dashboard being redrawn are two separate things, and a correction that
-    lands in the database while the balance keeps its old figure is the version
-    of this feature nobody would trust.
-    """
+    """Read off the widget: the arithmetic and the redraw are two separate things."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()

@@ -1,4 +1,4 @@
-"""The deliberate public surface of Flexi's persistence layer."""
+"""The public surface of Flexi's persistence layer."""
 
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ def test_facades_preserve_every_deep_import() -> None:
     assert models.database is database
 
 
-def test_migration_config_annotation_is_resolvable_without_alembic() -> None:
+def test_migration_annotations_resolve_without_alembic() -> None:
     assert get_type_hints(migrate.alembic_config) == {
         "db_path": Path,
         "return": Iterator[migrate.MigrationConfig],
@@ -150,7 +150,7 @@ def test_migration_config_annotation_is_resolvable_without_alembic() -> None:
             get_type_hints(exported)
 
 
-def test_importing_the_facades_and_annotations_does_not_import_alembic() -> None:
+def test_facade_import_does_not_import_alembic() -> None:
     """A fresh interpreter observes imports hidden by this test worker."""
     script = """
 import sys

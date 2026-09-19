@@ -1,15 +1,8 @@
 """A release is verified by exactly what a pull request is verified by.
 
-That guarantee used to be structural: one `verify.yaml` holding every job, and
-both pipelines calling it. It cost nothing to keep and it made the checks list
-twenty-two lines of `verify / …`, with the linter, the suite and the packaging
-run all under one name that says none of them.
-
-They are three workflows now, called by both `ci.yaml` and `release.yaml`, and
-what was structural is asserted here instead. The failure it exists to prevent
-is a real one: `release.yaml` once carried its own narrower copy -- ubuntu only,
-two interpreters, no timezone matrix -- so the run that published was the least
-tested run in the repository, and nothing said so.
+`ci.yaml` and `release.yaml` call the same three reusable workflows, and
+nothing in GitHub Actions holds them to it. A release pipeline that drifts
+narrower publishes the least tested run in the repository, silently.
 """
 
 from __future__ import annotations
@@ -28,11 +21,7 @@ PINNED_ACTION = re.compile(r"^[^@]+@[0-9a-f]{40}$")
 
 
 ON = True
-"""PyYAML reads a bare `on:` key as the boolean True.
-
-The one thing about this file format worth knowing, and the reason it is named
-rather than written as a literal in the middle of an assertion.
-"""
+"""PyYAML reads a bare `on:` key as the boolean True."""
 
 
 def _workflow(name: str) -> dict[Any, Any]:
@@ -54,12 +43,7 @@ def _called(name: str) -> set[str]:
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
 def test_both_pipelines_verify_with_the_same_workflows() -> None:
-    """Neither may gain a check the other has not got.
-
-    A check added to CI and not to the release is a check the published
-    artefact never had to pass. One added to the release and not to CI is one
-    nobody finds out about until they try to release.
-    """
+    """A check in only one of them is one the other never has to pass."""
     ci, release = (_called(name) for name in PIPELINES)
 
     assert ci == release, (
@@ -68,19 +52,18 @@ def test_both_pipelines_verify_with_the_same_workflows() -> None:
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
-def test_every_workflow_a_pipeline_calls_exists_and_is_reusable() -> None:
+def test_called_workflows_exist_and_are_reusable() -> None:
     """`uses:` is a path, and a wrong one fails at the moment of releasing."""
     for name in _called(PIPELINES[0]):
         assert "workflow_call" in _workflow(name)[ON], f"{name} cannot be called"
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
-def test_the_gate_waits_for_every_workflow_ci_calls() -> None:
+def test_gate_waits_for_every_workflow_ci_calls() -> None:
     """`All green` is the one check name the branch ruleset requires.
 
-    It is a gate only if it needs everything. A workflow added to CI and left
-    out of its `needs` is a workflow whose failure the ruleset would let
-    through, and the name would still say all green.
+    A workflow left out of its `needs` is one whose failure the ruleset lets
+    through under a name that says all green.
     """
     jobs = _workflow("ci.yaml")["jobs"]
     calling = {name for name, job in jobs.items() if isinstance(job.get("uses"), str)}
@@ -98,9 +81,8 @@ def _needs(job: dict[str, Any]) -> set[str]:
 def test_green_reads_a_result_for_every_job_it_needs() -> None:
     """Waiting for a check is not the same as reading what it said.
 
-    `always()` means the gate runs whatever happened, so a job listed in
-    `needs` and left out of `RESULTS` is waited for and then ignored: it can
-    fail and `All green` still passes.
+    `always()` runs the gate whatever happened, so a job in `needs` and out of
+    `RESULTS` can fail while `All green` passes.
     """
     jobs = _workflow("ci.yaml")["jobs"]
     results = jobs["green"]["steps"][0]["env"]["RESULTS"]
@@ -111,12 +93,10 @@ def test_green_reads_a_result_for_every_job_it_needs() -> None:
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
 def test_publishing_waits_for_every_check_the_release_calls() -> None:
-    """The list the release calls is not what gates it. `artefact.needs` is.
+    """`artefact.needs` gates the release, not the list of workflows called.
 
-    A fourth check added to both pipelines satisfies the two lists above and
-    changes nothing here: `artefact` would start as soon as the three it knows
-    about finished, `publish` waits only for `artefact`, and the release ships
-    while the new check is still running.
+    A fourth check added to both pipelines satisfies the two tests above and
+    changes nothing here, so the release would ship while it was still running.
     """
     jobs = _workflow("release.yaml")["jobs"]
     calling = {name for name, job in jobs.items() if isinstance(job.get("uses"), str)}
@@ -130,8 +110,8 @@ def test_publishing_waits_for_every_check_the_release_calls() -> None:
 def test_every_check_the_release_calls_is_behind_the_guard() -> None:
     """A push to main that changes no version runs the guard and stops.
 
-    A check that does not carry the condition runs the whole matrix on every
-    README fix, and one that does not wait for the guard cannot read it.
+    A check without the condition runs the whole matrix on every README fix,
+    and one that does not wait for the guard cannot read it.
     """
     jobs = _workflow("release.yaml")["jobs"]
 
@@ -158,7 +138,7 @@ def test_third_party_actions_are_pinned_to_reviewable_commits() -> None:
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
-def test_the_pypi_guard_fails_closed_and_has_bounded_network_waits() -> None:
+def test_pypi_guard_fails_closed_with_bounded_waits() -> None:
     """Only an authoritative 404 is evidence that a version is unpublished."""
     guard: dict[str, Any] = _workflow("release.yaml")["jobs"]["guard"]
     published = next(step for step in guard["steps"] if step.get("id") == "published")

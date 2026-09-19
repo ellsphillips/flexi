@@ -1,20 +1,9 @@
 """Every SQLite connection Flexi opens is closed before the call returns.
 
-``with sqlite3.connect(...)`` reads as a handle and is a transaction. It commits
-on the way out and leaves the connection open, and POSIX is happy to delete or
-replace a file somebody still has open -- so on macOS and Linux the mistake has
-no symptom at all.
-
-Windows does not allow it. `flexi init` took its snapshot, verified it, and then
-raised ``PermissionError: the process cannot access the file because it is being
-used by another process`` on the line that removes the database: the read-only
-connection `describe` had opened a moment earlier to count the records was still
-there. The reset was unreachable on that platform.
-
-The test is here rather than in the Windows job because a rule only enforced on
-one runner is a rule that gets broken on the other two first. It watches the
-connections the code actually opens, which is why it says something a mocked
-`sqlite3` would not.
+``with sqlite3.connect(...)`` reads as a handle and is a transaction: it commits
+on the way out and leaves the connection open. POSIX will delete or replace a
+file that is still open and Windows will not, so an unclosed read makes `flexi
+init` raise ``PermissionError`` on the line that removes the database.
 """
 
 from __future__ import annotations
@@ -53,10 +42,9 @@ def opened(monkeypatch: pytest.MonkeyPatch) -> Iterator[Opened]:
 
 
 def still_open(connections: Opened) -> list[sqlite3.Connection]:
-    """The ones that would still be holding the file on Windows.
+    """The connections that would still be holding the file on Windows.
 
-    A closed connection raises `ProgrammingError` on use, which is the only
-    question worth asking it and the one Windows asks with a locked file.
+    A closed connection raises `ProgrammingError` on use.
     """
     live = []
     for connection in connections:
@@ -84,10 +72,9 @@ CALLS: list[tuple[str, Callable[[Path], object]]] = [
 
 
 @pytest.mark.parametrize(("name", "call"), CALLS, ids=[name for name, _ in CALLS])
-def test_a_read_leaves_nothing_holding_the_file(
+def test_read_leaves_nothing_holding_the_file(
     opened: Opened, database: Path, name: str, call: Callable[[Path], object]
 ) -> None:
-    """Whatever it opened, it closed."""
     result = call(database)
     if name == "verify":
         assert isinstance(result, Path)
@@ -96,15 +83,8 @@ def test_a_read_leaves_nothing_holding_the_file(
     assert still_open(opened) == []
 
 
-def test_the_reset_can_remove_a_database_it_has_just_read(
-    opened: Opened, database: Path
-) -> None:
-    """The whole sequence, in the order `flexi init` runs it.
-
-    Counting the records, snapshotting them and deleting the file happen within
-    a second of each other on the one path in Flexi that loses data. This is the
-    failure that was reachable in practice.
-    """
+def test_reset_removes_a_database_it_just_read(opened: Opened, database: Path) -> None:
+    """The whole sequence, in the order `flexi init` runs it."""
     init_cli.describe(database)
     taken = init_cli.reset(database)
 
@@ -113,7 +93,7 @@ def test_the_reset_can_remove_a_database_it_has_just_read(
     assert still_open(opened) == []
 
 
-# -- and the suite closes its own --------------------------------------------
+# ---------- and the suite closes its own ----------
 
 REPO = Path(__file__).resolve().parent.parent
 SOURCES = sorted((REPO / "src").rglob("*.py")) + sorted((REPO / "tests").rglob("*.py"))
@@ -166,12 +146,10 @@ def borrowed_engines(tree: ast.Module) -> list[int]:
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda path: path.name)
 def test_no_with_block_holds_a_bare_connection(path: Path) -> None:
-    """The rule above, read off the source instead of watched at runtime.
+    """The same rule, read off the source instead of watched at runtime.
 
-    A spy sees the connections the call it drives opens. This sees the ones
-    nothing drives, including the suite's own: `with sqlite3.connect(...)`
-    leaves a database open per test, and the warning lands on whichever test
-    the garbage collector happens to be inside when it finally closes.
+    A spy sees only the connections the call it drives opens; this sees the
+    suite's own as well.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found = bare_connections(tree)
@@ -186,9 +164,9 @@ def test_no_with_block_holds_a_bare_connection(path: Path) -> None:
 def test_no_engine_is_built_inside_a_borrowing_call(path: Path) -> None:
     """`get_session` takes an engine its caller disposes of.
 
-    `get_session(create_db_engine(path))` gives that engine to nobody, so
-    closing the session returns its connection to a pool that is never
-    disposed and the SQLite file stays open.
+    `get_session(create_db_engine(path))` leaves that engine with no owner, so
+    closing the session returns its connection to a pool nothing disposes of
+    and the SQLite file stays open.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found = borrowed_engines(tree)

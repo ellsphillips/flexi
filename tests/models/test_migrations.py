@@ -1,9 +1,7 @@
 """Migrations, forward and back, against a populated database.
 
-`0007` rebuilds `absence_days` rather than altering it, because the v1 schema put
-`UNIQUE` on the `date` column itself and SQLite cannot drop a column constraint
-in place. A table rebuild that silently loses rows is the kind of bug that is
-only discovered by the person whose leave records it ate, so it is checked here.
+`0007` rebuilds `absence_days` because the v1 schema puts `UNIQUE` on the `date`
+column itself, and SQLite cannot drop a column constraint in place.
 """
 
 from __future__ import annotations
@@ -60,14 +58,11 @@ BEFORE_BANK_HOLIDAY_REFRESHES = "0012"
 BEFORE_CLOCK_SESSION_INVARIANTS = "0013"
 HEAD = "head"
 
-# -- ambiguous legacy rows, as SQL -------------------------------------------
+# ---- ambiguous legacy rows, as SQL ----
 #
-# Named rather than written inline in the `parametrize` lists below. Implicit
-# string concatenation inside a collection is the shape of the missing-comma
-# bug -- two entries silently becoming one -- so ruff refuses it there, and
-# rightly: at this length the comma ending each statement is easy to miss. As
-# assignments they are unambiguous, and the cases below now read as the
-# sentence each is testing rather than as a wall of SQL.
+# Named, not inlined in the `parametrize` lists below: ruff refuses implicit
+# string concatenation inside a collection, where a missing comma would join
+# two statements into one.
 
 TWO_SETTINGS_ROWS = (
     "INSERT INTO settings"
@@ -146,16 +141,13 @@ A_FULL_DAY_AND_A_HALF = (
 
 
 def test_revision_result_rejects_contradictory_states() -> None:
-    """A caller cannot manufacture a result whose state disagrees with its data."""
     with pytest.raises(ValueError, match="must carry a revision"):
         DatabaseRevision(RevisionState.STAMPED)
     with pytest.raises(ValueError, match="cannot carry a revision"):
         DatabaseRevision(RevisionState.ABSENT, "0001")
 
 
-def test_revision_inspection_distinguishes_missing_and_empty_databases(
-    db: Path,
-) -> None:
+def test_inspection_distinguishes_missing_from_empty(db: Path) -> None:
     assert current_revision(db) == DatabaseRevision(RevisionState.ABSENT)
 
     sqlite3.connect(db).close()
@@ -170,9 +162,7 @@ def test_revision_inspection_distinguishes_missing_and_empty_databases(
         "CREATE VIEW records AS SELECT 1 AS id",
     ],
 )
-def test_revision_inspection_identifies_an_unstamped_schema(
-    db: Path, schema: str
-) -> None:
+def test_inspection_identifies_unstamped_schema(db: Path, schema: str) -> None:
     with closing(sqlite3.connect(db)) as connection:
         connection.execute(schema)
         connection.commit()
@@ -180,7 +170,7 @@ def test_revision_inspection_identifies_an_unstamped_schema(
     assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
 
 
-def test_revision_inspection_identifies_an_empty_stamp_table(db: Path) -> None:
+def test_empty_stamp_table_reads_unstamped(db: Path) -> None:
     with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
         connection.commit()
@@ -188,7 +178,7 @@ def test_revision_inspection_identifies_an_empty_stamp_table(db: Path) -> None:
     assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
 
 
-def test_revision_inspection_carries_the_database_stamp(db: Path) -> None:
+def test_inspection_carries_the_database_stamp(db: Path) -> None:
     upgrade(db, BEFORE_HALF_DAYS)
 
     assert current_revision(db) == DatabaseRevision(
@@ -203,7 +193,7 @@ def test_revision_inspection_carries_the_database_stamp(db: Path) -> None:
         ((None,), "invalid migration revision"),
     ],
 )
-def test_revision_inspection_refuses_ambiguous_stamps(
+def test_inspection_refuses_ambiguous_stamps(
     db: Path, rows: tuple[str | None, ...], message: str
 ) -> None:
     with closing(sqlite3.connect(db)) as connection:
@@ -217,7 +207,7 @@ def test_revision_inspection_refuses_ambiguous_stamps(
         current_revision(db)
 
 
-def test_a_corrupt_database_is_not_mistaken_for_a_fresh_one(db: Path) -> None:
+def test_corrupt_database_is_not_fresh(db: Path) -> None:
     db.write_bytes(b"not a sqlite database")
 
     with pytest.raises(DatabaseError, match="not a database"):
@@ -226,9 +216,7 @@ def test_a_corrupt_database_is_not_mistaken_for_a_fresh_one(db: Path) -> None:
     assert db.read_bytes() == b"not a sqlite database"
 
 
-def test_an_unstamped_existing_schema_is_not_assumed_to_belong_to_flexi(
-    db: Path,
-) -> None:
+def test_unstamped_schema_is_refused(db: Path) -> None:
     with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE somebody_elses_data (value TEXT)")
         connection.execute("INSERT INTO somebody_elses_data VALUES ('kept')")
@@ -243,26 +231,14 @@ def test_an_unstamped_existing_schema_is_not_assumed_to_belong_to_flexi(
         ).fetchone() == ("kept",)
 
 
-def test_the_recorded_head_is_the_head_alembic_would_find(db: Path) -> None:
-    """`run_migrations` compares against a written-down revision to stay fast.
-
-    Asking Alembic costs the import this exists to avoid, so the number is
-    duplicated -- and a duplicate nobody checks is a duplicate that drifts. Add
-    a migration without touching `HEAD` and every database silently reports
-    itself up to date, which is a schema change that never runs.
-    """
+def test_recorded_head_matches_alembic(db: Path) -> None:
+    """`HEAD` is written down to avoid the Alembic import, so it can drift."""
     with alembic_config(db) as cfg:
         assert ScriptDirectory.from_config(cfg).get_current_head() == RECORDED_HEAD
 
 
-def test_a_file_that_was_never_migrated_is_migrated_rather_than_refused(
-    db: Path,
-) -> None:
-    """A schema-empty file is fresh even though the filesystem entry exists.
-
-    It has nothing for a recovery copy to protect, so it follows the same path
-    as an absent file rather than the unsafe unstamped-schema path.
-    """
+def test_empty_file_is_migrated(db: Path) -> None:
+    """An existing but schema-empty file is fresh, so it takes no backup."""
     db.touch()
 
     run_migrations(db)
@@ -309,8 +285,7 @@ def rows(db: Path, table: str) -> list[tuple[object, ...]]:
         engine.dispose()
 
 
-def test_a_fresh_database_reaches_head(db: Path) -> None:
-    """It builds the whole schema from nothing."""
+def test_fresh_database_reaches_head(db: Path) -> None:
     upgrade(db, HEAD)
     engine = create_db_engine(db)
     try:
@@ -321,7 +296,7 @@ def test_a_fresh_database_reaches_head(db: Path) -> None:
 
 
 def test_existing_absences_survive_the_rebuild(db: Path) -> None:
-    """It carries every v1 row across, as a full day, which is what it was."""
+    """Every v1 row crosses as a full day, which is all v1 could record."""
     upgrade(db, BEFORE_HALF_DAYS)
     engine = create_db_engine(db)
     with engine.connect() as connection:
@@ -343,8 +318,7 @@ def test_existing_absences_survive_the_rebuild(db: Path) -> None:
         assert booked[0].absence_type is AbsenceType.ANNUAL
 
 
-def test_the_new_columns_are_backfilled(db: Path) -> None:
-    """It gives an existing settings row the contracted day the code assumed."""
+def test_new_columns_are_backfilled(db: Path) -> None:
     upgrade(db, "0005")
     engine = create_db_engine(db)
     with engine.connect() as connection:
@@ -369,7 +343,7 @@ def test_the_new_columns_are_backfilled(db: Path) -> None:
 
 
 def test_bank_holiday_refresh_metadata_is_backfilled(db: Path) -> None:
-    """Each legacy division keeps its latest complete-cache timestamp."""
+    """Each division keeps the latest `fetched_at` of its cached rows."""
     upgrade(db, BEFORE_BANK_HOLIDAY_REFRESHES)
     engine = create_db_engine(db)
     with engine.connect() as connection:
@@ -411,7 +385,7 @@ def test_bank_holiday_refresh_metadata_is_backfilled(db: Path) -> None:
 
 
 def test_half_days_of_different_types_share_a_date(db: Path) -> None:
-    """It moves uniqueness from the date to the pair, which is the point of 0007."""
+    """0007 moves uniqueness from the date to the date-and-portion pair."""
     upgrade(db, HEAD)
     with session_at(db) as session:
         session.add_all(
@@ -432,10 +406,7 @@ def test_half_days_of_different_types_share_a_date(db: Path) -> None:
         assert session.query(AbsenceDay).count() == 2
 
 
-def test_a_second_booking_of_the_same_portion_is_refused_by_the_database(
-    db: Path,
-) -> None:
-    """The constraint is real, not just an application rule."""
+def test_repeated_portion_is_refused_by_the_database(db: Path) -> None:
     upgrade(db, HEAD)
     with session_at(db) as session:
         session.add(
@@ -458,11 +429,9 @@ def test_a_second_booking_of_the_same_portion_is_refused_by_the_database(
 
 
 def test_work_sessions_keep_their_events_across_the_upgrade(db: Path) -> None:
-    """It does not touch the tables it did not mean to."""
     upgrade(db, BEFORE_HALF_DAYS)
     # Raw SQL, not the ORM: the model has `note` and `voided`, and 0008 is what
-    # adds them. Writing through the model here would be testing the schema
-    # against itself rather than against what is on disk.
+    # adds them, so the ORM would test the schema against itself.
     engine = create_db_engine(db)
     with engine.connect() as connection:
         connection.execute(
@@ -487,7 +456,7 @@ def test_work_sessions_keep_their_events_across_the_upgrade(db: Path) -> None:
 
 
 def test_valid_legacy_states_survive_the_invariant_upgrade(db: Path) -> None:
-    """0011 adds enforcement without rewriting any valid user record."""
+    """0011 adds enforcement without rewriting a valid record."""
     upgrade(db, BEFORE_INVARIANTS)
     engine = create_db_engine(db)
     with engine.connect() as connection:
@@ -554,12 +523,11 @@ def test_valid_legacy_states_survive_the_invariant_upgrade(db: Path) -> None:
         ),
     ],
 )
-def test_ambiguous_legacy_states_fail_before_the_schema_changes(
+def test_ambiguous_legacy_states_stop_the_upgrade(
     db: Path,
     statements: tuple[str, ...],
     expected: str,
 ) -> None:
-    """The migration names records a person must resolve instead of choosing."""
     upgrade(db, BEFORE_INVARIANTS)
     engine = create_db_engine(db)
     with engine.connect() as connection:
@@ -583,14 +551,13 @@ def columns_of(db: Path, table: str) -> set[str]:
         engine.dispose()
 
 
-def test_an_unknown_legacy_zone_fails_before_the_schema_changes(
+def test_unknown_legacy_zone_stops_the_upgrade(
     db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """0010 reads FLEXI_LEGACY_TZ before it touches the schema.
+    """SQLite autocommits `ALTER TABLE`, so 0010 reads `FLEXI_LEGACY_TZ` first.
 
-    SQLite autocommits an ALTER TABLE. A zone refused after the column is added
-    leaves the stamp behind the schema it describes, and every run after that
-    fails on a duplicate column.
+    A zone refused after the column is added leaves the stamp behind the schema
+    it describes, and every later run fails on a duplicate column.
     """
     upgrade(db, BEFORE_OFFSETS)
     monkeypatch.setenv("FLEXI_LEGACY_TZ", "Bogus/Zone")
@@ -629,12 +596,12 @@ def test_an_unknown_legacy_zone_fails_before_the_schema_changes(
     ],
     ids=("duplicate-in", "duplicate-out", "wrong-in-role", "wrong-out-role"),
 )
-def test_clock_session_conflicts_fail_before_revision_0014_changes_anything(
+def test_clock_session_conflicts_stop_0014(
     db: Path,
     statements: tuple[str, ...],
     expected: str,
 ) -> None:
-    """0014 reports ambiguous history and leaves its rows and schema untouched."""
+    """0014 reports ambiguous history and leaves rows and schema untouched."""
     upgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
     engine = create_db_engine(db)
     with engine.begin() as connection:
@@ -668,7 +635,6 @@ def test_clock_session_conflicts_fail_before_revision_0014_changes_anything(
 
 
 def test_clock_session_invariant_downgrade_preserves_history(db: Path) -> None:
-    """Removing and restoring 0014 changes enforcement, never user records."""
     upgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
     engine = create_db_engine(db)
     with engine.begin() as connection:
@@ -718,12 +684,7 @@ def test_clock_session_invariant_downgrade_preserves_history(db: Path) -> None:
 
 
 def test_head_downgrades_and_upgrades_again(db: Path) -> None:
-    """A downgrade is a deliberate act, and it has to be survivable.
-
-    Half days and the two new types have nowhere to go in the v1 schema, so 0007
-    drops them rather than coercing a sick morning into a whole day off. What is
-    representable comes back.
-    """
+    """Half days and the two newer types have no place in the v1 schema."""
     upgrade(db, HEAD)
     with session_at(db) as session:
         session.add_all(
@@ -756,14 +717,8 @@ def test_head_downgrades_and_upgrades_again(db: Path) -> None:
         assert session.query(AbsenceDay).count() == 1
 
 
-def test_upgrading_an_existing_database_snapshots_it_as_it_was(db: Path) -> None:
-    """The copy has to be of the old schema, or it is no way back.
-
-    A backup taken after the upgrade would be indistinguishable from the file it
-    was meant to rescue. What is checked here is the stamp: the snapshot beside
-    the database says 0006, so restoring it undoes the migration rather than
-    reinstating it.
-    """
+def test_upgrade_snapshots_the_old_schema(db: Path) -> None:
+    """The snapshot carries the revision the database had before the upgrade."""
     upgrade(db, BEFORE_HALF_DAYS)
 
     run_migrations(db)
@@ -776,7 +731,7 @@ def test_upgrading_an_existing_database_snapshots_it_as_it_was(db: Path) -> None
     assert revision_of(db) == head
 
 
-def test_a_migration_refuses_an_application_using_the_old_schema(db: Path) -> None:
+def test_migration_refuses_a_database_in_use(db: Path) -> None:
     """DDL cannot run beneath an engine whose mappings assume the old schema."""
     upgrade(db, BEFORE_HALF_DAYS)
 
@@ -791,10 +746,9 @@ def test_a_migration_refuses_an_application_using_the_old_schema(db: Path) -> No
     assert revision_of(db) == RECORDED_HEAD
 
 
-def test_an_upgrade_refuses_a_backup_that_does_not_verify(
+def test_upgrade_refuses_an_unverified_backup(
     db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Alembic never sees a stamped database without a proven way back."""
     upgrade(db, BEFORE_HALF_DAYS)
     monkeypatch.setattr("flexi.models.database.migrate.verify", lambda _path: False)
 
@@ -805,13 +759,7 @@ def test_an_upgrade_refuses_a_backup_that_does_not_verify(
     assert len(list(backups_directory().glob("*.bak"))) == 1
 
 
-def test_the_backup_an_upgrade_takes_ages_out_the_oldest_one(db: Path) -> None:
-    """Ten is the whole allowance, and an upgrade is what fills it.
-
-    One backup per migration, and Flexi migrates whenever it starts on a new
-    version. Without housekeeping in the same breath as the copy, an ordinary
-    fortnight of upgrades leaves a data directory that only ever grows.
-    """
+def test_upgrade_backup_ages_out_the_oldest(db: Path) -> None:
     upgrade(db, BEFORE_HALF_DAYS)
     directory = ensure(backups_directory())
     for n in range(MAX_BACKUPS):
@@ -833,15 +781,8 @@ def stamped_as(db: Path, revision: str) -> None:
         connection.commit()
 
 
-def test_a_database_from_a_newer_flexi_is_refused_before_it_is_copied(
-    db: Path,
-) -> None:
-    """A stamp this build cannot place is a downgrade, not work to do.
-
-    Handed to Alembic it fails inside the upgrade, having already taken a
-    snapshot. Every command after it takes another, until the ten that survive
-    are all copies of a database this build cannot read.
-    """
+def test_newer_database_is_refused_before_copying(db: Path) -> None:
+    """Alembic fails inside the upgrade, having already taken a snapshot."""
     upgrade(db, HEAD)
     stamped_as(db, "0017")
 
@@ -852,15 +793,8 @@ def test_a_database_from_a_newer_flexi_is_refused_before_it_is_copied(
     assert not list(backups_directory().glob("*.bak"))
 
 
-def test_the_snapshot_an_upgrade_takes_outlives_the_ones_already_there(
-    db: Path,
-) -> None:
-    """The copy the migration depends on is not a candidate for pruning.
-
-    Modification times come from the filesystem. On a share, or in a directory
-    restored from an archive, the ten already there can all sit ahead of the
-    one written a moment ago.
-    """
+def test_fresh_snapshot_outlives_the_older_ones(db: Path) -> None:
+    """Modification times come from the filesystem and can put the fresh copy oldest."""
     upgrade(db, BEFORE_HALF_DAYS)
     directory = ensure(backups_directory())
     for n in range(MAX_BACKUPS):
@@ -876,19 +810,11 @@ def test_the_snapshot_an_upgrade_takes_outlives_the_ones_already_there(
     assert len(list(directory.glob("*.bak"))) == MAX_BACKUPS
 
 
-def test_the_migrations_build_the_schema_the_models_describe(db: Path) -> None:
-    """What real users get, compared against what every fixture gets.
+def test_migrations_match_the_models(db: Path) -> None:
+    """Fixtures call `Base.metadata.create_all`; an install gets `run_migrations`.
 
-    Fixtures call `Base.metadata.create_all`; a person who installs Flexi gets
-    `run_migrations`. Nothing compared the two, so a model changed without a
-    migration would pass the whole suite and fail on the first real launch --
-    and a migration that drifted from the models would do the reverse.
-
-    Server defaults are compared too. Alembic leaves that off by default, and
-    with it off the guard was blind to the one axis the two schemas disagreed
-    on: `clock_events.source` and `work_sessions.auto_closed` are `DEFAULT`ed by
-    migration 0004 and were not by the models, so `--demo` and all ten fixture
-    databases ran against a schema no real install has.
+    Server defaults are compared too, which Alembic leaves off by default: 0004
+    `DEFAULT`s `clock_events.source` and `work_sessions.auto_closed`.
     """
     upgrade(db, HEAD)
 
@@ -915,7 +841,7 @@ def test_the_migrations_build_the_schema_the_models_describe(db: Path) -> None:
 
 
 def _answers(monkeypatch: pytest.MonkeyPatch, *revisions: DatabaseRevision) -> None:
-    """Make successive revision reads disagree, which is the race being guarded."""
+    """Make successive revision reads disagree."""
     replies = iter(revisions)
     monkeypatch.setattr(
         "flexi.models.database.migrate.current_revision",
@@ -923,15 +849,13 @@ def _answers(monkeypatch: pytest.MonkeyPatch, *revisions: DatabaseRevision) -> N
     )
 
 
-def test_a_migration_another_starter_finished_in_the_gap_is_not_repeated(
+def test_migration_done_in_the_gap_is_not_repeated(
     db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The cheap check runs shared; the authoritative one runs exclusive.
 
-    Two applications starting together both see work to do, both queue for the
-    exclusive lease, and only one of them does it. The second must find head on
-    its own re-read and stop -- without taking a backup for a migration it is
-    not going to run.
+    Two applications starting together both see work to do. The one that gets the
+    lease second finds head on its re-read and stops, taking no backup.
     """
     upgrade(db, BEFORE_HALF_DAYS)
     before = sorted(backups_directory().glob("*.bak"))
@@ -947,15 +871,10 @@ def test_a_migration_another_starter_finished_in_the_gap_is_not_repeated(
     assert sorted(backups_directory().glob("*.bak")) == before, "nor back up"
 
 
-def test_the_exclusive_re_read_is_the_authority_on_an_unstamped_schema(
+def test_exclusive_re_read_is_the_authority(
     db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The shared read is a fast path, not a verdict.
-
-    Whatever it saw, the schema is only migrated on the strength of the read
-    taken while nothing else can write. A schema that has lost its stamp by
-    then is refused there, exactly as it would have been on the way in.
-    """
+    """A schema is migrated only on the read taken under the exclusive lease."""
     upgrade(db, BEFORE_HALF_DAYS)
     _answers(
         monkeypatch,
@@ -967,27 +886,25 @@ def test_the_exclusive_re_read_is_the_authority_on_an_unstamped_schema(
         run_migrations(db)
 
 
-# ---- 0015: the day tracking began ----
+# ---- 0015: tracking_since ----
 
 BEFORE_TRACKING = "0014"
 
 
 def tracking_since_of(db: Path) -> date | None:
-    """Read back through the model, which is what the application will see.
+    """Read `tracking_since` back through the model.
 
-    SQLite has no date type, so the column holds a string either way; what
-    matters is that `Settings.tracking_since` comes back as a `date`.
+    SQLite has no date type, so only the model shows whether the column round
+    trips as a `date`.
     """
     with session_at(db) as session:
         return session.query(Settings).one().tracking_since
 
 
 def configured(db: Path, leave_year_start: str = "04-06") -> None:
-    """A settings row as 0014 knew it, written without the ORM.
+    """Insert a settings row as 0014 knows it.
 
-    Through raw SQL because the model has `tracking_since` and 0015 is what
-    adds it; writing through the model would test the schema against itself
-    rather than against what is on disk.
+    Raw SQL, because the model has `tracking_since` and 0015 is what adds it.
     """
     engine = create_db_engine(db)
     with engine.connect() as connection:
@@ -1005,13 +922,8 @@ def configured(db: Path, leave_year_start: str = "04-06") -> None:
     engine.dispose()
 
 
-def test_a_database_with_records_is_dated_from_its_earliest_one(db: Path) -> None:
-    """Somebody who has been using Flexi keeps the balance they had.
-
-    The earliest thing on disk is the earliest day Flexi can be shown to have
-    been running, so dating tracking from it leaves every recorded day counting
-    exactly as it did before the column existed.
-    """
+def test_database_with_records_dates_from_the_earliest(db: Path) -> None:
+    """The earliest record is the earliest day Flexi can be shown to have run."""
     upgrade(db, BEFORE_TRACKING)
     configured(db)
     engine = create_db_engine(db)
@@ -1036,13 +948,8 @@ def test_a_database_with_records_is_dated_from_its_earliest_one(db: Path) -> Non
     assert tracking_since_of(db) == date(2026, 5, 4)
 
 
-def test_a_database_with_nothing_recorded_is_dated_from_the_upgrade(db: Path) -> None:
-    """There is no deficit worth keeping, so the phantom one goes.
-
-    A settings row and not one session is somebody who set Flexi up and never
-    came back. Every working day since their leave year opened is scoring a
-    contracted day against them and not one of them is real.
-    """
+def test_empty_database_dates_from_the_upgrade(db: Path) -> None:
+    """A settings row with no sessions has no real deficit to preserve."""
     upgrade(db, BEFORE_TRACKING)
     configured(db)
 
@@ -1053,7 +960,7 @@ def test_a_database_with_nothing_recorded_is_dated_from_the_upgrade(db: Path) ->
 
 
 def sessions_worth(db: Path, days: tuple[date, ...], minutes: int) -> None:
-    """A full day's work punched on each date, written without the ORM."""
+    """Punch a full day's work on each date, without the ORM."""
     engine = create_db_engine(db)
     with engine.connect() as connection:
         for index, when in enumerate(days):
@@ -1121,7 +1028,7 @@ def balance_on(db: Path, when: date) -> timedelta:
 
 
 def untracked(db: Path) -> None:
-    """Forget the stamp, which is how the same database read before 0015."""
+    """Clear `tracking_since`, which is how the column reads before 0015."""
     engine = create_db_engine(db)
     with engine.connect() as connection:
         connection.execute(sa.text("UPDATE settings SET tracking_since = NULL"))
@@ -1129,12 +1036,11 @@ def untracked(db: Path) -> None:
     engine.dispose()
 
 
-def test_a_settled_balance_reads_the_same_after_the_upgrade(db: Path) -> None:
-    """A line already drawn absorbed a deficit dated from the leave year.
+def test_settled_balance_survives_the_upgrade(db: Path) -> None:
+    """A drawn line absorbed a deficit dated from the leave year.
 
-    Untracking any day it paid for would leave the correction standing against
-    a deficit nothing charges any more, and a balance settled to zero reads
-    hundreds of hours in surplus.
+    Untracking any day it paid for leaves the correction standing against a deficit
+    nothing charges, and a settled balance reads as a large surplus.
     """
     upgrade(db, BEFORE_TRACKING)
     configured(db)
@@ -1155,7 +1061,7 @@ def test_a_settled_balance_reads_the_same_after_the_upgrade(db: Path) -> None:
     [(date(2026, 8, 2), date(2026, 4, 6)), (date(2026, 2, 10), date(2025, 4, 6))],
     ids=("after-the-anniversary", "before-it"),
 )
-def test_a_settled_database_is_dated_from_its_leave_year(
+def test_settled_database_dates_from_its_leave_year(
     db: Path, drawn: date, opening: date
 ) -> None:
     """The line covers its whole leave year, so tracking starts where that did."""
@@ -1169,7 +1075,7 @@ def test_a_settled_database_is_dated_from_its_leave_year(
     assert tracking_since_of(db) == opening
 
 
-def test_a_leap_day_leave_year_settles_on_a_day_february_has(db: Path) -> None:
+def test_leap_day_leave_year_settles_in_february(db: Path) -> None:
     """A leave year opening on the 29th opens on the 28th three years in four."""
     upgrade(db, BEFORE_TRACKING)
     configured(db, leave_year_start="02-29")
@@ -1187,10 +1093,10 @@ SHIPPED_CONFIG = Path(__file__).resolve().parents[2] / "alembic.ini"
 
 
 def command_line_config() -> Config:
-    """What `alembic` builds, minus the file's own logging setup.
+    """Build what `alembic` builds, minus the file's own logging setup.
 
-    The script directory by absolute path, because the shipped `alembic.ini`
-    names it relative to the checkout and these tests run from elsewhere.
+    The script directory is absolute: the shipped `alembic.ini` names it
+    relative to the checkout, and these tests run from elsewhere.
     """
     cfg = Config()
     migrations = Path(flexi.__file__).resolve().parent / "migrations"
@@ -1198,19 +1104,15 @@ def command_line_config() -> Config:
     return cfg
 
 
-def test_the_shipped_config_names_no_database() -> None:
-    """A URL in the file is a second answer to where the database is.
-
-    The one it gave was relative, so `alembic upgrade head` put a database in
-    whatever directory it was run from.
-    """
+def test_shipped_config_names_no_database() -> None:
+    """A URL in the file would be a second answer to where the database is."""
     parser = ConfigParser()
     parser.read(SHIPPED_CONFIG)
 
     assert parser.get("alembic", "sqlalchemy.url", fallback="") == ""
 
 
-def test_a_run_that_names_no_database_writes_none(
+def test_run_without_a_database_writes_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -1221,7 +1123,7 @@ def test_a_run_that_names_no_database_writes_none(
     assert list(tmp_path.iterdir()) == []
 
 
-def test_a_run_migrates_the_database_it_is_given(tmp_path: Path) -> None:
+def test_run_migrates_the_database_it_is_given(tmp_path: Path) -> None:
     """The `-x db=` a contributor needs for `revision --autogenerate`."""
     scratch = tmp_path / "scratch.db"
     cfg = command_line_config()

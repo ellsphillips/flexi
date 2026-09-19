@@ -1,11 +1,8 @@
 """The two mornings a year when a British clock is not monotonic.
 
 Europe/London changes at 01:00/02:00 local, so an ordinary working day never
-crosses a transition -- 09:00 to 17:00 on the October Sunday really is eight
-hours. What crosses is a night shift, and far more commonly a session somebody
-left open overnight. Inside that window the old wall-time arithmetic credited an
-hour never worked in March, lost one in October, and on the morning the clocks
-went back it ran a live session backwards and then deleted it.
+crosses a transition. What crosses is a night shift, or a session left open
+overnight.
 """
 
 from __future__ import annotations
@@ -46,37 +43,37 @@ def _worked(session: Session, opened: datetime, closed: datetime) -> timedelta:
     return punches[-1] - punches[0]
 
 
-def test_a_normal_day_on_the_fallback_sunday_is_eight_hours(session: Session) -> None:
-    """The premise test. The transition is at 02:00, so a working day misses it."""
+def test_normal_fallback_sunday_is_eight_hours(session: Session) -> None:
+    """The transition is at 02:00, so a working day misses it."""
     assert _worked(
         session, _at(f"{FALLBACK}T09:00"), _at(f"{FALLBACK}T17:00")
     ) == timedelta(hours=8)
 
 
-def test_a_night_shift_across_the_fallback_is_nine_hours(session: Session) -> None:
-    """22:00 BST to 06:00 GMT. Wall arithmetic says eight; it was nine."""
+def test_night_shift_across_the_fallback_is_nine_hours(session: Session) -> None:
+    """22:00 BST to 06:00 GMT: wall arithmetic says eight, the clock says nine."""
     assert _worked(
         session, _at("2026-10-24T21:00"), _at(f"{FALLBACK}T06:00")
     ) == timedelta(hours=9)
 
 
-def test_a_night_shift_across_the_spring_forward_is_seven_hours(
+def test_night_shift_across_the_spring_is_seven_hours(
     session: Session,
 ) -> None:
-    """22:00 GMT to 06:00 BST. Wall arithmetic says eight; it was seven."""
+    """22:00 GMT to 06:00 BST: wall arithmetic says eight, the clock says seven."""
     assert _worked(
         session, _at("2026-03-28T22:00"), _at(f"{SPRING}T05:00")
     ) == timedelta(hours=7)
 
 
-def test_the_two_hour_span_on_the_spring_sunday(session: Session) -> None:
-    """00:30 GMT to 03:30 BST. The audit-facing direction: it used to credit three."""
+def test_two_hour_span_on_the_spring_sunday(session: Session) -> None:
+    """00:30 GMT to 03:30 BST: the skipped hour is not credited."""
     assert _worked(
         session, _at(f"{SPRING}T00:30"), _at(f"{SPRING}T02:30")
     ) == timedelta(hours=2)
 
 
-def test_the_three_and_a_half_hour_span_on_the_fallback_sunday(
+def test_three_and_a_half_hours_on_the_fallback_sunday(
     session: Session,
 ) -> None:
     """00:30 BST to 03:00 GMT."""
@@ -85,13 +82,11 @@ def test_the_three_and_a_half_hour_span_on_the_fallback_sunday(
     ) == timedelta(hours=3, minutes=30)
 
 
-def test_a_session_in_the_hour_that_happens_twice_is_not_discarded(
-    session: Session,
-) -> None:
+def test_session_in_the_repeated_hour_is_kept(session: Session) -> None:
     """In at 01:30 BST, out forty real minutes later, when the wall reads 01:10.
 
-    The wall span is minus twenty minutes, which tripped the finger-slip guard
-    and voided the row with a message blaming the user. There is no unvoid path.
+    The wall span is minus twenty minutes, which is what the finger-slip guard
+    voids a session for, and there is no unvoid path.
     """
     service = build_services(session).clock
     service.clock_in(now=_at(f"{FALLBACK}T00:30"))
@@ -103,8 +98,8 @@ def test_a_session_in_the_hour_that_happens_twice_is_not_discarded(
     assert result.session.voided is False
 
 
-def test_the_two_readings_of_half_past_one_are_stored_apart(session: Session) -> None:
-    """The structural claim. Nothing downstream can recover this if it is lost."""
+def test_both_readings_of_half_past_one_are_stored(session: Session) -> None:
+    """The offset is stored beside the reading; nothing downstream can recover it."""
     service = build_services(session).clock
     service.clock_in(now=_at(f"{FALLBACK}T00:30"))  # 01:30 BST
     service.clock_out(now=_at(f"{FALLBACK}T01:30"))  # 01:30 GMT
@@ -120,10 +115,9 @@ def test_the_two_readings_of_half_past_one_are_stored_apart(session: Session) ->
     ("elapsed", "expected"),
     [(0, 0), (15, 15), (29, 29), (30, 30), (45, 45), (60, 60), (90, 90)],
 )
-def test_an_open_session_ticks_forward_through_the_fallback_hour(
+def test_open_session_ticks_through_the_fallback_hour(
     session: Session, elapsed: int, expected: int
 ) -> None:
-    """It used to read 0:00 for a full real hour, then jump."""
     from flexi.domain.balance import worked_from
     from flexi.services.ledger import segment_of
 
@@ -137,7 +131,7 @@ def test_an_open_session_ticks_forward_through_the_fallback_hour(
     assert worked == timedelta(minutes=expected)
 
 
-def test_a_backwards_session_is_refused_rather_than_voided(session: Session) -> None:
+def test_backwards_session_is_refused_not_voided(session: Session) -> None:
     """A negative span is rejected without closing or adding to the audit trail."""
     service = build_services(session).clock
     service.clock_in(now=_at(f"{FALLBACK}T10:00"))
@@ -154,14 +148,11 @@ def test_a_backwards_session_is_refused_rather_than_voided(session: Session) -> 
     ]
 
 
-def test_a_correction_inside_the_lost_hour_records_nothing(session: Session) -> None:
+def test_correction_inside_the_lost_hour_records_nothing(session: Session) -> None:
     """The hour the clocks skip has no instants in it.
 
-    01:00 and 02:00 on the spring Sunday name the same moment, so a stretch
-    between them covers no time at all. Measured as the wall readings they were
-    typed as, they are an hour apart, and the guard against an empty correction
-    is walked straight past: a session of 0:00 goes into the table, indoors
-    among real ones.
+    01:00 and 02:00 on the spring Sunday name the same moment. As wall readings
+    they look an hour apart, and a session of 0:00 walks past the empty guard.
     """
     service = build_services(session).clock
     spring = date.fromisoformat(SPRING)

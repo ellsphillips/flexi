@@ -24,9 +24,7 @@ class Beacon(Static):
     """A widget that names its own jump key, as ``Jumpable`` allows.
 
     Every target on the shipped screens is registered by id in the screen's
-    ``jump_targets``. The protocol is the other route — a widget that carries its
-    own key — and nothing in the application uses it yet, so this stands in for
-    the first thing that does.
+    ``jump_targets``; no shipped widget carries its own key.
     """
 
     jump_key = "z"
@@ -34,12 +32,11 @@ class Beacon(Static):
 
 
 def badges(overlay: JumpOverlay) -> set[str]:
-    """The keys the overlay is currently offering."""
+    """Return the keys the overlay is currently offering."""
     return {str(widget.render()) for widget in overlay.query(".textual-jump-label")}
 
 
 async def test_v_opens_the_overlay(app_factory: AppFactory) -> None:
-    """It puts a badge over every jumpable region."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("v")
@@ -48,7 +45,6 @@ async def test_v_opens_the_overlay(app_factory: AppFactory) -> None:
 
 
 async def test_a_target_key_focuses_that_panel(app_factory: AppFactory) -> None:
-    """It lands where the badge said it would."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("v")
@@ -59,7 +55,7 @@ async def test_a_target_key_focuses_that_panel(app_factory: AppFactory) -> None:
 
 
 async def test_a_jump_to_the_records_lands_on_the_rows(app_factory: AppFactory) -> None:
-    """It focuses the table, not the panel around it."""
+    """The table takes the focus, not the panel around it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("v")
@@ -70,11 +66,7 @@ async def test_a_jump_to_the_records_lands_on_the_rows(app_factory: AppFactory) 
 
 
 async def test_a_number_jumps_to_a_day_row(app_factory: AppFactory) -> None:
-    """It puts the cursor on the nth day without leaving the home row.
-
-    A row is not a widget, which is what makes this worth a test: the offsets
-    come from the table's geometry rather than from the DOM.
-    """
+    """A row is not a widget: the offsets come from the table's geometry."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -88,10 +80,9 @@ async def test_a_number_jumps_to_a_day_row(app_factory: AppFactory) -> None:
         assert app.focused is table
 
 
-async def test_escape_restores_the_previous_focus_exactly(
+async def test_escape_restores_the_previous_focus(
     app_factory: AppFactory,
 ) -> None:
-    """It costs nothing to try, which is what makes the mode worth having."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         calendar = app.screen.query_one(MonthView)
@@ -107,11 +98,7 @@ async def test_escape_restores_the_previous_focus_exactly(
 
 
 async def test_targets_come_from_the_live_screen(app_factory: AppFactory) -> None:
-    """It can only name something that is mounted.
-
-    An application-wide table of targets would silently drop the misses; asking
-    the screen means a target that is not there simply is not offered.
-    """
+    """A target that is not mounted is not offered."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -122,16 +109,10 @@ async def test_targets_come_from_the_live_screen(app_factory: AppFactory) -> Non
             assert app.screen.query(f"#{widget_id}"), f"{widget_id} is not mounted"
 
 
-async def test_a_widget_carrying_its_own_key_is_offered_and_focused(
+async def test_a_widget_with_its_own_key_is_jumpable(
     app_factory: AppFactory,
 ) -> None:
-    """A target does not have to be in the screen's table to be jumpable.
-
-    The badge for a registered panel dismisses with an id and the app looks it
-    up; this one dismisses with the widget itself. Two shapes of the same
-    answer, and the second is the one no shipped screen exercises — so it is the
-    one that would rot into an `AttributeError` on the first widget to use it.
-    """
+    """A registered badge dismisses with an id, this one with the widget."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -149,16 +130,10 @@ async def test_a_widget_carrying_its_own_key_is_offered_and_focused(
         assert isinstance(app.focused, Beacon)
 
 
-async def test_opening_the_mode_with_nothing_focused_and_escaping_jumps_nowhere(
+async def test_escape_with_nothing_focused_jumps_nowhere(
     app_factory: AppFactory,
 ) -> None:
-    """Both ends of the mode assume a focus, and neither may require one.
-
-    Nothing is focused after a click on dead space, and the mode has to cope: no
-    focus to stand down on the way in, and none to hand back on the way out.
-    Escape is a promise that nothing happened, and jumping somewhere arbitrary
-    because there was nowhere to return to breaks it.
-    """
+    """Both ends of the mode assume a focus, and neither may require one."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -181,16 +156,10 @@ async def test_opening_the_mode_with_nothing_focused_and_escaping_jumps_nowhere(
         assert app.focused not in panels, "escape landed on a badge nobody pressed"
 
 
-async def test_a_badge_for_a_panel_that_has_gone_says_so_and_moves_nothing(
+async def test_a_badge_for_a_missing_panel_moves_nothing(
     app_factory: AppFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The badges are drawn once and the screen underneath keeps living.
-
-    A redraw that drops a panel between the badge appearing and the key being
-    pressed leaves a key pointing at nothing. Focusing whatever happens to be
-    lying around instead would be worse than doing nothing, so the miss is
-    logged and the keyboard stays where it was.
-    """
+    """A redraw between the badge and the keypress leaves a key pointing nowhere."""
     warnings: list[str] = []
 
     class Recorder:
@@ -215,16 +184,10 @@ async def test_a_badge_for_a_panel_that_has_gone_says_so_and_moves_nothing(
         assert any("month-view" in line for line in warnings), warnings
 
 
-async def test_a_row_badge_for_a_table_that_has_gone_moves_nothing(
+async def test_a_row_badge_for_a_missing_table_moves_nothing(
     app_factory: AppFactory,
 ) -> None:
-    """A row key is resolved against the table, not against the DOM.
-
-    A day row has no id to look up, so the miss cannot be reported the way a
-    missing panel is: the app searches the screen for a table to put the cursor
-    in and finds none. Falling through to the id lookup below would then warn
-    about a widget nobody ever named.
-    """
+    """A row key is resolved against the table, not against the DOM."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -241,16 +204,10 @@ async def test_a_row_badge_for_a_table_that_has_gone_moves_nothing(
         assert app.focused is before
 
 
-async def test_the_row_badges_are_not_offered_without_a_records_table(
+async def test_row_badges_need_a_records_table(
     app_factory: AppFactory,
 ) -> None:
-    """The numbers are the table's rows, so no table means no numbers.
-
-    They are collected by asking the records module for its geometry. A screen
-    that has lost the module has to answer "none" rather than raise, because the
-    overlay is composed from that answer and a failed compose is a black screen
-    over a working application.
-    """
+    """A failed compose is a black screen, so a missing module answers none."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -265,16 +222,10 @@ async def test_the_row_badges_are_not_offered_without_a_records_table(
         assert "c" in offered, "the surviving panels are still jumpable"
 
 
-async def test_a_panel_that_cannot_take_focus_is_clicked_instead(
+async def test_a_panel_that_cannot_focus_is_clicked(
     app_factory: AppFactory,
 ) -> None:
-    """A jump has to be able to press things, not only focus them.
-
-    The leave screen's rail is plain containers: they hold the wallet, the
-    selection and the legend, and none of them can hold the keyboard. Focusing
-    them anyway would take the arrow keys off the calendar and leave the screen
-    unusable, so the app synthesises the click a pointer would have made.
-    """
+    """Focusing a container would take the arrow keys off the calendar."""
     clicked: list[object] = []
 
     def watch(message: Message) -> None:
@@ -298,11 +249,11 @@ async def test_a_panel_that_cannot_take_focus_is_clicked_instead(
         assert screen.query_one("#leave-legend") in clicked
 
 
-# -- how a badge is drawn ----------------------------------------------------
+# How a badge is drawn
 
 
 def heights(badges: DOMQuery[Widget]) -> set[int | None]:
-    """The resolved height of every badge in a query."""
+    """Return the resolved height of every badge in a query."""
     return {
         None if badge.styles.height is None else int(badge.styles.height.value)
         for badge in badges
@@ -318,19 +269,14 @@ def heights(badges: DOMQuery[Widget]) -> set[int | None]:
         (Offset(0, 0), Offset(0, 0)),
     ],
 )
-def test_a_corner_badge_hangs_on_the_corner_but_never_off_the_screen(
+def test_a_corner_badge_never_hangs_off_the_screen(
     corner: Offset, expected: Offset
 ) -> None:
-    """The box straddles the panel's own border, which is what attaches it.
-
-    Clamped at the edges: a negative offset does not move a widget further out,
-    it clips the side that left the screen -- so a panel in the top-left would
-    lose the two borders that make its badge read as a box.
-    """
+    """A negative offset clips the side that left the screen, losing a border."""
     assert badge_offset(corner, BadgeShape.CORNER) == expected
 
 
-def test_a_row_badge_stays_exactly_where_the_table_put_it() -> None:
+def test_a_row_badge_is_not_nudged() -> None:
     """A row chip names one line, and a line above is a different day."""
     assert badge_offset(Offset(20, 8), BadgeShape.ROW) == Offset(20, 8)
 
@@ -338,11 +284,7 @@ def test_a_row_badge_stays_exactly_where_the_table_put_it() -> None:
 async def test_panels_are_boxed_and_table_rows_are_not(
     app_factory: AppFactory,
 ) -> None:
-    """Rows sit a single cell apart, so only panels can afford three of them.
-
-    Boxing a row would stand it on its neighbours and leave one badge with all
-    four corners and the rest with none.
-    """
+    """Rows sit a single cell apart, so only a panel can afford a three-line box."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("v")

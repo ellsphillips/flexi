@@ -240,7 +240,7 @@ class ClockService:
             at=moment,
         )
 
-    # -- corrections -------------------------------------------------------
+    # --- corrections ------------------------------------------------------
 
     def correct(
         self,

@@ -96,7 +96,7 @@ def test_settings_is_a_database_singleton(
 
 
 def test_only_one_non_voided_session_can_be_open(invariant_engine: Engine) -> None:
-    """The second of two independently prepared open sessions loses atomically."""
+    """Two sessions prepare an open row independently; the second commit fails."""
     with get_session(invariant_engine) as seed:
         events = (
             ClockEvent(
@@ -133,7 +133,7 @@ def test_only_one_non_voided_session_can_be_open(invariant_engine: Engine) -> No
 def test_voided_open_sessions_do_not_occupy_the_live_slot(
     invariant_engine: Engine,
 ) -> None:
-    """Historical incomplete rows remain representable beside the live session."""
+    """A voided open row can sit beside the live one."""
     with get_session(invariant_engine) as session:
         add_open_session(session, voided=True)
         add_open_session(session)

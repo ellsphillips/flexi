@@ -41,13 +41,13 @@ MODULES = (
 
 
 class ServiceOnlyApp(TextualApp[None]):
-    """A valid module host that deliberately has no command operations."""
+    """A valid module host with no command operations."""
 
     services = cast("Services", object())
 
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda module: module.__name__)
-def test_each_top_level_module_publishes_every_local_name(module: ModuleType) -> None:
+def test_top_level_modules_publish_local_names(module: ModuleType) -> None:
     check_declared_api(module)
 
 
@@ -62,7 +62,7 @@ def test_closed_constant_tables_and_choices_are_immutable() -> None:
     assert isinstance(constants.Division.choices(), tuple)
 
 
-def test_context_adapters_reject_objects_without_the_required_structure() -> None:
+def test_context_adapters_reject_the_wrong_object() -> None:
     """A misplaced widget fails at the typed boundary, not at a later attribute."""
     with pytest.raises(TypeError, match="module period and time context"):
         context.module_host(Screen())
@@ -75,7 +75,7 @@ def test_context_adapters_reject_objects_without_the_required_structure() -> Non
 
 
 def test_context_adapters_apply_interface_segregation() -> None:
-    """A service host need not pretend to implement unrelated app actions."""
+    """A service host need not implement unrelated app actions."""
     app = ServiceOnlyApp()
 
     assert context.service_app(app) is app
@@ -109,10 +109,8 @@ def _names_bound_under_type_checking(tree: ast.Module) -> set[str]:
             continue
         for statement in ast.walk(node):
             if isinstance(statement, ast.Import | ast.ImportFrom):
-                # `asname or name`, because the facades deliberately rename on
-                # the way in -- `format as formatting`, `FULL as
-                # CHART_FULL_GLYPH` -- and it is the bound name that has to
-                # match `__all__`.
+                # `asname or name`: the facades rename on the way in
+                # (`format as formatting`), and `__all__` holds the bound name.
                 bound |= {alias.asname or alias.name for alias in statement.names}
     return bound
 
@@ -131,21 +129,12 @@ def _locally_defined(tree: ast.Module) -> set[str]:
 
 
 @pytest.mark.parametrize("relative", LAZY_FACADES)
-def test_a_lazy_facade_types_everything_it_exports(relative: str) -> None:
-    """The `if TYPE_CHECKING:` block is a fourth export list, and nothing gated it.
+def test_lazy_facade_types_everything_it_exports(relative: str) -> None:
+    """The `if TYPE_CHECKING:` block is a fourth export list.
 
-    A lazy facade carries the same names in four places: `__all__`, the runtime
-    routing table, `__getattr__`, and this block. Only the block is invisible at
-    runtime -- a name missing from it still imports and still works, and the
-    only symptom is that `from flexi.services import CORRECTION_OVERLAP` types
-    as `object` for anybody downstream. Flexi ships `py.typed`, so that is a
-    hole in a contract it makes explicitly.
-
-    Six names had already drifted out of `flexi.services` and one out of
-    `flexi.components`, which is what a hand-maintained list with no gate does.
-
-    `if TYPE_CHECKING:` is in coverage's `exclude_also`, so this costs the
-    100% gate nothing.
+    A lazy facade carries the same names in `__all__`, the routing table,
+    `__getattr__` and that block, and only the block is invisible at runtime: a
+    name missing from it still imports, and only types as `object` downstream.
     """
     path = Path(__file__).resolve().parent.parent / "src" / relative
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

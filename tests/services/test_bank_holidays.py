@@ -90,10 +90,8 @@ if "httpx" in introduced:
 def _answering(payload: object, status: int = 200) -> Callable[..., httpx.Response]:
     """A stand-in for GOV.UK, shaped like the real index.
 
-    The suite refuses outbound requests, so a success path has to be handed one
-    — and it is handed a real `httpx.Response`, because the code under test
-    calls `raise_for_status()` and `json()` and a mock that only answers `json`
-    would let a 503 through as a calendar.
+    A real `httpx.Response`, because the code under test calls
+    `raise_for_status()` as well as `json()`.
     """
 
     def get(_self: httpx.Client, url: str, **_kwargs: Any) -> httpx.Response:
@@ -150,14 +148,10 @@ class TestStaleRefresh:
         ],
         ids=("a-minute-inside", "a-minute-outside"),
     )
-    def test_a_week_old_calendar_is_where_fresh_ends(
+    def test_week_old_calendar_is_where_fresh_ends(
         self, session: Session, age: timedelta, fresh: bool
     ) -> None:
-        """The boundary itself, which ten days and 2020 both clear by miles.
-
-        README says Flexi caches the calendar for a week, so the number is a
-        promise and a minute either side of it is the only thing that pins it.
-        """
+        """README promises a week of caching, so a minute either side pins it."""
         assert timedelta(days=7) == CACHE_MAX_AGE
         session.add(
             BankHolidayRefresh(
@@ -172,7 +166,6 @@ class TestStaleRefresh:
         assert svc.is_fresh() is fresh
 
     def test_stale_cache_triggers_refresh(self, session: Session) -> None:
-        # Insert old entries
         old = datetime.now(tz=UTC) - CACHE_MAX_AGE - timedelta(days=3)
         session.add_all(
             (
@@ -211,16 +204,13 @@ class TestFetchFailure:
         ):
             assert svc.fetch_and_cache() is False
 
-    def test_an_index_that_is_down_leaves_the_old_calendar_standing(
+    def test_index_that_is_down_keeps_the_old_calendar(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A 503 is not news that the bank holidays were cancelled.
 
-        The cache is cleared inside `fetch_and_cache`, so a refresh that got as
-        far as a response and then failed on it must fail *before* the delete.
-        Otherwise the weekly refresh, run on the morning GOV.UK is having a bad
-        day, turns a working calendar into no calendar — and every leave
-        booking is refused until it comes back.
+        The cache is cleared inside `fetch_and_cache`, so a refresh that fails
+        on the response has to fail before the delete.
         """
         _seed_cache(session)
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
@@ -229,7 +219,7 @@ class TestFetchFailure:
         assert svc.fetch_and_cache() is False
         assert svc.holiday_on(date(2026, 12, 25)) is not None
 
-    def test_a_response_that_is_not_json_is_a_failed_fetch(
+    def test_response_that_is_not_json_is_a_failed_fetch(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A captive portal answers 200 with a login page, not a calendar."""
@@ -249,15 +239,10 @@ class TestFetchFailure:
 class TestFetchingTheIndex:
     """The success path, which the offline suite otherwise never walks."""
 
-    def test_a_fetch_replaces_the_division_it_is_for(
+    def test_fetch_replaces_the_division_it_is_for(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Replaces, rather than adds to.
-
-        GOV.UK moves a substitute day when Christmas falls at a weekend, so a
-        refresh that merged would leave the withdrawn date behind for ever and
-        the calendar would slowly fill with holidays that are not holidays.
-        """
+        """A refresh that merged would keep a withdrawn substitute day for ever."""
         session.add_all(
             (
                 BankHolidayRefresh(
@@ -342,7 +327,7 @@ class TestFetchingTheIndex:
             pytest.param({}, id="the configured division is missing"),
         ],
     )
-    def test_a_malformed_response_leaves_the_old_calendar_standing(
+    def test_malformed_response_keeps_the_old_calendar(
         self,
         session: Session,
         monkeypatch: pytest.MonkeyPatch,
@@ -360,7 +345,7 @@ class TestFetchingTheIndex:
             date(2026, 12, 25),
         }
 
-    def test_an_event_with_no_title_is_still_a_day_off(
+    def test_event_with_no_title_is_still_a_day_off(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The date is what the arithmetic needs; the name is decoration."""
@@ -372,13 +357,13 @@ class TestFetchingTheIndex:
         assert svc.holiday_on(date(2026, 1, 1)) is not None
         assert svc.holiday_on(date(2026, 1, 1)) == ""
 
-    def test_the_public_parser_returns_typed_immutable_events(self) -> None:
+    def test_public_parser_returns_typed_immutable_events(self) -> None:
         assert parse_bank_holidays(SAMPLE_RESPONSE, Division.SCOTLAND) == (
             ParsedBankHoliday(date=date(2026, 1, 1), title="New Year's Day"),
             ParsedBankHoliday(date=date(2026, 11, 30), title="St Andrew's Day"),
         )
 
-    def test_the_fetch_boundary_is_a_free_injectable_function(
+    def test_fetch_boundary_is_a_free_injectable_function(
         self, session: Session
     ) -> None:
         """Persistence depends on a callable, not on an HTTP client class."""
@@ -399,7 +384,7 @@ class TestFetchingTheIndex:
         assert asked == 1
         assert service.get_dates() == {date(2026, 1, 1), date(2026, 11, 30)}
 
-    def test_a_supplied_payload_can_be_cached_without_fetching(
+    def test_supplied_payload_can_be_cached_without_fetching(
         self, session: Session
     ) -> None:
         """Hosts may separate network I/O from their persistence context."""
@@ -416,7 +401,7 @@ class TestFetchingTheIndex:
         assert service.cache_payload(SAMPLE_RESPONSE) is True
         assert service.get_dates() == {date(2026, 1, 1), date(2026, 11, 30)}
 
-    def test_an_invalid_supplied_payload_preserves_the_existing_calendar(
+    def test_invalid_payload_keeps_the_existing_calendar(
         self, session: Session
     ) -> None:
         _seed_cache(session, "scotland")
@@ -426,22 +411,19 @@ class TestFetchingTheIndex:
         assert service.cache_payload(None) is False
         assert service.get_dates() == before
 
-    def test_the_default_fetch_boundary_is_public(
+    def test_default_fetch_boundary_is_public(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
         assert fetch_bank_holiday_index() == SAMPLE_RESPONSE
 
-    def test_a_fetch_that_outlasts_its_budget_is_an_unusable_response(
+    def test_fetch_past_its_budget_is_unusable(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """`httpx` bounds connecting and reading; neither bound covers DNS.
 
         `getaddrinfo` runs inside `socket.create_connection` with no timeout of
-        its own, so a resolver that has gone away holds every command that
-        fills an empty cache for as long as the operating system waits. The
-        answer arrives eventually here, and eventually is too late: the caller
-        has to be given the calendar it has rather than held for a resolver.
+        its own, so a resolver that has gone away holds the caller.
         """
         still_waiting = threading.Event()
 
@@ -476,7 +458,7 @@ class TestFetchingTheIndex:
             "bad-proxy-url",
         ],
     )
-    def test_a_shell_that_breaks_the_client_is_an_unusable_response(
+    def test_shell_that_breaks_the_client_is_unusable(
         self, failure: Exception, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The client is built from the environment, and can fail being built.
@@ -484,9 +466,7 @@ class TestFetchingTheIndex:
         `ALL_PROXY=socks5://...` without the socks extra raises `ImportError`,
         an `SSL_CERT_FILE` naming a removed bundle an `OSError`, a proxy URL
         with a bad port an `httpx.InvalidURL`. None is an `HTTPError`, and all
-        three come out of the constructor rather than the request, so the
-        documented `None` is all that stands between a shell variable and a
-        traceback out of every command that fills an empty cache.
+        come out of the constructor rather than the request.
         """
 
         def unbuildable(*_args: object, **_kwargs: object) -> None:
@@ -495,12 +475,12 @@ class TestFetchingTheIndex:
         monkeypatch.setattr(httpx.Client, "__init__", unbuildable)
         assert fetch_bank_holiday_index() is None
 
-    def test_an_explicitly_empty_calendar_is_valid(self) -> None:
+    def test_explicitly_empty_calendar_is_valid(self) -> None:
         assert (
             parse_bank_holidays({"scotland": {"events": []}}, Division.SCOTLAND) == ()
         )
 
-    def test_a_successful_empty_calendar_has_persisted_cache_state(
+    def test_successful_empty_calendar_has_persisted_cache_state(
         self, session: Session
     ) -> None:
         """No event rows is a known empty calendar, not an unavailable one."""
@@ -527,7 +507,7 @@ class TestFetchingTheIndex:
         assert svc.fill_if_empty() is True
         assert fetches == 1, "known-empty metadata must prevent a second fetch"
 
-    def test_an_empty_cache_is_filled_from_the_index(
+    def test_empty_cache_is_filled_from_the_index(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The first run online: nothing cached, so it fetches and now answers."""
@@ -541,13 +521,12 @@ class TestFetchingTheIndex:
 class TestRefreshingOnlyWhenItIsStale:
     """The two halves the launch worker composes.
 
-    `app.FlexiApp.refresh_holidays` asks `is_fresh` and only then fetches, so
-    that a fresh cache costs no round trip and a stale one is replaced. That
-    composition is asserted in `tests/tui/test_app.py`; what is asserted here
-    is that each half answers correctly on its own.
+    `app.FlexiApp.refresh_holidays` asks `is_fresh` and only then fetches. The
+    composition is asserted in `tests/tui/test_app.py`; each half is asserted
+    here on its own.
     """
 
-    def test_an_empty_cache_counts_as_stale(
+    def test_empty_cache_counts_as_stale(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """There is no `fetched_at` to be young, and nothing to answer with."""
@@ -558,7 +537,7 @@ class TestRefreshingOnlyWhenItIsStale:
         assert svc.fetch_and_cache() is True
         assert svc.holiday_on(date(2026, 1, 1)) is not None
 
-    def test_a_fresh_cache_is_not_asked_for_again(
+    def test_fresh_cache_is_not_asked_for_again(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A week is the whole point of caching a list that changes once a year."""
@@ -578,7 +557,7 @@ class TestRefreshingOnlyWhenItIsStale:
         assert svc.is_fresh() is True
         assert asked == [], "asking is free; only fetching is not"
 
-    def test_a_stale_cache_is_refreshed(
+    def test_stale_cache_is_refreshed(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Stale means a substitute day may have moved since it was written."""
@@ -607,9 +586,7 @@ class TestRefreshingOnlyWhenItIsStale:
             date(2026, 12, 25),
         }
 
-    def test_a_stale_cache_offline_is_kept_rather_than_lost(
-        self, session: Session
-    ) -> None:
+    def test_stale_cache_offline_is_kept(self, session: Session) -> None:
         """Last year's list beats no list at all when the train goes into a tunnel."""
         _seed_cache(session)
         session.query(BankHolidayRefresh).update(
@@ -651,13 +628,10 @@ class TestTitleLookup:
 
 
 class TestFillingTheCache:
-    """Nothing in the application ever filled it.
+    """`fill_if_empty`, the route to a populated cache from the command line.
 
-    The refresh had no caller in `src/`; the only route to a populated cache
-    was a Textual command-palette entry, so a person who used Flexi from the
-    command line could not reach one. An empty cache is not a quiet state: every
-    leave booking is refused, and every bank holiday is counted as a working day
-    nobody worked.
+    An empty cache refuses every leave booking and counts every bank holiday
+    as an unworked working day.
     """
 
     def test_it_fetches_when_there_is_nothing_at_all(self, session: Session) -> None:
@@ -667,15 +641,10 @@ class TestFillingTheCache:
         # The suite refuses outbound requests, so this is the offline first run.
         assert svc.fill_if_empty() is False
 
-    def test_it_does_not_fetch_when_there_is_already_a_calendar(
+    def test_it_does_not_fetch_over_an_existing_calendar(
         self, session: Session
     ) -> None:
-        """Stale is not empty.
-
-        A stale calendar answers correctly for the year it holds, so refreshing
-        it on the command line would put a network timeout in front of `flexi
-        clock in` once a week.
-        """
+        """A stale calendar answers correctly for the year it holds."""
         session.add_all(
             (
                 BankHolidayRefresh(
@@ -696,13 +665,8 @@ class TestFillingTheCache:
         assert svc.fill_if_empty() is True, "and stale is good enough to keep"
 
 
-def test_a_title_cannot_carry_instructions_to_a_terminal() -> None:
-    """Sanitised where it is read, not where it is drawn.
-
-    A title reaches a status bar, a records row, a leave plan and a tooltip,
-    and what is cached is what every one of them reads. Stripping at the sinks
-    leaves the poisoned row in the database and the next sink unprotected.
-    """
+def test_title_cannot_carry_instructions_to_a_terminal() -> None:
+    """Sanitised where it is read, because the cached row is what every sink reads."""
     payload = {
         "england-and-wales": {
             "events": [
@@ -733,11 +697,11 @@ def unreachable(asked: list[str]) -> BankHolidayFetcher:
 class TestNotAskingTwiceForTheSameSilence:
     """Opening the database fills an empty calendar, and every command opens it.
 
-    Offline, that put the whole fetch budget in front of `flexi clock in`, once
-    per command, for as long as the machine stayed offline.
+    A failed fetch is remembered, so the next command is not held for the whole
+    budget again.
     """
 
-    def test_a_failed_fetch_is_not_repeated_by_the_next_command(
+    def test_failed_fetch_is_not_repeated_by_the_next_command(
         self, session: Session
     ) -> None:
         asked: list[str] = []
@@ -749,7 +713,7 @@ class TestNotAskingTwiceForTheSameSilence:
         assert svc.fill_if_empty() is False
         assert asked == ["gov.uk"], "the second command asked again"
 
-    def test_the_cooldown_runs_out(self, session: Session) -> None:
+    def test_cooldown_runs_out(self, session: Session) -> None:
         """An hour later the machine may well be somewhere else."""
         asked: list[str] = []
         svc = BankHolidayService(
@@ -766,10 +730,8 @@ class TestNotAskingTwiceForTheSameSilence:
         assert svc.fill_if_empty() is False
         assert len(asked) == 2
 
-    def test_the_command_whose_job_is_the_asking_is_never_held_back(
-        self, session: Session
-    ) -> None:
-        """`flexi holidays refresh` is somebody saying "try again, now"."""
+    def test_explicit_refresh_is_never_held_back(self, session: Session) -> None:
+        """`flexi holidays refresh` is the user saying "try again, now"."""
         asked: list[str] = []
         svc = BankHolidayService(
             session, reading(Division.ENGLAND_AND_WALES), unreachable(asked)
@@ -779,10 +741,9 @@ class TestNotAskingTwiceForTheSameSilence:
         assert svc.fetch_and_cache() is False
         assert len(asked) == 2
 
-    def test_a_calendar_that_arrives_clears_the_cooldown(
+    def test_calendar_that_arrives_clears_the_cooldown(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Nothing should be left behind saying GOV.UK was no use."""
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         assert svc.fill_if_empty() is False, "the suite refuses outbound requests"
         assert svc.asked_recently() is True
@@ -811,12 +772,7 @@ class TestNotAskingTwiceForTheSameSilence:
 
 class TestTellingEmptyFromAbsent:
     def test_no_calendar_is_not_the_same_as_no_holidays(self, session: Session) -> None:
-        """They used to be the same mapping, and the difference is a real day.
-
-        `LedgerService` queried the cache table directly, so an absent calendar
-        looked exactly like a span with no holidays in it -- and a fresh install
-        booked a full day's deficit against every bank holiday without a word.
-        """
+        """`None` means no calendar; `{}` means a span with no holidays in it."""
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         assert svc.titles_between(date(2026, 1, 1), date(2026, 12, 31)) is None
 

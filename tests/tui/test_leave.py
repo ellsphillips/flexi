@@ -43,11 +43,11 @@ async def open_leave(pilot: Pilot[None]) -> None:
     await pilot.pause()
 
 
-# -- getting there ---------------------------------------------------------
+# ---- getting there ----
 
 
 async def test_f2_opens_the_leave_year(app_factory: AppFactory) -> None:
-    """It opens on the leave year, with the cursor on today."""
+    """Opens on the leave year, with the cursor on today."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -58,9 +58,8 @@ async def test_f2_opens_the_leave_year(app_factory: AppFactory) -> None:
 async def test_escape_leaves(app_factory: AppFactory) -> None:
     """With nothing selected, escape is the way out.
 
-    The calendar binds it too, to collapse a selection — a focused widget is
-    asked first, so it stands the binding down when there is nothing to
-    collapse rather than trapping somebody on the screen.
+    The calendar binds it too, to collapse a selection, and a focused widget
+    is asked first, so it stands the binding down with nothing to collapse.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -70,7 +69,7 @@ async def test_escape_leaves(app_factory: AppFactory) -> None:
         assert not isinstance(app.screen, LeaveScreen)
 
 
-async def test_the_whole_year_is_laid_out(app_factory: AppFactory) -> None:
+async def test_whole_year_is_laid_out(app_factory: AppFactory) -> None:
     """Thirteen months, because a leave year starting on the 6th touches both ends."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -78,14 +77,14 @@ async def test_the_whole_year_is_laid_out(app_factory: AppFactory) -> None:
         assert len(calendar(app).blocks) == 13
 
 
-# -- moving ----------------------------------------------------------------
+# ---- moving ----
 
 
 @pytest.mark.parametrize(
     ("key", "days"),
     [("right", 1), ("left", -1), ("down", 7), ("up", -7), ("l", 1), ("k", -7)],
 )
-async def test_the_cursor_moves(app_factory: AppFactory, key: str, days: int) -> None:
+async def test_cursor_moves(app_factory: AppFactory, key: str, days: int) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -109,7 +108,7 @@ async def test_shift_extends_and_escape_collapses(app_factory: AppFactory) -> No
         assert isinstance(app.screen, LeaveScreen), "escape collapsed, it did not leave"
 
 
-async def test_a_month_step_clamps_to_a_shorter_month(app_factory: AppFactory) -> None:
+async def test_month_step_clamps_to_a_shorter_month(app_factory: AppFactory) -> None:
     """From the 31st into a 30-day month lands on the 30th, not nowhere."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -124,14 +123,13 @@ async def test_a_month_step_clamps_to_a_shorter_month(app_factory: AppFactory) -
         assert calendar(app).selection.head == date(2026, 9, 30)
 
 
-async def test_home_and_end_reach_the_ends_of_the_year_without_leaving_it(
+async def test_home_and_end_stay_inside_the_year(
     app_factory: AppFactory,
 ) -> None:
-    """The grid draws whole months, so its first drawn day is in the year before.
+    """The grid draws whole months, so its first drawn day is the year before.
 
-    Landing on that day would take the screen off the leave year the cursor was
-    in, and that year is what every figure beside the calendar is measured over.
-    The widget knows the rule; this is the screen agreeing with it.
+    Landing there would take the screen off the leave year every figure beside
+    the calendar is measured over.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -150,7 +148,6 @@ async def test_home_and_end_reach_the_ends_of_the_year_without_leaving_it(
 
 
 async def test_t_brings_the_cursor_back_to_today(app_factory: AppFactory) -> None:
-    """Somewhere in October, one key is the way back to the day you are on."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -162,14 +159,10 @@ async def test_t_brings_the_cursor_back_to_today(app_factory: AppFactory) -> Non
         assert calendar(app).selection.head == TODAY
 
 
-async def test_go_to_a_date_in_another_leave_year_reloads_the_year(
+async def test_going_to_another_leave_year_reloads_it(
     app_factory: AppFactory,
 ) -> None:
-    """The grid only holds one leave year, so leaving it has to redraw it.
-
-    Without the reload the cursor is asked to land on a day the calendar has
-    never drawn, which is a jump that goes nowhere.
-    """
+    """The grid holds one leave year, so leaving it has to redraw it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -185,14 +178,13 @@ async def test_go_to_a_date_in_another_leave_year_reloads_the_year(
         assert leave.period.start == date(2028, 4, 6)
         assert calendar(app).selection.head == date(2028, 6, 14)
         assert calendar(app).border_subtitle == "nothing booked", (
-            "a year nobody has booked into says so rather than '0 days booked'"
+            "an unbooked year says so, not '0 days booked'"
         )
 
 
-async def test_go_to_a_date_in_this_year_moves_without_reloading(
+async def test_going_to_a_date_in_this_year_only_moves(
     app_factory: AppFactory,
 ) -> None:
-    """Within the year on screen there is nothing to rebuild, only to move to."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -212,12 +204,7 @@ async def test_go_to_a_date_in_this_year_moves_without_reloading(
 async def test_cancelling_go_to_date_leaves_the_cursor_alone(
     app_factory: AppFactory,
 ) -> None:
-    """Escape is not a quiet "go there anyway".
-
-    A cancelled prompt hands the callback `None`, so a date typed and then
-    thought better of has to be dropped — and a callback that took `None` for an
-    answer would ask the calendar to jump to nothing at all.
-    """
+    """A cancelled prompt hands the callback `None`, and the cursor stays put."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -235,16 +222,11 @@ async def test_cancelling_go_to_date_leaves_the_cursor_alone(
         assert calendar(app).selection.head == date(2026, 10, 14)
 
 
-# -- booking ---------------------------------------------------------------
+# ---- booking ----
 
 
 async def test_one_key_books_a_day(app_factory: AppFactory) -> None:
-    """No modal. The cursor is the subject.
-
-    A dialog in front of every single-day booking would cost more than it saves,
-    and the app books a day the way it clocks in: one key, immediately, visibly.
-    `x` takes it back, which is cheaper than being asked.
-    """
+    """No modal: the cursor is the subject, and `x` takes the day back."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -261,12 +243,7 @@ async def test_one_key_books_a_day(app_factory: AppFactory) -> None:
 
 
 async def test_one_key_books_a_range(app_factory: AppFactory) -> None:
-    """Five working days, and the weekend is not mentioned because it is not news.
-
-    A span is previewed before it is written. The screen used to call
-    `book_range`, which plans and commits in one breath, so it could book
-    eleven days, refuse the twelfth and tell you afterwards.
-    """
+    """A span is previewed before any of it is written."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -295,10 +272,9 @@ async def test_one_key_books_a_range(app_factory: AppFactory) -> None:
         assert "5 days" in status_text(app)
 
 
-async def test_the_preview_says_what_it_will_and_will_not_do(
+async def test_preview_says_what_it_will_skip(
     app_factory: AppFactory,
 ) -> None:
-    """A preview that only says "5 days" is a receipt written in advance."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -325,7 +301,6 @@ async def test_the_preview_says_what_it_will_and_will_not_do(
 
 
 async def test_space_cycles_the_portion_before_booking(app_factory: AppFactory) -> None:
-    """Half days are rare, so they cost one keystroke on the rare path."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -342,12 +317,7 @@ async def test_space_cycles_the_portion_before_booking(app_factory: AppFactory) 
 
 
 async def test_other_absence_goes_through_the_modal(app_factory: AppFactory) -> None:
-    """It needs a note, and a note needs somewhere to be typed.
-
-    On the type that was pressed: the modal opened on Annual whatever the key,
-    so a day of jury service was written as annual leave and came out of the
-    entitlement.
-    """
+    """`Other` needs a note, and the modal opens on the type that was pressed."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -370,10 +340,9 @@ async def test_other_absence_goes_through_the_modal(app_factory: AppFactory) -> 
         assert app.services.absence.get_remaining_annual_leave() == before
 
 
-async def test_the_modal_opens_on_the_portion_that_was_cycled(
+async def test_modal_opens_on_the_cycled_portion(
     app_factory: AppFactory,
 ) -> None:
-    """Every indicator on the screen said morning; the modal booked a full day."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -398,11 +367,7 @@ async def test_the_modal_opens_on_the_portion_that_was_cycled(
 
 
 async def test_cancelling_the_modal_books_nothing(app_factory: AppFactory) -> None:
-    """`e` then escape has to leave the day exactly as it was found.
-
-    The callback is handed `None` on a cancelled modal, and a callback that
-    treated that as an answer would book annual leave on the way out.
-    """
+    """A cancelled modal hands the callback `None`, which is not an answer."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -423,10 +388,10 @@ async def test_cancelling_the_modal_books_nothing(app_factory: AppFactory) -> No
 async def test_booking_a_weekend_books_nothing_and_says_so(
     app_factory: AppFactory,
 ) -> None:
-    """A Saturday is not refused, it is simply not a day leave is spent on.
+    """A Saturday is not refused; it is not a day leave is spent on.
 
-    Nothing is refused, so there is no refusal to quote back — and a key that
-    appears to do nothing is worse than one that says why it did nothing.
+    Nothing is refused, so there is no refusal to quote back and the screen
+    supplies the wording.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -441,15 +406,10 @@ async def test_booking_a_weekend_books_nothing_and_says_so(
         assert status_text(app) == "Nothing to book in that selection"
 
 
-async def test_booking_over_recorded_work_repeats_the_refusal_word_for_word(
+async def test_booking_over_work_repeats_the_refusal(
     app_factory: AppFactory,
 ) -> None:
-    """The plan already knows why; the screen must not invent its own wording.
-
-    A refusal names the thing in the way — here, hours already recorded on the
-    day — and "nothing to book in that selection" would send somebody looking
-    at the calendar for a day that is right there on it.
-    """
+    """The plan names what is in the way, and the screen quotes it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)  # the cursor opens on today, which has hours on it
@@ -461,8 +421,7 @@ async def test_booking_over_recorded_work_repeats_the_refusal_word_for_word(
         assert status_text(app) == "There is recorded work in that part of the day"
 
 
-async def test_the_wallet_moves_with_the_booking(app_factory: AppFactory) -> None:
-    """The question behind every booking is whether you can afford it."""
+async def test_wallet_moves_with_the_booking(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -479,15 +438,10 @@ async def test_the_wallet_moves_with_the_booking(app_factory: AppFactory) -> Non
         assert after.value == before + 1
 
 
-async def test_the_planner_says_when_an_allowance_has_run_out(
+async def test_planner_says_when_leave_runs_out(
     app_factory: AppFactory,
 ) -> None:
-    """The sidebar passed a hardcoded tone, so it never went amber or red.
-
-    On the one screen where the question is whether you can afford the booking,
-    an exhausted entitlement was drawn in the same green as an untouched one --
-    the dashboard's wallet, painting the same allowance, got this right.
-    """
+    """The gauge takes its tone from the allowance, so an empty one reads red."""
 
     def annual_tone() -> Tone:
         return app.screen.query_one("#leave-gauge-annual", Gauge).tone
@@ -505,7 +459,7 @@ async def test_the_planner_says_when_an_allowance_has_run_out(
         assert annual_tone() is Tone.ERR
 
 
-# -- removing --------------------------------------------------------------
+# ---- removing ----
 
 
 async def test_removing_a_day_is_immediate(app_factory: AppFactory) -> None:
@@ -525,7 +479,6 @@ async def test_removing_a_day_is_immediate(app_factory: AppFactory) -> None:
 
 
 async def test_removing_a_lot_asks_first(app_factory: AppFactory) -> None:
-    """A key that can wipe a fortnight without a word is pressed once, ever."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -555,11 +508,6 @@ async def test_removing_a_lot_asks_first(app_factory: AppFactory) -> None:
 
 
 async def test_agreeing_to_the_question_clears_the_lot(app_factory: AppFactory) -> None:
-    """Saying yes to the removal dialog has to actually remove them.
-
-    The dialog is only worth asking if the answer is acted on: a confirmation
-    whose `True` branch was never exercised is a dialog that quietly declines.
-    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -588,7 +536,7 @@ async def test_agreeing_to_the_question_clears_the_lot(app_factory: AppFactory) 
         assert "removed" in status_text(app)
 
 
-async def test_confirmation_does_not_remove_a_booking_added_after_the_preview(
+async def test_confirmation_ignores_a_booking_added_later(
     app_factory: AppFactory,
 ) -> None:
     """The modal approves the five shown rows, not a mutable calendar range."""
@@ -630,12 +578,7 @@ async def test_confirmation_does_not_remove_a_booking_added_after_the_preview(
 async def test_declining_the_question_keeps_every_day_of_it(
     app_factory: AppFactory,
 ) -> None:
-    """Escaping the dialog is not a quiet yes.
-
-    The whole point of asking is that the fortnight survives the wrong
-    keystroke, so the answer that arrives when nobody said yes has to leave the
-    bookings exactly where they were.
-    """
+    """Escaping the dialog is not a quiet yes."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -679,10 +622,10 @@ async def test_removing_nothing_says_so(app_factory: AppFactory) -> None:
         assert "Nothing booked" in status_text(app)
 
 
-# -- the surface -----------------------------------------------------------
+# ---- the surface ----
 
 
-async def test_the_seed_is_drawn(app_factory: AppFactory) -> None:
+async def test_seed_is_drawn(app_factory: AppFactory) -> None:
     """Bookings from the database reach the grid."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -701,10 +644,10 @@ async def test_every_panel_is_jumpable(app_factory: AppFactory) -> None:
             assert leave.query(f"#{widget_id}"), f"{widget_id} is not mounted"
 
 
-async def test_the_wallet_names_the_year_the_dashboard_names(
+async def test_wallet_names_the_dashboard_year(
     app_factory: AppFactory,
 ) -> None:
-    """One span, three panels, three spellings: `Apr 26` is not the 6th."""
+    """Three panels name one span the same way; `Apr 26` is not the 6th."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -712,7 +655,7 @@ async def test_the_wallet_names_the_year_the_dashboard_names(
         assert str(wallet.border_subtitle) == "6 Apr 26–5 Apr 27"
 
 
-async def test_the_rail_gives_way_when_there_is_no_room(
+async def test_rail_gives_way_when_there_is_no_room(
     app_factory: AppFactory,
 ) -> None:
     """At 36 cells the rail leaves the calendar four days of a week."""
@@ -723,7 +666,7 @@ async def test_the_rail_gives_way_when_there_is_no_room(
         assert app.screen.query_one("#leave-wallet-line").display is True
 
 
-async def test_the_grid_never_outgrows_its_panel(app_factory: AppFactory) -> None:
+async def test_grid_never_outgrows_its_panel(app_factory: AppFactory) -> None:
     """A week has to keep reading as a row at every width."""
     for size in ((120, 36), (84, 28), (64, 22)):
         app = app_factory()
@@ -733,17 +676,13 @@ async def test_the_grid_never_outgrows_its_panel(app_factory: AppFactory) -> Non
             assert grid.grid_width <= max(grid.content_size.width, grid.size.width)
 
 
-async def test_a_booking_made_elsewhere_shows_up_when_the_screen_is_told(
+async def test_booking_made_elsewhere_reaches_the_grid(
     app_factory: AppFactory,
 ) -> None:
-    """Every screen takes the same instruction, and the app gives it to all of them.
+    """`refresh_open_screens` invalidates once and tells every open screen.
 
-    The dashboard is not the only thing that can go stale: a booking written by
-    the command palette while the leave year is on screen has to reach the grid
-    without the user leaving and coming back. `refresh_open_screens` invalidates
-    once and tells every screen on the stack that can redraw — it used to find
-    the dashboard and tell only that, so this screen's own `refresh_modules`,
-    written "so the app can treat every screen alike", had no caller but a test.
+    A booking written by the command palette while the leave year is on screen
+    reaches the grid without the user leaving and coming back.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -761,14 +700,13 @@ async def test_a_booking_made_elsewhere_shows_up_when_the_screen_is_told(
         )
 
 
-async def test_a_resize_before_the_screen_is_mounted_redraws_nothing(
+async def test_resize_before_mount_redraws_nothing(
     app_factory: AppFactory,
 ) -> None:
     """The width class is applied on every resize; the selection line is not.
 
-    A `Resize` can reach the screen before `compose` has put the rail on it, and
-    `_draw_selection` reads three widgets that do not exist yet — so the guard
-    is the difference between a class being set and the screen failing to open.
+    A `Resize` can reach the screen before `compose` has put the rail on it,
+    and `_draw_selection` reads three widgets that do not exist yet.
     """
     app = app_factory()
     async with app.run_test(size=(64, 22)):
@@ -781,7 +719,7 @@ async def test_a_resize_before_the_screen_is_mounted_redraws_nothing(
         assert screen.has_class("-narrow"), "the width still gets recorded"
 
 
-# -- the preview, without a screen to put it on ----------------------------
+# ---- the preview, without a screen to put it on ----
 
 
 def _plan(days: tuple[PlannedDay, ...], **kwargs: object) -> AbsencePlan:
@@ -801,12 +739,8 @@ def _day(when: date, verdict: Verdict) -> PlannedDay:
     return PlannedDay(date=when, verdict=verdict, reason="")
 
 
-def test_the_preview_tells_a_weekend_from_a_bank_holiday() -> None:
-    """Both are passed over; only one of them is a day somebody would have spent.
-
-    Lumping the two together read as "3 non-working days", which quietly
-    presented a bank holiday as though it were a Saturday.
-    """
+def test_preview_tells_weekend_from_bank_holiday() -> None:
+    """Both are passed over, and only one is a day that would have been spent."""
     monday = date(2026, 8, 24)
     shown = preview(
         _plan(
@@ -823,7 +757,7 @@ def test_the_preview_tells_a_weekend_from_a_bank_holiday() -> None:
     assert "1 bank holiday" in shown
 
 
-def test_the_preview_counts_one_of_each_in_the_singular() -> None:
+def test_preview_counts_one_of_each_singular() -> None:
     monday = date(2026, 8, 24)
     shown = preview(
         _plan(
@@ -840,13 +774,8 @@ def test_the_preview_counts_one_of_each_in_the_singular() -> None:
     assert "1 day of 3" in shown, "and the headline agrees"
 
 
-def test_the_preview_names_a_bank_holiday_with_no_weekend_to_hide_behind() -> None:
-    """A midweek span skips nothing but the holiday, and has to say so.
-
-    The two counts are written separately precisely so one can appear without
-    the other; a preview that only mentioned the bank holiday when a Saturday
-    had been skipped as well would go quiet on the case that matters most.
-    """
+def test_preview_names_a_lone_bank_holiday() -> None:
+    """The two counts are written separately, so one can appear without the other."""
     monday = date(2026, 8, 24)
     shown = preview(
         _plan(
@@ -862,7 +791,7 @@ def test_the_preview_names_a_bank_holiday_with_no_weekend_to_hide_behind() -> No
     assert "non-working" not in shown, "there was no weekend in the span"
 
 
-def test_the_preview_keeps_cross_year_allowances_separate() -> None:
+def test_preview_keeps_cross_year_allowances_apart() -> None:
     monday = date(2026, 12, 28)
     shown = preview(
         _plan(
@@ -881,13 +810,8 @@ def test_the_preview_keeps_cross_year_allowances_separate() -> None:
     assert "Annual leave 2027: 2 → 1 left" in shown
 
 
-def test_the_preview_carries_the_warning_it_was_given() -> None:
-    """Agreeing to a week of TOIL means agreeing to the deficit it opens.
-
-    The warning is shown after the fact by `_after_write` either way; a
-    confirmation that withheld it until the days were written would be asking
-    the question with the answer's worst part left out.
-    """
+def test_preview_carries_its_warning() -> None:
+    """The warning belongs in the question, not only in the receipt after it."""
     monday = date(2026, 8, 24)
     days = tuple(_day(monday + timedelta(days=n), Verdict.BOOK) for n in range(3))
     plan = _plan(days, absence_type=AbsenceType.FLEXI, toil_available=0.0)
@@ -896,8 +820,7 @@ def test_the_preview_carries_the_warning_it_was_given() -> None:
     assert plan.warning in preview(plan)
 
 
-def test_overdrawing_the_balance_by_one_day_reads_as_one_day() -> None:
-    """`3 day into deficit` was the sentence being assembled in two places."""
+def test_overdrawing_by_one_day_reads_as_one_day() -> None:
     monday = date(2026, 8, 24)
     days = tuple(_day(monday + timedelta(days=n), Verdict.BOOK) for n in range(3))
 
@@ -908,13 +831,13 @@ def test_overdrawing_the_balance_by_one_day_reads_as_one_day() -> None:
     assert three.warning == "This takes the flexi balance 3 days into deficit"
 
 
-# -- the modal, on a span --------------------------------------------------
+# ---- the modal, on a span ----
 
 
-async def test_the_modal_shows_the_span_it_would_book(
+async def test_modal_shows_the_span_it_would_book(
     app_factory: AppFactory,
 ) -> None:
-    """`e` on a fortnight used to show one date and write fourteen days."""
+    """`e` on a span shows both ends before anything is written."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -949,7 +872,7 @@ async def test_the_modal_shows_the_span_it_would_book(
         assert len(booked) == 5
 
 
-async def test_the_modal_on_one_day_asks_for_one_date(
+async def test_modal_on_one_day_asks_for_one_date(
     app_factory: AppFactory,
 ) -> None:
     """A second field for a span of one is a field with nothing to say."""
@@ -969,7 +892,7 @@ async def test_the_modal_on_one_day_asks_for_one_date(
         assert len(app.services.absence.for_date(FREE_MONDAY)) == 1
 
 
-async def test_a_backwards_span_is_refused_before_it_is_written(
+async def test_backwards_span_is_refused(
     app_factory: AppFactory,
 ) -> None:
     app = app_factory()
@@ -993,15 +916,13 @@ async def test_a_backwards_span_is_refused_before_it_is_written(
         assert app.services.absence.in_range(FREE_MONDAY, FREE_MONDAY) == []
 
 
-async def test_the_cursor_leaving_the_shown_year_reloads_the_grid(
+async def test_cursor_leaving_the_year_reloads_the_grid(
     app_factory: AppFactory,
 ) -> None:
     """The calendar holds one leave year; the cursor is not confined to it.
 
-    Reached by moving the selection rather than by the go-to modal, which sets
-    the period itself. Here the calendar reports where it went and the screen
-    has to notice the date is outside what it drew -- otherwise the cursor sits
-    on a day the grid has never rendered.
+    Reached by moving the selection, not by the go-to modal: the calendar
+    reports where it went and the screen notices it is outside what it drew.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -1019,15 +940,10 @@ async def test_the_cursor_leaving_the_shown_year_reloads_the_grid(
         assert calendar(app).selection.head == date(2028, 6, 14)
 
 
-async def test_saving_settings_moves_the_leave_year_under_an_open_planner(
+async def test_settings_move_the_leave_year_under_the_planner(
     app_factory: AppFactory,
 ) -> None:
-    """The planner is measured against a leave year the settings own.
-
-    The app refreshes every open screen, not just the dashboard. Without this
-    the planner goes on drawing a year that starts where the settings used to
-    say, and books against the wrong twelve months.
-    """
+    """The planner is measured against a leave year the settings own."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -1057,18 +973,13 @@ async def test_saving_settings_moves_the_leave_year_under_an_open_planner(
         )
 
 
-# -- the cursor, the grid and the fold -------------------------------------
+# ---- the cursor, the grid and the fold ----
 
 
-async def test_the_planner_opens_with_the_cursor_on_the_year_it_draws(
+async def test_planner_opens_the_cursor_on_its_year(
     app_factory: AppFactory,
 ) -> None:
-    """The cursor lands on the year that is drawn.
-
-    Browsing last year on the dashboard and pressing f2 drew last year's grid
-    with the cursor still on today, which is not a day on it, so `A` booked a
-    day nobody could see and said so about a date off screen.
-    """
+    """The cursor lands on the year that is drawn, whatever was browsed."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("y")
@@ -1084,14 +995,12 @@ async def test_the_planner_opens_with_the_cursor_on_the_year_it_draws(
         assert head == screen.period.anchor
 
 
-async def test_the_cursor_is_on_screen_on_a_year_that_began_in_january(
+async def test_cursor_is_on_screen_in_a_january_year(
     app_factory: AppFactory,
 ) -> None:
     """A leave year starting five months ago opens scrolled to January.
 
-    The grid is taller than the panel, and nothing scrolled to the cursor on
-    open: the Selected panel named today and the tile it named was below the
-    fold.
+    The grid is taller than the panel, so the cursor has to be scrolled to.
     """
     app = app_factory()
     async with app.run_test(size=(120, 30)) as pilot:
@@ -1117,13 +1026,13 @@ async def test_the_cursor_is_on_screen_on_a_year_that_began_in_january(
         )
 
 
-# -- what the selection costs ----------------------------------------------
+# ---- what the selection costs ----
 
 
-async def test_a_bank_holiday_is_not_counted_as_a_working_day(
+async def test_bank_holiday_is_not_a_working_day(
     app_factory: AppFactory,
 ) -> None:
-    """The sidebar said five and the booking that followed said four of five."""
+    """The sidebar and the booking that follows count the same days."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -1142,14 +1051,13 @@ async def test_a_bank_holiday_is_not_counted_as_a_working_day(
         assert "4 days of 5" in screen_text(app)
 
 
-async def test_a_selection_reaching_past_the_drawn_year_still_counts(
+async def test_selection_past_the_drawn_year_counts(
     app_factory: AppFactory,
 ) -> None:
     """The grid holds one leave year and the selection is not confined to it.
 
-    Dragged over the boundary the calendar reloads on the new year, so the
-    anchor is a day it no longer holds a ledger for; the weekday pattern is
-    what answers for that day.
+    Dragged over the boundary the calendar reloads, so the anchor is a day it
+    holds no ledger for and the weekday pattern answers for it.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -1166,18 +1074,13 @@ async def test_a_selection_reaching_past_the_drawn_year_still_counts(
         assert "2 working days" in str(detail.render())
 
 
-# -- the keyboard on a dialog ----------------------------------------------
+# ---- the keyboard on a dialog ----
 
 
 async def test_enter_on_the_cancel_button_keeps_the_bookings(
     app_factory: AppFactory,
 ) -> None:
-    """Cancel is the one button that has to be trustworthy.
-
-    Tabbing to it and pressing enter removed the five days it was backing out
-    of: the modal's enter binding is priority, so it answered over the focused
-    button.
-    """
+    """The enter binding stands down while Cancel has focus."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_leave(pilot)
@@ -1209,13 +1112,13 @@ async def test_enter_on_the_cancel_button_keeps_the_bookings(
         assert len(kept) == 5, "cancel is the one button that has to be trustworthy"
 
 
-# -- what the modal says is left -------------------------------------------
+# ---- what the modal says is left ----
 
 
-async def test_the_allowance_hint_answers_for_the_year_being_booked(
+async def test_allowance_hint_follows_the_booked_year(
     app_factory: AppFactory,
 ) -> None:
-    """Next April is next year's allowance, and the hint read this year's."""
+    """Next April draws on next year's allowance."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         settings = app.services.settings

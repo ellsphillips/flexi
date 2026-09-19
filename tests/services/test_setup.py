@@ -1,15 +1,10 @@
 """What "am I set up" answers when the database will not say.
 
-Three doubts reach :func:`flexi.services.setup.is_initialised` and they do not
-resolve the same way. Before the migration stamp, a doubt means "not a Flexi",
-because a zero-byte file left by a crashed invocation stats exactly like an
-install. After it, the fail-safe inverts: a stamped database that will not
-answer a settings query belongs to somebody with a year of records, and telling
-them to run ``flexi init`` is the worst advice available.
-
-`tests/test_init_guard.py` covers the answers a normal install gives. These are
-the ones a damaged one gives, which is where the inversion is either right or
-silently backwards.
+Three doubts reach :func:`flexi.services.setup.is_initialised`, and the
+fail-safe inverts at the migration stamp. Before it a doubt means "not a
+Flexi", because a zero-byte file from a crashed invocation stats like an
+install. After it a doubt means "set up", because the database belongs to
+someone with a year of records who must not be sent to ``flexi init``.
 """
 
 from __future__ import annotations
@@ -44,16 +39,11 @@ needs_permissions = pytest.mark.skipif(
     sys.platform == "win32",
     reason="chmod on Windows sets the read-only bit and cannot deny a read",
 )
-"""The two tests below need a file the current user genuinely cannot open.
+"""The two tests below need a file the current user cannot open.
 
-`Path.chmod` on Windows is not that. It maps the whole mode onto the read-only
-attribute, so `chmod(0o000)` leaves a file every process can still read, and a
-test asserting otherwise would pass by describing something that had not
-happened. Denying a read there means an ACL, which is a great deal of machinery
-to reach a branch the other two platforms reach in a line.
-
-What is skipped is the *arrangement*, not the behaviour: `stamped_and_configured`
-has no platform in it, and a connection that raises is a connection that raises.
+`Path.chmod` on Windows maps the whole mode onto the read-only attribute, so
+`chmod(0o000)` leaves a file every process can still read. Denying a read there
+means an ACL. What is skipped is the arrangement, not the behaviour.
 """
 
 
@@ -61,7 +51,7 @@ has no platform in it, and a connection that raises is a connection that raises.
 def unreadable(tmp_path: Path) -> Iterator[Path]:
     """A database file the current user is not allowed to open.
 
-    Permissions are put back afterwards: a file nobody can read is a file the
+    Permissions are put back afterwards: an unreadable file is one the
     temporary directory cleanup cannot always remove either.
     """
     db = tmp_path / "db.db"
@@ -74,39 +64,29 @@ def unreadable(tmp_path: Path) -> Iterator[Path]:
 
 
 @needs_permissions
-def test_a_database_that_cannot_be_opened_is_not_an_install(unreadable: Path) -> None:
-    """Refusing to answer must not become a traceback before the first screen.
+def test_unreadable_database_is_not_an_install(unreadable: Path) -> None:
+    """``is_initialised`` is the first thing every command runs.
 
-    ``is_initialised`` is the first thing every command runs, and the file
-    existing is not the same as the file being readable — a database on a
-    detached network share, or one written by another user, reaches the
-    connection and raises. Answering "not set up" offers ``flexi init``;
-    raising prints a stack trace over the whole CLI.
+    A database on a detached share reaches the connection and raises. Answering
+    "not set up" offers ``flexi init``; raising prints a stack trace over the CLI.
     """
     assert setup.is_initialised(unreadable) is False
 
 
 @needs_permissions
-def test_an_unopenable_database_is_never_remembered_as_ready(
-    unreadable: Path,
-) -> None:
-    """Permission can be granted a second later, and nothing invalidates the memo."""
+def test_unreadable_database_is_not_remembered(unreadable: Path) -> None:
+    """Permission can be granted a second later, and nothing clears the memo."""
     setup.is_initialised(unreadable)
     unreadable.chmod(0o600)
 
     assert setup.is_initialised(unreadable) is True
 
 
-def test_a_file_that_is_not_a_database_is_not_answered_as_absent(
-    tmp_path: Path,
-) -> None:
-    """The third doubt, and the one the two above must not swallow.
+def test_file_that_is_not_a_database_raises(tmp_path: Path) -> None:
+    """A missing table is `OperationalError` and means there is no Flexi here.
 
-    "No such table" is `OperationalError` and means there is no Flexi here.
-    "File is not a database" and "database disk image is malformed" are the
-    plain `DatabaseError`, and they mean the opposite: something is there and
-    cannot be read. Answering False sends its owner to `flexi init`, which
-    offers to erase it.
+    "File is not a database" is the plain `DatabaseError` and means the opposite:
+    something is there and cannot be read. False would offer to erase it.
     """
     db = tmp_path / "db.db"
     db.write_bytes(b"\x00 not a database " * 128)
@@ -115,12 +95,11 @@ def test_a_file_that_is_not_a_database_is_not_answered_as_absent(
         setup.is_initialised(db)
 
 
-def test_a_stamp_table_with_no_stamp_in_it_is_not_an_install(tmp_path: Path) -> None:
+def test_empty_stamp_table_is_not_an_install(tmp_path: Path) -> None:
     """A migration interrupted between creating the table and writing the row.
 
-    The table exists, so the query succeeds and returns nothing at all. Reading
-    "no error" as "stamped" would send a half-migrated database on to the
-    settings check, where a missing settings row is generously forgiven.
+    The query succeeds and returns nothing. Reading that as "stamped" sends a
+    half-migrated database on to the settings check, which forgives a missing row.
     """
     db = tmp_path / "db.db"
     build(db, "CREATE TABLE alembic_version (version_num varchar(32))")
@@ -128,22 +107,17 @@ def test_a_stamp_table_with_no_stamp_in_it_is_not_an_install(tmp_path: Path) -> 
     assert setup.is_initialised(db) is False
 
 
-def test_a_stamped_database_with_no_settings_table_is_left_alone(
+def test_missing_settings_table_reads_as_set_up(
     tmp_path: Path,
 ) -> None:
-    """Past the stamp, an unanswerable question is not the user's problem.
-
-    Schema drift on a real database — a settings table renamed by a migration
-    this build has not heard of — has to read as "set up", because the
-    alternative is inviting somebody with a year of records to re-run setup.
-    """
+    """Schema drift past the stamp reads as set up, not as an uninstalled Flexi."""
     db = tmp_path / "db.db"
     build(db, *STAMP)
 
     assert setup.is_initialised(db) is True
 
 
-def test_a_stamped_database_without_settings_is_remembered(tmp_path: Path) -> None:
+def test_stamped_database_without_settings_is_remembered(tmp_path: Path) -> None:
     """The affirmative is memoised, so the second command does not reconnect."""
     db = tmp_path / "db.db"
     build(db, *STAMP)

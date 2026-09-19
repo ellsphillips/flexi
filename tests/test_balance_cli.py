@@ -1,4 +1,4 @@
-"""The balance commands, driven the way somebody would drive them."""
+"""The balance commands, driven from the command line."""
 
 from __future__ import annotations
 
@@ -21,11 +21,9 @@ from tests.conftest import session_at, sessions_on
 NOON = datetime(2026, 6, 10, 12, 0)
 """The clock these tests run against.
 
-`YESTERDAY` used to be `wallclock.today() - timedelta(days=1)`, evaluated when
-the module was imported. That reads the real clock once, before any test runs:
-the module cannot be exercised under a frozen clock at all, and a suite that
-starts before midnight and reaches this file after it compares two different
-days. Holding the clock still makes both go away.
+`YESTERDAY` is derived from it and not from `wallclock.today()`: a module-level
+read of the real clock happens before any test can freeze it, and a suite that
+crosses midnight would then compare two different days.
 """
 
 YESTERDAY = (NOON - timedelta(days=1)).date()
@@ -41,12 +39,8 @@ def _at_noon() -> Iterator[None]:
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A database somewhere harmless, with a short day recorded on it.
 
-    The path comes from `database_file()` under the throwaway XDG home the
-    root conftest sets, rather than from monkeypatching the binding in every
-    module that imported it. Doing it the second way meant remembering all of
-    them, and this fixture patched three of the four: `flexi.services.setup`
-    was missed, so the guard on every balance command read the developer's own
-    machine instead of the temporary one.
+    The path comes from `database_file()` under the throwaway XDG home the root
+    conftest sets, so every module that imported the binding reads that one.
     """
     db = database_file()
     db.parent.mkdir(parents=True, exist_ok=True)
@@ -74,7 +68,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_show_reports_the_balance(home: Path) -> None:
-    """It prints what the figure is made of, not just the figure."""
+    """The figure arrives with what it is made of."""
     result = CliRunner().invoke(cli, ["balance", "show"])
     assert result.exit_code == 0, result.output
     assert "worked" in result.output
@@ -82,13 +76,7 @@ def test_show_reports_the_balance(home: Path) -> None:
 
 
 def balance_of(runner: CliRunner, when: date | None = None) -> str:
-    """The figure on the `balance` line.
-
-    Read off the line rather than by splitting the whole output on the word,
-    which broke the moment anything was printed after it -- and something is:
-    `balance show` now says when there is no bank holiday calendar, because
-    that is the line the missing days are missing from.
-    """
+    """The figure on the `balance` line, which is not the last line printed."""
     args = ["balance", "show"]
     if when is not None:
         args += ["--as-of", when.isoformat()]
@@ -98,7 +86,6 @@ def balance_of(runner: CliRunner, when: date | None = None) -> str:
 
 
 def test_zero_settles_it(home: Path) -> None:
-    """It draws the line where it said it would."""
     runner = CliRunner()
     assert balance_of(runner, YESTERDAY) != "0:00"
 
@@ -110,11 +97,10 @@ def test_zero_settles_it(home: Path) -> None:
 
 
 def test_zeroing_leaves_today_alone(home: Path) -> None:
-    """Today is not over.
+    """The line is drawn at the end of yesterday, so today counts normally.
 
-    Absorbing its contracted hours before they have been worked would leave the
-    evening looking like unearned overtime, so the line is drawn at the end of
-    yesterday and today counts normally.
+    Absorbing today's contracted hours before they are worked would leave the
+    evening looking like unearned overtime.
     """
     runner = CliRunner()
     runner.invoke(cli, ["balance", "zero", "--yes"])
@@ -123,11 +109,9 @@ def test_zeroing_leaves_today_alone(home: Path) -> None:
 
 
 def test_zero_asks_before_it_writes(home: Path) -> None:
-    """Declining leaves the records exactly as they were.
+    """Declining exits 1, as a declined booking does, and writes nothing.
 
-    Exit 1, as a declined booking does: the write that was asked for did not
-    happen, and `flexi balance zero && flexi balance show` has to be able to
-    tell that from a settlement.
+    `flexi balance zero && flexi balance show` has to tell the two apart.
     """
     result = CliRunner().invoke(cli, ["balance", "zero"], input="n\n")
     assert result.exit_code == 1
@@ -135,7 +119,7 @@ def test_zero_asks_before_it_writes(home: Path) -> None:
     assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
 
 
-def test_the_settlement_question_is_asked_on_stderr(home: Path) -> None:
+def test_settlement_question_is_asked_on_stderr(home: Path) -> None:
     """`flexi balance zero > log` must not send the question into the file."""
     result = CliRunner().invoke(cli, ["balance", "zero"], input="n\n")
 
@@ -144,14 +128,13 @@ def test_the_settlement_question_is_asked_on_stderr(home: Path) -> None:
     assert "balance as at" in result.stdout, "the standing is the output"
 
 
-def test_settling_a_day_that_has_not_finished_shows_no_projection(
+def test_unfinished_day_is_refused_with_no_figure(
     home: Path,
 ) -> None:
-    """The refusal is the whole answer.
+    """The standing it would be sized from is a projection.
 
-    The standing it would be sized from is a projection in which every day
-    between now and then was worked zero hours, so printing it first offers a
-    figure of several hundred hours as a reading.
+    Every day between now and the date counts as zero hours worked, so printing
+    it first would offer several hundred hours as a reading.
     """
     result = CliRunner().invoke(cli, ["balance", "zero", "--as-of", "today", "--yes"])
 
@@ -160,14 +143,10 @@ def test_settling_a_day_that_has_not_finished_shows_no_projection(
     assert "balance as at" not in result.stdout
 
 
-def test_a_reason_that_is_not_utf8_is_refused_before_the_write(
+def test_non_utf8_reason_is_refused_before_the_write(
     home: Path,
 ) -> None:
-    """The adjustment reason is stored, so a lone surrogate reaches SQLite.
-
-    Without this it refuses after the standing has been printed and the
-    settlement agreed to, with a traceback as the only explanation.
-    """
+    """The reason is stored, so a lone surrogate would reach SQLite."""
     result = CliRunner().invoke(
         cli, ["balance", "zero", "--reason", "caf\udce9", "--yes"]
     )
@@ -186,7 +165,7 @@ def test_zero_is_refused_twice(home: Path) -> None:
     assert "already zero" in again.output
 
 
-def test_the_line_can_be_taken_back(home: Path) -> None:
+def test_settlement_can_be_taken_back(home: Path) -> None:
     """Log names the row, undo removes it, and the balance returns."""
     runner = CliRunner()
     runner.invoke(cli, ["balance", "zero", "--yes"])
@@ -202,7 +181,7 @@ def test_the_line_can_be_taken_back(home: Path) -> None:
     assert balance_of(runner, YESTERDAY) != "0:00"
 
 
-def test_the_work_records_are_untouched(home: Path) -> None:
+def test_work_records_are_untouched(home: Path) -> None:
     """Settling is a correction, never a deletion."""
     result = CliRunner().invoke(cli, ["balance", "zero", "--yes"])
     assert result.exit_code == 0, result.output
@@ -212,13 +191,11 @@ def test_the_work_records_are_untouched(home: Path) -> None:
         assert len(sessions_on(session, YESTERDAY)) == 1
 
 
-def test_as_of_reads_the_dates_the_rest_of_the_command_line_reads(home: Path) -> None:
-    """One grammar across one command line.
+def test_as_of_reads_the_same_dates_as_other_commands(home: Path) -> None:
+    """One date grammar across the whole command line.
 
-    `--as-of` was a `click.DateTime` accepting only `%Y-%m-%d`, so
-    `flexi leave annual friday` worked and `flexi balance show --as-of friday`
-    was a usage error — and the refusal named `%Y-%m-%d` rather than the forms
-    Flexi actually understands.
+    `--as-of` takes the words `flexi leave annual friday` takes, and its refusal
+    names the forms Flexi understands.
     """
     runner = CliRunner()
 

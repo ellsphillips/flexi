@@ -17,7 +17,7 @@ from flexi.models.database.lease import (
 )
 
 
-def test_the_lease_has_one_stable_path_beside_the_database(tmp_path: Path) -> None:
+def test_lease_sits_beside_the_database(tmp_path: Path) -> None:
     database = tmp_path / "records.db"
 
     assert lease_path(database) == tmp_path / "records.db.lock"
@@ -33,7 +33,7 @@ def test_application_lifetimes_may_share_a_database(tmp_path: Path) -> None:
         assert lease_path(database).read_bytes() == b"\0"
 
 
-def test_an_exclusive_owner_refuses_an_active_application(tmp_path: Path) -> None:
+def test_exclusive_owner_refuses_a_live_application(tmp_path: Path) -> None:
     database = tmp_path / "records.db"
 
     with (
@@ -48,7 +48,7 @@ def test_an_exclusive_owner_refuses_an_active_application(tmp_path: Path) -> Non
     assert "in use" in str(caught.value)
 
 
-def test_an_exclusive_lease_is_reusable_after_release(tmp_path: Path) -> None:
+def test_exclusive_lease_is_reusable_after_release(tmp_path: Path) -> None:
     database = tmp_path / "records.db"
 
     with database_lease(database, LeaseMode.EXCLUSIVE):
@@ -57,7 +57,7 @@ def test_an_exclusive_lease_is_reusable_after_release(tmp_path: Path) -> None:
         pass
 
 
-def test_a_negative_wait_is_rejected(tmp_path: Path) -> None:
+def test_negative_wait_is_rejected(tmp_path: Path) -> None:
     with (
         pytest.raises(ValueError, match="cannot be negative"),
         database_lease(tmp_path / "records.db", LeaseMode.SHARED, timeout=-0.01),
@@ -66,7 +66,7 @@ def test_a_negative_wait_is_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("timeout", [float("nan"), float("inf")])
-def test_a_non_finite_wait_is_rejected(tmp_path: Path, timeout: float) -> None:
+def test_non_finite_wait_is_rejected(tmp_path: Path, timeout: float) -> None:
     with (
         pytest.raises(ValueError, match="must be finite"),
         database_lease(tmp_path / "records.db", LeaseMode.SHARED, timeout=timeout),
@@ -89,16 +89,10 @@ def test_database_scope_holds_a_shared_lease_until_cleanup(tmp_path: Path) -> No
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
-def test_a_lease_that_makes_the_data_directory_makes_it_private(
+def test_lease_makes_a_private_data_directory(
     tmp_path: Path,
 ) -> None:
-    """The lease can be the first writer, so it owes the same 0700 as the rest.
-
-    `flexi init` takes an exclusive one before it snapshots, and a reset on a
-    machine whose data directory has gone recreates it here. A plain `mkdir`
-    leaves whatever the umask says, which on a shared machine is readable by
-    every other account.
-    """
+    """The lease can be the first writer, so it owes the same 0700 as the rest."""
     database = tmp_path / "share" / "flexi" / "records.db"
 
     with database_lease(database, LeaseMode.SHARED):

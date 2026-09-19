@@ -27,22 +27,11 @@ def contains_any(annotation: object, seen: frozenset[int] = frozenset()) -> bool
 def hints_of(function: object) -> Mapping[str, object]:
     """``get_type_hints``, with the function's own type parameters in scope.
 
-    A PEP 695 generic keeps its parameters in ``__type_params__``, and before
-    CPython 3.12.4 ``get_type_hints`` did not put them in the namespace it
-    evaluates a string annotation in. `flexi.config.section` is
-    ``def section[T: BaseModel](...) -> T``, and under `from __future__ import
-    annotations` that return type is the string ``"T"`` -- so resolving it
-    raised ``NameError: name 'T' is not defined``.
-
-    Which is not hypothetical: Ubuntu 24.04 LTS ships 3.12.3, that is the
-    interpreter the `ubuntu-latest · Python 3.12` rows of the matrix resolve to,
-    and all three of them were failing on it. The repo claims 3.12 support in
-    `requires-python`, so the oldest 3.12 anybody is likely to have is the one
-    that has to work.
-
-    Passing them explicitly costs nothing on a newer interpreter, and
-    `class_type_hints` below has always done exactly this for classes -- plain
-    functions were the case that was missed.
+    Before CPython 3.12.4 a PEP 695 generic's ``__type_params__`` are missing
+    from the namespace string annotations are evaluated in, so
+    `flexi.config.section`, ``def section[T: BaseModel](...) -> T``, raises
+    ``NameError: name 'T' is not defined`` on the 3.12.3 that `requires-python`
+    still admits.
     """
     parameters = {
         parameter.__name__: parameter
@@ -143,7 +132,7 @@ def target_names(target: ast.expr) -> Iterator[str]:
 
 
 def locally_defined_public_names(module: ModuleType) -> set[str]:
-    """Public values a module defines itself rather than imports."""
+    """Public values a module defines itself, ignoring what it imports."""
     path = Path(module.__file__ or "")
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found: set[str] = set()
@@ -180,14 +169,11 @@ def wildcard_names(module: ModuleType) -> set[str]:
 
 
 def check_declared_api(module: ModuleType) -> None:
-    """The ``__all__`` convention, asserted in the one place it is written down.
+    """Assert the ``__all__`` convention in the one place it is written down.
 
-    A tuple, because a list is an API somebody can append to at runtime; no
-    duplicates; and complete in both directions -- every public name the module
-    defines is exported, and a wildcard import receives exactly those.
-
-    Six test files ask this of their own package's leaves, so the rule lives
-    here once and the lists of modules live with the packages they describe.
+    A tuple, because a list can be appended to at runtime; no duplicates; and
+    complete both ways, so a wildcard import receives exactly the public names
+    the module defines.
     """
     assert isinstance(module.__all__, tuple)
     assert len(module.__all__) == len(set(module.__all__))

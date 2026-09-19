@@ -1,9 +1,9 @@
 """Flexi reads files from beside its own __file__, so they have to ship.
 
-A wheel that carries only the .py files installs cleanly, imports cleanly, and
-then dies on the first frame with a StylesheetError. These assertions run
-against whatever copy of the package is on the path, so running the suite
-against an installed wheel checks the built artefact rather than the source.
+A wheel carrying only the .py files installs cleanly, imports cleanly, and then
+dies on the first frame with a StylesheetError. These assertions run against
+whatever copy of the package is on the path, so running the suite against an
+installed wheel checks the built artefact.
 """
 
 import ast
@@ -31,8 +31,6 @@ NEVER_IMPORTED = {"tzdata"}
 
 `tzdata` is the zoneinfo database, which Windows does not ship and
 :mod:`zoneinfo` finds by looking for the package rather than by importing it.
-Declared here so the "declared and unused" check keeps its teeth: the exception
-is one name with a reason, not a hole in the rule.
 """
 
 DATA_FILES = [
@@ -52,13 +50,13 @@ def test_data_files_travel_with_the_package(relative: str) -> None:
     assert (PACKAGE / relative).is_file()
 
 
-def test_the_theme_can_be_parsed_from_the_installed_stylesheet() -> None:
+def test_theme_is_read_from_the_installed_stylesheet() -> None:
     """The palette is read out of the .tcss at import, not hard-coded."""
     assert THEME_PATH.is_file()
     assert "$c-" in THEME_PATH.read_text(encoding="utf-8")
 
 
-def test_the_package_ships_its_typing_marker() -> None:
+def test_package_ships_its_typing_marker() -> None:
     """Without py.typed, a downstream mypy silently ignores every annotation."""
     assert (PACKAGE / "py.typed").is_file()
 
@@ -70,8 +68,7 @@ def test_every_example_in_the_source_is_run() -> None:
     """`--doctest-modules` collects an allowlist, and `>>>` goes anywhere.
 
     `testpaths` names three trees under `src`. An example written in a fourth
-    reads as checked -- it is in the same house style, beside the same kind of
-    docstring -- and nothing runs it. `components/yearcalendar.py` carries two.
+    reads as checked, and nothing runs it.
     """
     spec = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     # By dotted name, not by directory: the package under test may be an
@@ -96,7 +93,7 @@ def test_every_example_in_the_source_is_run() -> None:
 
 @pytest.mark.skipif(not PROJECT_ROOT.joinpath("README.md").is_file(), reason="sdist")
 def test_the_readme_version_badge_matches_the_project() -> None:
-    """A hand-written badge is a fact that drifts the first time nobody looks."""
+    """A hand-written badge drifts from the version it names."""
     spec = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     badges = re.findall(r"/badge/version-([\d.]+)-", readme)

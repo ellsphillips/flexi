@@ -1,8 +1,7 @@
-"""Feature 6: the keyboard experience, as a set of rules rather than a list.
+"""Feature 6: the keyboard, as a set of rules.
 
-These tests discover what they check by walking the application, so a binding or
-a modal written next week is covered the day it is written rather than the day
-somebody remembers to add a test for it.
+These tests discover what they check by walking the application, so a binding
+or a modal written next week is covered the day it is written.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from tests.tui.conftest import WIDE, AppFactory, showing
 
 
 def modal_classes() -> list[type[FlexiModal[Any]]]:
-    """Every modal in the package, found by walking it."""
+    """Find every modal in the package by walking it."""
     found: list[type[FlexiModal[Any]]] = []
     for info in pkgutil.walk_packages(flexi.screens.__path__, "flexi.screens."):
         module = import_module(info.name)
@@ -41,11 +40,11 @@ def modal_classes() -> list[type[FlexiModal[Any]]]:
     return found
 
 
-# -- bindings --------------------------------------------------------------
+# ---- bindings ----
 
 
 async def test_no_two_shown_bindings_share_a_key(app_factory: AppFactory) -> None:
-    """It never advertises one key doing two things on the same screen."""
+    """One key is never advertised for two actions on one screen."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -63,11 +62,7 @@ async def test_no_two_shown_bindings_share_a_key(app_factory: AppFactory) -> Non
 async def test_every_binding_names_an_action_that_exists(
     app_factory: AppFactory,
 ) -> None:
-    """It fails here rather than doing nothing when the key is pressed.
-
-    A typo in an action name is otherwise silent until a user presses the key and
-    finds that it does nothing at all.
-    """
+    """A typo in an action name is otherwise silent until the key is pressed."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -83,8 +78,8 @@ async def test_every_binding_names_an_action_that_exists(
             )
 
 
-async def test_the_key_strip_says_how_many_it_dropped(app_factory: AppFactory) -> None:
-    """It spends its last columns on a pointer rather than half a key."""
+async def test_key_strip_says_how_many_it_dropped(app_factory: AppFactory) -> None:
+    """The last columns hold a count of what was dropped, not half a key."""
     app = app_factory()
     async with app.run_test(size=(64, 24)) as pilot:
         await pilot.pause()
@@ -97,8 +92,7 @@ async def test_the_key_strip_says_how_many_it_dropped(app_factory: AppFactory) -
         assert "more" in text
 
 
-def test_an_entry_costs_its_two_strings_plus_its_margin() -> None:
-    """The formula the strip measures with, checked rather than trusted."""
+def test_entry_costs_two_strings_and_a_margin() -> None:
     assert footer_key_cost("^q", "Quit") == 8
 
 
@@ -111,24 +105,22 @@ def test_an_entry_costs_its_two_strings_plus_its_margin() -> None:
         ([5, 5, 5], 10, 8, 0),  # not even one entry survives beside the notice
     ],
 )
-def test_the_strip_reserves_room_for_its_own_overflow_notice(
+def test_strip_reserves_room_for_its_notice(
     costs: list[int], budget: int, marker: int, shown: int
 ) -> None:
-    """A strip that overflowed *and* hid the fact is the failure to prevent."""
     assert keys_that_fit(costs, budget, marker) == shown
 
 
-# -- modals ----------------------------------------------------------------
+# ---- modals ----
 
 
 def test_there_are_modals_to_check() -> None:
-    """It fails loudly if the discovery above stops finding anything."""
+    """Fails if the discovery above stops finding anything."""
     assert len(modal_classes()) >= 3
 
 
 @pytest.mark.parametrize("modal", modal_classes(), ids=lambda cls: cls.__name__)
 def test_every_modal_binds_escape_and_enter(modal: type[FlexiModal[Any]]) -> None:
-    """It keeps the contract every dialog in the application keeps."""
     keys = {
         binding.key if isinstance(binding, Binding) else binding[0]
         for binding in modal.BINDINGS
@@ -137,15 +129,14 @@ def test_every_modal_binds_escape_and_enter(modal: type[FlexiModal[Any]]) -> Non
     assert "enter" in keys
 
 
-# -- the pointer -----------------------------------------------------------
+# ---- the pointer ----
 
 
 async def test_clicking_a_tab_navigates(app_factory: AppFactory) -> None:
-    """Every nav item is a widget with a hover state so a pointer works.
+    """Every nav item is a widget with a hover state, so a pointer works.
 
-    It did not, for a while: `NavItemLabel` posted `NavBar.Selected` and nothing
-    listened, so the tabs looked clickable and were not. The keys and the
-    pointer have to arrive at the same place.
+    `NavItemLabel` posts `NavBar.Selected`, and the keys and the pointer have
+    to arrive at the same place.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -169,8 +160,8 @@ async def test_clicking_a_tab_navigates(app_factory: AppFactory) -> None:
         assert not isinstance(app.screen, InsightsScreen)
 
 
-async def test_the_active_tab_is_marked(app_factory: AppFactory) -> None:
-    """It says where you are, not only where you can go."""
+async def test_active_tab_is_marked(app_factory: AppFactory) -> None:
+    """The bar says where you are, not only where you can go."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -182,11 +173,11 @@ async def test_the_active_tab_is_marked(app_factory: AppFactory) -> None:
         assert active == ["dashboard"]
 
 
-# -- help ------------------------------------------------------------------
+# ---- help ----
 
 
 async def test_question_mark_lists_flexi_bindings_only(app_factory: AppFactory) -> None:
-    """It shows what Flexi added, not Textual's eight scroll bindings."""
+    """Flexi's own bindings, not Textual's scroll bindings."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("question_mark")
@@ -204,7 +195,6 @@ async def test_question_mark_lists_flexi_bindings_only(app_factory: AppFactory) 
 
 
 async def test_help_closes_on_escape(app_factory: AppFactory) -> None:
-    """It leaves the way every other dialog does."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("question_mark")
@@ -217,12 +207,7 @@ async def test_help_closes_on_escape(app_factory: AppFactory) -> None:
 async def test_help_leaves_out_the_keys_the_widget_only_inherited(
     app_factory: AppFactory,
 ) -> None:
-    """A Flexi table is still a `DataTable`, and the filter asked the widget.
-
-    So the Records group advertised Cursor Left and Page Right — a row cursor
-    moves up and down — and the dashboard's group opened with Focus Next and
-    Copy selected text.
-    """
+    """A Flexi table is still a `DataTable`, and the filter asks the widget."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -247,11 +232,7 @@ async def test_help_leaves_out_the_keys_the_widget_only_inherited(
 async def test_help_lists_every_key_an_action_answers_to(
     app_factory: AppFactory,
 ) -> None:
-    """`left,h` is one binding in the source and two in `active_bindings`.
-
-    Keeping the first of the pair left the vim keys off the one page that
-    lists the keyboard, and the key strip has no room for them either.
-    """
+    """`left,h` is one binding in the source and two in `active_bindings`."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("f2")
@@ -264,6 +245,6 @@ async def test_help_lists_every_key_an_action_answers_to(
         assert {"↓ / j", "↑ / k", "→ / l"} <= set(calendar)
 
 
-def test_a_binding_no_class_declares_belongs_to_nobody() -> None:
+def test_binding_no_class_declares_is_unowned() -> None:
     """The walk falls off the end of the MRO for a node with no bindings at all."""
     assert not declared_by_flexi(object(), Binding("x", "nothing", "Nothing"))

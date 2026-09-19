@@ -1,11 +1,8 @@
 """Which backups the pruner is allowed to take.
 
-Ten routine snapshots accumulate over a fortnight of ordinary upgrades, because
-one is taken before every migration. The snapshot written before a reset is not
-routine: it is the only copy of records somebody chose to erase, and `flexi init`
-tells them so before asking them to type the word. A pruner that sorts by age
-alone deletes exactly that file, and does it soonest for the people who reset
-longest ago.
+One snapshot is taken before every migration, so routine backups accumulate.
+The snapshot written before a reset is not routine: it is the only copy of the
+erased records, and sorting by age alone deletes it first.
 """
 
 from __future__ import annotations
@@ -22,12 +19,7 @@ from flexi.models.database.backup import PROTECTED_PREFIX
 
 @pytest.fixture
 def backups(tmp_path: Path) -> Path:
-    """The directory the pruner is pointed at.
-
-    Handed to it rather than patched onto the module: it takes the directory it
-    deletes from, so a test does not have to redirect an ambient lookup to say
-    which one it means.
-    """
+    """The directory the pruner is pointed at, passed as an argument."""
     directory = tmp_path / "backups"
     directory.mkdir()
     return directory
@@ -41,23 +33,18 @@ def routine(directory: Path, count: int) -> None:
         os.utime(path, (1_000_000 + n, 1_000_000 + n))
 
 
-def test_ten_routine_snapshots_are_what_is_kept() -> None:
-    """The number itself, which the README states as a promise.
-
-    Every other test in this file is written against the constant, so all of
-    them pass whatever it is moved to, and the "newest ten kept" in README's
-    "Your data" quietly stops being true.
-    """
+def test_max_backups_is_ten() -> None:
+    """The number README's "Your data" promises; the rest read the constant."""
     assert migrate.MAX_BACKUPS == 10
 
 
-def test_it_keeps_only_the_most_recent_routine_backups(backups: Path) -> None:
+def test_only_the_newest_routine_backups_survive(backups: Path) -> None:
     routine(backups, migrate.MAX_BACKUPS + 5)
     migrate.prune_backups(backups)
     assert len(list(backups.glob("*.bak"))) == migrate.MAX_BACKUPS
 
 
-def test_the_snapshot_taken_before_a_reset_is_never_pruned(backups: Path) -> None:
+def test_reset_snapshot_is_never_pruned(backups: Path) -> None:
     """Being the oldest file there is what makes it the one at risk."""
     protected = backups / f"{PROTECTED_PREFIX}db_20260101T000000Z.bak"
     protected.write_bytes(b"the only copy of the erased records")
@@ -69,16 +56,10 @@ def test_the_snapshot_taken_before_a_reset_is_never_pruned(backups: Path) -> Non
     assert protected.is_file(), "the one file that cannot be recreated was pruned"
 
 
-def test_the_backup_just_taken_is_kept_whatever_its_timestamp_says(
+def test_backup_just_taken_is_kept(
     backups: Path,
 ) -> None:
-    """Age is the filesystem's account of a file, not the pruner's own.
-
-    The copy handed to `keep` was written by the migration that is about to
-    run. A restored or network-hosted directory can date it behind every file
-    already there, and deleting it removes the only way back from the upgrade
-    it was taken for.
-    """
+    """A restored directory can date the copy `keep` names behind every other."""
     routine(backups, migrate.MAX_BACKUPS)
     fresh = backups / "db_20200101T000000Z.bak"
     fresh.write_bytes(b"the copy this upgrade depends on")
@@ -90,8 +71,8 @@ def test_the_backup_just_taken_is_kept_whatever_its_timestamp_says(
     assert len(list(backups.glob("*.bak"))) == migrate.MAX_BACKUPS
 
 
-def test_protected_snapshots_do_not_use_up_the_allowance(backups: Path) -> None:
-    """Somebody who has reset twice still keeps ten routine backups."""
+def test_protected_snapshots_do_not_use_the_allowance(backups: Path) -> None:
+    """A user who has reset twice still keeps `MAX_BACKUPS` routine backups."""
     for n in range(2):
         kept = backups / f"{PROTECTED_PREFIX}db_2026010{n}T000000Z.bak"
         kept.write_bytes(b"protected")
@@ -107,18 +88,15 @@ def test_protected_snapshots_do_not_use_up_the_allowance(backups: Path) -> None:
     )
 
 
-def test_a_pruner_that_cannot_delete_complains_rather_than_failing_the_upgrade(
+def test_failed_prune_warns_without_raising(
     backups: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Housekeeping runs after the backup it is tidying up after has been taken.
+    """Housekeeping runs after the backup it is tidying up for has been taken.
 
-    A full disk or a directory somebody has made read-only must not turn a
-    successful migration into a failed one: the copy that mattered is already
-    written, and the only thing left undone is deleting files that are allowed
-    to keep existing. It is still worth saying so, because a pruner that has
-    quietly stopped working is how a data directory reaches a hundred backups.
+    A full disk or a read-only directory must not turn a successful migration
+    into a failed one, and a silent pruner reaches a hundred backups.
     """
 
     def refuse(_self: Path, **_kwargs: object) -> None:

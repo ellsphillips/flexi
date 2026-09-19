@@ -35,17 +35,16 @@ MODULE_NAMES = tuple(
 
 
 @pytest.mark.parametrize("module_name", MODULE_NAMES)
-def test_each_service_module_exports_every_local_public_name(module_name: str) -> None:
+def test_each_module_exports_its_public_names(module_name: str) -> None:
     check_declared_api(importlib.import_module(f"flexi.services.{module_name}"))
 
 
 @pytest.mark.parametrize("module_name", MODULE_NAMES)
 def test_every_service_annotation_resolves(module_name: str) -> None:
-    """The check the other four packages already make of their leaves."""
     check_public_annotations(importlib.import_module(f"flexi.services.{module_name}"))
 
 
-def test_the_facade_has_one_unambiguous_route_to_every_export() -> None:
+def test_facade_routes_to_every_export_once() -> None:
     owners: defaultdict[str, list[str]] = defaultdict(list)
     modules = {
         name: importlib.import_module(f"flexi.services.{name}") for name in MODULE_NAMES
@@ -65,14 +64,14 @@ def test_the_facade_has_one_unambiguous_route_to_every_export() -> None:
             assert getattr(service_api, public_name) is getattr(module, public_name)
 
 
-def test_composition_api_is_available_from_the_typed_facade() -> None:
+def test_typed_facade_exposes_composition() -> None:
     factory: Callable[[Session], RegistryServices] = facade_build_services
 
     assert assert_type(FacadeServices, type[RegistryServices]) is RegistryServices
     assert factory is build_services
 
 
-def test_services_is_a_frozen_session_free_data_bundle(session: Session) -> None:
+def test_services_is_frozen_and_session_free(session: Session) -> None:
     services = build_services(session)
 
     assert {field.name for field in fields(services)} == {
@@ -111,9 +110,7 @@ def test_composition_function_annotations_resolve() -> None:
         assert get_type_hints(operation)
 
 
-def test_a_lazily_resolved_symbol_is_cached(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_lazily_resolved_symbol_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delitem(vars(service_api), "build_services", raising=False)
     with patch("importlib.import_module", wraps=importlib.import_module) as load:
         assert service_api.build_services is build_services
@@ -126,7 +123,7 @@ def test_dir_lists_unresolved_public_names() -> None:
     assert set(service_api.__all__) <= set(dir(service_api))
 
 
-def test_an_unknown_service_attribute_still_raises() -> None:
+def test_unknown_attribute_still_raises() -> None:
     name = "not_a_service"
     with pytest.raises(
         AttributeError,
@@ -135,8 +132,8 @@ def test_an_unknown_service_attribute_still_raises() -> None:
         getattr(service_api, name)
 
 
-def test_setup_import_stays_independent_of_the_service_graph() -> None:
-    """Use a fresh interpreter so this worker's earlier imports cannot hide one."""
+def test_setup_import_avoids_the_service_graph() -> None:
+    """A fresh interpreter, so imports from earlier tests cannot mask one."""
     script = """
 import sys
 

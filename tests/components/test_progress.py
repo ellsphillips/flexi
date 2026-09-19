@@ -1,10 +1,4 @@
-"""The rails under the header: how far through the day, and the period.
-
-A rail is asked directly rather than through the dashboard. The arithmetic and
-the trimming are the whole widget, and the states worth checking — a day that
-expects nothing, a terminal with no room for a bar — are ones the seeded
-dashboard never happens to be in.
-"""
+"""The rails under the header: how far through the day, and through the period."""
 
 from __future__ import annotations
 
@@ -22,20 +16,14 @@ WIDE = (60, 6)
 
 
 class Rail(App[None]):
-    """One rail, so it has a width and the component styles it draws with."""
+    """A single rail, mounted so it has a width and its component styles."""
 
     def compose(self) -> ComposeResult:
         yield ProgressRail("TODAY", id="rail-day")
 
 
-def test_a_day_that_expects_nothing_is_complete_rather_than_undefined() -> None:
-    """A share of nothing has no answer, and the rail still has to draw.
-
-    A Sunday, a bank holiday and a day of booked leave all expect nothing, so
-    this is not a corner: it is two days in seven. An hour worked against no
-    expectation is the whole of what was asked for, and no hours at all is none
-    of it.
-    """
+def test_zero_expected_still_has_a_share() -> None:
+    """An hour against no expectation is all of it; no hours at all is none."""
     rail = ProgressRail("TODAY")
 
     rail.show(timedelta(hours=1), timedelta())
@@ -45,12 +33,7 @@ def test_a_day_that_expects_nothing_is_complete_rather_than_undefined() -> None:
     assert rail.share == 0.0
 
 
-async def test_a_rail_with_nothing_expected_shows_the_hours_it_has() -> None:
-    """A readout of "0:45 of 0:00" says nothing that "0:45" does not say better.
-
-    The second one also says the thing worth knowing about a Sunday, which is
-    that the hours on it were not owed to anybody.
-    """
+async def test_zero_expected_shows_the_hours_alone() -> None:
     app = Rail()
     async with app.run_test(size=WIDE) as pilot:
         rail = app.query_one(ProgressRail)
@@ -64,12 +47,7 @@ async def test_a_rail_with_nothing_expected_shows_the_hours_it_has() -> None:
         assert str(rail.render()).endswith("—")
 
 
-async def test_a_compact_rail_gives_up_its_figures_before_its_bar() -> None:
-    """Under the header there is room for a bar or for two durations, not both.
-
-    The bar is the thing that can be read without reading, so the pair of
-    durations is what goes, and a percentage stands in for them.
-    """
+async def test_compact_rail_keeps_the_bar_and_a_percentage() -> None:
     app = Rail()
     async with app.run_test(size=WIDE) as pilot:
         rail = app.query_one(ProgressRail)
@@ -81,13 +59,8 @@ async def test_a_compact_rail_gives_up_its_figures_before_its_bar() -> None:
         assert TRACK in drawn
 
 
-async def test_a_rail_too_narrow_for_a_bar_keeps_the_figures() -> None:
-    """The figures are the answer; the bar is the gloss on it.
-
-    A track squeezed into three cells cannot show a share to a resolution
-    anybody could read, and it takes those cells from the only part of the rail
-    that still means something at that width.
-    """
+async def test_narrow_rail_drops_the_bar_for_the_figures() -> None:
+    """A track squeezed into three cells cannot show a share anyone can read."""
     app = Rail()
     async with app.run_test(size=NARROW) as pilot:
         rail = app.query_one(ProgressRail)

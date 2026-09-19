@@ -1,9 +1,7 @@
-"""Recording work nobody clocked at the time.
+"""Recording work that was not clocked at the time.
 
-A morning nobody punched in for is still a morning that was worked, and the
-alternative to recording it is a balance that is quietly wrong. What is checked
-here is that a correction counts for everything a punched session counts for,
-stays distinguishable from one, and cannot be used to claim the same hour twice.
+A correction counts for everything a punched session counts for, stays
+distinguishable from one, and cannot be used to claim the same hour twice.
 """
 
 from __future__ import annotations
@@ -40,12 +38,10 @@ NOW = datetime.combine(TODAY, time(10, 0), tzinfo=UTC)
 def _on_the_day() -> Iterator[None]:
     """Hold the clock at TODAY, which every test here already passes as `now`.
 
-    Every `correct` call names its own day, but the two tests that also punch
-    called `clock_in()` bare and got the real one. That made them a lottery on
-    the date the suite happened to run: `tests/services/conftest.py` seeds a
-    bank holiday on 31 August, and `clock_in` refuses one, so on that day the
-    open session was never created and the assertion below it failed. The same
-    trap took `test_stale_sessions.py` out on 1 September.
+    Every `correct` call names its own day, but the tests that also punch call
+    `clock_in()` bare. `tests/services/conftest.py` seeds a bank holiday on 31
+    August and `clock_in` refuses one, so an unpinned clock makes those tests
+    depend on the date the suite runs on.
     """
     with time_machine.travel(NOW, tick=False):
         yield
@@ -61,10 +57,10 @@ def clock(services: Services) -> ClockService:
     return services.clock
 
 
-# -- what it records ---------------------------------------------------------
+# What it records ------------------------------------------------------------
 
 
-def test_a_correction_counts_as_work(clock: ClockService, session: Session) -> None:
+def test_corrections_count_as_work(clock: ClockService, session: Session) -> None:
     """It is the same hours; only the way they were captured differs."""
     result = clock.correct(MONDAY, time(9, 0), time(12, 30), now=TODAY)
 
@@ -74,7 +70,9 @@ def test_a_correction_counts_as_work(clock: ClockService, session: Session) -> N
     assert day.worked == timedelta(hours=3, minutes=30)
 
 
-def test_a_correction_is_marked_as_one(clock: ClockService, session: Session) -> None:
+def test_corrections_are_marked_as_amended(
+    clock: ClockService, session: Session
+) -> None:
     """Both of its events say so, which is what the strip and the review read."""
     clock.correct(MONDAY, time(9, 0), time(12, 30), now=TODAY)
 
@@ -85,18 +83,14 @@ def test_a_correction_is_marked_as_one(clock: ClockService, session: Session) ->
 
 
 def test_two_corrections_can_share_a_day(clock: ClockService) -> None:
-    """A morning and an afternoon are two stretches, not one long one.
-
-    The index that admits a single *open* session says nothing about closed
-    ones, which is what lets a day be corrected a piece at a time.
-    """
+    """The index that admits one open session says nothing about closed ones."""
     assert clock.correct(MONDAY, time(9, 0), time(12, 30), now=TODAY).success
     assert clock.correct(MONDAY, time(13, 30), time(17, 0), now=TODAY).success
 
     assert len(clock.segments_on(MONDAY)) == 2
 
 
-# -- what it refuses ---------------------------------------------------------
+# What it refuses ------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -106,7 +100,7 @@ def test_two_corrections_can_share_a_day(clock: ClockService) -> None:
         (time(9, 0), time(9, 0), CORRECTION_EMPTY),
     ],
 )
-def test_a_window_that_is_not_a_window_is_refused(
+def test_inverted_or_empty_windows_are_refused(
     clock: ClockService, opened: time, closed: time, refusal: str
 ) -> None:
     """Neither is a typo worth guessing at: one is inverted, one is nothing."""
@@ -117,7 +111,7 @@ def test_a_window_that_is_not_a_window_is_refused(
     assert clock.segments_on(MONDAY) == []
 
 
-def test_a_day_that_has_not_happened_cannot_be_corrected(clock: ClockService) -> None:
+def test_future_day_cannot_be_corrected(clock: ClockService) -> None:
     """Work recorded forward is not a correction, it is a plan."""
     result = clock.correct(
         TODAY + timedelta(days=1), time(9, 0), time(17, 0), now=TODAY
@@ -141,15 +135,10 @@ def test_today_can_still_be_corrected(clock: ClockService) -> None:
         (time(10, 0), time(11, 0)),  # inside it
     ],
 )
-def test_a_correction_may_not_claim_an_hour_twice(
+def test_overlapping_corrections_are_refused(
     clock: ClockService, opened: time, closed: time
 ) -> None:
-    """Refused rather than merged.
-
-    Two stretches sharing an hour is a day that counts it twice, and no rule for
-    reconciling them is better than a person looking at both and saying which is
-    right.
-    """
+    """Two stretches sharing an hour is a day that counts it twice."""
     assert clock.correct(MONDAY, time(9, 0), time(12, 30), now=TODAY).success
 
     result = clock.correct(MONDAY, opened, closed, now=TODAY)
@@ -159,36 +148,30 @@ def test_a_correction_may_not_claim_an_hour_twice(
     assert len(clock.segments_on(MONDAY)) == 1
 
 
-def test_a_correction_may_touch_the_end_of_another(clock: ClockService) -> None:
+def test_corrections_may_touch_end_to_end(clock: ClockService) -> None:
     """Ending at one and starting at one is a break of nothing, not an overlap."""
     assert clock.correct(MONDAY, time(9, 0), time(13, 0), now=TODAY).success
 
     assert clock.correct(MONDAY, time(13, 0), time(17, 0), now=TODAY).success
 
 
-def test_a_correction_does_not_collide_with_a_running_session(
+def test_past_day_correction_leaves_an_open_session(
     clock: ClockService,
 ) -> None:
-    """Clocking in opens a session; correcting a past day is not that.
-
-    They share a table and one partial index, so a correction written while
-    somebody is on the clock has to leave the open session alone.
-    """
+    """They share a table and one partial index, so the open session is untouched."""
     assert clock.clock_in().success
     assert clock.correct(MONDAY, time(9, 0), time(17, 0), now=TODAY).success
     assert clock.is_clocked_in() is True
 
 
-def test_a_correction_may_not_claim_hours_a_running_session_is_claiming(
+def test_correction_cannot_claim_a_running_sessions_hours(
     clock: ClockService, session: Session
 ) -> None:
-    """The open session has no end, and that is not the same as no duration.
+    """An open session has no end, and that is not the same as no duration.
 
-    The guard read `first.end or first.start`, which made a session still
-    running a zero-length instant: clocking in at 10:00 and then correcting
-    10:00-12:00 was admitted, and those two hours were then counted once for the
-    punch and once for the correction. At 15:00 the day read seven hours worked
-    where the truth was five.
+    A guard reading `first.end or first.start` makes a running session a
+    zero-length instant, and the hours inside it are then counted once for the
+    punch and once for the correction.
     """
     assert clock.clock_in(now=NOW).success
 
@@ -203,14 +186,13 @@ def test_a_correction_may_not_claim_hours_a_running_session_is_claiming(
     assert day.worked == timedelta(hours=5)
 
 
-def test_a_correction_may_not_run_past_now(
+def test_corrections_may_not_run_past_now(
     clock: ClockService, session: Session
 ) -> None:
     """Hours that have not happened are a plan, and the clock will record them.
 
-    An afternoon meeting typed in at ten and then worked through is the same
-    two hours twice: once amended, once punched, and the balance is credited
-    for both.
+    An afternoon meeting typed in at ten and then worked through is the same two
+    hours twice: once amended, once punched.
     """
     result = clock.correct(TODAY, time(14, 0), time(16, 0), now=TODAY)
 
@@ -221,14 +203,13 @@ def test_a_correction_may_not_run_past_now(
     assert build_services(session).ledger.day(TODAY).worked == timedelta(hours=4)
 
 
-def test_a_correction_cannot_claim_an_hour_a_night_shift_claimed(
+def test_night_shift_hours_cannot_be_claimed_twice(
     clock: ClockService,
 ) -> None:
     """A session belongs to the day it opened, and still spends the next one.
 
-    Ten at night to two in the morning is dated Sunday. Asking Monday's rows
-    alone leaves one until two free to be typed in again, and the hour is paid
-    for twice.
+    Ten at night to two in the morning is dated Sunday, so Monday's rows alone
+    leave one until two free to be typed in again.
     """
     assert clock.clock_in(now=datetime.combine(SUNDAY, time(22, 0), tzinfo=UTC)).success
     assert clock.clock_out(now=datetime.combine(MONDAY, time(2, 0), tzinfo=UTC)).success
@@ -240,15 +221,10 @@ def test_a_correction_cannot_claim_an_hour_a_night_shift_claimed(
     assert clock.correct(MONDAY, time(2, 0), time(4, 0), now=TODAY).success is True
 
 
-def test_a_day_booked_off_in_full_cannot_also_be_corrected(
+def test_full_day_off_cannot_also_be_corrected(
     services: Services, clock: ClockService
 ) -> None:
-    """The day is otherwise paid for twice, out of two different balances.
-
-    `clock_in` has refused this since it was written; `correct` is the other way
-    hours get onto a day, and it walked straight past the guard. The leave still
-    spends a day of allowance and the hours land as pure surplus on top.
-    """
+    """The day is otherwise paid for twice, out of two different balances."""
     assert services.absence.book(MONDAY, AbsenceType.ANNUAL).success
 
     result = clock.correct(MONDAY, time(9, 0), time(17, 0), now=TODAY)
@@ -258,26 +234,21 @@ def test_a_day_booked_off_in_full_cannot_also_be_corrected(
     assert clock.segments_on(MONDAY) == []
 
 
-def test_half_a_day_booked_leaves_the_other_half_correctable(
+def test_booked_morning_leaves_the_afternoon_correctable(
     services: Services, clock: ClockService
 ) -> None:
-    """A booked morning and a worked afternoon is an ordinary day.
-
-    Exactly where `clock_in` draws the line, and the two have to agree: the
-    mirror rule already lets a half day be booked over work in the other half.
-    """
+    """A booked morning and a worked afternoon is an ordinary day."""
     assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM).success
 
     assert clock.correct(MONDAY, time(13, 0), time(17, 0), now=TODAY).success is True
 
 
-def test_a_correction_over_a_booked_morning_is_refused(
+def test_correction_over_a_booked_morning_is_refused(
     services: Services, clock: ClockService
 ) -> None:
     """The half is spent out of the allowance; working it again is paid twice.
 
-    The booking side refuses the mirror image through `DayFacts.has_work_in`,
-    and a rule the two ends read differently is a rule with a hole in it.
+    The booking side refuses the mirror image through `DayFacts.has_work_in`.
     """
     assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM).success
 
@@ -289,7 +260,7 @@ def test_a_correction_over_a_booked_morning_is_refused(
     assert clock.segments_on(MONDAY) == []
 
 
-def test_a_correction_running_past_midday_meets_a_booked_afternoon(
+def test_correction_past_midday_meets_a_booked_afternoon(
     services: Services, clock: ClockService
 ) -> None:
     """Ending after twelve is what makes a stretch the afternoon's business."""
@@ -301,7 +272,7 @@ def test_a_correction_running_past_midday_meets_a_booked_afternoon(
     assert "afternoon" in result.message
 
 
-def test_a_booked_afternoon_leaves_the_morning_correctable(
+def test_booked_afternoon_leaves_the_morning_correctable(
     services: Services, clock: ClockService
 ) -> None:
     """Stopping at twelve is the other half of the same boundary."""
@@ -310,12 +281,11 @@ def test_a_booked_afternoon_leaves_the_morning_correctable(
     assert clock.correct(MONDAY, time(9, 0), time(12, 0), now=TODAY).success is True
 
 
-def test_a_bank_holiday_can_still_be_corrected(configure: Configured) -> None:
-    """Deliberately unlike `clock_in`, which refuses one.
+def test_bank_holiday_can_still_be_corrected(configure: Configured) -> None:
+    """A correction is the only way to record work done on a bank holiday.
 
-    Nobody can clock in on a bank holiday, so a correction is the only way to
-    record work that genuinely happened on one -- and unlike booked leave it
-    spends no allowance, so the surplus it earns is real.
+    `clock_in` refuses one. A correction spends no allowance, so the surplus it
+    earns is real.
     """
     services = configure(
         leave_year_start="01-01",
@@ -326,24 +296,19 @@ def test_a_bank_holiday_can_still_be_corrected(configure: Configured) -> None:
     assert services.clock.correct(MONDAY, time(9, 0), time(17, 0), now=TODAY).success
 
 
-def test_a_correction_before_a_running_session_is_still_allowed(
+def test_correction_before_a_running_session_is_allowed(
     clock: ClockService,
 ) -> None:
-    """The morning is over and nothing is claiming it.
-
-    The open session is worth the rest of its own day, not the whole of it, so
-    the hours before it opened stay correctable -- which is the commonest
-    correction there is: the morning you forgot, typed in this afternoon.
-    """
+    """An open session is worth the rest of its own day, not the whole of it."""
     assert clock.clock_in(now=NOW).success
 
     assert clock.correct(TODAY, time(7, 0), time(9, 0), now=TODAY).success is True
 
 
-# -- how it is drawn ---------------------------------------------------------
+# How it is drawn ------------------------------------------------------------
 
 
-def test_a_corrected_stretch_is_drawn_apart_from_a_punched_one(
+def test_corrections_are_drawn_apart_from_punches(
     clock: ClockService, session: Session
 ) -> None:
     """Same colour, different fill: the hours are the same, the record is not."""
@@ -358,18 +323,16 @@ def test_a_corrected_stretch_is_drawn_apart_from_a_punched_one(
     assert Cell.ON not in cells, "a correction is never drawn as a punch"
 
 
-# -- reading them back -------------------------------------------------------
+# Reading them back ----------------------------------------------------------
 
 
-def test_the_review_lists_only_what_was_corrected(
+def test_review_lists_only_what_was_corrected(
     clock: ClockService, session: Session
 ) -> None:
-    """A punched session on the same day is not what somebody came to check.
+    """The punch runs a whole afternoon, so it is long enough not to be voided.
 
-    The punch is put on MONDAY afternoon deliberately. Clocking in and straight
-    back out, which is what this did before, is under the minimum session and is
-    voided -- so the row the filter is supposed to reject was being rejected for
-    the wrong reason, and `amended` was never the thing under test.
+    A session under the minimum would be rejected for its length, not for being
+    unamended.
     """
     clock.correct(MONDAY, time(9, 0), time(12, 0), now=TODAY)
     clock.clock_in(now=datetime.combine(MONDAY, time(13, 0), tzinfo=UTC))
@@ -381,8 +344,8 @@ def test_the_review_lists_only_what_was_corrected(
     assert all(one.amended for one in found)
 
 
-def test_the_review_is_ordered_and_bounded_by_the_period(clock: ClockService) -> None:
-    """It answers for the span on screen, earliest first."""
+def test_review_is_ordered_and_bounded_by_period(clock: ClockService) -> None:
+    """The review answers for the span on screen, earliest first."""
     clock.correct(TUESDAY, time(9, 0), time(10, 0), now=TODAY)
     clock.correct(MONDAY, time(9, 0), time(10, 0), now=TODAY)
 

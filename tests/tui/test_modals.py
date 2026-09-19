@@ -1,9 +1,8 @@
 """The frame every modal is built on, and the ways one says no.
 
-`AbsenceModal` is exercised through the screens that open it elsewhere; what is
-here is the base class's own behaviour — the frame a modal gets for free, the
-pointer as an alternative to the keyboard, and each refusal that keeps a dialog
-open with what was typed still on screen.
+The screens that open `AbsenceModal` exercise its own behaviour; here it
+stands in for the base class: the frame, the pointer as an alternative to the
+keyboard, and each refusal that keeps a dialog open with what was typed on it.
 """
 
 from __future__ import annotations
@@ -22,17 +21,16 @@ from tests.tui.conftest import WIDE, AppFactory, showing
 FREE_MONDAY = date(2026, 6, 22)  # nothing booked on it in the seed
 
 
-# -- the frame -------------------------------------------------------------
+# ---- the frame ----
 
 
-async def test_a_modal_that_asks_nothing_still_gets_the_frame(
+async def test_modal_that_asks_nothing_gets_the_frame(
     app_factory: AppFactory,
 ) -> None:
-    """The base class is the dialog: a title, a place to say no, and two buttons.
+    """The base class is the dialog: a title, a place to say no, two buttons.
 
-    Fields are the part a subclass supplies, so a modal that collects nothing —
-    a warning, a "this will take a moment" — is a valid modal rather than one
-    that has to be told there is nothing to compose.
+    Fields are the part a subclass supplies, so a modal that collects nothing
+    is still a modal.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -46,15 +44,10 @@ async def test_a_modal_that_asks_nothing_still_gets_the_frame(
         assert str(modal.query_one("#modal-confirm", Button).label) == "Save"
 
 
-async def test_the_buttons_answer_the_modal_as_the_keys_do(
+async def test_buttons_answer_as_the_keys_do(
     app_factory: AppFactory,
 ) -> None:
-    """Enter is faster; a pointer still has to be able to finish the job.
-
-    Both buttons go through the same two actions the keys do, so there is one
-    definition of what confirming means rather than a second one behind the
-    mouse.
-    """
+    """Both buttons go through the same two actions the keys do."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("A")
@@ -71,12 +64,8 @@ async def test_the_buttons_answer_the_modal_as_the_keys_do(
         assert len(app.services.absence.for_date(FREE_MONDAY)) == 1
 
 
-async def test_the_cancel_button_writes_nothing(app_factory: AppFactory) -> None:
-    """The quiet button is the one that has to be trustworthy.
-
-    Everything but the confirm button cancels, so a button added to the row
-    tomorrow cannot accidentally inherit "yes".
-    """
+async def test_cancel_button_writes_nothing(app_factory: AppFactory) -> None:
+    """Every button but confirm cancels, so a new one cannot inherit "yes"."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("A")
@@ -93,17 +82,13 @@ async def test_the_cancel_button_writes_nothing(app_factory: AppFactory) -> None
         assert app.services.absence.for_date(FREE_MONDAY) == []
 
 
-# -- what the booking modal refuses ----------------------------------------
+# ---- what the booking modal refuses ----
 
 
-async def test_a_date_that_cannot_be_read_keeps_the_modal_open(
+async def test_unreadable_date_keeps_the_modal_open(
     app_factory: AppFactory,
 ) -> None:
-    """The error goes under the fields, not over them.
-
-    What was typed stays on screen next to what was wrong with it — a dialog
-    that closed on a typo would take the other four answers with it.
-    """
+    """The error goes under the fields, and what was typed stays on screen."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("A")
@@ -120,14 +105,10 @@ async def test_a_date_that_cannot_be_read_keeps_the_modal_open(
         assert "Try" in str(modal.query_one("#modal-error", Static).render())
 
 
-async def test_a_last_day_that_cannot_be_read_is_refused_too(
+async def test_unreadable_last_day_is_refused_too(
     app_factory: AppFactory,
 ) -> None:
-    """Both ends of a span are typed, so both ends can be mistyped.
-
-    The first field was read and the second was not, which is how a fortnight
-    came to be booked from a date nobody had checked.
-    """
+    """Both ends of a span are typed, so both ends can be mistyped."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -151,7 +132,7 @@ class Unanswered(FlexiModal[str]):
     """A modal whose radio set has nothing pressed in it.
 
     Every radio set Flexi composes starts with one button on, so this is the
-    state the fallback exists for and the only way to sit in it.
+    only way to sit in the state the fallback exists for.
     """
 
     def compose_body(self) -> ComposeResult:
@@ -161,13 +142,12 @@ class Unanswered(FlexiModal[str]):
         return selected_name(self, "#pick-one", fallback=AbsenceType.ANNUAL.value)
 
 
-async def test_nothing_pressed_in_a_radio_set_answers_with_the_fallback(
+async def test_empty_radio_set_answers_with_fallback(
     app_factory: AppFactory,
 ) -> None:
-    """A question with no answer on it still has to produce one.
+    """The enum value lives in the pressed button's ``name``.
 
-    The enum value lives in the pressed button's ``name``, so there is nothing
-    to read when nothing is pressed — and a dialog that raised on the way out
+    With nothing pressed there is nothing to read, and raising on the way out
     would strand whatever else had been filled in.
     """
     app = app_factory()
@@ -184,20 +164,15 @@ async def test_nothing_pressed_in_a_radio_set_answers_with_the_fallback(
         assert collected == [AbsenceType.ANNUAL.value]
 
 
-# -- the allowance line ----------------------------------------------------
+# ---- the allowance line ----
 
 
-def test_a_modal_told_no_figures_says_nothing_about_them() -> None:
-    """The hint is context, and an absent figure is not context.
-
-    Opened from a place that has not worked out what is left — or in a Flexi
-    with no entitlement recorded at all — the line is empty rather than
-    "None days annual leave left".
-    """
+def test_modal_told_no_figures_stays_silent() -> None:
+    """An absent figure is not context, so the line is empty."""
     assert AbsenceModal(FREE_MONDAY)._allowance_hint() == ""
 
 
-def test_a_modal_told_one_figure_says_only_that_one() -> None:
+def test_modal_told_one_figure_says_one() -> None:
     """Each half of the line stands on its own, joined only when both are there."""
     remaining_only = AbsenceModal(FREE_MONDAY, remaining=3.5)
     toil_only = AbsenceModal(FREE_MONDAY, toil_days=1.0)
@@ -206,17 +181,13 @@ def test_a_modal_told_one_figure_says_only_that_one() -> None:
     assert toil_only._allowance_hint() == "1 day of TOIL banked"
 
 
-# -- the help modal --------------------------------------------------------
+# ---- the help modal ----
 
 
-async def test_a_group_with_no_keys_in_it_is_not_given_a_heading(
+async def test_empty_group_gets_no_heading(
     app_factory: AppFactory,
 ) -> None:
-    """A heading with nothing under it is a widget somebody has to rule out.
-
-    The bindings are collected from whatever is on screen, so which groups have
-    anything in them is a property of the moment help was asked for.
-    """
+    """Bindings are collected from what is on screen, so a group can be bare."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         app.push_screen(
@@ -228,16 +199,11 @@ async def test_a_group_with_no_keys_in_it_is_not_given_a_heading(
         assert headings == ["Dashboard"]
 
 
-# -- enter, and what has focus when it is pressed --------------------------
+# ---- enter, and what has focus when it is pressed ----
 
 
 async def test_enter_on_the_cancel_button_cancels(app_factory: AppFactory) -> None:
-    """The modal's enter binding is priority, so it won over the focused button.
-
-    A key pressed to back out of a dialog then answered yes to it. The binding
-    stands down while a button other than Confirm holds focus, and the button's
-    own enter does what the pointer would.
-    """
+    """The enter binding stands down while any button but Confirm has focus."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("A")
@@ -294,13 +260,13 @@ async def test_enter_in_a_field_confirms(app_factory: AppFactory) -> None:
         assert len(app.services.absence.for_date(FREE_MONDAY)) == 1
 
 
-# -- the radio sets --------------------------------------------------------
+# ---- the radio sets ----
 
 
 async def test_arrowing_to_a_type_books_the_type_arrowed_to(
     app_factory: AppFactory,
 ) -> None:
-    """The highlight moved and the answer did not, so enter booked annual leave."""
+    """The highlight and the answer move together."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("A")
@@ -325,7 +291,6 @@ async def test_arrowing_to_a_type_books_the_type_arrowed_to(
 async def test_arrowing_back_to_a_portion_books_that_portion(
     app_factory: AppFactory,
 ) -> None:
-    """Up as well as down: a half day chosen by arrow was written as a full one."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("A")

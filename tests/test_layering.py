@@ -1,10 +1,8 @@
-"""The layering rule, enforced.
+"""The layering rules, enforced by walking the AST of every module in `src`.
 
-``flexi.domain`` may not import Textual or SQLAlchemy, and ``flexi.components``
-may not import SQLAlchemy. Both rules are what keep the arithmetic testable
-without a terminal and the widgets testable without a database, and both are the
-kind of rule that decays silently the first time someone needs one import "just
-here". Twenty lines of AST walking is cheaper than the decay.
+``flexi.domain`` may not import Textual or SQLAlchemy and ``flexi.components``
+may not import SQLAlchemy, which is what keeps the arithmetic testable without
+a terminal and the widgets testable without a database.
 """
 
 from __future__ import annotations
@@ -41,20 +39,13 @@ FORBIDDEN: dict[str, frozenset[str]] = {
 }
 """Which packages may not reach which.
 
-`models` was the one layer nothing checked, and it is the layer every other one
-sits on -- a single upward import there makes the whole graph a cycle. It is
-not forbidden `flexi.domain`: nothing reaches for it today, and forbidding it
-would pre-judge a move that may turn out to be right.
+`models` is the layer every other one sits on, so a single upward import there
+makes the whole graph a cycle. `flexi.domain` is left off its list: nothing
+reaches for it, and forbidding it would pre-judge a move that may be right.
 
-`services` and `cli` were unconstrained, so nothing stopped a service importing
-a widget or the command line importing a screen -- the two directions that would
-make the CLI unusable without a terminal.
-
-`components` forbids `sqlalchemy` but permits `flexi.services`, and a widget
-imported two value objects from `flexi.services.wallet`, dragging a hundred and
-twenty SQLAlchemy modules behind them: the rule satisfied literally and defeated
-in substance. Those values live in `flexi.domain.wallet` now, and that one
-module is named here so the loophole cannot be reopened by moving them back.
+`components` forbids `sqlalchemy` and permits `flexi.services`, so
+`flexi.services.wallet` is named too: importing a value object from there drags
+SQLAlchemy in behind it. Those values live in `flexi.domain.wallet`.
 """
 
 
@@ -73,8 +64,7 @@ def module_scope_imports(source: Path) -> Iterator[str]:
     """Only the imports that run when the file is imported.
 
     `imported_modules` walks the whole tree, which is the right question for a
-    layering rule and the wrong one for a startup cost: an import inside a
-    function is paid by the command that calls it and by nobody else.
+    layering rule and the wrong one for a startup cost.
     """
     tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
     for node in tree.body:
@@ -92,10 +82,8 @@ def python_files(package: str) -> list[Path]:
 def first_banned(module: str, banned: frozenset[str]) -> str | None:
     """The rule an imported module name offends, if it offends one.
 
-    The whole name, not its root package: a rule naming one module, such as
-    `flexi.app` or `flexi.services.wallet`, is offended by `from flexi.app
-    import FlexiApp` as well as by anything underneath it. Matched on the root
-    it is offended by neither, which leaves every dotted rule here decorative.
+    Matched on the whole name, not the root package, so a rule naming one module
+    such as `flexi.services.wallet` covers that module and everything under it.
     """
     return next(
         (
@@ -109,7 +97,7 @@ def first_banned(module: str, banned: frozenset[str]) -> str | None:
 
 @pytest.mark.parametrize("package", sorted(FORBIDDEN))
 def test_package_exists(package: str) -> None:
-    """It fails loudly if a package is renamed and the rule is left behind."""
+    """A renamed package must not leave its rule behind unnoticed."""
     assert (SRC / package).is_dir(), f"flexi/{package}/ is missing"
 
 
@@ -124,7 +112,7 @@ def test_package_exists(package: str) -> None:
     ids=lambda value: value.name if isinstance(value, Path) else str(value),
 )
 def test_layer_imports(package: str, path: Path) -> None:
-    """It keeps each layer inside the imports it is allowed."""
+    """Each layer stays inside the imports it is allowed."""
     banned = FORBIDDEN[package]
     for module in imported_modules(path):
         offending = first_banned(module, banned)
@@ -145,15 +133,10 @@ def test_layer_imports(package: str, path: Path) -> None:
         ("screens", "sqlalchemy.orm", "sqlalchemy"),
     ],
 )
-def test_an_import_of_the_banned_name_itself_offends(
+def test_importing_the_banned_name_itself_offends(
     package: str, module: str, rule: str
 ) -> None:
-    """A rule is a module name, and importing that name is what breaks it.
-
-    Asked of the matcher rather than of `src`, because `src` obeys the rule:
-    the first three rows are imports nothing writes today and the matcher has
-    to refuse the day one appears.
-    """
+    """Asked of the matcher: `src` obeys the rules, so it has nothing to catch."""
     assert first_banned(module, FORBIDDEN[package]) == rule
 
 
@@ -166,7 +149,7 @@ def test_an_import_of_the_banned_name_itself_offends(
         ("models", "textualize"),
     ],
 )
-def test_a_name_that_only_starts_like_a_rule_is_free(package: str, module: str) -> None:
+def test_name_that_only_starts_like_a_rule_is_free(package: str, module: str) -> None:
     """A rule ends at a dot, so `flexi.app_state` is not `flexi.app`."""
     assert first_banned(module, FORBIDDEN[package]) is None
 
@@ -188,22 +171,17 @@ EXPENSIVE = frozenset(
 )
 """What `flexi --version` must not pay for.
 
-Measured: importing these took the entry point from 182 modules to 898, and
-from 57 milliseconds to 637 -- before printing a string it already had.
-
-The flexi entries matter as much as the third-party ones and are easier to miss,
-because their root package is the cheap one. `from flexi.app import App` costs
-every one of textual's 160 modules while looking local.
+The `flexi` entries matter as much as the third-party ones and are easier to
+miss, because their root package is the cheap one: `from flexi.app import App`
+pulls in the whole of Textual while looking local.
 """
 
 
-def test_the_entry_point_stays_cheap_to_import() -> None:
+def test_entry_point_stays_cheap_to_import() -> None:
     """The application is imported by the commands that open it, and no others.
 
-    An AST check rather than `'textual' not in sys.modules`: the suite runs
-    under `-n auto`, and a worker that has already run a Textual test has it
-    loaded whatever this module does. Reading the imports asks the question
-    that actually matters -- what does importing this file cost.
+    An AST check, not `'textual' not in sys.modules`: a worker that has already
+    run a Textual test has it loaded whatever this module does.
     """
     entry = SRC / "__main__.py"
     for module in module_scope_imports(entry):
@@ -214,7 +192,7 @@ def test_the_entry_point_stays_cheap_to_import() -> None:
         )
 
 
-def test_the_type_checking_block_is_not_a_loophole() -> None:
+def test_type_checking_block_is_not_a_loophole() -> None:
     """`TYPE_CHECKING` imports are free, but only under the future import.
 
     Without `from __future__ import annotations` the annotations they type are
@@ -254,14 +232,11 @@ def _targets(statement: ast.stmt) -> Iterator[ast.expr]:
 
 
 @pytest.mark.parametrize("path", sorted(SRC.rglob("*.py")), ids=lambda p: p.name)
-def test_every_class_with_keys_says_what_to_call_it(path: Path) -> None:
+def test_every_class_with_keys_has_a_help_label(path: Path) -> None:
     """A binding is filed in the help modal under its owner's `HELP_LABEL`.
 
-    `label_for` used to look the class name up in a table and fall back to the
-    class name itself, so a screen missing from the table filed its keys under
-    `LeaveScreen` — which is what the leave screen and its calendar did, for
-    eleven keys, silently. A fallback that looks like an answer needs something
-    that refuses it.
+    `label_for` falls back to the class name, which reads as an answer, so a
+    class with keys and no label has to fail here instead.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in declares_bindings(tree):
@@ -285,11 +260,9 @@ PREFERRED_KEYS: frozenset[str] = frozenset(
 SPELLED_OUT_ANYWAY: frozenset[tuple[str, str]] = frozenset({("leave.py", "space")})
 """Bindings that write one of those keys out again, and why.
 
-`LeaveScreen`'s `space` cycles the portion under the cursor, and there is no
-`Hotkeys` field for it. One cannot be added while `hotkeys.expand` holds
-`space`: `Hotkeys.reject_keys_bound_twice` refuses a key two fields name, so
-the shipped defaults would refuse themselves and every install would fall back
-to them.
+`LeaveScreen`'s `space` cycles the portion under the cursor and has no `Hotkeys`
+field. One cannot be added while `hotkeys.expand` holds `space`, because
+`Hotkeys.reject_keys_bound_twice` refuses a key two fields name.
 """
 
 
@@ -307,13 +280,11 @@ def binding_keys(node: ast.ClassDef) -> Iterator[str]:
 
 
 @pytest.mark.parametrize("path", sorted(SRC.rglob("*.py")), ids=lambda p: p.name)
-def test_a_key_a_preference_names_is_read_from_the_preference(path: Path) -> None:
+def test_configurable_keys_are_not_spelled_out(path: Path) -> None:
     """A binding that spells out a configurable key ignores the config file.
 
-    `hotkeys.expand` named `space` and the records table wrote `space` again, so
-    rebinding it moved the entry in the help modal and nothing else: the table
-    went on answering to the key it had always answered to, and the key that
-    was chosen did nothing at all.
+    Rebinding then moves the entry in the help modal and nothing else: the
+    widget goes on answering to the literal, and the chosen key does nothing.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in declares_bindings(tree):
@@ -337,9 +308,9 @@ CLOCK_READS: frozenset[tuple[str, str]] = frozenset(
 )
 """Ways of asking the machine what time it is, as `(object, attribute)` pairs.
 
-Only `flexi/wallclock.py` may use one. Everything else goes through it, which is
-what makes a timesheet's arithmetic independent of the machine it is computed
-on -- and what lets the suite pin the clock in a single place.
+Only `flexi/wallclock.py` may use one. Everything else goes through it, which
+keeps the arithmetic independent of the machine and lets the suite pin the
+clock in one place.
 """
 
 
@@ -366,14 +337,9 @@ def clock_reads(source: Path) -> Iterator[str]:
 def test_only_wallclock_reads_the_system_clock(path: Path) -> None:
     """The invariant the README and CONTRIBUTING both state, enforced.
 
-    Migrations included, which is where the one violation was: `0015` stamped
-    `date.today()` behind a `noqa`, so the reading came from the machine while
-    everything around it came from the pin. `TZ=America/New_York uv run pytest`
-    was one failure out of 2157, and the matrix runs UTC and Europe/London --
-    neither of them behind UTC, so nothing in CI could ever have seen it.
-
-    `DTZ005`/`DTZ011` catch the naive spellings, but `date.today()` behind a
-    `noqa` and `datetime.now(tz=UTC)` are both invisible to them.
+    Migrations included. `DTZ005` and `DTZ011` catch the naive spellings, but
+    `date.today()` behind a `noqa` and `datetime.now(tz=UTC)` are invisible to
+    them.
     """
     found = sorted(set(clock_reads(path)))
     assert found == [], (

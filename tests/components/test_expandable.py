@@ -1,11 +1,8 @@
 """The openable table, one behaviour at a time.
 
-The records module drives this against six weeks of seeded work, which is the
-right instrument for "space opens Thursday" and the wrong one for "where does
-the cursor go when the row it was sitting on has been deleted". Everything here
-runs a bare table in an otherwise empty app, because the row keys and the cursor
-are bookkeeping: the cases worth pinning are the ones a seeded week never
-produces, and each of them costs a hundredth of a second here.
+Everything here runs a bare table in an otherwise empty app. The row keys and
+the cursor are bookkeeping, and the cases worth pinning are the ones the
+records module's seeded weeks never produce.
 """
 
 from __future__ import annotations
@@ -30,11 +27,7 @@ from flexi.theme import THEME_NAME, THEME_PATH, flexi_theme
 
 
 def keys_of(rows: Sequence[Row]) -> list[str]:
-    """The keys of a run of rows, in order.
-
-    A helper for reading assertions. It lived on the module it reads until
-    nothing in the application turned out to be calling it.
-    """
+    """The keys of a run of rows, in order."""
     return [row.key for row in rows]
 
 
@@ -100,16 +93,11 @@ async def table_of(pilot: Pilot[None], *groups: RowGroup) -> ExpandableTable:
     return app.table
 
 
-# -- the row keys ------------------------------------------------------------
+# ---- the row keys ----
 
 
-def test_a_row_says_what_kind_of_row_it_is_in_its_key() -> None:
-    """The prefix is the only record of what a row is.
-
-    Everything downstream — which rows a jump badge may land on, whether `x`
-    deletes a session or refuses — reads the kind back off the key, so a day key
-    that stopped starting with `d-` would silently make every day undeletable.
-    """
+def test_row_kind_comes_from_its_key() -> None:
+    """The prefix is the only record of what a row is."""
     assert Row(row_key(RowKind.DAY, MONDAY), ()).kind == RowKind.DAY
     assert Row(f"{RowKind.SESSION}12", ()).kind == RowKind.SESSION
     assert Row(f"{RowKind.ABSENCE}12", ()).kind == RowKind.ABSENCE
@@ -117,13 +105,13 @@ def test_a_row_says_what_kind_of_row_it_is_in_its_key() -> None:
     assert row_key(RowKind.DAY, MONDAY) == f"d-{MONDAY}"
 
 
-def test_a_row_with_nothing_behind_it_is_not_expandable() -> None:
-    """A day nobody worked still gets a row, and space on it must do nothing."""
+def test_row_with_no_children_is_not_expandable() -> None:
+    """An unworked day still gets a row, and space on it must do nothing."""
     assert not RowGroup(Row(row_key(RowKind.DAY, MONDAY), ())).expandable
     assert day(MONDAY, "09:00 – 17:00").expandable
 
 
-def test_the_keys_of_a_run_of_rows_come_back_in_order() -> None:
+def test_row_keys_come_back_in_order() -> None:
     """Jump badges are handed out top to bottom, so the order is the meaning."""
     group = day(MONDAY, "morning", "afternoon")
     assert keys_of([group.parent, *group.children]) == [
@@ -133,15 +121,11 @@ def test_the_keys_of_a_run_of_rows_come_back_in_order() -> None:
     ]
 
 
-# -- the header --------------------------------------------------------------
+# ---- the header ----
 
 
-async def test_a_column_given_a_width_keeps_it_whatever_the_cells_hold() -> None:
-    """Content-sized columns let the widest cell win.
-
-    In a records table the widest cell is the punch strip, which then pushes the
-    figures off the right edge on exactly the terminals where they matter most.
-    """
+async def test_fixed_column_width_survives_wide_cells() -> None:
+    """Content-sized columns let the widest cell, the punch strip, win."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         table.set_columns(("Day", 7), ("strip", 20), "Worked")
@@ -155,12 +139,8 @@ async def test_a_column_given_a_width_keeps_it_whatever_the_cells_hold() -> None
         assert labels == ["Day", "", "Worked"]
 
 
-async def test_replacing_the_header_takes_the_old_rows_with_it() -> None:
-    """Replacing the header clears the body under it.
-
-    A column set kept over a redraw would leave cells sitting under headings
-    that no longer describe them.
-    """
+async def test_replacing_the_header_clears_the_rows() -> None:
+    """Cells kept over a header change sit under headings that no longer fit."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY))
@@ -173,10 +153,10 @@ async def test_replacing_the_header_takes_the_old_rows_with_it() -> None:
         ]
 
 
-# -- opening and closing -----------------------------------------------------
+# ---- opening and closing ----
 
 
-async def test_children_stay_hidden_until_their_parent_is_opened() -> None:
+async def test_children_stay_hidden_until_opened() -> None:
     """The table is a month of days first and a list of sessions second."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
@@ -193,12 +173,8 @@ async def test_children_stay_hidden_until_their_parent_is_opened() -> None:
         assert table.row_count == 3
 
 
-async def test_space_inside_an_open_day_closes_the_day() -> None:
-    """Toggling a child toggles its parent, and leaves the cursor on the header.
-
-    Pressing space on a session and being told nothing happened would send
-    somebody scrolling back up to the day row to close what they just opened.
-    """
+async def test_space_on_a_child_closes_the_day() -> None:
+    """Toggling a child toggles its parent, and leaves the cursor on the header."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "09:00 – 12:30", "13:00 – 17:00"))
@@ -212,14 +188,8 @@ async def test_space_inside_an_open_day_closes_the_day() -> None:
         assert table.cursor_key == row_key(RowKind.DAY, MONDAY)
 
 
-async def test_opening_a_row_the_cursor_is_not_on_leaves_the_cursor_where_it_was() -> (
-    None
-):
-    """Only a collapse the cursor is inside has nowhere else to put it.
-
-    Dragging the cursor onto every row that happens to be toggled would lose
-    somebody's place each time the screen expanded a day for them.
-    """
+async def test_opening_another_row_keeps_the_cursor() -> None:
+    """Only a collapse the cursor is inside has nowhere else to put it."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "09:00 – 17:00"), day(TUESDAY, "all day"))
@@ -230,12 +200,8 @@ async def test_opening_a_row_the_cursor_is_not_on_leaves_the_cursor_where_it_was
         assert table.cursor_key == row_key(RowKind.DAY, TUESDAY)
 
 
-async def test_a_day_with_nothing_behind_it_refuses_to_open() -> None:
-    """Space on a day with no sessions leaves the table exactly as it was.
-
-    Opening it would insert nothing and then post a message saying it had, and
-    the screen redraws on that message.
-    """
+async def test_day_with_no_sessions_refuses_to_open() -> None:
+    """Opening would insert nothing and post a message the screen redraws on."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY))
@@ -245,8 +211,8 @@ async def test_a_day_with_nothing_behind_it_refuses_to_open() -> None:
         assert posted(pilot) == []
 
 
-async def test_space_on_an_empty_table_does_nothing_at_all() -> None:
-    """A month with no records in it is still a table somebody can press keys at."""
+async def test_space_on_an_empty_table_does_nothing() -> None:
+    """A month with no records is still a table that takes keys."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot)
@@ -255,7 +221,7 @@ async def test_space_on_an_empty_table_does_nothing_at_all() -> None:
         assert posted(pilot) == []
 
 
-async def test_pressing_space_opens_the_row_under_the_cursor() -> None:
+async def test_space_opens_the_row_under_the_cursor() -> None:
     """The binding is what the footer advertises; the method is only its guts."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
@@ -269,8 +235,8 @@ async def test_pressing_space_opens_the_row_under_the_cursor() -> None:
         assert (opened.key, opened.expanded) == (row_key(RowKind.DAY, MONDAY), True)
 
 
-async def test_expand_all_does_whichever_of_the_two_is_visible() -> None:
-    """One key that always does the visible thing beats two nobody remembers."""
+async def test_expand_all_toggles_both_ways() -> None:
+    """One key that always does the visible thing, in place of two."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "09:00 – 17:00"), day(TUESDAY, "all day"))
@@ -283,7 +249,7 @@ async def test_expand_all_does_whichever_of_the_two_is_visible() -> None:
         assert table.row_count == 2
 
 
-async def test_expand_all_can_be_told_which_way_to_go() -> None:
+async def test_expand_all_takes_a_direction() -> None:
     """A rebuild reopens what was open, and must not invert it on the way."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
@@ -297,12 +263,8 @@ async def test_expand_all_can_be_told_which_way_to_go() -> None:
         assert table.expanded == set()
 
 
-async def test_the_groups_a_table_holds_are_readable_back_off_it() -> None:
-    """The run of groups is readable back off the table.
-
-    The records module counts what it loaded to decide how many jump badges it
-    can hand out, and the table is the only place that run is kept.
-    """
+async def test_table_groups_are_readable_back() -> None:
+    """The table is the only place the run of groups is kept."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         groups = (day(MONDAY, "09:00 – 17:00"), day(TUESDAY))
@@ -310,15 +272,11 @@ async def test_the_groups_a_table_holds_are_readable_back_off_it() -> None:
         assert table.groups == groups
 
 
-# -- the cursor --------------------------------------------------------------
+# ---- the cursor ----
 
 
-async def test_the_cursor_stays_on_its_own_row_when_the_table_is_rebuilt() -> None:
-    """The cursor is restored by key, not by index.
-
-    Restoring by index would move the cursor every time a day above it was
-    expanded, which is the redraw that happens most.
-    """
+async def test_cursor_is_restored_by_key() -> None:
+    """Restoring by index would move the cursor whenever a day above it opened."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "morning"), day(TUESDAY), day(WEDNESDAY))
@@ -328,12 +286,8 @@ async def test_the_cursor_stays_on_its_own_row_when_the_table_is_rebuilt() -> No
         assert table.cursor_key == row_key(RowKind.DAY, WEDNESDAY)
 
 
-async def test_a_cursor_whose_row_has_gone_falls_to_the_bottom() -> None:
-    """A row usually disappears because it was just deleted.
-
-    The eye is already at the bottom of what is left, so that is where the
-    cursor belongs rather than back at the top of the month.
-    """
+async def test_cursor_falls_to_the_last_row() -> None:
+    """A row usually disappears because it was just deleted."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY), day(TUESDAY), day(WEDNESDAY))
@@ -343,12 +297,8 @@ async def test_a_cursor_whose_row_has_gone_falls_to_the_bottom() -> None:
         assert table.cursor_key == row_key(RowKind.DAY, TUESDAY)
 
 
-async def test_deleting_the_last_record_leaves_the_cursor_nowhere_to_go() -> None:
-    """An emptied table has no last row for the cursor to fall to.
-
-    The fallback reaches for `row_count - 1`, which on nothing at all is -1 and
-    would put the cursor off the top of a table with nothing in it.
-    """
+async def test_emptied_table_has_no_cursor_key() -> None:
+    """The fallback reaches for `row_count - 1`, which on an empty table is -1."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY))
@@ -359,12 +309,8 @@ async def test_deleting_the_last_record_leaves_the_cursor_nowhere_to_go() -> Non
         assert table.cursor_key is None
 
 
-async def test_a_row_added_without_a_key_reports_no_key_rather_than_the_word() -> None:
-    """A row with no key of its own reports none.
-
-    `str(None)` is `"None"`, which is a perfectly good key to hand back and look
-    up and never find: the caller would go looking for a row nobody named.
-    """
+async def test_keyless_row_reports_no_cursor_key() -> None:
+    """`str(None)` is `"None"`, a key that looks up cleanly and finds no row."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         table.set_columns(("Day", 12))
@@ -373,13 +319,8 @@ async def test_a_row_added_without_a_key_reports_no_key_rather_than_the_word() -
         assert table.cursor_key is None
 
 
-async def test_rows_arriving_before_the_columns_do_leave_the_cursor_unread() -> None:
-    """Rows with no columns to sit in leave the cursor unreadable, not raising.
-
-    A module that fills its table before `on_mount` has set the header lands
-    here, and the answer has to be "nothing under the cursor" rather than an
-    exception thrown out of whatever redraw happened to ask.
-    """
+async def test_rows_before_columns_leave_no_cursor_key() -> None:
+    """A module filling its table before `on_mount` sets the header lands here."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         table.set_groups([RowGroup(Row(row_key(RowKind.DAY, MONDAY), ()))])
@@ -388,7 +329,7 @@ async def test_rows_arriving_before_the_columns_do_leave_the_cursor_unread() -> 
         assert table.cursor_key is None
 
 
-async def test_jumping_to_a_row_that_is_not_drawn_leaves_the_cursor_alone() -> None:
+async def test_focusing_a_hidden_row_does_nothing() -> None:
     """A badge can name a session inside a day that has since been closed."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
@@ -399,12 +340,8 @@ async def test_jumping_to_a_row_that_is_not_drawn_leaves_the_cursor_alone() -> N
         assert table.cursor_key == row_key(RowKind.DAY, TUESDAY)
 
 
-async def test_a_key_belonging_to_no_group_belongs_to_nothing() -> None:
-    """A key naming no group answers with none.
-
-    `x` and `enter` both ask which group the cursor is in, and a total row is in
-    none of them.
-    """
+async def test_key_in_no_group_returns_none() -> None:
+    """`x` and `enter` ask which group the cursor is in; a total row is in none."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "morning"))
@@ -412,16 +349,11 @@ async def test_a_key_belonging_to_no_group_belongs_to_nothing() -> None:
         assert table.group_for(f"s-{MONDAY}-0") is table.groups[0]
 
 
-# -- enter -------------------------------------------------------------------
+# ---- enter ----
 
 
-async def test_enter_opens_the_day_and_lands_on_its_first_row() -> None:
-    """Enter means "show me this", and then puts you in it.
-
-    A day that answered it by staying shut would have refused the only thing the
-    key means, and one that opened without moving the cursor leaves the reader
-    to find the sessions with a second key.
-    """
+async def test_enter_opens_and_moves_into_the_day() -> None:
+    """Enter means "show me this", and then puts the cursor in it."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "09:00 – 17:00"))
@@ -432,12 +364,8 @@ async def test_enter_opens_the_day_and_lands_on_its_first_row() -> None:
         assert table.cursor_key == f"s-{MONDAY}-0"
 
 
-async def test_enter_on_a_day_already_open_keeps_it_open() -> None:
-    """Enter never closes anything.
-
-    Twice reading as open-then-shut would make it a second toggle, and space is
-    already the toggle.
-    """
+async def test_enter_keeps_an_open_day_open() -> None:
+    """Enter never closes anything; space is the toggle."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "09:00 – 17:00"))
@@ -449,12 +377,8 @@ async def test_enter_on_a_day_already_open_keeps_it_open() -> None:
         assert table.cursor_key == f"s-{MONDAY}-0"
 
 
-async def test_enter_inside_an_open_day_does_not_shut_it() -> None:
-    """The cursor is on a child, and the key that means "open" cannot close.
-
-    A guard that asked whether the *child* was expanded found that it never is,
-    and closed the day the cursor was sitting in.
-    """
+async def test_enter_on_a_child_does_not_close() -> None:
+    """A guard reading the child's own expanded state finds it never set."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY, "morning", "afternoon"))
@@ -466,12 +390,8 @@ async def test_enter_inside_an_open_day_does_not_shut_it() -> None:
         assert table.cursor_key == f"s-{MONDAY}-0"
 
 
-async def test_enter_on_a_row_with_nothing_behind_it_stays_put() -> None:
-    """A day with nothing recorded has nothing to drop into.
-
-    The cursor stays where the eye left it, because the alternative is a key
-    that sometimes moves and sometimes does not and never says which.
-    """
+async def test_enter_on_an_empty_day_stays_put() -> None:
+    """A day with nothing recorded has nothing to drop into."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot, day(MONDAY))
@@ -483,7 +403,7 @@ async def test_enter_on_a_row_with_nothing_behind_it_stays_put() -> None:
 
 
 async def test_enter_on_an_empty_table_opens_nothing() -> None:
-    """A month with no records in it still takes keys."""
+    """A month with no records still takes keys."""
     table = ExpandableTable()
     async with mounted(table) as pilot:
         await table_of(pilot)
@@ -492,13 +412,11 @@ async def test_enter_on_an_empty_table_opens_nothing() -> None:
         assert posted(pilot) == []
 
 
-async def test_replacing_the_rows_forgets_expansions_of_rows_that_have_gone() -> None:
+async def test_set_groups_forgets_stale_expansions() -> None:
     """`expanded` has to answer "is any row open", not "was one, ever".
 
-    The widget outlives its rows -- the records table calls `set_groups` on
-    every redraw -- so a key left in the set from a period nobody is looking at
-    made `expand_all` close an already-closed table instead of opening it, for
-    the rest of the session.
+    The widget outlives its rows: the records table calls `set_groups` on every
+    redraw, and a stale key makes `expand_all` close an already-closed table.
     """
     table = ExpandableTable()
     async with mounted(table) as pilot:

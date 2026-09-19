@@ -1,9 +1,7 @@
-"""Where Flexi puts things, on each platform, and what it creates by asking.
+"""Where Flexi puts things, on each platform, and what asking creates.
 
-The second half matters as much as the first: these functions answer a
-question, and a question should not have a filesystem side effect. Every one of
-them used to call mkdir, so `flexi --version` left a config directory behind on
-a machine that had never run the application.
+These functions answer a question, and a question has no filesystem side
+effect: only `ensure` makes a directory.
 """
 
 from __future__ import annotations
@@ -40,7 +38,7 @@ def test_xdg_config_home_wins_when_set(
 
 
 def test_xdg_is_honoured_on_windows_too(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Somebody who sets XDG_DATA_HOME on Windows means it."""
+    """``XDG_DATA_HOME`` wins on every platform, Windows included."""
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("XDG_DATA_HOME", str(Path("D:/data").resolve()))
     monkeypatch.setenv("LOCALAPPDATA", "C:/Users/x/AppData/Local")
@@ -48,16 +46,13 @@ def test_xdg_is_honoured_on_windows_too(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.parametrize("value", ["", "   ", "relative/path", "./here"])
-def test_a_relative_or_empty_setting_is_ignored(
+def test_relative_or_empty_setting_is_ignored(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """Otherwise XDG_DATA_HOME=. drops a database wherever you were standing.
+    """``XDG_DATA_HOME=.`` would otherwise drop a database in the shell's cwd.
 
-    Compared against the answer with nothing set, rather than against
-    `~/.local/share`. What is being asserted is that the value was ignored, and
-    naming the POSIX default as well made this the one test in the file that
-    failed on Windows -- where the fallback is `%LOCALAPPDATA%`, as the tests
-    below say it should be.
+    Compared against the answer with nothing set, not against `~/.local/share`:
+    the claim is that the value is ignored, and Windows falls back elsewhere.
     """
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     unset = locations.data_home()
@@ -79,7 +74,7 @@ def test_windows_uses_appdata_for_config(monkeypatch: pytest.MonkeyPatch) -> Non
     assert locations.config_home() == Path("C:/Users/x/AppData/Roaming").resolve()
 
 
-def test_windows_without_the_variables_still_lands_somewhere_sensible(
+def test_windows_without_the_variables_still_lands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
@@ -127,12 +122,11 @@ def test_ensure_is_how_a_directory_gets_made(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
-def test_a_directory_flexi_makes_is_private_to_its_owner(tmp_path: Path) -> None:
+def test_directories_flexi_makes_are_private(tmp_path: Path) -> None:
     """The database under it holds sick days and the notes beside them.
 
-    A default umask leaves 0755, so on a shared machine every other account can
-    read them. `mkdir` carries the mode only to a directory it creates, and the
-    one on a machine that has run an older Flexi is already there.
+    A default umask leaves 0755. `mkdir` carries its mode only to a directory
+    it creates, so an existing one is chmodded as well.
     """
     fresh = tmp_path / "fresh"
     already = tmp_path / "already"

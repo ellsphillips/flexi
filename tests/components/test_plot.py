@@ -1,8 +1,8 @@
 """The plot widget: what it refuses, and what it does when there is no room.
 
-The geometry is tested in `tests/domain/test_plot.py`. What is left here is the
-part that needs a stylesheet and a size -- tones resolving to colours, and the
-furniture giving way as the panel narrows.
+The geometry lives in `tests/domain/test_plot.py`. Here is the part that needs
+a stylesheet and a size: tones resolving to colours, and the furniture giving
+way as the panel narrows.
 """
 
 from __future__ import annotations
@@ -19,12 +19,10 @@ BANDS = (
 )
 
 
-async def test_a_tone_the_stylesheet_has_never_heard_of_is_refused() -> None:
+async def test_unknown_tone_is_refused() -> None:
     """An unknown tone resolves to the widget's own style.
 
-    On this ground that is a series drawn in the background colour: present in
-    every measurement, absent from the picture, and impossible to notice from
-    the code that asked for it. Refusing it names the mistake instead.
+    On this ground that draws the series in the background colour.
     """
     plot = Plot()
     async with mounted(plot):
@@ -33,14 +31,14 @@ async def test_a_tone_the_stylesheet_has_never_heard_of_is_refused() -> None:
 
 
 async def test_every_declared_tone_resolves_to_a_colour() -> None:
-    """The closed set and the stylesheet have to agree, or the check is theatre."""
+    """The closed set and the stylesheet have to agree."""
     plot = Plot()
     async with mounted(plot):
         for tone in PLOT_TONES:
             assert plot.get_component_styles(f"plot--{tone}").color is not None
 
 
-async def test_an_empty_plot_says_so_rather_than_drawing_an_empty_box() -> None:
+async def test_empty_plot_shows_its_message() -> None:
     """A blank panel reads as a chart that failed to render."""
     plot = Plot()
     async with mounted(plot) as pilot:
@@ -50,8 +48,8 @@ async def test_an_empty_plot_says_so_rather_than_drawing_an_empty_box() -> None:
         assert str(plot.render()) == "Not started"
 
 
-async def test_a_single_series_carries_no_legend() -> None:
-    """The panel title names it, and a legend under one line is a wasted row."""
+async def test_single_series_carries_no_legend() -> None:
+    """The panel title names it, and a one-line legend is a wasted row."""
     plot = Plot()
     async with mounted(plot):
         plot.show([Series("worked", (1.0, 2.0))])
@@ -59,11 +57,10 @@ async def test_a_single_series_carries_no_legend() -> None:
         assert plot.legend().plain == ""
 
 
-async def test_a_legend_that_will_not_fit_drops_the_names_not_the_series() -> None:
-    """Truncation loses whichever series was listed last, and says nothing.
+async def test_narrow_legend_drops_the_names() -> None:
+    """Marks alone still map every band to its colour.
 
-    Marks alone still map every band to its colour, which is the half of a
-    legend that cannot be guessed from the panel title.
+    Truncation would silently lose whichever series was listed last.
     """
     plot = Plot()
     async with mounted(plot) as pilot:
@@ -78,12 +75,8 @@ async def test_a_legend_that_will_not_fit_drops_the_names_not_the_series() -> No
         assert plot.legend().plain.strip() == "██ ██"
 
 
-async def test_a_panel_too_narrow_to_draw_in_says_so_instead() -> None:
-    """Six columns go to the axis before a single bar is drawn.
-
-    A plot given eight is a chart made almost entirely of furniture, and two
-    columns of bars is a worse answer than a sentence saying there is no room.
-    """
+async def test_panel_too_narrow_shows_its_message() -> None:
+    """`AXIS_WIDTH` columns go to the axis before a single bar is drawn."""
     plot = Plot()
     async with mounted(plot) as pilot:
         plot.show(BANDS, stacked=True, empty_message="No room")

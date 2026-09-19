@@ -1,8 +1,7 @@
-"""A session nobody closed is worth its own day, not every hour since.
+"""A session left open is worth its own day, not every hour since.
 
 Startup auto-closes stale sessions, so this only matters in the window between
-a crash and the next launch. During it, a Tuesday left open used to report every
-hour from Tuesday morning to right now as time worked on Tuesday.
+a crash and the next launch.
 """
 
 from __future__ import annotations
@@ -32,9 +31,7 @@ def _leave_open(session: Session, at: datetime) -> None:
     session.commit()
 
 
-def test_an_open_past_day_stops_at_its_own_midnight(
-    services: Services, session: Session
-) -> None:
+def test_open_past_day_stops_at_midnight(services: Services, session: Session) -> None:
     _leave_open(session, TUESDAY_NINE)
     invalidate_services(services)
 
@@ -46,8 +43,9 @@ def test_an_open_past_day_stops_at_its_own_midnight(
     )
 
 
-def test_it_does_not_count_the_days_since(services: Services, session: Session) -> None:
-    """The bug: two days and three hours of 'work' on a single Tuesday."""
+def test_open_day_does_not_count_days_since(
+    services: Services, session: Session
+) -> None:
     _leave_open(session, TUESDAY_NINE)
     invalidate_services(services)
 
@@ -56,10 +54,10 @@ def test_it_does_not_count_the_days_since(services: Services, session: Session) 
     assert tuesday.worked != THURSDAY_NOON - TUESDAY_NINE.replace(tzinfo=None)
 
 
-def test_an_open_session_today_still_runs_live(
+def test_open_session_today_still_runs_live(
     services: Services, session: Session
 ) -> None:
-    """Today is not clamped -- the balance has to tick up while it is watched."""
+    """Today is not clamped: the balance ticks up while it is watched."""
     _leave_open(session, TUESDAY_NINE)
     invalidate_services(services)
 

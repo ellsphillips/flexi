@@ -1,11 +1,7 @@
-"""The shared widgets, one at a time.
+"""The shared widgets, one at a time, in an otherwise empty app.
 
-Each of these is a wrapper whose whole job is to carry a class or to lay a
-figure out, so the full application is the wrong instrument for them: a test
-here mounts the single widget it is about into an otherwise empty app, which
-costs a hundredth of a second where driving the dashboard costs a second and a
-half. The stylesheets are the real ones, because a component class that no rule
-matches is the failure most of these tests exist to catch.
+The stylesheets are the real ones: a component class no rule matches is the
+failure most of these tests exist to catch.
 """
 
 from __future__ import annotations
@@ -46,11 +42,7 @@ CONSOLE = Console()
 async def mounted(
     *widgets: Widget, size: tuple[int, int] = (60, 20)
 ) -> AsyncIterator[Pilot[None]]:
-    """Run the given widgets in an app that has the palette and nothing else.
-
-    ``size`` because a widget that gives its furniture away as the panel shrinks
-    can only be asked about that by being given a panel to shrink.
-    """
+    """Run the given widgets in an app that has the palette and nothing else."""
 
     class Harness(App[None]):
         CSS_PATH: ClassVar[list[str | PurePath]] = [
@@ -80,7 +72,7 @@ def colours(text: Text) -> list[str]:
     return painted
 
 
-# -- the width classes -------------------------------------------------------
+# ---- the width classes ----
 
 
 @pytest.mark.parametrize(
@@ -92,13 +84,10 @@ def colours(text: Text) -> list[str]:
         (TINY_COLUMNS - 1, True, True),
     ],
 )
-def test_the_fold_classes_follow_the_terminal(
-    *, width: int, narrow: bool, tiny: bool
-) -> None:
+def test_fold_classes_follow_the_width(*, width: int, narrow: bool, tiny: bool) -> None:
     """Terminal CSS has no media query, so the class is the query.
 
-    The thresholds are inclusive at the top: a terminal exactly as wide as the
-    two-column layout asks for gets the two-column layout.
+    The thresholds are inclusive at the top.
     """
     node = Static()
     mark_width(node, width)
@@ -106,12 +95,8 @@ def test_the_fold_classes_follow_the_terminal(
     assert node.has_class("-tiny") is tiny
 
 
-def test_widening_the_terminal_takes_the_fold_classes_back_off() -> None:
-    """A screen calls this on every resize, including the ones that grow.
-
-    Marking on the way down and never unmarking would leave a maximised window
-    drawn in the one-column layout it was dragged out of.
-    """
+def test_widening_removes_the_fold_classes() -> None:
+    """A screen calls this on every resize, including the ones that grow."""
     node = Static()
     mark_width(node, TINY_COLUMNS - 1)
     mark_width(node, NARROW_COLUMNS + 20)
@@ -119,10 +104,10 @@ def test_widening_the_terminal_takes_the_fold_classes_back_off() -> None:
     assert not node.has_class("-tiny")
 
 
-# -- Pill --------------------------------------------------------------------
+# ---- Pill ----
 
 
-async def test_a_pill_with_nothing_to_say_is_not_drawn() -> None:
+async def test_empty_pill_is_not_drawn() -> None:
     """`.pill` carries a ground and a min-width, so an empty one is a block."""
     pill = Pill()
     async with mounted(pill):
@@ -131,25 +116,21 @@ async def test_a_pill_with_nothing_to_say_is_not_drawn() -> None:
         assert pill.display is True
 
 
-async def test_a_pill_of_whitespace_is_still_nothing_to_say() -> None:
+async def test_whitespace_pill_is_not_drawn() -> None:
     pill = Pill("   ")
     async with mounted(pill):
         assert pill.display is False
 
 
-async def test_a_pill_shows_the_label_it_was_given() -> None:
+async def test_pill_shows_its_label() -> None:
     pill = Pill("3 left", Tone.WARN)
     async with mounted(pill):
         assert str(pill.render()) == "3 left"
         assert pill.has_class("pill--warn")
 
 
-async def test_a_pill_wears_one_tone_at_a_time() -> None:
-    """They are mutually exclusive, and two grounds at once is a colour bug.
-
-    Cheaper to clear all of them than to track which one is on, and this is the
-    test that says the clearing has to keep happening.
-    """
+async def test_pill_wears_one_tone_at_a_time() -> None:
+    """Tone classes are mutually exclusive; two grounds at once is a colour bug."""
     pill = Pill("late", Tone.ERR)
     async with mounted(pill):
         assert pill.has_class("pill--err")
@@ -158,28 +139,28 @@ async def test_a_pill_wears_one_tone_at_a_time() -> None:
         assert not pill.has_class("pill--err")
 
 
-async def test_a_neutral_pill_carries_no_tone_class_at_all() -> None:
-    """Neutral is the absence of a tone rather than a fifth colour."""
+async def test_neutral_pill_carries_no_tone_class() -> None:
+    """Neutral is the absence of a tone, not a fifth colour."""
     pill = Pill("no data", Tone.ACCENT)
     async with mounted(pill):
         pill.set_state("no data", Tone.NEUTRAL)
         assert not any(name.startswith("pill--") for name in pill.classes)
 
 
-# -- StatCard ----------------------------------------------------------------
+# ---- StatCard ----
 
 
 def card_lines(card: StatCard) -> list[str]:
     return [str(child.render()) for child in card.query(Static)]
 
 
-async def test_a_stat_card_draws_its_label_value_and_note() -> None:
+async def test_stat_card_draws_label_value_note() -> None:
     card = StatCard("Balance", "+3:20", "since 1 April")
     async with mounted(card):
         assert card_lines(card) == ["Balance", "+3:20", "since 1 April"]
 
 
-async def test_a_stat_card_redraws_only_the_line_that_changed() -> None:
+async def test_stat_card_redraws_only_what_changed() -> None:
     card = StatCard("Balance", "+3:20", "since 1 April")
     async with mounted(card):
         card.value = "+4:00"
@@ -187,14 +168,8 @@ async def test_a_stat_card_redraws_only_the_line_that_changed() -> None:
         assert card_lines(card) == ["Balance", "+4:00", "since 6 April"]
 
 
-async def test_a_value_set_before_the_card_is_mounted_is_still_drawn() -> None:
-    """Reactives fire before the first compose.
-
-    A watcher that queried its children then would raise rather than return
-    nothing, so it stands down until there is something to query -- and the
-    value has to survive that, or a card filled in during ``on_mount`` of the
-    screen above it would come up blank.
-    """
+async def test_value_set_before_mount_is_drawn() -> None:
+    """Reactives fire before the first compose, so the watcher stands down."""
     card = StatCard("Balance")
     card.value = "+3:20"
     card.note = "six weeks"
@@ -202,10 +177,10 @@ async def test_a_value_set_before_the_card_is_mounted_is_still_drawn() -> None:
         assert card_lines(card) == ["Balance", "+3:20", "six weeks"]
 
 
-# -- the small wrappers ------------------------------------------------------
+# ---- the small wrappers ----
 
 
-async def test_a_key_hint_names_the_key_and_what_it_does() -> None:
+async def test_key_hint_names_key_and_action() -> None:
     hint = KeyHint("space", "expand")
     async with mounted(hint):
         keys = hint.query(".kbd")
@@ -214,26 +189,22 @@ async def test_a_key_hint_names_the_key_and_what_it_does() -> None:
         assert str(next(iter(actions)).render()) == "expand"
 
 
-def test_a_rule_is_accented_only_when_it_is_asked_to_be() -> None:
+def test_rule_is_accented_only_on_request() -> None:
     assert Rule("This week", accent=True).has_class("rule--accent")
     assert not Rule("This week").has_class("rule--accent")
 
 
-def test_an_empty_region_says_so_in_words() -> None:
+def test_empty_region_says_so_in_words() -> None:
     """Hatching alone reads as a widget that failed to render."""
     assert str(EmptyIndicator().render()) == "Nothing here yet"
     assert str(EmptyIndicator("No leave booked").render()) == "No leave booked"
 
 
-# -- Gauge -------------------------------------------------------------------
+# ---- Gauge ----
 
 
-async def test_an_unmeasured_allowance_reads_as_a_dash_rather_than_zero() -> None:
-    """An allowance nobody has recorded and one recorded at zero differ.
-
-    Drawing the first as a full-looking track at zero would tell somebody with
-    no entitlement configured that they had used everything.
-    """
+async def test_unmeasured_allowance_reads_as_a_dash() -> None:
+    """An unrecorded allowance and one recorded at zero differ."""
     gauge = Gauge("Annual")
     async with mounted(gauge):
         gauge.show(None, tone=Tone.OK, total=25.0)
@@ -244,7 +215,7 @@ async def test_an_unmeasured_allowance_reads_as_a_dash_rather_than_zero() -> Non
         assert fill.name not in painted
 
 
-async def test_a_reading_fills_the_track_from_the_left() -> None:
+async def test_reading_fills_the_track_from_left() -> None:
     gauge = Gauge("Annual")
     async with mounted(gauge):
         gauge.show(25.0, tone=Tone.OK, total=25.0)
@@ -258,8 +229,8 @@ async def test_a_reading_fills_the_track_from_the_left() -> None:
         assert painted[-1] != fill.name
 
 
-async def test_a_gauge_with_nothing_to_measure_against_draws_an_empty_track() -> None:
-    """Zero is a real total to arrive at: nobody has been given any leave."""
+async def test_zero_total_draws_an_empty_track() -> None:
+    """Zero is a real total to arrive at: no leave has been granted."""
     gauge = Gauge("Annual")
     async with mounted(gauge):
         gauge.show(5.0, target=2.0, tone=Tone.OK, total=0.0)
@@ -268,7 +239,7 @@ async def test_a_gauge_with_nothing_to_measure_against_draws_an_empty_track() ->
         assert len(set(colours(bar))) == 1
 
 
-async def test_the_pace_marker_is_drawn_where_you_should_be() -> None:
+async def test_pace_marker_is_drawn_at_the_target() -> None:
     """18.5 days left is comfortable or alarming depending on the date."""
     gauge = Gauge("Annual")
     async with mounted(gauge):
@@ -280,14 +251,8 @@ async def test_the_pace_marker_is_drawn_where_you_should_be() -> None:
         assert colours(bar)[10] == target.name
 
 
-async def test_a_gauge_has_no_total_until_it_is_given_a_reading() -> None:
-    """One place for the total, and one meaning for `None` in `show`.
-
-    It was a constructor argument as well, which no production caller passed,
-    so `show` carried a sentinel to decide which of the two won -- a third
-    meaning for `None` in a signature where it already meant "no reading" and
-    "no marker".
-    """
+async def test_gauge_total_comes_from_show() -> None:
+    """One place for the total, and one meaning for `None` in `show`."""
     gauge = Gauge("Annual")
     async with mounted(gauge):
         assert gauge.total == 0.0
@@ -297,12 +262,8 @@ async def test_a_gauge_has_no_total_until_it_is_given_a_reading() -> None:
         assert gauge.total == 30.0
 
 
-async def test_the_label_gives_way_before_the_figure_does() -> None:
-    """A wrapped headline costs the row the bar was going to be drawn in.
-
-    So a narrow wallet loses its words rather than its gauges, and the figure --
-    the only part that cannot be guessed from context -- is the last to go.
-    """
+async def test_label_gives_way_before_the_figure() -> None:
+    """A wrapped headline costs the row the bar was going to be drawn in."""
     gauge = Gauge("Annual leave remaining")
     async with mounted(gauge):
         gauge.show(18.5, readout="18.5 days", total=25.0)
@@ -314,7 +275,7 @@ async def test_the_label_gives_way_before_the_figure_does() -> None:
         assert str(gauge._headline(12)).lstrip() == "18.5 days remaining of 25"
 
 
-async def test_a_compact_gauge_keeps_the_line_and_drops_the_bar() -> None:
+async def test_compact_gauge_drops_the_bar() -> None:
     """An empty track is a row of hyphens costing a line of a crowded sidebar."""
     gauge = Gauge("TOIL")
     async with mounted(gauge) as pilot:
@@ -331,7 +292,7 @@ async def test_a_compact_gauge_keeps_the_line_and_drops_the_bar() -> None:
         assert gauge.styles.height.value == 2
 
 
-async def test_a_gauge_reads_its_own_value_out_when_it_is_given_no_words() -> None:
+async def test_gauge_reads_its_value_without_words() -> None:
     gauge = Gauge("Days")
     async with mounted(gauge):
         gauge.show(2.5, total=10.0)

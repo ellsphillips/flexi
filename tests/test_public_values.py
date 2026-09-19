@@ -25,7 +25,7 @@ from flexi.theme import CELL_GLYPHS, FALLBACK
 
 
 class Settable(Protocol):
-    """The mutation deliberately attempted below."""
+    """The mutation attempted below."""
 
     def __setitem__(self, key: object, value: object, /) -> None: ...
 
@@ -66,23 +66,16 @@ def test_public_mappings_cannot_be_changed(published: object) -> None:
         pytest.param(CELL_GLYPHS, id="punch glyphs"),
     ],
 )
-def test_every_way_of_drawing_the_strip_covers_every_cell(
+def test_every_strip_table_covers_every_cell(
     table: Mapping[Cell, object],
 ) -> None:
-    """Three tables map `Cell`, and a missing key is a crash, not a blank.
-
-    `CELL_TONES` was keyed by `str` and had seven of the eight: recording a
-    correction and then running `flexi clock in` was `KeyError: 'amended'`. The
-    other two were complete, which is exactly why nobody noticed -- the strip
-    drew correctly everywhere except the one surface that indexed it by hand.
-    """
+    """Three tables map `Cell`, and a missing key raises where a blank is drawn."""
     assert set(table) == set(Cell)
 
 
-def test_every_tone_the_strip_asks_for_survives_an_unreadable_stylesheet() -> None:
+def test_fallback_palette_covers_every_cell_tone() -> None:
     """`FALLBACK` answers when `flexi.tcss` cannot be parsed.
 
-    It was missing `c-annual`, the tone a booked day asks for, so the fallback
-    path painted every absence cell in the CLI strip the placeholder magenta.
+    A tone missing from it paints that cell the placeholder magenta.
     """
     assert set(CELL_TONES.values()) <= set(FALLBACK)

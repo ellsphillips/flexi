@@ -1,11 +1,8 @@
 """The settings screen writes what it shows, and refuses what it cannot read.
 
-This file used to hold three `SettingsService` round-trips — no screen, no
-Pilot — restating tests already in `tests/services/test_settings.py`. The name
-reported coverage of a 176-line screen reachable from two places in `app.py`,
-and there was none: every branch of `_save` and `_add_next_year` was
-unexercised, including the one that drops a year's entitlement when the field
-will not parse.
+Driven through `Pilot`, because `_save` and `_add_next_year` are screen
+branches: the service round-trips underneath them are covered by
+`tests/services/test_settings.py`.
 """
 
 from __future__ import annotations
@@ -30,7 +27,7 @@ from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
 
 async def open_settings(pilot: Pilot[None]) -> None:
-    """`f4` from the dashboard, as somebody would reach it."""
+    """Reach the settings screen with `f4` from the dashboard."""
     await pilot.press("f4")
     await pilot.pause()
 
@@ -41,7 +38,7 @@ def stored_start(app: FlexiApp) -> str:
     return row.leave_year_start
 
 
-# -- getting there ---------------------------------------------------------
+# getting there
 
 
 async def test_f4_opens_the_settings_screen(app_factory: AppFactory) -> None:
@@ -51,10 +48,9 @@ async def test_f4_opens_the_settings_screen(app_factory: AppFactory) -> None:
         showing(app, SettingsScreen)
 
 
-async def test_the_fields_arrive_holding_what_is_stored(
+async def test_fields_arrive_holding_what_is_stored(
     app_factory: AppFactory,
 ) -> None:
-    """A settings screen that opens empty is one that saves an empty setting."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_settings(pilot)
@@ -72,12 +68,8 @@ async def test_the_fields_arrive_holding_what_is_stored(
         )
 
 
-async def test_the_screen_opens_before_any_settings_exist(tmp_path: Path) -> None:
-    """`compose` falls back to defaults when there is no row to read.
-
-    Reachable in the application on a database that has been migrated and never
-    answered. Every fallback on that path was uncovered.
-    """
+async def test_screen_opens_before_any_settings_exist(tmp_path: Path) -> None:
+    """`compose` falls back to defaults when there is no settings row to read."""
     path = tmp_path / "empty.db"
     engine = create_db_engine(path)
     Base.metadata.create_all(engine)
@@ -93,7 +85,7 @@ async def test_the_screen_opens_before_any_settings_exist(tmp_path: Path) -> Non
         assert screen.query_one("#input-auto-close", Input).value == "18:00"
 
 
-# -- saving ----------------------------------------------------------------
+# saving
 
 
 async def test_saving_writes_every_field(app_factory: AppFactory) -> None:
@@ -118,10 +110,9 @@ async def test_saving_writes_every_field(app_factory: AppFactory) -> None:
         showing(app, DashboardScreen)
 
 
-async def test_an_empty_field_is_refused_and_writes_nothing(
+async def test_empty_field_is_refused_and_writes_nothing(
     app_factory: AppFactory,
 ) -> None:
-    """Blanking a field must not blank the setting."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         was = stored_start(app)
@@ -136,8 +127,8 @@ async def test_an_empty_field_is_refused_and_writes_nothing(
         assert stored_start(app) == was
 
 
-async def test_a_time_that_cannot_be_read_is_refused(app_factory: AppFactory) -> None:
-    """`save_settings` raises on a time it cannot parse; the screen must catch it."""
+async def test_unreadable_time_is_refused(app_factory: AppFactory) -> None:
+    """`save_settings` raises on a time it cannot parse, and the screen catches it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_settings(pilot)
@@ -153,10 +144,10 @@ async def test_a_time_that_cannot_be_read_is_refused(app_factory: AppFactory) ->
         assert row.auto_close_time != "half past six"
 
 
-# -- entitlements ----------------------------------------------------------
+# entitlements
 
 
-async def test_a_changed_entitlement_is_written(app_factory: AppFactory) -> None:
+async def test_changed_entitlement_is_written(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         year = app.services.settings.active_leave_year()
@@ -175,16 +166,14 @@ async def test_a_changed_entitlement_is_written(app_factory: AppFactory) -> None
 
 
 @pytest.mark.parametrize("allowance", ["loads", "-1", "nan", "inf"])
-async def test_an_invalid_entitlement_is_refused(
+async def test_invalid_entitlement_is_refused(
     app_factory: AppFactory, allowance: str
 ) -> None:
     """A year outside the allowance domain stops the whole save.
 
-    `_save` used to commit the four settings fields first and parse the
-    entitlements after, so a rejection left the working pattern and the region
-    written, the screen open, and the ledger cache holding figures built
-    against the settings that had just been replaced — the application hangs
-    `invalidate()` off `dismiss(True)`, and a rejection does not dismiss.
+    Settings and entitlements are parsed before anything is written, so a
+    rejection leaves neither half on disk. The application hangs `invalidate()`
+    off `dismiss(True)`, and a rejection does not dismiss.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -210,12 +199,7 @@ async def test_an_invalid_entitlement_is_refused(
 async def test_adding_next_year_carries_this_year_forward(
     app_factory: AppFactory,
 ) -> None:
-    """And it is a draft until Save, like every other field on the form.
-
-    The button used to write the row the moment it was pressed, so Back
-    discarded the leave year and the working pattern and kept the allowance --
-    half a form, silently.
-    """
+    """The new row is a draft until Save, like every other field on the form."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         year = app.services.settings.active_leave_year()
@@ -237,10 +221,9 @@ async def test_adding_next_year_carries_this_year_forward(
         assert added.days == 22.0, "next year starts on the same allowance"
 
 
-async def test_adding_a_year_with_none_on_record_uses_the_default(
+async def test_adding_a_year_with_none_on_record_defaults(
     app_factory: AppFactory,
 ) -> None:
-    """The other half of `_add_next_year`, which nothing reached."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         for row in app.services.settings.all_entitlements():
@@ -259,15 +242,13 @@ async def test_adding_a_year_with_none_on_record_uses_the_default(
         assert added.days == 25.0
 
 
-async def test_adding_a_year_keeps_the_screen_and_everything_typed_into_it(
+async def test_adding_a_year_keeps_the_form_intact(
     app_factory: AppFactory,
 ) -> None:
-    """The button adds a row. It used to leave, taking the form with it.
+    """The button adds a row without dismissing.
 
-    `# Refresh screen` described a recompose the code did not perform: it
-    dismissed instead, so every field edited above the button was discarded
-    unsaved and unmentioned, and dismissing with `True` told the application
-    that settings had been changed when only an entitlement had.
+    Dismissing would discard every field edited above it, and dismissing with
+    `True` would tell the application the settings had changed.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -288,14 +269,12 @@ async def test_adding_a_year_keeps_the_screen_and_everything_typed_into_it(
 async def test_f4_twice_does_not_build_a_second_form(
     app_factory: AppFactory,
 ) -> None:
-    """The second one would be frozen at the values from before the first save.
+    """`SettingsScreen.compose` reads every field as it is built.
 
-    `action_go_to` returns early when the destination is already current, but
-    `self.nav` is only ever set to a destination with a nav item and settings
-    has none, so that guard could never cover this branch. Two forms stacked up,
-    and `SettingsScreen.compose` reads every field from the service as it is
-    built -- so saving the top one and then saving the stale one underneath
-    wrote the old values straight back over the change.
+    A second form stacked on the first is frozen at the values from before the
+    first save, and saving it writes them back over the change.
+    `action_go_to`'s early return cannot cover this: `self.nav` is only set for
+    destinations with a nav item, and settings has none.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -306,15 +285,13 @@ async def test_f4_twice_does_not_build_a_second_form(
         assert len(forms) == 1
 
 
-async def test_leaving_a_destination_with_settings_open_closes_both(
+async def test_leaving_with_settings_open_closes_both(
     app_factory: AppFactory,
 ) -> None:
     """`Screen.dismiss` pops the top of the stack, not the screen it is called on.
 
-    With settings sitting above the leave screen, moving to insights dismissed
-    the screen the application was *holding* and Textual took settings off
-    instead -- leaving the leave screen orphaned underneath the destination that
-    thought it had replaced it.
+    With settings above the leave screen, dismissing the screen the application
+    holds would take settings off and orphan the leave screen underneath.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -333,16 +310,10 @@ async def test_leaving_a_destination_with_settings_open_closes_both(
         ]
 
 
-async def test_saving_settings_redraws_the_leave_screen_under_the_dialog(
+async def test_saving_redraws_the_screen_under_the_dialog(
     app_factory: AppFactory,
 ) -> None:
-    """Settings is reachable from anywhere, so anything can be underneath it.
-
-    The application used to find the dashboard and redraw only that, so saving
-    a new working pattern while the leave year was on screen left it measured
-    against the pattern that had just been replaced -- until the user left the
-    screen and came back.
-    """
+    """Settings is reachable from anywhere, so anything can be underneath it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("f2")
@@ -365,7 +336,7 @@ async def test_saving_settings_redraws_the_leave_screen_under_the_dialog(
         )
 
 
-# -- leaving ---------------------------------------------------------------
+# leaving
 
 
 async def test_back_leaves_everything_as_it_was(app_factory: AppFactory) -> None:
@@ -412,14 +383,10 @@ async def test_no_region_selected_is_refused(app_factory: AppFactory) -> None:
         assert stored_start(app) == was
 
 
-async def test_a_button_the_screen_does_not_own_does_nothing(
+async def test_unowned_button_does_nothing(
     app_factory: AppFactory,
 ) -> None:
-    """The fallthrough in `on_button_pressed`, which has no key of its own.
-
-    A screen that reacted to any button would react to one mounted by a widget
-    it does not control, so the absence of an `else` is the behaviour.
-    """
+    """A screen that reacted to any button would react to one it does not own."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_settings(pilot)
@@ -431,7 +398,7 @@ async def test_a_button_the_screen_does_not_own_does_nothing(
         showing(app, SettingsScreen), "neither saved nor dismissed"
 
 
-# -- the working pattern, in words -----------------------------------------
+# the working pattern, in words
 
 
 @pytest.mark.parametrize(
@@ -443,20 +410,19 @@ async def test_a_button_the_screen_does_not_own_does_nothing(
         ((2,), "Wed"),
     ],
 )
-def test_the_working_pattern_reads_as_days(days: tuple[int, ...], shown: str) -> None:
-    """A run collapses; anything else is listed. Both re-parse to what they say."""
+def test_working_pattern_reads_as_days(days: tuple[int, ...], shown: str) -> None:
+    """A run collapses, anything else is listed, and both re-parse to what they say."""
     assert describe_working_days(days) == shown
     assert parse_working_days(shown) == list(days)
 
 
-async def test_the_pattern_field_names_days_rather_than_numbering_them(
+async def test_pattern_field_names_days_not_numbers(
     app_factory: AppFactory,
 ) -> None:
     """`0,1,2,3,4` invites a reader to count from one.
 
-    `1,2,3,4,5` is a valid answer and a working week that runs Tuesday to
-    Saturday: every Monday stops being a working day and every Saturday becomes
-    a full day of deficit, with nothing refused and nothing said.
+    `1,2,3,4,5` is a valid answer and a week running Tuesday to Saturday, with
+    nothing refused and nothing said.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -473,16 +439,11 @@ async def test_the_pattern_field_names_days_rather_than_numbering_them(
         assert row.working_days == "0,1,2,3,4", "and it saves what it always saved"
 
 
-# -- the form fits the screen ----------------------------------------------
+# the form fits the screen
 
 
 async def test_every_entitlement_year_can_be_reached(app_factory: AppFactory) -> None:
-    """The third year a long-term user reaches was clipped out of the dialog.
-
-    The rows sat in a fixed-height container under a capped dialog, so the
-    allowance was invisible and unexplained — and tab still moved the cursor
-    into a field nobody could read.
-    """
+    """A third entitlement row has to stay reachable, not clip out of the dialog."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         for year, days in ((2026, 25.0), (2027, 26.0), (2028, 27.0)):
@@ -498,15 +459,13 @@ async def test_every_entitlement_year_can_be_reached(app_factory: AppFactory) ->
         assert "2028" in screen_text(app), "the field holding focus is drawn"
 
 
-async def test_a_short_terminal_can_reach_the_whole_form(
+async def test_short_terminal_can_reach_the_whole_form(
     app_factory: AppFactory,
 ) -> None:
     """Twenty-four rows is a form taller than its terminal.
 
-    The way out has to be on screen, and the questions under it have to be
-    reachable: the entitlements sat in a container that clipped rather than
-    scrolled, so on a short terminal they were a row nobody could bring into
-    view.
+    The way out has to be on screen and the entitlements under it have to
+    scroll into view.
     """
     app = app_factory()
     async with app.run_test(size=(80, 24)) as pilot:
@@ -526,10 +485,9 @@ async def test_a_short_terminal_can_reach_the_whole_form(
         assert "2026" in screen_text(app), "the field holding focus is drawn"
 
 
-async def test_an_added_year_is_shown_and_not_only_announced(
+async def test_added_year_is_shown_not_only_announced(
     app_factory: AppFactory,
 ) -> None:
-    """The toast says it was added, so the row has to be somewhere to be seen."""
     app = app_factory()
     async with app.run_test(size=(80, 24)) as pilot:
         for year, days in ((2026, 25.0), (2027, 26.0), (2028, 27.0)):
@@ -544,11 +502,10 @@ async def test_an_added_year_is_shown_and_not_only_announced(
         assert "2029" in screen_text(app)
 
 
-# -- enter ------------------------------------------------------------------
+# enter
 
 
 async def test_enter_in_a_field_saves(app_factory: AppFactory) -> None:
-    """Every other form in Flexi takes enter for an answer; this one ignored it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await open_settings(pilot)

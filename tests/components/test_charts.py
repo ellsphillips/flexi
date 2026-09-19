@@ -1,13 +1,8 @@
-"""The character charts, checked as pictures rather than as numbers.
+"""The character charts, checked as pictures and as captions.
 
-Every one of these draws a shape and prints the figure beside it, so the tests
-ask both questions: is the shape right, and does the caption still say what the
-shape means. A chart nobody can read a value off is a mood, and a caption that
-disagrees with the bars is worse than either alone.
-
-The widgets are mounted one at a time into an empty app carrying the real
-stylesheets -- the ramp is only a ramp if the CSS behind it defines eight
-distinct colours, and a bare app would draw every step in the same white.
+Each widget is mounted alone into an app carrying the real stylesheets: the
+ramp is only a ramp if the CSS behind it defines eight distinct colours, and a
+bare app draws every step in the same white.
 """
 
 from __future__ import annotations
@@ -51,9 +46,8 @@ CONSOLE = Console()
 CONTRACTED = timedelta(hours=7, minutes=24)
 MONDAY = date(2025, 6, 2)
 NOW = wallclock.local(datetime.combine(MONDAY, time(23, 59)))
-"""When these ribbons are drawn. `render_strip` takes the moment rather than
-guessing at it, and the end of the day is the reading that draws a closed day
-the same however often it is redrawn."""
+"""When these ribbons are drawn: the end of the day, so a closed day redraws
+identically."""
 
 AMENDED = Segment(
     session_id=1,
@@ -61,7 +55,7 @@ AMENDED = Segment(
     end=wallclock.local(datetime.combine(MONDAY, time(17))),
     amended=True,
 )
-"""A morning nobody punched in for, written up later."""
+"""A morning written up after the fact, with no punch behind it."""
 
 
 @asynccontextmanager
@@ -97,7 +91,7 @@ def day(
     absences: tuple[AbsenceSlice, ...] = (),
     segments: tuple[Segment, ...] = (),
 ) -> DayLedger:
-    """A ledger whose balance effect is exactly what the test asked for."""
+    """A ledger whose balance effect is what the test asked for."""
     expected = CONTRACTED if working else timedelta()
     return DayLedger(
         date=when,
@@ -126,22 +120,16 @@ def lines(widget: Widget) -> list[str]:
     return str(widget.render()).split("\n")
 
 
-# -- DivergingBars -----------------------------------------------------------
+# ---- DivergingBars ----
 
 
-async def test_a_chart_with_no_weeks_in_it_says_so() -> None:
-    """An empty panel reads as a widget that failed rather than as no data."""
+async def test_chart_with_no_weeks_says_so() -> None:
     chart = DivergingBars()
     async with mounted(chart):
         assert str(chart.render()) == "Nothing recorded yet"
 
 
-async def test_a_surplus_is_drawn_above_the_line_and_a_deficit_below() -> None:
-    """The whole grammar of a diverging chart.
-
-    Which side of the line a bar is on says what it means, so the reader never
-    has to look a colour up.
-    """
+async def test_surplus_above_the_line_deficit_below() -> None:
     chart = DivergingBars(height=5)
     async with mounted(chart):
         chart.show([Column("2", 2.0, "+2:00"), Column("9", -2.0, "−2:00")])
@@ -154,8 +142,7 @@ async def test_a_surplus_is_drawn_above_the_line_and_a_deficit_below() -> None:
         assert BLOCK in "".join(row[2] for row in drawn[rule + 1 : -1])
 
 
-async def test_a_run_of_weeks_with_no_deficit_keeps_one_row_for_the_line() -> None:
-    """A series with no deficit does not need four rows of empty negative axis."""
+async def test_weeks_with_no_deficit_keep_one_row() -> None:
     chart = DivergingBars(height=7)
     async with mounted(chart):
         chart.show([Column("2", 3.0, "+3:00"), Column("9", 1.0, "+1:00")])
@@ -165,12 +152,7 @@ async def test_a_run_of_weeks_with_no_deficit_keeps_one_row_for_the_line() -> No
         assert len(drawn) == rule + 3
 
 
-async def test_a_run_of_weeks_with_no_surplus_is_not_squashed_into_two_rows() -> None:
-    """The mirror of the above, and the one an eighth-of-the-panel chart got wrong.
-
-    A fortnight where the best week merely broke even is still a fortnight of
-    deficit, and it earns the rows.
-    """
+async def test_weeks_with_no_surplus_keep_their_rows() -> None:
     chart = DivergingBars(height=7)
     async with mounted(chart):
         chart.show([Column("2", 0.0, "0:00"), Column("9", -3.0, "−3:00")])
@@ -180,8 +162,7 @@ async def test_a_run_of_weeks_with_no_surplus_is_not_squashed_into_two_rows() ->
         assert len(drawn) == rule + 7
 
 
-async def test_the_two_arms_are_split_in_proportion_to_the_data() -> None:
-    """Not down the middle: a mostly-surplus series gets mostly upward rows."""
+async def test_arms_split_in_proportion_to_the_data() -> None:
     chart = DivergingBars(height=7)
     async with mounted(chart):
         chart.show([Column("2", 5.0, "+5:00"), Column("9", -1.0, "−1:00")])
@@ -190,8 +171,8 @@ async def test_the_two_arms_are_split_in_proportion_to_the_data() -> None:
         assert rule > len(drawn) - rule - 2
 
 
-async def test_a_perfectly_balanced_run_draws_the_line_and_nothing_else() -> None:
-    """Dividing by an extent of zero is how this used to be a ZeroDivisionError."""
+async def test_balanced_run_draws_only_the_line() -> None:
+    """Every column at zero gives the two arms an extent of zero to divide by."""
     chart = DivergingBars(height=5)
     async with mounted(chart):
         chart.show([Column("2", 0.0, "0:00"), Column("9", 0.0, "0:00")])
@@ -200,12 +181,7 @@ async def test_a_perfectly_balanced_run_draws_the_line_and_nothing_else() -> Non
         assert BASELINE in "".join(drawn)
 
 
-async def test_a_year_of_weeks_is_trimmed_from_the_oldest_end() -> None:
-    """Fifty-two weeks will not fit a half-width panel, and the old ones go.
-
-    Dropping the newest instead would leave the dashboard reporting on last
-    autumn, which is the one thing nobody opens a dashboard to find out.
-    """
+async def test_weeks_are_trimmed_from_the_oldest_end() -> None:
     chart = DivergingBars()
     async with mounted(chart, width=20):
         width = chart.content_size.width
@@ -218,8 +194,7 @@ async def test_a_year_of_weeks_is_trimmed_from_the_oldest_end() -> None:
         assert drawn[-1].startswith(f"best {width * 3 - 1}")
 
 
-async def test_the_caption_names_the_best_and_the_worst_week() -> None:
-    """Direct-labelling all fifty-two would be unreadable, so the extremes carry it."""
+async def test_caption_names_the_best_and_worst_week() -> None:
     chart = DivergingBars()
     async with mounted(chart):
         chart.show(
@@ -232,7 +207,7 @@ async def test_the_caption_names_the_best_and_the_worst_week() -> None:
         assert lines(chart)[-1] == "best 9 +4:00 · worst 16 −3:00"
 
 
-async def test_a_single_week_is_named_once_rather_than_as_both_extremes() -> None:
+async def test_single_week_is_named_once() -> None:
     """A caption reading `best 2 0:00 · worst 2 0:00` names one week twice."""
     chart = DivergingBars()
     async with mounted(chart):
@@ -240,19 +215,17 @@ async def test_a_single_week_is_named_once_rather_than_as_both_extremes() -> Non
         assert lines(chart)[-1] == "2: 0:00"
 
 
-async def test_a_caption_for_no_bars_is_blank_rather_than_an_error() -> None:
+async def test_caption_for_no_bars_is_blank() -> None:
     """`max` of an empty series raises, and a caption is not worth a traceback."""
     chart = DivergingBars()
     async with mounted(chart):
         assert str(chart._caption(())) == ""
 
 
-# -- Burndown ----------------------------------------------------------------
+# ---- Burndown ----
 
 
-async def test_a_burndown_with_no_entitlement_says_so_rather_than_drawing_zero() -> (
-    None
-):
+async def test_burndown_with_no_entitlement_says_so() -> None:
     chart = Burndown()
     async with mounted(chart):
         assert str(chart.render()) == "No entitlement recorded"
@@ -262,7 +235,7 @@ async def test_a_burndown_with_no_entitlement_says_so_rather_than_drawing_zero()
         assert str(chart.render()) == "No entitlement recorded"
 
 
-async def test_a_burndown_fills_from_the_left_and_prints_its_own_figures() -> None:
+async def test_burndown_fills_left_and_prints_its_figures() -> None:
     chart = Burndown()
     async with mounted(chart, width=20):
         chart.show(15.0, 25.0, 12.0)
@@ -272,20 +245,15 @@ async def test_a_burndown_fills_from_the_left_and_prints_its_own_figures() -> No
         assert caption == "10 taken · 15 left · pace 12"
 
 
-async def test_a_burndown_signs_an_overspent_remainder_like_the_rest() -> None:
-    """The entitlement can be lowered under what has already been booked.
-
-    Every other negative in the panel is written with U+2212, and the one
-    drawn with an ASCII hyphen is the one that reads as a rendering fault.
-    """
+async def test_burndown_signs_an_overspent_remainder() -> None:
+    """Every negative in the panel is written with U+2212, not an ASCII hyphen."""
     chart = Burndown()
     async with mounted(chart, width=20):
         chart.show(-2.0, 25.0, 12.0)
         assert lines(chart)[1] == "27 taken · −2 left · pace 12"
 
 
-async def test_a_burndown_with_no_pace_draws_no_reference_mark() -> None:
-    """Where you should be is not a thing that happened, and is sometimes unknown."""
+async def test_burndown_with_no_pace_has_no_mark() -> None:
     chart = Burndown()
     async with mounted(chart, width=20):
         chart.show(15.0, 25.0, None)
@@ -295,8 +263,8 @@ async def test_a_burndown_with_no_pace_draws_no_reference_mark() -> None:
 
 
 @pytest.mark.parametrize("pace", [-5.0, 40.0])
-async def test_the_reference_mark_stays_on_the_track(pace: float) -> None:
-    """A pace outside the entitlement is arithmetic, not a reason to index off."""
+async def test_reference_mark_stays_on_the_track(pace: float) -> None:
+    """A pace outside the entitlement is arithmetic, not an index off the end."""
     chart = Burndown()
     async with mounted(chart, width=20):
         chart.show(15.0, 25.0, pace)
@@ -305,17 +273,16 @@ async def test_the_reference_mark_stays_on_the_track(pace: float) -> None:
         assert len(track) == chart.content_size.width
 
 
-# -- WeekRibbon --------------------------------------------------------------
+# ---- WeekRibbon ----
 
 
-async def test_a_ribbon_with_no_days_says_so() -> None:
+async def test_ribbon_with_no_days_says_so() -> None:
     ribbon = WeekRibbon(now=NOW)
     async with mounted(ribbon):
         assert str(ribbon.render()) == "Nothing recorded yet"
 
 
-async def test_each_row_of_the_ribbon_is_named_by_its_day() -> None:
-    """A table of weekly totals says how much; the ribbon says when."""
+async def test_each_ribbon_row_is_named_by_its_day() -> None:
     ribbon = WeekRibbon(now=NOW)
     async with mounted(ribbon, width=40):
         ribbon.show([day(MONDAY), day(MONDAY + timedelta(days=1))], now=NOW)
@@ -324,10 +291,7 @@ async def test_each_row_of_the_ribbon_is_named_by_its_day() -> None:
         assert len({len(row) for row in drawn}) == 1
 
 
-async def test_a_ribbon_keeps_the_window_it_was_given_until_it_is_given_another() -> (
-    None
-):
-    """Redrawing a week is not a reason to snap back to the default day."""
+async def test_ribbon_keeps_its_window_until_given_another() -> None:
     ribbon = WeekRibbon(window=Window(time(6), time(20)), now=NOW)
     async with mounted(ribbon):
         ribbon.show([day(MONDAY)], now=NOW)
@@ -336,16 +300,16 @@ async def test_a_ribbon_keeps_the_window_it_was_given_until_it_is_given_another(
         assert ribbon.window == Window(time(8), time(18))
 
 
-# -- YearHeatmap -------------------------------------------------------------
+# ---- YearHeatmap ----
 
 
-async def test_a_heatmap_with_no_days_says_so() -> None:
+async def test_heatmap_with_no_days_says_so() -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         assert str(heatmap.render()) == "Nothing recorded yet"
 
 
-async def test_a_day_nobody_recorded_is_left_blank() -> None:
+async def test_unrecorded_day_is_left_blank() -> None:
     """The grid starts on a Monday, so the first week is usually part empty."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
@@ -362,10 +326,9 @@ async def test_a_day_nobody_recorded_is_left_blank() -> None:
     ],
     ids=["weekend", "bank holiday"],
 )
-async def test_a_day_that_was_never_going_to_be_worked_is_drawn_neutral(
+async def test_day_never_due_to_be_worked_is_neutral(
     ledger: DayLedger,
 ) -> None:
-    """A Sunday off is not a deficit, and colouring it as one would swamp the year."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         heatmap.show([ledger], first_weekday=0)
@@ -374,8 +337,7 @@ async def test_a_day_that_was_never_going_to_be_worked_is_drawn_neutral(
         assert style == heatmap.get_component_rich_style("chart--neutral")
 
 
-async def test_a_day_worked_exactly_to_contract_is_present_but_uncoloured() -> None:
-    """It happened, so it is drawn; it was neither good nor bad, so it has no hue."""
+async def test_day_worked_to_contract_is_uncoloured() -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         heatmap.show([day(MONDAY)], first_weekday=0)
@@ -384,12 +346,8 @@ async def test_a_day_worked_exactly_to_contract_is_present_but_uncoloured() -> N
         assert style == heatmap.get_component_rich_style("chart--neutral")
 
 
-async def test_the_ramp_ranks_days_by_how_far_off_they_were() -> None:
-    """Four steps an arm is as many as a reader can rank without a legend.
-
-    The colour carries the magnitude and the side carries the sign, so a heavy
-    day and a light one are the same hue at different strengths.
-    """
+async def test_ramp_ranks_days_by_how_far_off() -> None:
+    """Colour carries the magnitude and the side of the line carries the sign."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         heatmap.show(
@@ -411,12 +369,8 @@ async def test_the_ramp_ranks_days_by_how_far_off_they_were() -> None:
         ] == heatmap.get_component_rich_style(f"chart--deficit-{DIVERGING_STEPS}")
 
 
-async def test_a_fortnight_of_near_perfect_days_is_not_drawn_as_a_disaster() -> None:
-    """Without a floor the ramp rescales to whatever the worst day happened to be.
-
-    Six minutes over would then be painted as violently as four hours short,
-    which turns the one chart meant to show a year at a glance into a liar.
-    """
+async def test_near_perfect_days_stay_pale() -> None:
+    """Without a floor the ramp rescales to the worst day in the series."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         heatmap.show(
@@ -432,11 +386,7 @@ async def test_a_fortnight_of_near_perfect_days_is_not_drawn_as_a_disaster() -> 
         )
 
 
-async def test_the_grid_is_a_weekday_per_row_starting_on_monday() -> None:
-    """Weekday down, week across: the shape every contribution graph uses.
-
-    It is what puts "my Fridays are short" and "March was heavy" in one picture.
-    """
+async def test_grid_is_a_weekday_per_row_from_monday() -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         heatmap.show(
@@ -447,8 +397,7 @@ async def test_the_grid_is_a_weekday_per_row_starting_on_monday() -> None:
         assert all(len(row) == 4 for row in drawn[:7])
 
 
-async def test_the_legend_names_both_ends_of_the_ramp() -> None:
-    """Never colour alone. The ramp is drawn with the hours it stands for."""
+async def test_legend_names_both_ends_of_the_ramp() -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         heatmap.show([day(MONDAY, effect=timedelta(hours=3))], first_weekday=0)
@@ -459,12 +408,8 @@ async def test_the_legend_names_both_ends_of_the_ramp() -> None:
         assert AMENDED_HEAT not in legend, "nothing on this year was corrected"
 
 
-async def test_a_day_written_up_afterwards_carries_its_own_fill() -> None:
-    """The ramp says how the day went; the fill says where the reading came from.
-
-    Recoloured instead, the day would drop off the diverging scale it belongs
-    on -- the hours are the hours however they were captured.
-    """
+async def test_day_written_up_afterwards_has_its_own_fill() -> None:
+    """The ramp says how the day went; the fill says where the reading came from."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         heatmap.show([day(MONDAY, segments=(AMENDED,))], first_weekday=0)
@@ -475,8 +420,7 @@ async def test_a_day_written_up_afterwards_carries_its_own_fill() -> None:
         assert f"{AMENDED_HEAT} corrected" in lines(heatmap)[-1], "and it is named"
 
 
-async def test_a_punched_day_beside_a_corrected_one_keeps_the_solid_fill() -> None:
-    """Both fills on one grid, which is the only way either means anything."""
+async def test_punched_and_corrected_days_keep_their_fills() -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         heatmap.show(
@@ -488,14 +432,10 @@ async def test_a_punched_day_beside_a_corrected_one_keeps_the_solid_fill() -> No
         assert heatmap._cell(MONDAY + timedelta(days=1))[0] == HEAT
 
 
-# -- week_columns ------------------------------------------------------------
+# ---- week_columns ----
 
 
-def test_days_are_grouped_into_weeks_that_begin_on_a_monday() -> None:
-    """A week is the unit people plan in.
-
-    A bar a day would be unreadable across a year.
-    """
+def test_days_are_grouped_into_weeks_beginning_on_monday() -> None:
     ledgers = [
         day(MONDAY, effect=timedelta(hours=1)),
         day(MONDAY + timedelta(days=3), effect=timedelta(hours=2)),
@@ -507,14 +447,14 @@ def test_days_are_grouped_into_weeks_that_begin_on_a_monday() -> None:
     ]
 
 
-def test_a_week_is_dated_by_its_monday_even_when_it_starts_midweek() -> None:
-    """The demo data starts on a Wednesday, and the bar it lands in is that week's."""
+def test_midweek_start_is_dated_by_its_monday() -> None:
+    """The demo data starts on a Wednesday and lands in that week's bar."""
     wednesday = MONDAY + timedelta(days=2)
     assert week_columns([day(wednesday)], first_weekday=0)[0].label == "2"
 
 
-def test_an_absence_still_lands_in_its_week() -> None:
-    """A booked day contributes its own effect, so the week is not silently short."""
+def test_absence_still_lands_in_its_week() -> None:
+    """A booked day contributes its own effect, so the week is not short."""
     booked = day(
         MONDAY,
         absences=(AbsenceSlice(1, AbsenceType.ANNUAL, Portion.FULL),),
@@ -523,7 +463,7 @@ def test_an_absence_still_lands_in_its_week() -> None:
     assert week_columns([booked], first_weekday=0)[0].value == pytest.approx(-7.4)
 
 
-# -- an arm is a distance from the baseline, never a value -----------------
+# ---- an arm is a distance from the baseline, never a value ----
 
 
 @pytest.mark.parametrize(
@@ -540,14 +480,7 @@ def test_an_absence_still_lands_in_its_week() -> None:
 async def test_no_shape_of_week_can_take_the_chart_down(
     name: str, values: list[float]
 ) -> None:
-    """The first install has one week on record, and it is usually behind.
-
-    `_high` returned the largest *value* rather than a distance above the
-    baseline, so a week of nothing but deficit gave the surplus arm a negative
-    height — and `_arms` divides by `high + low`, which for a single column is
-    `value + -value`: exactly zero. Opening Insights on a fresh install was a
-    ZeroDivisionError before anything was drawn.
-    """
+    """`_arms` divides by `high + low`, and both are distances, never values."""
     chart = DivergingBars()
     async with mounted(chart):
         chart.show(
@@ -571,7 +504,6 @@ async def test_no_shape_of_week_can_take_the_chart_down(
 async def test_each_arm_is_given_room_in_proportion_to_its_reach(
     values: list[float], expected: tuple[int, int]
 ) -> None:
-    """A series with no deficit weeks does not need four rows of empty axis."""
     chart = DivergingBars(height=8)
     async with mounted(chart):
         shown = tuple(
@@ -581,14 +513,8 @@ async def test_each_arm_is_given_room_in_proportion_to_its_reach(
         assert chart._arms(shown) == expected
 
 
-async def test_the_heatmap_starts_its_rows_on_the_configured_day() -> None:
-    """The third chart that assumed Monday, on a screen with two that do not.
-
-    The grid stepped back to `date.weekday() == 0` and labelled its rows with a
-    hardcoded "MTWTFSS", while the bars above it take `first_weekday` — so a
-    Sunday-first week put the two charts a day out of step with each other and
-    with the calendar on the leave screen.
-    """
+async def test_heatmap_rows_start_on_the_configured_day() -> None:
+    """The row labels and the step-back follow `first_weekday`, as the bars do."""
     heatmap = YearHeatmap()
     async with mounted(heatmap, width=40):
         heatmap.show(

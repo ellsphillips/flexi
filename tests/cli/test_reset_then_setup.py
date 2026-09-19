@@ -1,16 +1,10 @@
 """What happens in the moment after the records are thrown away.
 
 `flexi init` -> Start again deletes the database and then asks the five
-questions again. The setup form is a Textual application, and `FlexiApp.__init__`
-builds an engine, opens a session and reads the settings row before a single
-screen is drawn -- so between the delete and the form there has to be a
-migration, or the command dies with `no such table: settings` having already
-destroyed everything it was asked to destroy.
-
-It shipped like that. `ask_the_questions` opened the application and left every
-caller to have migrated first; there were four callers and the reset path,
-added last, did not. The invariant is now established where it is needed rather
-than asserted in the places that happen to remember.
+questions again. The setup form is a Textual application, and `FlexiApp` builds
+an engine and opens a session before a screen is drawn, so the migration has to
+run between the delete and the form or the command dies with
+`no such table: settings` on a database it has already destroyed.
 """
 
 from __future__ import annotations
@@ -69,13 +63,12 @@ def erased(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return db
 
 
-def test_the_records_really_are_gone(erased: Path) -> None:
+def test_records_are_gone(erased: Path) -> None:
     assert not erased.exists()
     assert not setup.is_initialised(erased)
 
 
-def test_the_setup_form_opens_after_the_records_are_erased(erased: Path) -> None:
-    """The crash somebody hit: erase, then straight into the five questions."""
+def test_setup_form_opens_after_the_reset(erased: Path) -> None:
     app = main.launch(splash=True)
     try:
         assert app.show_splash, "the first run after a reset earns the animation"
@@ -84,18 +77,12 @@ def test_the_setup_form_opens_after_the_records_are_erased(erased: Path) -> None
         app._engine.dispose()
 
 
-def test_the_migration_in_launch_is_what_makes_that_work(erased: Path) -> None:
-    """The guard is load-bearing rather than belt-and-braces.
+def test_without_the_migration_the_app_cannot_open(erased: Path) -> None:
+    """The migration in `launch` is load-bearing, and this is what it prevents.
 
-    Without it this is the exact traceback, thrown after the database has
-    already been deleted and with the snapshot the only thing standing between
-    somebody and the loss of a year of records.
-
-    Thrown from ``on_mount``'s first question rather than from ``__init__``:
-    building the registry stopped reading the settings row when the bank-holiday
-    division became a question asked per query rather than a value captured
-    once. The table is still missing and the application still cannot open on
-    it; only the line number moved.
+    The failure comes from ``on_mount``'s first question, not ``__init__``:
+    building the registry reads no settings row, because the bank-holiday
+    division is asked per query.
     """
     app = FlexiApp()
     try:
@@ -106,17 +93,13 @@ def test_the_migration_in_launch_is_what_makes_that_work(erased: Path) -> None:
         app._engine.dispose()
 
 
-def test_every_way_into_the_application_migrates_first(
+def test_launch_migrates_before_opening_the_app(
     erased: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Four callers, one forgot. Assert the seam rather than the callers.
+    """`launch` is the only place in `__main__` that constructs the application.
 
-    `launch` is the only place in `__main__` that constructs the application,
-    so this is the one place the invariant has to hold.
-
-    Patched at the source modules rather than on `__main__`: neither name is
-    bound there any more, because importing the application and the migration
-    runner at module scope cost every command most of a second.
+    Patched at the source modules: neither name is bound in `__main__`, because
+    the application and the migration runner are imported inside the function.
     """
     order: list[str] = []
 

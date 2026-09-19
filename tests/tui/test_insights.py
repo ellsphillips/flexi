@@ -1,4 +1,4 @@
-"""Phase 3: the charts, and the rules they are meant to keep."""
+"""Phase 3: the charts, and the rules they keep."""
 
 from __future__ import annotations
 
@@ -45,11 +45,11 @@ def ledger(
     )
 
 
-# -- pure helpers ----------------------------------------------------------
+# ---- pure helpers ----
 
 
 def test_week_columns_group_days_into_weeks() -> None:
-    """It buckets by the Monday, so a bar is a week whatever day it starts on."""
+    """Buckets by the Monday, so a bar is a week whatever day it starts on."""
     days = [
         ledger(date(2026, 6, 8), CONTRACTED + timedelta(hours=1)),
         ledger(date(2026, 6, 9), CONTRACTED),
@@ -62,15 +62,13 @@ def test_week_columns_group_days_into_weeks() -> None:
 
 
 def test_week_columns_of_nothing_is_empty() -> None:
-    """It has no opinion about an empty period."""
     assert week_columns([], first_weekday=0) == []
 
 
-# -- the screen ------------------------------------------------------------
+# ---- the screen ----
 
 
 async def test_f3_opens_insights_on_the_leave_year(app_factory: AppFactory) -> None:
-    """It opens on the year: four bars of one week is worse than the table."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("f3")
@@ -79,7 +77,6 @@ async def test_f3_opens_insights_on_the_leave_year(app_factory: AppFactory) -> N
 
 
 async def test_escape_returns_to_the_dashboard(app_factory: AppFactory) -> None:
-    """It leaves the way every pushed screen does."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("f3")
@@ -91,11 +88,7 @@ async def test_escape_returns_to_the_dashboard(app_factory: AppFactory) -> None:
 
 
 async def test_f1_returns_to_the_dashboard(app_factory: AppFactory) -> None:
-    """It leaves Insights, not just relabels the nav bar.
-
-    Insights is a pushed screen, so `f1` has to dismiss it. Setting `nav` alone
-    left escape as the only way back.
-    """
+    """Insights is a pushed screen, so `f1` dismisses it as well as setting nav."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("f3")
@@ -109,7 +102,7 @@ async def test_f1_returns_to_the_dashboard(app_factory: AppFactory) -> None:
 
 
 async def test_every_chart_draws(app_factory: AppFactory) -> None:
-    """It renders every panel with data rather than an empty state."""
+    """Every panel renders with data, not an empty state."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
@@ -121,8 +114,8 @@ async def test_every_chart_draws(app_factory: AppFactory) -> None:
         assert "No entitlement recorded" not in text
 
 
-async def test_the_balance_chart_stops_at_today(app_factory: AppFactory) -> None:
-    """It does not chart a cliff of deficits for days nobody has lived yet."""
+async def test_balance_chart_stops_at_today(app_factory: AppFactory) -> None:
+    """Days not yet lived would chart as a cliff of deficits."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
@@ -132,15 +125,13 @@ async def test_the_balance_chart_stops_at_today(app_factory: AppFactory) -> None
         assert subtitle.startswith("+"), f"expected a surplus, got {subtitle!r}"
 
 
-async def test_every_chart_writes_its_figures_as_well_as_drawing_them(
+async def test_every_chart_writes_its_figures(
     app_factory: AppFactory,
 ) -> None:
     """No chart is the only way to read its own numbers.
 
-    Read down the page rather than off one screenful. Insights is a scrolling
-    page and there are more charts on it than fit a terminal, so a test that
-    looked at the viewport alone would be asserting the layout as much as the
-    figures -- and would start failing for whichever chart was added last.
+    The page scrolls and holds more charts than fit a terminal, so the whole
+    page is read, not one viewport.
     """
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
@@ -156,7 +147,7 @@ async def test_every_chart_writes_its_figures_as_well_as_drawing_them(
 
 
 async def scrolled_text(app: FlexiApp, pilot: Pilot[None]) -> str:
-    """Everything the page says, gathered a screenful at a time."""
+    """Gather everything the page says, a screenful at a time."""
     body = app.screen.query_one(VerticalScroll)
     seen = [screen_text(app)]
     while body.scroll_offset.y < body.max_scroll_y:
@@ -166,8 +157,8 @@ async def scrolled_text(app: FlexiApp, pilot: Pilot[None]) -> str:
     return "\n".join(seen)
 
 
-async def test_the_heatmap_legend_names_both_ends(app_factory: AppFactory) -> None:
-    """A diverging ramp with no labelled poles is a mood, not a scale."""
+async def test_heatmap_legend_names_both_ends(app_factory: AppFactory) -> None:
+    """A diverging ramp needs both poles labelled to be a scale."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
@@ -178,7 +169,6 @@ async def test_the_heatmap_legend_names_both_ends(app_factory: AppFactory) -> No
 
 
 async def test_insights_panels_are_jumpable(app_factory: AppFactory) -> None:
-    """It offers the same one-key navigation the dashboard does."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
@@ -188,17 +178,16 @@ async def test_insights_panels_are_jumpable(app_factory: AppFactory) -> None:
             assert insights.query(f"#{widget_id}"), f"{widget_id} is not mounted"
 
 
-# -- moving the period -----------------------------------------------------
+# ---- moving the period ----
 
 
-async def test_a_leave_year_that_has_not_begun_says_so_rather_than_drawing_nothing(
+async def test_year_that_has_not_begun_says_so(
     app_factory: AppFactory,
 ) -> None:
-    """Next year has no weeks behind it, and an empty chart looks like a bug.
+    """The balance chart stops at today.
 
-    The balance chart stops at today, so in a period that starts after today
-    there is nothing between the two — which is a sentence, not a blank panel
-    somebody has to work out for themselves.
+    A period beginning after today has nothing between the two, and an empty
+    chart reads as a bug, so the panel says which it is.
     """
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
@@ -217,10 +206,9 @@ async def test_a_leave_year_that_has_not_begun_says_so_rather_than_drawing_nothi
         assert "Nothing recorded yet" in str(bars.render())
 
 
-async def test_today_brings_the_charts_back_to_the_year_being_lived(
+async def test_today_brings_the_charts_back(
     app_factory: AppFactory,
 ) -> None:
-    """One key back from wherever the arrows have got to."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
@@ -236,22 +224,17 @@ async def test_today_brings_the_charts_back_to_the_year_being_lived(
         assert "11 Jun" in str(insights.query_one("#balance-history").border_subtitle)
 
 
-async def test_cycling_the_period_re_labels_the_header_as_well_as_the_charts(
+async def test_cycling_the_period_relabels_the_header(
     app_factory: AppFactory,
 ) -> None:
-    """The charts are only readable against the span they cover.
-
-    Zooming redraws every panel, and a header still claiming the leave year
-    would be describing data that had moved out from under it.
-    """
+    """Zooming redraws every panel, and the header names the span they cover."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
         await pilot.pause()
-        # Zoomed out of next year rather than this one: `p` narrows a leave year
-        # to a single day, and `DivergingBars._arms` divides by `high + low` --
-        # zero whenever every bar is the same value, which one bar always is. A
-        # year with no weeks behind it charts nothing, so it survives the zoom.
+        # Next year, not this one: `p` narrows a leave year to a single day,
+        # and `DivergingBars._arms` divides by `high + low`, zero whenever
+        # every bar holds the same value. A year charting nothing survives it.
         await pilot.press("right_square_bracket")
         await pilot.pause()
 
@@ -266,12 +249,7 @@ async def test_cycling_the_period_re_labels_the_header_as_well_as_the_charts(
 async def test_saving_settings_redraws_insights_under_the_dialog(
     app_factory: AppFactory,
 ) -> None:
-    """The third screen the application can be showing when settings are saved.
-
-    It had no `refresh_modules` at all, and the app looked for the dashboard
-    and redrew only that — so a new working pattern left every chart on this
-    screen measured against the one it replaced.
-    """
+    """Settings can be saved with Insights on the stack, so it redraws too."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
@@ -292,15 +270,10 @@ async def test_saving_settings_redraws_insights_under_the_dialog(
         assert after != before, f"the charts still say {before}"
 
 
-async def test_saving_settings_moves_the_leave_year_under_open_insights(
+async def test_settings_move_the_leave_year_under_insights(
     app_factory: AppFactory,
 ) -> None:
-    """Every chart here is measured across the leave year the settings own.
-
-    This screen had no `refresh_modules` at all until the app started treating
-    the whole stack alike, so a settings change behind it left every figure
-    computed against the year that had just been replaced.
-    """
+    """Every chart here is measured across the leave year the settings own."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("f3")
@@ -335,21 +308,19 @@ async def test_saving_settings_moves_the_leave_year_under_open_insights(
         )
 
 
-# -- the bento grid ----------------------------------------------------------
+# ---- the bento grid ----
 
 
 def islands(app: FlexiApp) -> list[Module]:
     return list(app.screen.query(Module))
 
 
-async def test_wide_islands_take_both_columns_and_the_rest_pair_off(
+async def test_wide_islands_take_both_columns(
     app_factory: AppFactory,
 ) -> None:
-    """Five islands into two columns, with no cell of the grid left empty.
+    """Five islands into two columns: one reads across and the other four pair.
 
-    One reads across the full width and the other four pair, so the grid packs
-    exactly. An island added without a partner leaves a hole beside it, which is
-    what this notices.
+    An island added without a partner leaves a hole beside it.
     """
     app = app_factory()
     async with app.run_test(size=(150, 46)) as pilot:
@@ -363,13 +334,8 @@ async def test_wide_islands_take_both_columns_and_the_rest_pair_off(
         assert (len(placed) - len(wide)) % 2 == 0, "the rest pair off"
 
 
-async def test_an_island_says_how_much_room_it_needs(app_factory: AppFactory) -> None:
-    """Declared by the island, not by the screen laying it out.
-
-    How wide a chart has to be to be readable is a fact about the chart, and a
-    screen that decided it would decide it again on every screen the module
-    ever appeared on.
-    """
+async def test_island_says_how_much_room_it_needs(app_factory: AppFactory) -> None:
+    """How wide a chart has to be is a fact about the chart, not the screen."""
     app = app_factory()
     async with app.run_test(size=(150, 46)) as pilot:
         await pilot.press("f3")
@@ -380,7 +346,7 @@ async def test_an_island_says_how_much_room_it_needs(app_factory: AppFactory) ->
             assert one.has_class("bento--wide") == bool(one.BENTO)
 
 
-async def test_a_wide_island_really_is_wider_than_a_paired_one(
+async def test_wide_island_is_wider_than_a_paired_one(
     app_factory: AppFactory,
 ) -> None:
     """The class has to reach the layout, not just the DOM."""
@@ -400,10 +366,9 @@ async def test_a_wide_island_really_is_wider_than_a_paired_one(
 async def test_narrow_collapses_every_island_to_one_column(
     app_factory: AppFactory,
 ) -> None:
-    """Two columns of fifty is two charts nobody can read.
+    """Below the fold class the grid is one column, and the spans collapse.
 
-    Below the fold class the grid is one column, and the spans collapse with it
-    -- a span of two in a grid of one is a cell that reaches past the screen.
+    A span of two in a grid of one is a cell that reaches past the screen.
     """
     app = app_factory()
     async with app.run_test(size=(84, 30)) as pilot:
@@ -419,11 +384,7 @@ async def test_narrow_collapses_every_island_to_one_column(
 async def test_every_panel_on_the_screen_has_a_jump_key(
     app_factory: AppFactory,
 ) -> None:
-    """Both ways round, so the next panel added cannot go without a badge.
-
-    The running balance is the headline chart and was the one panel with no
-    key: in jump mode every island but that one grew a badge.
-    """
+    """Both ways round, so a panel added later cannot go without a badge."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
@@ -434,15 +395,10 @@ async def test_every_panel_on_the_screen_has_a_jump_key(
         assert mounted == set(insights.jump_targets())
 
 
-async def test_the_heatmap_follows_the_period_the_header_names(
+async def test_heatmap_follows_the_named_period(
     app_factory: AppFactory,
 ) -> None:
-    """It read today's leave year whatever the period said.
-
-    Four panels moved with `[` and the fifth, titled "The leave year", went on
-    painting this one — so the two year-shaped panels disagreed about which
-    year was on screen.
-    """
+    """The heatmap and the header have to name the same year."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
@@ -458,7 +414,7 @@ async def test_the_heatmap_follows_the_period_the_header_names(
         assert max(heatmap.ledgers) == date(2026, 4, 5)
 
 
-async def test_the_heatmap_says_a_year_has_not_started(
+async def test_heatmap_says_a_year_has_not_started(
     app_factory: AppFactory,
 ) -> None:
     """Next year has no days behind it, and an empty grid looks like a bug."""
@@ -474,10 +430,10 @@ async def test_the_heatmap_says_a_year_has_not_started(
         assert insights.query_one(YearHeatmap).ledgers == {}
 
 
-async def test_the_heatmap_draws_a_year_even_when_the_period_is_a_week(
+async def test_heatmap_draws_a_year_in_a_week_period(
     app_factory: AppFactory,
 ) -> None:
-    """A year-shaped panel narrowed to one column answers a question nobody asked."""
+    """A year-shaped panel narrowed to one column answers nothing."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")
@@ -489,14 +445,13 @@ async def test_the_heatmap_draws_a_year_even_when_the_period_is_a_week(
         assert min(heatmap.ledgers) == date(2026, 4, 6)
 
 
-async def test_the_running_balance_says_which_span_its_figure_covers(
+async def test_running_balance_names_its_span(
     app_factory: AppFactory,
 ) -> None:
     """The line starts at zero on the period's first day.
 
     Over the leave year that is the balance the dashboard shows; over a month
-    it is the drift within the month, and "+4:10 on 11 Jun" beside a dashboard
-    reading +19:48 is two screens disagreeing about one number.
+    it is the drift within the month, so the subtitle names which.
     """
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
@@ -517,10 +472,10 @@ async def test_the_running_balance_says_which_span_its_figure_covers(
         )
 
 
-async def test_the_leave_panel_names_the_year_the_dashboard_names(
+async def test_leave_panel_names_the_dashboard_year(
     app_factory: AppFactory,
 ) -> None:
-    """One span, three panels, three spellings: `Apr 26` is not the 6th."""
+    """Three panels name one span the same way; `Apr 26` is not the 6th."""
     app = app_factory()
     async with app.run_test(size=(120, 44)) as pilot:
         await pilot.press("f3")

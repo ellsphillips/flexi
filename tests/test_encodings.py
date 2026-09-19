@@ -1,14 +1,9 @@
-"""Every text file is read and written as UTF-8, said out loud.
+"""Every text file is read and written as UTF-8.
 
-Python opens text files in the locale's encoding when it is not told otherwise.
-On macOS and Linux that is UTF-8 and the omission never shows. On Windows it is
-cp1252, and the first thing to arrive that cp1252 cannot spell is a
-``UnicodeDecodeError`` from a line that has worked for years -- a config file
-with a name in it, a note with an en dash, or this project's own README.
-
-Ruff would say this, as ``PLW1514``, but only in preview mode, which with
-``select = ALL`` means adopting every other preview rule at the same time. The
-rule is worth more than the flood, so it is a test.
+Without an ``encoding`` argument Python uses the locale's, which is cp1252 on
+Windows: any character it cannot spell raises ``UnicodeDecodeError`` there and
+nowhere else. Ruff's ``PLW1514`` says the same thing but only in preview mode,
+which under ``select = ALL`` would enable every other preview rule too.
 """
 
 from __future__ import annotations
@@ -22,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SEARCHED = ("src", "tests", "scripts")
 
 OPENS_TEXT = frozenset({"open", "read_text", "write_text"})
-"""Calls that take an ``encoding`` and quietly use the locale's without one."""
+"""Calls that take an ``encoding`` and fall back to the locale's without one."""
 
 
 def _files() -> Iterator[Path]:
@@ -37,12 +32,10 @@ def _called(node: ast.Call) -> str:
 
 
 def _mode(node: ast.Call) -> str | None:
-    """The mode an ``open`` call was given, positionally or by keyword.
+    """Return the mode an ``open`` call was given, positionally or by keyword.
 
-    ``open(path, mode)`` carries it second and ``path.open(mode)`` carries it
-    first. Reading the second argument for both meant every binary `Path.open`
-    read as text. Only `open` is asked: `write_text(data)`'s first argument is
-    the data.
+    ``open(path, mode)`` carries it second, ``path.open(mode)`` first. Only
+    ``open`` is asked, because ``write_text(data)``'s first argument is data.
     """
     if _called(node) != "open":
         return None
@@ -60,12 +53,10 @@ def _mode(node: ast.Call) -> str | None:
 
 
 def _is_binary(node: ast.Call) -> bool:
-    """A mode with a ``b`` in it has no text to decode.
+    """Report whether the mode has a ``b`` in it, so there is no text to decode.
 
-    Asked the way Python asks it, rather than against a list of the spellings
-    somebody thought of: that list had nine entries and no ``a+b``, so the
-    database lease -- which opens its lock file binary, where `encoding` would
-    be a `TypeError` -- was reported as a Windows decoding bug.
+    Tested the way Python tests it. A list of mode spellings misses ``a+b``,
+    and a binary open takes no ``encoding``: passing one is a ``TypeError``.
     """
     mode = _mode(node)
     return mode is not None and "b" in mode
@@ -82,14 +73,7 @@ def _unencoded(source: Path) -> Iterator[str]:
             yield f"{source.relative_to(ROOT)}:{node.lineno}"
 
 
-def test_no_text_file_is_opened_in_the_locale_encoding() -> None:
-    """The rule holds over the scripts and the suite as well as the package.
-
-    `scripts/shoot.py` writes the plain-text twin of every screenshot, and the
-    suite reads the README and each source file to check them -- all of which
-    contain characters cp1252 has no answer for, and none of which is code a
-    user runs.
-    """
+def test_text_files_are_opened_with_an_encoding() -> None:
     offenders = [place for source in _files() for place in _unencoded(source)]
 
     assert offenders == [], (

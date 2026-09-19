@@ -41,8 +41,8 @@ def test_every_domain_module_declares_an_immutable_api(module: ModuleType) -> No
     check_declared_api(module)
 
 
-def test_the_domain_facade_resolves_ambiguous_leaf_names() -> None:
-    """A flat API must not make two unrelated ``Cell`` or ``ZERO`` values race."""
+def test_facade_resolves_ambiguous_leaf_names() -> None:
+    """Two leaves each export a ``Cell`` and a ``ZERO``, so the facade renames them."""
     assert domain.PunchCell is punch.Cell
     assert domain.CalendarCell is stitch_module.Cell
     assert domain.ZERO_DURATION is balance.ZERO
@@ -51,8 +51,8 @@ def test_the_domain_facade_resolves_ambiguous_leaf_names() -> None:
     assert domain.plot_series is plot.plot
 
 
-def test_every_leaf_in_the_package_is_held_to_the_api_rules() -> None:
-    """A leaf missing from the list above is held to none of them."""
+def test_leaf_list_covers_the_package() -> None:
+    """A leaf missing from ``LEAF_MODULES`` is held to none of the rules above."""
     package = Path(domain.__file__ or "").parent
     leaves = {
         path.stem for path in package.glob("*.py") if not path.stem.startswith("_")
@@ -67,8 +67,7 @@ def test_every_leaf_in_the_package_is_held_to_the_api_rules() -> None:
     assert {module.__name__ for module in LEAF_MODULES} <= published
 
 
-def test_the_domain_facade_publishes_date_time_contracts() -> None:
-    """The flat functional API routes each new calendar operation exactly once."""
+def test_facade_publishes_the_date_helpers() -> None:
     assert domain.add_days is dates.add_days
     assert domain.month_index is dates.month_index
     assert domain.resolve_month_day is dates.resolve_month_day
@@ -80,7 +79,6 @@ def test_public_annotations_resolve_without_any(module: ModuleType) -> None:
 
 
 def test_imported_implementation_dependencies_are_not_public() -> None:
-    """Wildcard consumers get Flexi's API, not the modules used to build it."""
     assert {"Iterable", "dataclass", "datetime", "timedelta"}.isdisjoint(
         balance.__all__
     )

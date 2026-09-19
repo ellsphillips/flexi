@@ -1,15 +1,10 @@
 """The year grid: the arithmetic, the glyphs and the cursor, on their own.
 
-The leave screen drives this through a Pilot, which is the right instrument for
-"f2 books Thursday" and the wrong one for "what does a four-column tile draw" --
-a year of ledgers and a booking round trip per question. So the grid is asked
-here instead, as a bare widget in an app carrying nothing but the real
-stylesheet. The stylesheet is not optional: a tile whose type resolves to no
-rule paints in the widget's own ground, which is how a booked fortnight comes to
-look like an empty one.
-
+The grid is asked here as a bare widget in an app carrying nothing but the real
+stylesheet, which is not optional: a tile whose type resolves to no rule paints
+in the widget's own ground, so a booked fortnight looks like an empty one.
 Colour carries the type of a booking and the glyph carries its portion, so both
-are asserted, and neither is allowed to stand in for the other.
+are asserted.
 """
 
 from __future__ import annotations
@@ -117,7 +112,7 @@ def day(
     holiday: str | None = None,
     absences: tuple[AbsenceSlice, ...] = (),
 ) -> DayLedger:
-    """One day of the year, in whatever state the test is about."""
+    """Return one day of the year, in whatever state the test is about."""
     kind = DayKind.WORKING if working else DayKind.WEEKEND
     if holiday is not None:
         kind = DayKind.HOLIDAY
@@ -152,7 +147,7 @@ async def shown(
     width: int = WIDE_PANEL,
     height: int = 20,
 ) -> AsyncIterator[YearCalendar]:
-    """A calendar showing June and July 2026, laid out and drawn."""
+    """Yield a calendar showing June and July 2026, laid out and drawn."""
     calendar = YearCalendar()
     async with mounted(calendar, width=width, height=height) as pilot:
         calendar.show(
@@ -165,9 +160,8 @@ async def shown(
 def click_at(calendar: YearCalendar, x: int, y: int) -> None:
     """Click a cell by content offset.
 
-    `on_click` reads one field off the event and is typed for it, and driving a
-    real Pilot click costs a second where these cost nothing. One test below
-    does use the mouse, to say the handler is wired to it at all.
+    `on_click` reads one field off the event, and a real Pilot click costs a
+    second where these cost nothing. One test below does use the mouse.
     """
     calendar.on_click(SimpleNamespace(offset=Offset(x, y)))
 
@@ -176,7 +170,7 @@ def text_of(calendar: YearCalendar, line: int) -> str:
     return calendar.render_line(line).text
 
 
-async def test_no_color_environment_can_mount_and_draw_the_calendar(
+async def test_no_color_can_mount_and_draw(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A monochrome first frame must not contain an unstyled Rich segment."""
@@ -194,46 +188,32 @@ async def test_no_color_environment_can_mount_and_draw_the_calendar(
         assert all(segment.style is not None for segment in blank)
 
 
-# -- how wide a day is -------------------------------------------------------
+# How wide a day is
 
 
-async def test_the_seven_columns_share_the_whole_panel_between_them() -> None:
-    """A day is a tile that paints its own ground.
-
-    Any width the columns do not take is a slab of unpainted panel down the side
-    of the grid, which reads as a rendering fault rather than as a margin.
-    """
+async def test_the_columns_share_the_whole_panel() -> None:
+    """Any width the columns do not take is a slab of unpainted panel."""
     calendar = YearCalendar()
     async with mounted(calendar, width=WIDE_PANEL):
         assert sum(calendar.columns) == WIDE_PANEL
         assert calendar.grid_width == WIDE_PANEL
 
 
-async def test_the_odd_columns_out_are_spread_one_at_a_time() -> None:
-    """Sixty does not divide by seven, so three columns are a character wider.
-
-    Dumping the whole remainder on the last column instead would leave a Sunday
-    four characters wider than every other day of the week.
-    """
+async def test_odd_columns_are_spread_one_at_a_time() -> None:
+    """Sixty does not divide by seven, so three columns are a character wider."""
     calendar = YearCalendar()
     async with mounted(calendar, width=WIDE_PANEL):
         assert calendar.columns == (9, 9, 9, 9, 8, 8, 8)
         assert min(calendar.columns) == 8
 
 
-async def test_no_column_is_ever_more_than_a_character_wider_than_another() -> None:
-    """The rule holds at every width, not just the one the panel happens to be.
-
-    Sixty is the width this panel is drawn at today and is the one width where
-    almost any spreading rule looks right. A remainder dumped on the last column
-    would draw a Sunday six characters wider than its Monday on a panel one off
-    a multiple of seven, and an equal tile is what the eye counts days by.
-    """
+async def test_no_column_is_more_than_a_character_wider() -> None:
+    """The rule holds at every width, not only the one the panel is drawn at."""
     calendar = YearCalendar()
     narrowest = DAYS_IN_WEEK * MIN_CELL
     async with mounted(calendar) as pilot:
-        # Two full turns of the remainder: every width leaves a different number
-        # of columns over, and 0 and 6 are the two that get spreading wrong.
+        # Two full turns of the remainder, so every width leaves a different
+        # number of columns over.
         for width in range(narrowest, narrowest + 2 * DAYS_IN_WEEK):
             calendar.styles.width = width
             await pilot.pause()
@@ -243,12 +223,8 @@ async def test_no_column_is_ever_more_than_a_character_wider_than_another() -> N
             assert max(columns) - min(columns) <= 1, f"a ragged week at {width}"
 
 
-async def test_a_panel_too_narrow_for_a_week_stops_shrinking() -> None:
-    """Below four columns a day loses either a digit or its marker.
-
-    The grid overflows the panel and scrolls instead, which keeps every day
-    legible on a terminal nobody should be running this on.
-    """
+async def test_a_panel_too_narrow_stops_shrinking() -> None:
+    """Below four columns a day loses either a digit or its marker."""
     calendar = YearCalendar()
     async with mounted(calendar, width=14):
         assert calendar.grid_width == DAYS_IN_WEEK * MIN_CELL
@@ -256,12 +232,7 @@ async def test_a_panel_too_narrow_for_a_week_stops_shrinking() -> None:
 
 
 async def test_resizing_the_panel_relays_the_grid_out() -> None:
-    """A resize re-lays the grid out.
-
-    The columns are a function of the panel width and nothing else recomputes
-    them, so a grid still laid out at the old width leaves the last day of the
-    week hanging over the edge until something unrelated forces a redraw.
-    """
+    """Nothing else recomputes the columns when the panel width changes."""
     calendar = YearCalendar()
     async with mounted(calendar) as pilot:
         calendar.show(JUNE, JULY_END, {}, today=JUNE)
@@ -274,18 +245,13 @@ async def test_resizing_the_panel_relays_the_grid_out() -> None:
         assert calendar.virtual_size.width == 42
 
 
-# -- what is laid out --------------------------------------------------------
+# What is laid out
 
 
-async def test_every_month_gets_a_title_and_its_own_whole_weeks() -> None:
-    """Months share the seven columns but never a row.
-
-    June 2026 ends on a Tuesday; carrying July's first days into that row would
-    put two dates in one cell and make the cursor ambiguous.
-    """
+async def test_every_month_gets_its_own_whole_weeks() -> None:
+    """Carrying July's first days into June's last row would draw them twice."""
     async with shown() as calendar:
-        # Read off the surface rather than from an accessor: the titles are
-        # what somebody sees, and the rule is a month per row of its own.
+        # Read off the surface: the titles are what the user sees.
         drawn = [text_of(calendar, line) for line in range(13)]
         assert [line.split("─")[0].strip() for line in drawn if "2026" in line] == [
             "June 2026",
@@ -296,33 +262,21 @@ async def test_every_month_gets_a_title_and_its_own_whole_weeks() -> None:
 
 
 async def test_the_column_headings_follow_the_configured_first_day() -> None:
-    """The headings rotate with the first day of the week.
-
-    A week starting on Sunday under headings reading "M T W T F S S" is a grid
-    that looks one day out for the whole year.
-    """
+    """A week starting on Sunday under "M T W T F S S" looks a day out."""
     async with shown(first_weekday=6) as calendar:
         assert text_of(calendar, 0).split() == ["S", "M", "T", "W", "T", "F", "S"]
 
 
-async def test_a_month_names_itself_and_rules_across_to_the_edge() -> None:
-    """A month title is a seam, ruled rather than boxed.
-
-    Every divider in this interface is a rule, and a box around each month would
-    cost two rows a month of a year that already scrolls.
-    """
+async def test_a_month_title_rules_across_to_the_edge() -> None:
+    """Every divider here is a rule; a box would cost two rows a month."""
     async with shown() as calendar:
         title = text_of(calendar, 1)
         assert title.startswith(" June 2026 ")
         assert set(title.removeprefix(" June 2026 ")) == {"─"}
 
 
-async def test_the_days_before_a_month_starts_are_blank_rather_than_borrowed() -> None:
-    """July 2026 starts on a Wednesday, and the two cells before it are empty.
-
-    Filling them with the last days of June would draw those days twice, which
-    makes the cursor ambiguous and a selection uncountable.
-    """
+async def test_the_days_before_a_month_starts_are_blank() -> None:
+    """Filling them with the last days of June would draw those days twice."""
     async with shown() as calendar:
         july = calendar.row_of(date(2026, 7, 1))
         assert july is not None
@@ -333,19 +287,15 @@ async def test_the_days_before_a_month_starts_are_blank_rather_than_borrowed() -
 
 
 async def test_a_line_below_the_last_month_is_blank() -> None:
-    """The panel is taller than a two-month span.
-
-    A widget that ran off the end of its own rows would repeat the last week
-    down the rest of the panel.
-    """
+    """A widget that ran off the end of its rows would repeat the last week."""
     async with shown() as calendar:
         assert text_of(calendar, calendar.virtual_size.height).strip() == ""
 
 
-# -- what a tile says --------------------------------------------------------
+# What a tile says
 
 
-async def test_a_tile_with_room_spells_out_what_is_booked_on_it() -> None:
+async def test_a_wide_tile_spells_out_the_booking() -> None:
     """Nine columns is where the type stops being carried by colour alone."""
     when = date(2026, 6, 11)
     async with shown({when: day(when, absences=(booked(AbsenceType.ANNUAL),))}) as cal:
@@ -353,22 +303,14 @@ async def test_a_tile_with_room_spells_out_what_is_booked_on_it() -> None:
 
 
 async def test_a_narrow_tile_carries_the_number_and_a_glyph() -> None:
-    """Under nine columns there is no room for a word.
-
-    The glyph carries the portion and the colour carries the type, and the panel
-    beside the grid is what spells the selected day out in full.
-    """
+    """Under nine columns there is no room for a word."""
     when = date(2026, 6, 11)
     async with shown({when: day(when, absences=(booked(AbsenceType.ANNUAL),))}) as cal:
         assert cal._day_segment(when, 5).text == f" 11{FULL}{BLANK}"
 
 
 async def test_a_tile_paints_every_column_it_was_given() -> None:
-    """A tile paints every column it was given, including the gutter.
-
-    Left unstyled, the blanks take the widget's own ground and read as unpainted
-    slabs running the length of the grid.
-    """
+    """Left unstyled, the gutter takes the widget's own ground."""
     when = date(2026, 6, 11)
     async with shown({when: day(when)}) as calendar:
         for width in (4, 9, 14):
@@ -407,11 +349,7 @@ async def test_a_tile_paints_every_column_it_was_given() -> None:
 async def test_a_tile_says_what_is_on_the_day(
     ledger: DayLedger | None, expected: str
 ) -> None:
-    """The word is the reason the grid is not colour alone.
-
-    A day carrying two half-day bookings has no room to name either, so it says
-    that it is part booked and leaves the rail to say what of.
-    """
+    """Two half-day bookings have no room to name either, so the tile says so."""
     async with shown() as calendar:
         assert calendar._label(ledger) == expected
 
@@ -456,29 +394,16 @@ async def test_a_tile_says_what_is_on_the_day(
         ),
     ],
 )
-async def test_the_glyph_says_how_much_of_the_day_is_gone(
+async def test_the_glyph_says_how_much_is_gone(
     ledger: DayLedger | None, expected: str
 ) -> None:
-    """The glyph says how much of the day is gone.
-
-    The tile has one character for this and its colour is already spoken for by
-    the type, so a morning off drawn as a full day reads as a day of leave
-    somebody never booked.
-    """
+    """A morning off drawn as a full day reads as a day of leave never booked."""
     async with shown() as calendar:
         assert calendar._marker(ledger) == expected
 
 
-async def test_a_booked_day_reaches_the_drawn_line_with_its_glyph_and_its_ground() -> (
-    None
-):
-    """The tile has to arrive on the line, in the column its date sits in.
-
-    Everything else here asks the helper that shapes one tile. Nothing says the
-    week strip hands that helper the right column, or that the style survives
-    onto the line — and a booking drawn a column to the left is a day marked
-    against a date nobody booked.
-    """
+async def test_a_booked_day_reaches_the_drawn_line() -> None:
+    """A booking drawn a column to the left marks a date never booked."""
     thursday = date(2026, 6, 11)
     ledgers = {thursday: day(thursday, absences=(booked(AbsenceType.ANNUAL),))}
     async with shown(ledgers, width=DAYS_IN_WEEK * MIN_CELL) as calendar:
@@ -492,7 +417,7 @@ async def test_a_booked_day_reaches_the_drawn_line_with_its_glyph_and_its_ground
         assert booked_tile.style == calendar.get_component_rich_style("cal--annual")
 
 
-# -- what a tile is coloured -------------------------------------------------
+# What a tile is coloured
 
 
 @pytest.mark.parametrize(
@@ -519,25 +444,15 @@ async def test_a_booked_day_reaches_the_drawn_line_with_its_glyph_and_its_ground
 async def test_a_tile_takes_the_ground_of_whatever_is_on_it(
     ledger: DayLedger | None, component: str
 ) -> None:
-    """Every one of these has to resolve to a rule in the stylesheet.
-
-    A component class no rule matches falls back to the widget's own ground, so
-    a booked week and an empty one paint identically and the only report of the
-    booking is the panel beside the grid.
-    """
+    """A component class no rule matches falls back to the widget's ground."""
     async with shown() as calendar:
         assert calendar._day_style(SATURDAY, ledger) == (
             calendar.get_component_rich_style(component)
         )
 
 
-async def test_where_the_cursor_is_beats_what_is_booked_there() -> None:
-    """The cursor and the selection outrank whatever is booked underneath them.
-
-    Where you are is more urgent than what is on it, and the rail spells the
-    booking out anyway — where a cursor that vanished onto a booked day would
-    leave the arrow keys moving something nobody can see.
-    """
+async def test_the_cursor_outranks_what_is_booked() -> None:
+    """A cursor that vanished onto a booked day would move something unseen."""
     when = date(2026, 6, 11)
     ledger = day(when, absences=(booked(AbsenceType.ANNUAL),))
     async with shown({when: ledger}) as calendar:
@@ -552,12 +467,8 @@ async def test_where_the_cursor_is_beats_what_is_booked_there() -> None:
         )
 
 
-async def test_today_is_underlined_on_top_of_whatever_it_landed_on() -> None:
-    """Today is underlined on top of whatever it landed on.
-
-    It can coincide with a bank holiday, a booked day or a Sunday, so it adds to
-    the ground rather than replacing it: replacing it would lose the booking.
-    """
+async def test_today_is_underlined_over_its_ground() -> None:
+    """Today adds to the ground; replacing it would lose the booking."""
     when = date(2026, 6, 11)
     ledger = day(when, holiday="Whitsun")
     async with shown({when: ledger}, today=when) as calendar:
@@ -568,10 +479,10 @@ async def test_today_is_underlined_on_top_of_whatever_it_landed_on() -> None:
         assert style.underline
 
 
-# -- where a day is ----------------------------------------------------------
+# Where a day is
 
 
-async def test_a_date_sits_on_the_line_its_week_is_drawn_on() -> None:
+async def test_a_date_sits_on_its_weeks_line() -> None:
     """Everything that scrolls or clicks goes through this."""
     async with shown() as calendar:
         assert calendar.row_of(JUNE) == 2
@@ -579,11 +490,7 @@ async def test_a_date_sits_on_the_line_its_week_is_drawn_on() -> None:
 
 
 async def test_a_date_the_calendar_is_not_showing_sits_nowhere() -> None:
-    """A date the calendar is not showing sits on no line.
-
-    `go_to` is handed dates from the command line and from a jump box, and
-    scrolling to a line that does not exist would move the panel arbitrarily.
-    """
+    """`go_to` takes dates from the command line, and a missing line must not scroll."""
     async with shown() as calendar:
         before = calendar.scroll_offset
         assert calendar.row_of(date(2027, 1, 1)) is None
@@ -591,12 +498,8 @@ async def test_a_date_the_calendar_is_not_showing_sits_nowhere() -> None:
         assert calendar.scroll_offset == before
 
 
-async def test_moving_the_cursor_keeps_a_row_of_context_above_it() -> None:
-    """The cursor is scrolled to with a row of context above it.
-
-    Pinned to the last line of the panel it leaves nowhere to read the week it
-    is about to move into.
-    """
+async def test_the_cursor_keeps_a_row_of_context() -> None:
+    """Pinned to the last line, it leaves nowhere to read the week ahead."""
     calendar = YearCalendar()
     async with mounted(calendar, height=8) as pilot:
         calendar.show(JUNE, JULY_END, {}, today=JUNE)
@@ -609,7 +512,7 @@ async def test_moving_the_cursor_keeps_a_row_of_context_above_it() -> None:
         assert 0 < calendar.scroll_offset.y <= line - 1
 
 
-# -- moving ------------------------------------------------------------------
+# Moving
 
 
 @pytest.mark.parametrize(
@@ -621,15 +524,8 @@ async def test_moving_the_cursor_keeps_a_row_of_context_above_it() -> None:
         pytest.param("j", 7, id="j is a week on"),
     ],
 )
-async def test_a_vim_key_moves_by_the_same_step_as_the_arrow_beside_it(
-    key: str, days: int
-) -> None:
-    """A week is a row, so `j` and `k` have to be seven days rather than one.
-
-    Somebody who reaches for `hjkl` on every other list in this interface and
-    finds them dead on the calendar has to take a hand off the home row for the
-    one screen where the cursor moves most.
-    """
+async def test_a_vim_key_moves_like_its_arrow(key: str, days: int) -> None:
+    """A week is a row, so `j` and `k` are seven days and not one."""
     calendar = YearCalendar()
     async with mounted(calendar) as pilot:
         calendar.show(JUNE, JULY_END, {}, today=JUNE)
@@ -640,15 +536,8 @@ async def test_a_vim_key_moves_by_the_same_step_as_the_arrow_beside_it(
         assert calendar.selection.head == date(2026, 6, 11) + timedelta(days=days)
 
 
-async def test_shift_and_an_arrow_grows_the_span_and_escape_takes_it_back() -> None:
-    """Shift grows the span backwards too, and escape leaves the head where it is.
-
-    The keys are bound in all four directions but the screen only ever drives
-    one of them, and a `shift+up` that moved the cursor instead of extending
-    would silently throw away the span somebody was building. Escape then has to
-    collapse to the head rather than the anchor: it puts you where you were
-    driving, not back where you set off.
-    """
+async def test_shift_grows_the_span_and_escape_collapses_it() -> None:
+    """Escape collapses to the head, not to the anchor."""
     calendar = YearCalendar()
     async with mounted(calendar) as pilot:
         calendar.show(JUNE, JULY_END, {}, today=JUNE)
@@ -665,12 +554,8 @@ async def test_shift_and_an_arrow_grows_the_span_and_escape_takes_it_back() -> N
         assert calendar.selection == Selection.at(date(2026, 6, 10))
 
 
-async def test_escape_stands_down_when_there_is_nothing_to_collapse() -> None:
-    """The screen binds escape too, to leave.
-
-    A focused widget is asked first, so a calendar that always handled it would
-    trap somebody on the leave screen with no way out but the mouse.
-    """
+async def test_escape_stands_down_with_nothing_to_collapse() -> None:
+    """The screen binds escape too, and a focused widget is asked first."""
     async with shown() as calendar:
         assert calendar.check_action("collapse", ()) is False
         assert calendar.check_action("move", (1,)) is True
@@ -678,21 +563,15 @@ async def test_escape_stands_down_when_there_is_nothing_to_collapse() -> None:
         assert calendar.check_action("collapse", ()) is True
 
 
-async def test_stepping_a_month_from_the_31st_lands_on_a_shorter_months_last_day() -> (
-    None
-):
-    """A month step is clamped to the length of the month it lands in.
-
-    `[` and `]` are how somebody crosses a year, and a key that silently did
-    nothing on the 31st would read as a stuck terminal.
-    """
+async def test_a_month_step_is_clamped_to_the_month() -> None:
+    """A key that did nothing on the 31st would read as a stuck terminal."""
     async with shown() as calendar:
         calendar.go_to(date(2026, 1, 31))
         calendar.action_month(1)
         assert calendar.selection.head == date(2026, 2, 28)
 
 
-async def test_stepping_back_from_january_lands_in_the_december_before_it() -> None:
+async def test_stepping_back_from_january_reaches_december() -> None:
     """A leave year runs across the turn of the calendar year."""
     async with shown() as calendar:
         calendar.go_to(date(2026, 1, 15))
@@ -700,13 +579,8 @@ async def test_stepping_back_from_january_lands_in_the_december_before_it() -> N
         assert calendar.selection.head == date(2025, 12, 15)
 
 
-async def test_home_and_end_go_to_the_ends_of_the_leave_year() -> None:
-    """Home and end go to the ends of the period, not of the months drawn.
-
-    A leave year starts and finishes mid-month and the grid draws whole months
-    around it, so the first and last drawn days are in the years either side.
-    Landing on one of them moves the screen off the year the cursor was in.
-    """
+async def test_home_and_end_go_to_the_leave_year() -> None:
+    """The grid draws whole months, so its first and last days are outside."""
     async with shown(start=date(2026, 6, 15), end=date(2026, 7, 20)) as calendar:
         calendar.action_first()
         assert calendar.selection.head == date(2026, 6, 15)
@@ -714,12 +588,8 @@ async def test_home_and_end_go_to_the_ends_of_the_leave_year() -> None:
         assert calendar.selection.head == date(2026, 7, 20)
 
 
-async def test_the_ends_of_a_calendar_with_no_year_in_it_are_nowhere() -> None:
-    """A calendar with no year in it has no ends to go to.
-
-    The widget is mounted before the screen has any ledgers to give it, and
-    `end` on an empty grid must not reach into an empty list of blocks.
-    """
+async def test_an_empty_calendar_has_no_ends_to_go_to() -> None:
+    """The widget is mounted before the screen has any ledgers to give it."""
     calendar = YearCalendar()
     async with mounted(calendar):
         where = calendar.selection
@@ -728,15 +598,10 @@ async def test_the_ends_of_a_calendar_with_no_year_in_it_are_nowhere() -> None:
         assert calendar.selection == where
 
 
-# -- the mouse ---------------------------------------------------------------
+# The mouse
 
 
 async def test_clicking_a_day_puts_the_cursor_on_it() -> None:
-    """Clicking a day puts the cursor on it.
-
-    The keys are the fast path, but a calendar you cannot click is a calendar
-    that looks broken.
-    """
     async with shown() as calendar:
         june = calendar.row_of(JUNE)
         assert june is not None
@@ -751,11 +616,7 @@ async def test_clicking_a_day_puts_the_cursor_on_it() -> None:
 
 
 async def test_a_click_lands_on_the_day_under_the_pointer() -> None:
-    """The grid sits inside the panel's border and pad, and a click carries them.
-
-    Read as content coordinates the offset is a row low and part of a column
-    right, so a click books leave on a day up to a week from the one pointed at.
-    """
+    """The grid sits inside the panel's border and pad, and a click carries them."""
     calendar = YearCalendar(id="leave-calendar", classes="module")
     async with mounted(calendar) as pilot:
         calendar.show(JUNE, JULY_END, {}, today=JUNE)
@@ -775,11 +636,7 @@ async def test_a_click_lands_on_the_day_under_the_pointer() -> None:
 
 
 async def test_the_mouse_reaches_the_grid_at_all() -> None:
-    """A real mouse click reaches the grid.
-
-    Everything else about clicking is asserted against the handler directly;
-    this is the one that says Textual routes a click to it at all.
-    """
+    """Everything else about clicking is asserted against the handler."""
     calendar = YearCalendar()
     async with mounted(calendar) as pilot:
         calendar.show(JUNE, JULY_END, {}, today=JUNE)
@@ -789,15 +646,8 @@ async def test_the_mouse_reaches_the_grid_at_all() -> None:
         assert calendar.selection.head == JUNE
 
 
-async def test_clicking_past_the_last_column_lands_on_the_last_day_of_the_week() -> (
-    None
-):
-    """A click past the last column lands on the last day of the week.
-
-    The columns are widened to fill the panel, so the far edge of the grid is
-    the far edge of Sunday — and a click there that fell through would make the
-    last column of the year the one place the mouse does nothing.
-    """
+async def test_clicking_past_the_last_column_lands_on_sunday() -> None:
+    """The columns are widened to fill the panel, so the far edge is Sunday's."""
     async with shown() as calendar:
         line = calendar.row_of(date(2026, 6, 7))
         assert line is not None
@@ -812,21 +662,15 @@ async def test_clicking_past_the_last_column_lands_on_the_last_day_of_the_week()
         pytest.param(1, 1, id="a month title"),
     ],
 )
-async def test_clicking_a_heading_leaves_the_cursor_where_it_was(
-    x: int, row: int
-) -> None:
-    """A heading is a seam, not a day.
-
-    Landing the cursor on the 1st because somebody clicked the word "June" would
-    aim the next booking at a day they never chose.
-    """
+async def test_clicking_a_heading_moves_nothing(x: int, row: int) -> None:
+    """A heading is a seam, not a day."""
     async with shown() as calendar:
         calendar.go_to(date(2026, 6, 11))
         click_at(calendar, x=x, y=row)
         assert calendar.selection.head == date(2026, 6, 11)
 
 
-async def test_clicking_below_the_last_month_leaves_the_cursor_where_it_was() -> None:
+async def test_clicking_below_the_last_month_moves_nothing() -> None:
     """The panel is taller than the year in it once the year is nearly over."""
     async with shown() as calendar:
         calendar.go_to(date(2026, 6, 11))
@@ -834,7 +678,7 @@ async def test_clicking_below_the_last_month_leaves_the_cursor_where_it_was() ->
         assert calendar.selection.head == date(2026, 6, 11)
 
 
-async def test_clicking_a_blank_cell_at_a_seam_leaves_the_cursor_where_it_was() -> None:
+async def test_clicking_a_blank_cell_at_a_seam_moves_nothing() -> None:
     """The two cells before July starts belong to no date at all."""
     async with shown() as calendar:
         calendar.go_to(date(2026, 6, 11))
@@ -845,44 +689,31 @@ async def test_clicking_a_blank_cell_at_a_seam_leaves_the_cursor_where_it_was() 
 
 
 async def test_an_event_carrying_no_position_moves_nothing() -> None:
-    """An event carrying no position moves nothing.
-
-    `on_click` is handed whatever Textual routes to it, and a click is not the
-    only thing that can arrive.
-    """
+    """`on_click` is handed whatever Textual routes to it, not only clicks."""
     async with shown() as calendar:
         calendar.go_to(date(2026, 6, 11))
         calendar.on_click(SimpleNamespace())
         assert calendar.selection.head == date(2026, 6, 11)
 
 
-# -- the examples in the module ---------------------------------------------
+# The examples in the module
 
 
-def test_the_examples_in_the_calendar_module_are_run() -> None:
-    """`pytest` collects doctests from three source directories, not this one.
-
-    So the worked answers in `units_column` are prose until something runs
-    them, and prose goes stale.
-    """
+def test_the_module_examples_are_run() -> None:
+    """`pytest` collects doctests from three source directories, not this one."""
     results = doctest.testmod(yearcalendar, verbose=False)
 
     assert results.attempted, "the module has examples to check"
     assert results.failed == 0
 
 
-# -- the keys are the configured ones ---------------------------------------
+# The keys are the configured ones
 
 
-def test_paging_a_month_answers_to_the_configured_period_keys(
+def test_paging_a_month_uses_the_configured_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One key, one action, across every screen that pages a period.
-
-    The brackets were written out here while the dashboard read them from the
-    configuration, so rebinding them moved the dashboard and left the leave
-    screen answering to the old key.
-    """
+    """One key, one action, across every screen that pages a period."""
     rebound = CONFIG.model_copy(
         update={
             "hotkeys": CONFIG.hotkeys.model_copy(
@@ -903,17 +734,11 @@ def test_paging_a_month_answers_to_the_configured_period_keys(
     assert keys == {"month(-1)": "comma", "month(1)": "full_stop"}
 
 
-# -- the legend --------------------------------------------------------------
+# The legend
 
 
-def test_the_legend_names_a_key_for_every_way_to_book() -> None:
-    """The legend names a key for every way to book.
-
-    The key strip carries seven entries and this screen has eleven actions, so
-    the rest live here, where somebody deciding what to book is already looking.
-    The keys are read off the configured hotkeys rather than restated beside
-    them, so a rebound key cannot leave the legend describing the old one.
-    """
+def test_the_legend_names_a_key_per_booking_type() -> None:
+    """The keys are read off the configured hotkeys, not restated beside them."""
     text = legend().plain
     for kind in AbsenceType:
         assert f"{CONFIG.hotkeys.book(kind)} {kind.token}" in text
@@ -922,34 +747,20 @@ def test_the_legend_names_a_key_for_every_way_to_book() -> None:
 
 
 def test_the_legend_explains_the_glyphs_the_grid_draws() -> None:
-    """The legend explains the glyphs the grid draws.
-
-    Under nine columns a tile is a number and one of these, and the shapes are
-    the only report of a half day on the grid itself.
-    """
+    """Under nine columns a tile is a number and one of these."""
     text = legend().plain
     assert f"{MORNING}{AFTERNOON}" in text
     assert SPLIT in text
 
 
-# -- the heading stands over the dates -------------------------------------
+# The heading stands over the dates
 
 
 @pytest.mark.parametrize("width", [28, 35, 42, 49, 56, 63, 70, 84, 98, 119])
-async def test_a_weekday_initial_stands_over_its_own_column_of_dates(
+async def test_a_weekday_initial_stands_over_its_column(
     width: int,
 ) -> None:
-    """Two grids laid over each other is what the mismatch looked like.
-
-    A date is right-aligned near the left of its tile, so a label can follow it
-    on the wide form. The heading centred its initial in the whole cell, which
-    put every letter three or four columns to the right of the dates it named —
-    at a year's height, unmistakably wrong and hard to say why.
-
-    Swept across widths because the remainder is spread a column at a time, so
-    the seven columns are not all the same and an alignment that holds for one
-    can fail for its neighbour.
-    """
+    """Swept across widths because the remainder is spread a column at a time."""
     async with shown(width=width) as calendar:
         heading = text_of(calendar, 0)
         dates = next(
@@ -967,12 +778,7 @@ async def test_a_weekday_initial_stands_over_its_own_column_of_dates(
 
 @pytest.mark.parametrize("width", [28, 35, 42, 56, 70, 84, 119])
 async def test_every_line_reaches_the_same_right_edge(width: int) -> None:
-    """A ragged margin down a scrolling year, and a strip that lies about itself.
-
-    The month seam was ruled to `grid_width - 1` while the strip still declared
-    `grid_width`, so each heading stopped a column short of the weeks beneath it
-    and reported a length it did not have.
-    """
+    """A strip that declares a length it does not draw leaves a ragged margin."""
     async with shown(width=width) as calendar:
         for line in range(min(12, calendar.virtual_size.height)):
             strip = calendar.render_line(line)

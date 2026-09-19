@@ -103,7 +103,7 @@ class MonthView(Module):
         self._visible = self.period.anchor.replace(day=1)
         self.rebuild()
 
-    # -- drawing -----------------------------------------------------------
+    # --- drawing ----------------------------------------------------------
 
     def rebuild(self) -> None:
         period = self.period
@@ -145,7 +145,7 @@ class MonthView(Module):
         # carries the span the rest of the dashboard is reporting.
         self.set_subtitle(period.granularity.label)
 
-    # -- interaction -------------------------------------------------------
+    # --- interaction ------------------------------------------------------
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()

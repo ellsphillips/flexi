@@ -23,13 +23,7 @@ from tests.tui.conftest import WIDE, AppFactory, dashboard, status_text
 
 
 async def test_slash_clocks_out_and_back_in(app_factory: AppFactory) -> None:
-    """It toggles, from the dashboard, with one unshifted key.
-
-    There is no way to clock in twice from here — the key is a toggle — which is
-    why the test that claimed to check that refusal at this layer has gone. It
-    booted the application and then called the service directly, asserting a
-    branch `tests/services/test_clock.py` already asserts in milliseconds.
-    """
+    """Toggles from the dashboard with one unshifted key."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         assert app.services.clock.is_clocked_in()  # the seed leaves a session open
@@ -46,15 +40,13 @@ async def test_slash_clocks_out_and_back_in(app_factory: AppFactory) -> None:
 
 
 @pytest.mark.parametrize("destination", ["insights", "leave"])
-async def test_the_receipt_lands_on_the_screen_in_front_of_you(
+async def test_receipt_lands_on_the_open_screen(
     app_factory: AppFactory, destination: str
 ) -> None:
     """`/` is bound on the application and works from every destination.
 
-    The dashboard does the clocking and confirms it on its own footer, which is
-    underneath Leave and Insights. Without this the key toggles the clock and
-    the only visible footer says nothing, so the only way to tell whether it
-    worked is to go back to the dashboard.
+    The dashboard does the clocking and confirms it on its own footer, which
+    sits underneath Leave and Insights.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -67,11 +59,11 @@ async def test_the_receipt_lands_on_the_screen_in_front_of_you(
 
         assert not app.services.clock.is_clocked_in()
         assert "Clocked out" in status_text(app)
-        assert app.nav == destination, "the receipt does not move anybody"
+        assert app.nav == destination, "the receipt does not move the screen"
 
 
-async def test_the_button_does_the_same_thing(app_factory: AppFactory) -> None:
-    """It works for a pointer, because the point of Textual is that one works."""
+async def test_button_does_the_same_thing(app_factory: AppFactory) -> None:
+    """A pointer does what the key does."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         button = app.screen.query_one("#clock-button", Button)
@@ -83,14 +75,10 @@ async def test_the_button_does_the_same_thing(app_factory: AppFactory) -> None:
         assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
 
 
-async def test_the_switch_reflects_the_truth_without_looping(
+async def test_switch_reflects_the_clock_without_looping(
     app_factory: AppFactory,
 ) -> None:
-    """It writes the switch back on every redraw without treating that as input.
-
-    A naive handler acts on the write, clocks straight back out, redraws, and
-    does it again — a loop that ends in a toast on every tick.
-    """
+    """Writes the switch back on every redraw without treating that as input."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         switch = app.screen.query_one("#clock-switch", Switch)
@@ -109,7 +97,7 @@ async def test_the_switch_reflects_the_truth_without_looping(
 
 
 async def test_slash_does_not_reach_a_focused_input(app_factory: AppFactory) -> None:
-    """It gives the key to the field, so a typed date can contain a slash."""
+    """The field gets the key, so a typed date can contain a slash."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("g")  # go-to-date modal
@@ -126,16 +114,13 @@ async def test_slash_does_not_reach_a_focused_input(app_factory: AppFactory) -> 
         assert "/" in field.value
 
 
-async def test_the_switch_moves_through_its_watcher_so_it_animates(
+async def test_switch_moves_through_its_watcher(
     app_factory: AppFactory,
 ) -> None:
-    """It sets the reactive rather than writing past it.
+    """`set_reactive` puts the value in without running the watcher.
 
-    `set_reactive` puts the value in without running the watcher, and the
-    watcher is what slides the slider — the clock moved and the switch sat
-    still. Asserting on the animation itself would be asserting on a tween, so
-    this asserts on the thing that drives it: the reactive changed, and the
-    widget's own watcher saw it.
+    The watcher is what slides the slider, so the assertion is on the watcher
+    running with the new value; the animation itself is a tween.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -157,14 +142,10 @@ async def test_the_switch_moves_through_its_watcher_so_it_animates(
         )
 
 
-async def test_the_elapsed_time_is_in_the_border_subtitle(
+async def test_elapsed_time_is_in_the_border_subtitle(
     app_factory: AppFactory,
 ) -> None:
-    """It puts the live figure in the module's data slot, not in a whole row.
-
-    The date rides beside it, numeric and padded so the slot keeps one width all
-    month. Off the clock there is no elapsed time and the date stands alone.
-    """
+    """The live figure sits in the module's data slot, beside a padded date."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -177,15 +158,14 @@ async def test_the_elapsed_time_is_in_the_border_subtitle(
         assert str(app.screen.query_one(ClockModule).border_subtitle) == "11/06/2026"
 
 
-async def test_a_write_through_the_screen_carries_the_live_tick_with_it(
+async def test_write_through_the_screen_moves_the_tick(
     app_factory: AppFactory,
 ) -> None:
-    """The screen owns the write, and the redraw, and the timer.
+    """The screen owns the write, the redraw and the timer.
 
     A module never redraws its neighbours: it asks the screen, which reports
     the result, invalidates the ledger once, rebuilds whoever declared an
-    interest, and starts or stops the one-second tick. Without that last part a
-    session closed from a panel leaves a timer redrawing a clock that stopped.
+    interest, and starts or stops the one-second tick.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -200,15 +180,11 @@ async def test_a_write_through_the_screen_carries_the_live_tick_with_it(
         assert screen._tick is None, "a closed session left the timer running"
 
 
-async def test_a_tick_keeps_every_day_but_today(app_factory: AppFactory) -> None:
-    """The second that passes is only news about today.
+async def test_tick_keeps_every_day_but_today(app_factory: AppFactory) -> None:
+    """`LedgerService.days` rebuilds today unconditionally, so a tick need not.
 
-    `_on_tick` cleared the whole ledger memo to refresh the live readout, and
-    `LedgerService.days` already rebuilds today unconditionally for exactly
-    that reason — an open session's length changes every second, so caching it
-    would freeze the clock. Clearing the memo threw away every other day in the
-    period too, so a month view re-derived thirty-one day ledgers a second to
-    refresh the one the memo was never keeping.
+    An open session's length changes every second and is never memoised;
+    clearing the whole memo would throw away every other day in the period.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -221,11 +197,11 @@ async def test_a_tick_keeps_every_day_but_today(app_factory: AppFactory) -> None
         await pilot.pause()
 
         assert app.services.ledger.day(yesterday) is kept, (
-            "a day nobody wrote to was rebuilt because a second passed"
+            "an unwritten day was rebuilt because a second passed"
         )
 
 
-# -- the day turning under an open session ---------------------------------
+# ---- the day turning under an open session ----
 
 MONDAY = date(2026, 6, 8)
 MONDAY_FIVE = datetime(2026, 6, 8, 17, 0, tzinfo=UTC)
@@ -262,16 +238,13 @@ def monday_open(tmp_path: Path) -> Path:
     return path
 
 
-async def test_the_key_after_midnight_starts_today_rather_than_ending_yesterday(
+async def test_key_after_midnight_starts_today(
     monday_open: Path,
 ) -> None:
-    """The key acts on the fact the panel is showing.
+    """The key acts on the day the panel is showing.
 
-    Left running overnight, the panel says "off the clock" the moment the date
-    turns, because it reads today's ledger. The key read any open session, so
-    the morning's `/` closed Monday at Tuesday's time: nineteen hours of work
-    nobody did, on a session that cannot be edited or deleted. The application
-    sweeps on mount, so this only showed up on a Flexi left open overnight.
+    Left running overnight the panel reads today's ledger, so the morning's
+    `/` opens today and leaves Monday to the sweep.
     """
     app = FlexiApp(db_path=monday_open)
     with time_machine.travel(MONDAY_FIVE, tick=False):

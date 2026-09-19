@@ -89,7 +89,6 @@ def normalise_sql(statement: str) -> str:
 def test_both_schema_paths_install_the_canonical_trigger(
     clock_event_engine: Engine,
 ) -> None:
-    """Fixtures and production migrations execute one shared DDL definition."""
     installed = trigger_sql(clock_event_engine)
     assert installed is not None
     assert normalise_sql(installed) == normalise_sql(clock_event_update_trigger_sql())
@@ -98,7 +97,6 @@ def test_both_schema_paths_install_the_canonical_trigger(
 def test_orm_cannot_rewrite_a_recorded_clock_event(
     clock_event_engine: Engine,
 ) -> None:
-    """A normal mapped-object mutation fails and leaves the original fact."""
     original = datetime(2026, 8, 27, 9)
     with get_session(clock_event_engine) as session:
         event = punch(at=original)
@@ -149,7 +147,6 @@ def test_raw_sql_cannot_bypass_clock_event_immutability(
 def test_deletion_distinguishes_unreferenced_from_audit_events(
     clock_event_engine: Engine,
 ) -> None:
-    """Speculative rows are removable; a session's referenced facts are not."""
     with get_session(clock_event_engine) as session:
         speculative = punch()
         session.add(speculative)

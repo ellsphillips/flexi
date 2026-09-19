@@ -1,12 +1,8 @@
 """Deciding a booking without making it.
 
-book_range used to call book in a loop, and book commits, so a confirmation
-prompt built from its result was a receipt rather than a question. It also
-erased weekends and bank holidays from the result entirely -- they reached
-neither `booked` nor `skipped` -- and told a bank holiday apart from a real
-refusal by looking for the words "bank holiday" in a sentence written for a
-status bar, which matched "That day is already a bank holiday" and missed
-"Bank holiday data unavailable; cannot book absence" on the capital B alone.
+`plan` writes nothing, accounts for every calendar date in the span, and gives
+each day a typed verdict, so the confirmation prompt built from it is a
+question and not a receipt.
 """
 
 from __future__ import annotations
@@ -64,27 +60,25 @@ def _rows(session: Session) -> int:
     return session.query(AbsenceDay).count()
 
 
-# -- planning writes nothing ------------------------------------------------
+# ---------- planning writes nothing ----------
 
 
 def test_planning_writes_nothing(services: Services, session: Session) -> None:
-    """The whole point. A prompt fed from a write is not a prompt."""
     services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
     assert _rows(session) == 0
 
 
 def test_planning_twice_gives_the_same_answer(services: Services) -> None:
-    """It must not consume anything as a side effect of being asked."""
     first = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
     second = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
     assert [d.verdict for d in first.days] == [d.verdict for d in second.days]
     assert first.cost == second.cost
 
 
-# -- the days that used to vanish -------------------------------------------
+# ---------- weekends and bank holidays ----------
 
 
-def test_a_weekend_is_in_the_plan_rather_than_erased(services: Services) -> None:
+def test_weekend_is_in_the_plan(services: Services) -> None:
     plan = services.absence.plan(MONDAY, SUNDAY, AbsenceType.ANNUAL)
 
     assert len(plan.days) == 7, "every calendar date is accounted for"
@@ -93,14 +87,14 @@ def test_a_weekend_is_in_the_plan_rather_than_erased(services: Services) -> None
     assert {d.date for d in plan.skipped} == {SATURDAY, SUNDAY}
 
 
-def test_a_weekend_is_not_a_refusal(services: Services) -> None:
+def test_weekend_is_not_a_refusal(services: Services) -> None:
     """Counting Saturdays as failures makes every fortnight look partial."""
     plan = services.absence.plan(MONDAY, SUNDAY, AbsenceType.ANNUAL)
     assert plan.refused == ()
     assert len(plan.bookable) == 5
 
 
-def test_a_bank_holiday_is_typed_not_pattern_matched(services: Services) -> None:
+def test_bank_holiday_is_typed_not_pattern_matched(services: Services) -> None:
     plan = services.absence.plan(BANK_HOLIDAY, BANK_HOLIDAY, AbsenceType.ANNUAL)
     day = plan.days[0]
     assert day.verdict is Verdict.BANK_HOLIDAY
@@ -111,10 +105,9 @@ def test_a_bank_holiday_is_typed_not_pattern_matched(services: Services) -> None
 def test_missing_calendar_data_is_a_refusal_not_a_skip(
     configure: Configured, session: Session
 ) -> None:
-    """The case the substring match missed, on a capital B.
+    """An unavailable calendar leaves the day's bookability unknown.
 
-    "Bank holiday data unavailable" means we do not know whether the day is
-    bookable. Passing over it silently would lose the day without saying so.
+    Passing over it silently would lose the day without saying so.
     """
     services = _configure(configure, holidays=False)
     session.execute(delete(BankHolidayRefresh))
@@ -126,14 +119,13 @@ def test_missing_calendar_data_is_a_refusal_not_a_skip(
     assert plan.skipped == ()
 
 
-# -- the entitlement is simulated across the plan ---------------------------
+# ---------- the entitlement across the plan ----------
 
 
-def test_the_allowance_is_drawn_down_across_the_plan(configure: Configured) -> None:
-    """Three days left, five asked for: the last two must be refused.
+def test_allowance_is_drawn_down_across_the_plan(configure: Configured) -> None:
+    """Three days left and five asked for, so the last two are refused.
 
-    Reading the database fresh for each day would approve all five, because
-    nothing has been written yet.
+    Reading the database fresh for each day would approve all five.
     """
     services = _configure(configure, days=3.0)
     plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
@@ -143,7 +135,7 @@ def test_the_allowance_is_drawn_down_across_the_plan(configure: Configured) -> N
     assert all(d.verdict is Verdict.NO_ENTITLEMENT for d in plan.refused)
 
 
-def test_the_plan_says_what_it_would_cost(services: Services) -> None:
+def test_plan_says_what_it_would_cost(services: Services) -> None:
     plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
     assert plan.cost == 5.0
     assert plan.annual_remaining == 25.0
@@ -194,7 +186,7 @@ def test_sick_leave_does_not_touch_the_annual_allowance(services: Services) -> N
     assert plan.annual_after == plan.annual_remaining
 
 
-# -- executing a plan --------------------------------------------------------
+# ---------- executing a plan ----------
 
 
 def test_booking_a_plan_writes_exactly_what_it_said(
@@ -210,7 +202,7 @@ def test_booking_a_plan_writes_exactly_what_it_said(
     assert SUNDAY not in booked
 
 
-def test_a_plan_with_nothing_to_do_writes_nothing(
+def test_plan_with_nothing_to_do_writes_nothing(
     services: Services, session: Session
 ) -> None:
     plan = services.absence.plan(SATURDAY, SUNDAY, AbsenceType.ANNUAL)
@@ -220,17 +212,16 @@ def test_a_plan_with_nothing_to_do_writes_nothing(
     assert not result.success
 
 
-def test_book_range_still_behaves_as_it_did(
+def test_book_range_plans_and_then_executes(
     services: Services, session: Session
 ) -> None:
-    """The old entry point is now plan + execute, and must not have moved."""
     result = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
     assert len(result.booked) == 5
     assert not result.skipped
     assert _rows(session) == 5
 
 
-def test_a_confirmation_is_refused_when_work_was_recorded_after_preview(
+def test_work_recorded_after_a_preview_refuses_it(
     services: Services, session: Session
 ) -> None:
     plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
@@ -243,7 +234,7 @@ def test_a_confirmation_is_refused_when_work_was_recorded_after_preview(
     assert _rows(session) == 0
 
 
-def test_a_confirmation_is_refused_when_entitlement_changed_after_preview(
+def test_entitlement_changed_after_a_preview_refuses_it(
     services: Services, session: Session
 ) -> None:
     plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
@@ -256,7 +247,7 @@ def test_a_confirmation_is_refused_when_entitlement_changed_after_preview(
     assert _rows(session) == 0
 
 
-def test_a_span_across_a_bank_holiday_books_the_rest(
+def test_span_across_a_bank_holiday_books_the_rest(
     services: Services, session: Session
 ) -> None:
     plan = services.absence.plan(BANK_HOLIDAY, SEPT_FRIDAY, AbsenceType.ANNUAL)
@@ -266,10 +257,10 @@ def test_a_span_across_a_bank_holiday_books_the_rest(
     assert _rows(session) == 4
 
 
-# -- the flexi balance -------------------------------------------------------
+# ---------- the flexi balance ----------
 
 
-def test_an_overdrawn_balance_warns_rather_than_refuses(
+def test_overdrawn_balance_only_warns(
     services: Services, before_the_span: None
 ) -> None:
     """A flexi balance is your own arithmetic; going under is a decision."""
@@ -292,15 +283,10 @@ def test_no_warning_when_the_balance_covers_it(
     assert plan.toil_after == 5.0
 
 
-def test_a_week_of_annual_leave_leaves_the_flexi_balance_where_it_was(
+def test_annual_leave_leaves_the_toil_balance_alone(
     services: Services,
 ) -> None:
-    """The confirmation shows both figures, and only one of them moves.
-
-    Drawing the flexi balance down by a week of annual leave would tell somebody
-    they had spent time they still have, and the prompt is the last chance to
-    notice that before the rows are written.
-    """
+    """The confirmation shows both figures, and only one of them moves."""
     plan = services.absence.plan(
         MONDAY, FRIDAY, AbsenceType.ANNUAL, available_toil_days=2.0
     )
@@ -309,16 +295,13 @@ def test_a_week_of_annual_leave_leaves_the_flexi_balance_where_it_was(
     assert plan.warning is None, "an overdrawn balance is not this booking's news"
 
 
-def test_toil_for_a_day_gone_by_leaves_the_balance_where_it_was(
+def test_toil_on_a_past_day_leaves_the_balance_alone(
     services: Services,
 ) -> None:
     """Relabelling a shortfall is not a withdrawal.
 
-    The day already expected its contracted hours and already scored the
-    shortfall for not getting them. Booking TOIL over it trades one for the
-    other, so the balance afterwards is the balance before -- and a preview
-    saying it goes a day into deficit is describing a movement that never
-    happens.
+    The day already scored the shortfall for its unworked contracted hours, so
+    booking TOIL over it trades one for the other.
     """
     with time_machine.travel(AFTER_THE_SPAN, tick=False):
         plan = services.absence.plan(
@@ -335,7 +318,7 @@ def test_toil_for_a_day_gone_by_leaves_the_balance_where_it_was(
         assert services.wallet.available_toil_days() == before
 
 
-def test_a_span_across_today_charges_only_the_days_still_to_come(
+def test_span_charges_only_the_days_still_to_come(
     services: Services,
 ) -> None:
     """Wednesday's preview of the whole week is about Thursday and Friday."""
@@ -354,8 +337,8 @@ def test_toil_before_tracking_began_is_a_real_withdrawal(
 ) -> None:
     """A day Flexi was not watching expects nothing, so TOIL on it takes hours.
 
-    Hours recorded after the fact are somebody's memory of the day rather than
-    proof Flexi was there for it, which is the distinction the ledger draws.
+    Hours recorded after the fact are a memory of the day, not proof Flexi was
+    there for it, and that is the distinction the ledger draws.
     """
     services = configure(entitlement=(2025, 25.0), tracking_since=FRIDAY)
     assert services.clock.correct(MONDAY, time(13, 0), time(17, 0)).success
@@ -369,7 +352,7 @@ def test_toil_before_tracking_began_is_a_real_withdrawal(
     assert plan.warning is not None
 
 
-def test_a_punched_day_before_tracking_began_is_counted_already(
+def test_punched_day_before_tracking_is_counted(
     configure: Configured,
 ) -> None:
     """Something clocked in, so the ledger expects that day's hours of it."""
@@ -385,14 +368,10 @@ def test_a_punched_day_before_tracking_began_is_counted_already(
     assert plan.warning is None
 
 
-def test_a_refused_day_says_what_is_left_rather_than_what_it_is_short_by(
+def test_refused_day_says_what_is_left(
     configure: Configured,
 ) -> None:
-    """The shortfall on one day is at most one day, whatever the request.
-
-    So a year's booking two hundred days over the allowance read as "1 day
-    short of the request", two hundred times.
-    """
+    """The shortfall on one day is at most one day, whatever the request."""
     services = _configure(configure, days=0.5)
 
     plan = services.absence.plan(MONDAY, MONDAY, AbsenceType.ANNUAL)
@@ -400,12 +379,8 @@ def test_a_refused_day_says_what_is_left_rather_than_what_it_is_short_by(
     assert plan.reasons == ("Not enough annual leave — only 0.5 days left",)
 
 
-def test_a_plan_names_each_refusal_once(services: Services) -> None:
-    """Two things to fix, not six sentences.
-
-    The dialog shows these in a list, so a reason repeated for every day it
-    accounts for pushes the other reason off the bottom of it.
-    """
+def test_plan_names_each_refusal_once(services: Services) -> None:
+    """The dialog lists them, so a reason repeated per day crowds out the rest."""
     services.absence.book(MONDAY, AbsenceType.SICK)
     services.settings.save_entitlement(2025, 0.0)
 

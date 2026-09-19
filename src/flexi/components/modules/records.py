@@ -156,7 +156,7 @@ class RecordsModule(Module):
         outer = table.size.width or max(0, self.size.width - 4)
         return max(STRIP_WIDTH_FLOOR, outer - FIXED_COLUMNS - CELL_PADDING - 1)
 
-    # -- drawing -----------------------------------------------------------
+    # --- drawing ----------------------------------------------------------
 
     def rebuild(self) -> None:
         table = self.query_one("#records-table", ExpandableTable)
@@ -299,7 +299,7 @@ class RecordsModule(Module):
             )
         )
 
-    # -- cells -------------------------------------------------------------
+    # --- cells ------------------------------------------------------------
 
     def _day_cell(self, ledger: DayLedger) -> Text:
         name = ledger.date.strftime("%a %d")
@@ -352,7 +352,7 @@ class RecordsModule(Module):
             delta(value), style=self.get_component_rich_style(style), justify="right"
         )
 
-    # -- interaction -------------------------------------------------------
+    # --- interaction ------------------------------------------------------
 
     def focus_target(self) -> ExpandableTable:
         """Jumps land on the rows, not on the panel around them."""

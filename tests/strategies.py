@@ -1,16 +1,8 @@
 """Hypothesis strategies for Flexi's domain, in one place.
 
-An example-based test says "on 29 February this happens"; a property says "on
-every date this holds". The second needs a vocabulary of *plausible* values —
-dates a timesheet could really carry, leave-year starts a person could really
-choose — because a strategy that generates year 1 or a 5000-minute working day
-finds bugs nobody will ever meet and hides the ones they will.
-
-So the ranges here are the ranges Flexi lives in: dates within a few years of
-now, leave years starting on any day of any month, including the 29th of
-February, which is the one that used to crash. Shared vocabulary only -- a
-strategy one test needs stays in that test, and a strategy nothing needs is
-scaffolding around a property nobody wrote.
+The ranges are the ranges Flexi lives in: dates within a few years of now,
+leave years starting on any day of any month, including 29 February. Shared
+vocabulary only; a strategy one test needs stays in that test.
 """
 
 from __future__ import annotations
@@ -32,8 +24,8 @@ dates = st.dates(min_value=EARLIEST, max_value=LATEST)
 
 months = st.integers(min_value=1, max_value=12)
 days_of_month = st.integers(min_value=1, max_value=31)
-"""1-31 regardless of the month: `leaveyear.clamp` exists precisely because a
-person may choose the 31st and February may not have one."""
+"""1-31 regardless of the month: `leaveyear.clamp` exists because the 31st is
+choosable and February has no 31st."""
 
 first_weekdays = st.integers(min_value=0, max_value=6)
 """Which day a week is drawn as starting on, Monday=0 as `date.weekday` counts."""
@@ -48,9 +40,8 @@ every property taking one would silently lose its type."""
 def year_starts(draw: st.DrawFn) -> tuple[int, int]:
     """A (month, day) leave-year start, including the 29th of February.
 
-    Not `st.tuples(months, days_of_month)` filtered to real dates: the whole
-    point is that 31 April and 29 February are choosable, because the settings
-    screen lets somebody choose them and the arithmetic has to cope.
+    Unfiltered by the calendar: the settings screen offers 31 April and 29
+    February, so the arithmetic has to cope with them.
     """
     return draw(months), draw(days_of_month)
 

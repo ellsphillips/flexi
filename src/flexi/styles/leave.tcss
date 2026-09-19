@@ -1,10 +1,9 @@
 /* ==========================================================================
    The leave screen
    ==========================================================================
-   A scrolling year on the left, three panels on the right. The panels are the
-   answer to a screen with more direct actions than the key strip can carry:
-   the wallet says what you can afford, the selection says what you are about
-   to act on, and the legend says which key does it.
+   A scrolling year on the left, three panels on the right: the wallet says
+   what you can afford, the selection says what you are about to act on, and
+   the legend says which key does it.
    ========================================================================== */
 
 #leave-body {
@@ -12,9 +11,8 @@
     padding: 0 1;
 }
 
-/* The calendar takes everything the rail does not need. Days are tiles that
-   share the full width, so there is no leftover to look wrong however wide the
-   terminal is. */
+/* The calendar takes everything the rail does not need. Days are tiles
+   sharing the full width, so no leftover columns show at any terminal size. */
 #leave-calendar {
     width: 1fr;
     height: 1fr;
@@ -57,9 +55,9 @@
     height: auto;
 }
 
-/* Under 100 columns the rail's 36 cells leave the calendar 28 — four days of a
-   week. The rail goes, the wallet becomes one line above the grid, and the
-   legend moves to `?` where it was always also available. */
+/* Under 100 columns the rail leaves the calendar too few cells for a week. The
+   rail goes, the wallet becomes one line above the grid, and the legend is
+   reached with `?`. */
 LeaveScreen.-narrow #leave-body {
     layout: vertical;
 }
@@ -68,8 +66,8 @@ LeaveScreen.-narrow #leave-calendar {
     width: 1fr;
 }
 
-/* Two lines, not three panels. Every row the rail keeps is a row of calendar
-   somebody cannot see, and on a narrow terminal that is the whole screen. */
+/* Two lines, not three panels: every row the rail keeps is a row of calendar
+   lost, and on a narrow terminal the calendar is the whole screen. */
 LeaveScreen.-narrow #leave-rail {
     width: 1fr;
     height: 2;
@@ -103,17 +101,17 @@ LeaveScreen.-narrow #leave-selection {
     height: auto;
 }
 
-/* Under 64, the selection panel goes too. The status bar already reports every
-   write, and the cursor is visible on the grid. */
+/* Under 64 the selection panel goes too: the status bar reports every write,
+   and the cursor is visible on the grid. */
 LeaveScreen.-tiny #leave-selection {
     display: none;
 }
 
 
-/* -- the grid -------------------------------------------------------------
+/* --- the grid ------------------------------------------------------------
    Every tile paints its own ground. A booked day takes a deep wash of its
-   type's colour with the lift on top, which is legible at a glance and still
-   quiet enough that a month of annual leave does not shout down the cursor.
+   type's colour with the lift on top: legible at a glance, and quiet enough
+   that a month of annual leave does not shout down the cursor.
    ------------------------------------------------------------------------- */
 
 YearCalendar {
@@ -137,14 +135,14 @@ YearCalendar > .cal--day {
     background: $c-ink;
 }
 
-/* The blanks at a seam. Painted, not left to whatever the widget's ground is. */
+/* The blanks at a seam. Painted, not left to the widget's own ground. */
 YearCalendar > .cal--empty {
     background: $c-ink;
 }
 
-/* Dim, not washed. Two shaded columns running the length of a year is the
-   heaviest thing on the screen, and it is the least important: a dim number
-   already says the day is not yours to book. */
+/* Dim, not washed: two shaded columns running the length of a year would be
+   the heaviest thing on the screen and the least important. A dim number says
+   the day is not yours to book. */
 YearCalendar > .cal--weekend {
     color: $c-line;
     background: $c-ink;
@@ -155,7 +153,7 @@ YearCalendar > .cal--outside {
     background: $c-ink;
 }
 
-/* Today is underlined rather than coloured: it can coincide with a booking, a
+/* Today is underlined, not coloured: it can coincide with a booking, a
    weekend and the selection, and a fourth colour on one tile makes all four
    unreadable. */
 YearCalendar > .cal--today {

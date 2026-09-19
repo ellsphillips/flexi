@@ -1,11 +1,7 @@
 """The frame around the modules: the nav bar, the status line, and jump mode.
 
-Driven through bare harness applications rather than through Flexi. Each of
-these widgets is deliberately ignorant of the application it frames — the header
-reaches for the app with ``getattr`` precisely so it can be mounted anywhere —
-and the states worth checking here are the ones the real screens are careful
-never to be in: a header written to before it is on screen, a status pushed at a
-footer that does not exist yet, an overlay that is no longer in front.
+Driven through bare harness applications, because each of these widgets is
+ignorant of the application it frames.
 """
 
 from __future__ import annotations
@@ -49,7 +45,7 @@ class Framed(App[None]):
 
 
 class Named(Static):
-    """A widget that carries its own jump key rather than being registered."""
+    """A widget carrying its own jump key, in place of being registered."""
 
     jump_key = "p"
 
@@ -105,15 +101,8 @@ def showing[S: Screen[Any]](app: App[None], kind: type[S]) -> S:
 async def laid_out(pilot: Pilot[Any], widget: Widget) -> None:
     """Wait until the compositor has given ``widget`` a width.
 
-    `settled` waits for the callbacks a layout *schedules*; it does not promise
-    the layout itself has run, and a widget the compositor has not placed yet
-    reports `region.width == 0`. On a loaded Windows runner that is what the
-    measurement assertion below actually compared -- `assert (0 + 1) == 7`,
-    which reads as a broken measurement rather than as a footer that had not
-    been drawn when it was asked.
-
-    Bounded, and it says which of the two happened: a widget that never gets a
-    width is a real failure and should not be reported as a wrong number.
+    `settled` waits for the callbacks a layout schedules, not for the layout
+    itself, and an unplaced widget reports `region.width == 0`.
     """
     for _ in range(SETTLE_PASSES):
         if widget.region.width:
@@ -123,16 +112,11 @@ async def laid_out(pilot: Pilot[Any], widget: Widget) -> None:
     raise AssertionError(msg)
 
 
-# -- the nav bar -------------------------------------------------------------
+# ---- the nav bar ----
 
 
-async def test_the_nav_bar_moves_its_highlight_to_the_screen_in_front() -> None:
-    """Exactly one destination is teal, and it is the one you are looking at.
-
-    The bar is composed once and lives on every screen, so the highlight has to
-    be moved rather than rebuilt; leaving the old one lit is how a nav bar comes
-    to claim you are on two screens at once.
-    """
+async def test_nav_highlight_follows_the_screen() -> None:
+    """The bar is composed once and lives on every screen, so the highlight moves."""
     app = Framed()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -144,7 +128,7 @@ async def test_the_nav_bar_moves_its_highlight_to_the_screen_in_front() -> None:
         assert active_labels(app) == {"leave"}
 
 
-# -- the key strip ------------------------------------------------------------
+# ---- the key strip ----
 
 
 def test_chrome_uses_only_public_textual_footer_contracts() -> None:
@@ -172,14 +156,12 @@ def test_chrome_uses_only_public_textual_footer_contracts() -> None:
     }
 
 
-async def test_a_binding_hint_matches_its_measurement_and_runs_its_key() -> None:
-    """The local public widget keeps the rendering and click contract it replaces."""
+async def test_binding_hint_measures_and_runs() -> None:
+    """The local widget keeps the rendering and click contract it replaces."""
     app = Bound()
     async with app.run_test(size=(40, 10)) as pilot:
-        # Settled, not pumped twice. The strip composes its hints from a
-        # callback the binding map schedules, so whether two turns of the loop
-        # are enough is a property of the machine: on a loaded CI runner it is
-        # not, and the failure reads as a footer that never drew.
+        # Settled, not pumped a fixed number of times: the strip composes its
+        # hints from a callback the binding map schedules.
         await settled(pilot)
         hint = app.query_one(BindingHint)
         await laid_out(pilot, hint)
@@ -194,30 +176,18 @@ async def test_a_binding_hint_matches_its_measurement_and_runs_its_key() -> None
         assert app.marked
 
 
-# -- writing to chrome that is not there yet ---------------------------------
+# ---- writing to chrome that is not there yet ----
 
 
-def test_a_header_told_its_context_before_it_is_mounted_does_not_raise() -> None:
-    """The app pushes the date and period at every header it can find.
-
-    A header on a screen that has been constructed but not yet mounted has no
-    children to write into, and a watcher that queried for one regardless would
-    take the screen change down with it.
-    """
+def test_unmounted_header_accepts_context() -> None:
+    """An unmounted header has no children for its watcher to write into."""
     header = AppHeader()
     header.context = "Thu 11 Jun · This week"
     assert header.context == "Thu 11 Jun · This week"
 
 
-async def test_a_status_pushed_at_a_footer_that_is_not_mounted_is_dropped() -> None:
-    """Every service result comes through here, including ones raised at startup.
-
-    A message arriving before the footer exists is worth losing; it is not worth
-    an exception on a code path that only ever reports on somebody else's work.
-    And losing it has to mean losing it — a message held over and painted when
-    the bar finally arrives would report a stale startup result over whatever the
-    user has since done.
-    """
+async def test_status_before_mount_is_dropped() -> None:
+    """Dropped, not held over: a stale result must not overwrite later work."""
     bar = StatusBar()
     bar.set_status("Clocked in at 09:12", Tone.OK, pill="on the clock")
 
@@ -230,12 +200,8 @@ async def test_a_status_pushed_at_a_footer_that_is_not_mounted_is_dropped() -> N
         assert str(bar.query_one("#status-pill", Pill).render()) == ""
 
 
-async def test_a_status_says_in_a_word_what_its_tone_means() -> None:
-    """A refusal and a receipt read alike on a line drawn in one colour.
-
-    The tone reaches the pill and nowhere else, so a status bar whose pill has
-    no label reports the outcome in a colour nobody can see.
-    """
+async def test_status_pill_labels_the_tone() -> None:
+    """The tone reaches the pill and nowhere else, so colour is never alone."""
     bar = StatusBar()
     app = Jumpy()
     async with app.run_test(size=WIDE) as pilot:
@@ -258,15 +224,10 @@ async def test_a_status_says_in_a_word_what_its_tone_means() -> None:
         assert pill.display is False, "a toneless status has no state to tag"
 
 
-# -- jump targets ------------------------------------------------------------
+# ---- jump targets ----
 
 
-async def test_a_widget_may_name_its_own_jump_key() -> None:
-    """The alternative is a registry that has to be edited from two places.
-
-    A panel that knows which key reaches it cannot fall out of step with the map
-    of targets, because it is the map.
-    """
+async def test_widget_names_its_own_jump_key() -> None:
     app = Jumpy()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -278,12 +239,8 @@ async def test_a_widget_may_name_its_own_jump_key() -> None:
         )
 
 
-async def test_a_target_that_is_not_a_widget_is_added_by_the_screen() -> None:
-    """A table row has no id and no rectangle, so it cannot be walked to.
-
-    The screen computes those offsets itself and hands them over, which is what
-    lets the day rows carry badges without becoming widgets.
-    """
+async def test_screen_adds_non_widget_targets() -> None:
+    """A table row has no id and no rectangle, so the screen supplies its offset."""
     app = Jumpy()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -299,15 +256,11 @@ async def test_a_target_that_is_not_a_widget_is_added_by_the_screen() -> None:
         ), "the handed-in rows replaced the widgets instead of joining them"
 
 
-# -- the overlay -------------------------------------------------------------
+# ---- the overlay ----
 
 
-async def test_tab_does_not_leak_out_of_the_overlay() -> None:
-    """Focus must not move under the badges while they are being read.
-
-    A tab that reached the screen below would shift focus after the jump had
-    already landed, which reads as the jump having gone to the wrong place.
-    """
+async def test_tab_stays_inside_the_overlay() -> None:
+    """Focus must not move under the badges while they are being read."""
     app = Jumpy()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -326,12 +279,8 @@ async def test_tab_does_not_leak_out_of_the_overlay() -> None:
         assert base.focused is one, "focus underneath did not move"
 
 
-async def test_a_key_arriving_after_the_overlay_is_covered_does_not_jump() -> None:
-    """The overlay stays on the stack while something else is in front of it.
-
-    A queued keypress delivered then would dismiss a screen the user is no
-    longer looking at, and hand back a target they never chose.
-    """
+async def test_covered_overlay_ignores_keys() -> None:
+    """The overlay stays on the stack while something else is in front of it."""
     app = Jumpy()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -348,12 +297,8 @@ async def test_a_key_arriving_after_the_overlay_is_covered_does_not_jump() -> No
         assert chosen == [], "the covered overlay chose a target anyway"
 
 
-async def test_the_badges_follow_the_layout_when_the_terminal_resizes() -> None:
-    """A badge is drawn at an offset, not attached to what it points at.
-
-    Every offset is stale the moment the compositor moves anything, so a badge
-    left where it was would be pointing at whatever has since slid under it.
-    """
+async def test_badges_move_on_resize() -> None:
+    """A badge is drawn at an offset, not attached to what it points at."""
     app = Jumpy()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -373,13 +318,8 @@ async def test_the_badges_follow_the_layout_when_the_terminal_resizes() -> None:
         }
 
 
-async def test_a_disabled_hint_looks_unavailable_and_rings_instead_of_acting() -> None:
-    """A key the screen advertises but cannot run at this moment.
-
-    It stays on the strip rather than vanishing -- a footer that reshuffles as
-    state changes is harder to read than one with a greyed key on it -- so it
-    has to carry the class that greys it and refuse to fire the action.
-    """
+async def test_disabled_hint_rings_and_greys_out() -> None:
+    """A key the screen advertises but cannot run stays on the strip, greyed."""
     app = Bound()
     async with app.run_test(size=(40, 10)) as pilot:
         hint = BindingHint("x", "x", "Mark", "mark", disabled=True)
@@ -402,12 +342,8 @@ async def test_a_disabled_hint_looks_unavailable_and_rings_instead_of_acting() -
         assert app.marked is False, "and does not run the action it advertises"
 
 
-async def test_a_hint_with_no_description_draws_the_key_alone() -> None:
-    """The command palette's key carries no words on a narrow strip.
-
-    Assembling an empty description would still spend the padding around it, so
-    the key would sit a column left of where the measurement said it would.
-    """
+async def test_hint_without_description_draws_key() -> None:
+    """An assembled empty description still spends the padding around it."""
     app = Bound()
     async with app.run_test(size=(40, 10)) as pilot:
         hint = BindingHint("p", "^p", "", "command_palette")
@@ -417,12 +353,8 @@ async def test_a_hint_with_no_description_draws_the_key_alone() -> None:
         assert str(hint.render()) == "^p"
 
 
-async def test_a_footer_recomposes_only_while_the_terminal_has_focus() -> None:
-    """Textual publishes the binding map to background applications too.
-
-    Recomposing then costs a layout pass for a strip nobody is looking at, and
-    on a tiling desktop that is every focus change in the session.
-    """
+async def test_footer_recomposes_only_when_focused() -> None:
+    """Textual publishes the binding map to background applications too."""
     app = Bound()
     async with app.run_test(size=(40, 10)) as pilot:
         await pilot.pause()

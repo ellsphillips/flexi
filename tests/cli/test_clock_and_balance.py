@@ -1,12 +1,8 @@
 """The clock and balance commands, called as functions.
 
-`cli/leave.py` was already this shape, and `tests/cli/test_leave_command.py`
-exploits it: the work is a plain function taking the registry and returning an
-exit code, so a test calls it and reads the answer. No CliRunner, no context, no
-subprocess, and a failure points at the line that failed rather than at Click.
-
-These two lived in `__main__` among the routing, so the only way to reach them
-was through the runner -- which is why neither had any coverage at all.
+Each command's work is a plain function taking the registry and returning an
+exit code, so a test calls it and reads the answer: no CliRunner, no context,
+no subprocess, and a failure points at the line that failed.
 """
 
 from __future__ import annotations
@@ -29,7 +25,7 @@ NOON = date(2026, 6, 10)
 
 
 def figure(printed: str, label: str) -> timedelta:
-    """The `h:mm` on one line of the balance, signed."""
+    """Return the signed `h:mm` on one line of the balance."""
     line = next(row for row in printed.splitlines() if row.startswith(label))
     reading = line.removeprefix(label).strip()
     sign = -1 if reading.startswith(MINUS) else 1
@@ -48,9 +44,8 @@ def services(session: Session) -> Services:
             auto_close_time="18:00",
         )
     )
-    # These tests are about a June the balance is measured across, and setup
-    # stamps today. `None` is what a database migrated from before that column
-    # says, and it means what this file always assumed: every day counts.
+    # Setup stamps today, and these tests measure across June. `None` is what a
+    # database migrated from before the column says: every day counts.
     stored = built.settings.get_settings()
     assert stored is not None
     stored.tracking_since = None
@@ -63,19 +58,13 @@ def test_clocking_in_reports_success(services: Services) -> None:
 
 
 def test_clocking_in_twice_is_a_failure(services: Services) -> None:
-    """The exit code is what a script reads, and it was never checked."""
     assert clock_cli.clock_in(services) == 0
     assert clock_cli.clock_in(services) == 1
 
 
-def test_clocking_in_twice_says_what_the_running_session_is_doing(
+def test_clocking_in_twice_reports_the_session(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A bare refusal answers a question nobody asked.
-
-    The one behind the keystroke is *since when*, and the session was in hand
-    when the refusal was written -- it just was not carried out of the service.
-    """
     with time_machine.travel(datetime(2026, 6, 10, 9, 0), tick=False):
         clock_cli.clock_in(services)
     with time_machine.travel(datetime(2026, 6, 10, 11, 30), tick=False):
@@ -88,10 +77,9 @@ def test_clocking_in_twice_says_what_the_running_session_is_doing(
     assert "hours met at" in printed, "the finish time is the useful half of it"
 
 
-def test_a_day_already_past_its_hours_says_so_rather_than_counting_down(
+def test_day_past_its_hours_says_hours_met(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Past the contracted day there is no "to go" left to report."""
     with time_machine.travel(datetime(2026, 6, 10, 8, 0), tick=False):
         clock_cli.clock_in(services)
     with time_machine.travel(datetime(2026, 6, 10, 18, 0), tick=False):
@@ -102,13 +90,13 @@ def test_a_day_already_past_its_hours_says_so_rather_than_counting_down(
     assert "hours met at" not in printed
 
 
-def test_clocking_out_without_clocking_in_is_a_failure(
+def test_clocking_out_without_clocking_in_fails(
     services: Services,
 ) -> None:
     assert clock_cli.clock_out(services) == 1
 
 
-def test_a_refusal_is_said_on_stderr_rather_than_in_the_output(
+def test_a_refusal_is_said_on_stderr(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`flexi clock out >/dev/null || alert` has to leave the reason readable."""
@@ -119,17 +107,12 @@ def test_a_refusal_is_said_on_stderr_rather_than_in_the_output(
     assert "Not clocked in" in captured.err
 
 
-def test_the_running_session_is_drawn_in_colour_at_a_terminal(
+def test_running_session_is_drawn_in_colour(
     services: Services,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`click.echo` stringifies a Rich `Text` to its plain characters.
-
-    The punch strip, the green marker and the signed balance all arrive in
-    default ink, which makes the colour tables in `ui.onclock` dead code on the
-    only path that uses them.
-    """
+    """`click.echo` stringifies a Rich `Text` to its plain characters."""
     monkeypatch.setenv("FORCE_COLOR", "1")
     with time_machine.travel(datetime(2026, 6, 10, 9, 0), tick=False):
         clock_cli.clock_in(services)
@@ -150,15 +133,10 @@ def test_the_balance_prints_and_succeeds(services: Services) -> None:
     assert balance_cli.show(services, NOON) == 0
 
 
-def test_the_log_is_empty_until_something_is_settled(
+def test_an_empty_log_says_so(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """An empty log says so rather than printing nothing at all.
-
-    A command that returns zero and prints nothing is indistinguishable from
-    one that failed to run, and this is the log somebody consults before
-    deciding whether a balance has already been settled.
-    """
+    """A command that prints nothing looks like one that failed to run."""
     assert balance_cli.log(services) == 0
     assert capsys.readouterr().out.strip() == "No adjustments."
 
@@ -178,21 +156,16 @@ def test_settling_and_taking_it_back(services: Services) -> None:
         assert services.adjustments.all() == []
 
 
-def test_undoing_something_that_is_not_there_is_a_failure(
+def test_undoing_a_missing_adjustment_fails(
     services: Services,
 ) -> None:
     assert balance_cli.undo(services, 9999) == 1
 
 
-def test_the_balance_agrees_with_the_rows_it_is_made_of(
+def test_the_balance_agrees_with_its_rows(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Sessions are stored to the second and the figures are drawn to the minute.
-
-    Formatting the exact delta rather than the quantised rows leaves a deficit
-    a minute better than its own components: 2:00:09 worked against 3:42
-    expected prints `2:00 / 3:42 / -1:41`.
-    """
+    """Sessions are stored to the second and the figures are drawn to the minute."""
     with time_machine.travel(datetime(2026, 6, 10, 9, 0, 0), tick=False):
         clock_cli.clock_in(services)
     with time_machine.travel(datetime(2026, 6, 10, 11, 0, 9), tick=False):
@@ -208,14 +181,10 @@ def test_the_balance_agrees_with_the_rows_it_is_made_of(
     assert figure(printed, "balance") == worked - expected
 
 
-def test_a_balance_asked_for_a_day_that_has_not_happened_is_refused(
+def test_a_balance_for_a_future_day_is_refused(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Every future working day is charged as a full day nobody worked.
-
-    `flexi balance show --as-of 2026-12-31` reports a deficit of 569 hours
-    computed from days nobody has lived. `zero` refuses a future date already.
-    """
+    """Every future working day would be charged as a full unworked day."""
     with time_machine.travel(datetime(2026, 6, 10, 12, 0), tick=False):
         assert balance_cli.show(services, date(2026, 6, 11)) == 1
 
@@ -224,7 +193,7 @@ def test_a_balance_asked_for_a_day_that_has_not_happened_is_refused(
     assert "has not happened" in captured.err
 
 
-def test_the_balance_as_at_today_is_still_reported(
+def test_the_balance_as_at_today_is_reported(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The refusal is for `>` today, not `>=`: today is the documented default."""
@@ -235,7 +204,7 @@ def test_the_balance_as_at_today_is_still_reported(
 
 
 def tracking_from(session: Session, when: date) -> Services:
-    """The same machine, with a tracking start stamped on it."""
+    """Return the same services with a tracking start stamped on them."""
     stored = build_services(session).settings.get_settings()
     assert stored is not None
     stored.tracking_since = when
@@ -243,31 +212,26 @@ def tracking_from(session: Session, when: date) -> Services:
     return build_services(session)
 
 
-def test_a_report_before_tracking_began_does_not_claim_tracking(
+def test_a_report_before_tracking_omits_the_note(
     session: Session, services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A date after the span explains nothing about the span.
-
-    `--as-of 31 Mar 2026` prints `tracking 18 Sep 2026 onwards` under a report
-    whose range ends five months earlier.
-    """
+    """A tracking date after the reported span explains nothing about it."""
     built = tracking_from(session, date(2026, 6, 1))
 
     assert balance_cli.show(built, date(2026, 5, 20)) == 0
     assert "tracking" not in capsys.readouterr().out
 
 
-def test_a_report_that_reaches_the_tracking_date_still_says_so(
+def test_a_report_reaching_the_tracking_date_says_so(
     session: Session, services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Otherwise seven hours expected across four months is unexplained."""
     built = tracking_from(session, date(2026, 6, 1))
 
     assert balance_cli.show(built, NOON) == 0
     assert "tracking     1 Jun 2026 onwards" in capsys.readouterr().out
 
 
-# -- what the balance is made of ---------------------------------------------
+# What the balance is made of
 
 
 BANK_HOLIDAY = date(2026, 8, 31)
@@ -275,10 +239,10 @@ BANK_HOLIDAY = date(2026, 8, 31)
 
 @pytest.fixture
 def stocked(services: Services, session: Session) -> Services:
-    """The same machine, with a bank holiday calendar on it.
+    """Return the same services with a bank holiday calendar on them.
 
-    `AbsenceService` refuses every booking while the calendar answers
-    `None`, so a test that books anything needs at least one cached row.
+    `AbsenceService` refuses every booking while the calendar answers `None`,
+    so a test that books anything needs at least one cached row.
     """
     session.add_all(
         (
@@ -300,11 +264,7 @@ def stocked(services: Services, session: Session) -> Services:
 def test_toil_taken_is_shown_on_its_own_line(
     stocked: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Time off in lieu comes out of the balance, and it is named where it goes.
-
-    The balance is the figure somebody is checking. Folding the TOIL into
-    `worked` would leave the day looking like it was simply not worked.
-    """
+    """Folding TOIL into `worked` would leave the day looking unworked."""
     plan = stocked.absence.plan(NOON, NOON, AbsenceType.FLEXI)
     stocked.absence.book_plan(plan)
     invalidate_services(stocked)
@@ -313,14 +273,10 @@ def test_toil_taken_is_shown_on_its_own_line(
     assert "toil taken" in capsys.readouterr().out
 
 
-def test_the_balance_says_when_there_is_no_calendar_to_count_against(
+def test_the_balance_warns_when_there_is_no_calendar(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Roughly eight days of phantom deficit a leave year.
-
-    This figure is the only place the missing days show, so the warning is
-    said here or it is not said at all.
-    """
+    """The balance is the only place a missing calendar shows."""
     balance_cli.show(services, NOON)
 
     reported = capsys.readouterr().err
@@ -328,10 +284,9 @@ def test_the_balance_says_when_there_is_no_calendar_to_count_against(
     assert "flexi holidays refresh" in reported
 
 
-def test_the_balance_is_quiet_once_the_calendar_is_there(
+def test_the_balance_is_quiet_with_a_calendar(
     stocked: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A warning nobody can act on, printed under every reading, is noise."""
     balance_cli.show(stocked, NOON)
 
     assert capsys.readouterr().err == ""

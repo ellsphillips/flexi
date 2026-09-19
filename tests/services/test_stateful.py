@@ -1,20 +1,10 @@
 """A model of the clock and the absence book, driven against the real services.
 
-Every other test in this directory names a sequence somebody thought of. This
-one lets Hypothesis choose the sequence — clock in, book a morning off, let two
-days pass, clock out, remove it, clock in again — and checks after each step
-that the database still says what a simple model in this file says it should.
-
-The division of labour matters. The clock's rules are few and worth predicting,
-so the model predicts them and a disagreement is a failure. The absence rules
-are many (working days, bank holidays, entitlement, clashes, notes) and
-restating them here would just be a second implementation to keep in step, so
-absences are *observed*: the model records what the service reported and the
-invariants hold regardless of which way it went.
-
-That split is what found the crash in `clock_in`: no example thought to book
-both halves of one day and then clock in the next morning, because no example
-had a reason to.
+Hypothesis chooses the sequence, and after every step the database is checked
+against a simple model. The clock's rules are few, so the model predicts them
+and a disagreement is a failure. The absence rules are many (working days, bank
+holidays, entitlement, clashes, notes), so absences are observed instead: the
+model records what the service reported and the invariants hold either way.
 """
 
 from __future__ import annotations
@@ -59,10 +49,8 @@ AUTO_CLOSE = time(18, 0)
 HOLIDAY = date(2026, 6, 2)
 """A bank holiday on the Tuesday of the first week.
 
-Inside the eight days the clock may wander, so the calendar is present for the
-absence service and the "cannot clock in on a bank holiday" branch is one the
-model reaches. A real August bank holiday sits twelve weeks past the far end of
-the window, where no run arrives and the branch is never taken.
+Inside the eight days the clock may wander, so the "cannot clock in on a bank
+holiday" branch is one the model reaches.
 """
 
 DAYS = 8
@@ -121,27 +109,21 @@ class TimesheetModel(RuleBasedStateMachine):
     def teardown(self) -> None:
         """Give the database back, and the file it lived in.
 
-        Closing the session returns its connection to the engine's pool and
-        leaves it open. One per example, plus one for every example shrinking
-        replays, is a pile of open SQLite handles and a temporary directory
-        each that nothing ever removes -- forty of them in an ordinary run.
-
-        POSIX does not mind, which is why this went unnoticed. Windows will not
-        delete a file that is open, and the worker running this test is the one
-        that died there.
+        Closing the session returns its connection to the pool and leaves the
+        handle open. Windows will not delete a file that is open, and shrinking
+        a failure replays the example many times over.
         """
         # A run of zero steps never reaches `@initialize`, and an AttributeError
-        # escaping teardown is reported as a flaky strategy rather than as what
-        # it is.
+        # escaping teardown is reported as a flaky strategy.
         if not hasattr(self, "db"):
             return
         self.db.close()
         self.engine.dispose()
-        # Errors ignored on purpose: a directory that will not go is worth
-        # neither failing the example nor reporting as flakiness.
+        # A directory that will not go is worth neither failing the example
+        # nor reporting as flakiness.
         shutil.rmtree(self.directory, ignore_errors=True)
 
-    # -- the passage of time -----------------------------------------------
+    # The passage of time
 
     @rule(minutes=st.integers(min_value=1, max_value=11 * 60))
     def time_passes(self, minutes: int) -> None:
@@ -150,7 +132,7 @@ class TimesheetModel(RuleBasedStateMachine):
         if moved < START + timedelta(days=DAYS):
             self.now = moved
 
-    # -- the clock, predicted ----------------------------------------------
+    # The clock, predicted
 
     def _sweep(self) -> None:
         """What `run_startup_cleanup` will do, before it does it.
@@ -210,7 +192,7 @@ class TimesheetModel(RuleBasedStateMachine):
             self.sessions.append((self.open_since, self.now, length < self.minimum))
             self.open_since = None
 
-    # -- the absence book, observed ----------------------------------------
+    # The absence book, observed
 
     @rule(
         offset=st.integers(min_value=0, max_value=DAYS),
@@ -236,10 +218,8 @@ class TimesheetModel(RuleBasedStateMachine):
     def _reread(self, when: date) -> None:
         """Take what is booked on a date from the service, not from a guess.
 
-        The refusal rules are the service's business — working days, bank
-        holidays, entitlement, clashes, notes — and restating them here would be
-        a second implementation to keep in step with the first. What the model
-        needs is only what ended up on the day, and the service will say.
+        Restating the refusal rules here would be a second implementation to
+        keep in step with the first.
         """
         rows = {
             row.portion: row.absence_type
@@ -250,7 +230,7 @@ class TimesheetModel(RuleBasedStateMachine):
         else:
             self.observed_absences.pop(when, None)
 
-    # -- what must be true after every single step -------------------------
+    # What must be true after every step
 
     @precondition(lambda self: hasattr(self, "db"))
     @invariant()
@@ -292,11 +272,7 @@ class TimesheetModel(RuleBasedStateMachine):
     @precondition(lambda self: hasattr(self, "db"))
     @invariant()
     def the_recorded_work_is_the_work_the_model_did(self) -> None:
-        """Every minute the model clocked is a minute the database holds.
-
-        The one figure the whole application is derived from. If this drifts,
-        the balance is wrong and nothing on screen is worth reading.
-        """
+        """Every minute the model clocked is a minute the database holds."""
         recorded = timedelta()
         for row in self.db.execute(select(WorkSession)).scalars():
             if row.voided or row.clock_out_event is None:
@@ -317,27 +293,18 @@ TestTimesheetModel.settings = settings(
     deadline=None,
     suppress_health_check=[HealthCheck.data_too_large, HealthCheck.too_slow],
 )
-"""This test sets its own budget rather than following the profile.
+"""This test sets its own budget instead of following the profile.
 
-Every other property costs a few microseconds an example; one example here is a
-migrated SQLite database and up to forty service calls against it. Forty
-examples of forty steps is about six seconds and covers the interleavings that
-matter; five thousand is a quarter of an hour and covers the same ones again.
-Depth per example is worth more here than breadth across them, which is what
-`stateful_step_count` buys.
+One example is a migrated SQLite database and up to forty service calls against
+it. Depth per example is worth more here than breadth across them, which is
+what `stateful_step_count` buys.
 """
 
 TestTimesheetModel.pytestmark = [pytest.mark.timeout(300)]
 """A budget of its own, because the global one is not meant for this test.
 
-`--timeout=120` in `addopts` is sized for tests that take milliseconds, and it
-is enforced by a thread that calls `os._exit` when it fires. Under xdist that
-kills the worker outright, which is reported as "node down: Not properly
-terminated" against whichever test it was running rather than as a timeout.
-
-This test is two seconds here and roughly twenty on a Windows runner, and a
-failure makes it far longer than that: shrinking replays the example many times
-over. Sitting that close to the limit meant the seed decided whether the run
-passed. Five minutes is still a bound, and a genuine hang is caught by the
-job's own twenty-five.
+`--timeout=120` is sized for tests that take milliseconds and is enforced by a
+thread calling `os._exit`, which under xdist kills the worker and is reported
+as "node down" against whichever test it was running. Shrinking a failure here
+replays the example many times over, and five minutes is still a bound.
 """

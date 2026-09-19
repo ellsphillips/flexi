@@ -21,7 +21,7 @@ NINE = datetime(2026, 8, 10, 9, tzinfo=UTC)
 
 @contextmanager
 def sent_to(engine: Engine) -> Iterator[list[str]]:
-    """Every statement the engine sends while the block runs."""
+    """Record every statement the engine sends while the block runs."""
     seen: list[str] = []
 
     def record(*args: object) -> None:
@@ -103,7 +103,7 @@ def test_two_writers_cannot_both_close_one_session(engine: Engine) -> None:
     assert work_session.clock_out_id == clock_outs[0].id
 
 
-def test_a_voided_open_session_cannot_claim_a_clock_out(engine: Engine) -> None:
+def test_voided_session_cannot_claim_a_clock_out(engine: Engine) -> None:
     """The conditional primitive shares the active-session invariant."""
     with Session(engine) as session, atomic(session):
         clock_in = punched(ClockAction.IN, NINE, source=EventSource.USER)
@@ -139,10 +139,9 @@ def test_a_voided_open_session_cannot_claim_a_clock_out(engine: Engine) -> None:
 def test_clocking_asks_for_no_syntax_sqlite_3_34_lacks(engine: Engine) -> None:
     """RETURNING arrived in SQLite 3.35; RHEL 9 and Debian 11 link 3.34.1.
 
-    SQLAlchemy withholds its own RETURNING below that version, and switching
-    the dialect's three flags off is what one of those machines looks like. An
-    explicit clause is not withheld, so it reaches the database as a syntax
-    error on the first clock-in of a fresh install.
+    SQLAlchemy withholds its own RETURNING below that version, so turning the
+    dialect's three flags off is what one of those machines looks like. An
+    explicit clause is not withheld and reaches the database as a syntax error.
     """
     engine.dialect.insert_returning = False
     engine.dialect.update_returning = False

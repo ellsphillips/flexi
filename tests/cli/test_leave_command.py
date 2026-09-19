@@ -53,7 +53,7 @@ def _booked(session: Session) -> list[AbsenceDay]:
     return session.query(AbsenceDay).order_by(AbsenceDay.date).all()
 
 
-# -- the grammar -------------------------------------------------------------
+# The grammar ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -79,7 +79,7 @@ def _booked(session: Session) -> list[AbsenceDay]:
         (("annual",), AbsenceType.ANNUAL, None, ""),
     ],
 )
-def test_the_grammar_splits_into_kind_portion_and_when(
+def test_grammar_splits_into_kind_portion_and_when(
     words: tuple[str, ...],
     kind: AbsenceType | None,
     portion: Portion | None,
@@ -89,13 +89,13 @@ def test_the_grammar_splits_into_kind_portion_and_when(
     assert parse_request(words) == Request(kind, portion, when)
 
 
-def test_a_portion_is_only_taken_from_the_end() -> None:
-    """So a month name or a note cannot be mistaken for one."""
+def test_portion_is_only_taken_from_the_end() -> None:
+    """A month name or a note cannot be mistaken for a portion."""
     assert parse_request(("annual", "1", "may"))[1] is None
 
 
 @pytest.mark.parametrize("word", ["someday", "vacation", "holidays"])
-def test_an_unknown_kind_is_refused_by_name(word: str) -> None:
+def test_unknown_kind_is_refused_by_name(word: str) -> None:
     with pytest.raises(click.UsageError, match=word):
         parse_request((word, "friday"))
 
@@ -109,29 +109,22 @@ def test_an_unknown_kind_is_refused_by_name(word: str) -> None:
         ("afternoon", Portion.PM),
     ],
 )
-def test_the_portion_words_are_the_four_the_help_names(
-    word: str, portion: Portion
-) -> None:
+def test_four_portion_words_are_accepted(word: str, portion: Portion) -> None:
     assert parse_request(("annual", "friday", word)).portion is portion
 
 
 def test_half_is_not_a_portion_word() -> None:
-    """A word that has to guess which half is a word nobody can rely on.
-
-    Mapped to the morning it leaves `flexi leave cancel friday half` against a
-    booked afternoon reporting nothing booked on a day that is booked. Left
-    out, it lands in the usage error an unrecognised date already lands in.
-    """
+    """Half names no half, so it falls through to the date the command refuses."""
     asked = parse_request(("annual", "friday", "half"))
 
     assert asked.portion is None
     assert asked.when == "friday half"
 
 
-# -- planning and confirming -------------------------------------------------
+# Planning and confirming ----------------------------------------------------
 
 
-def test_a_dry_run_writes_nothing(services: Services, session: Session) -> None:
+def test_dry_run_writes_nothing(services: Services, session: Session) -> None:
     code = run(
         services,
         ("annual", "monday", "to", "friday"),
@@ -159,7 +152,7 @@ def test_yes_books_without_asking(services: Services, session: Session) -> None:
     ]
 
 
-def test_a_half_day(services: Services, session: Session) -> None:
+def test_half_day_books_the_afternoon(services: Services, session: Session) -> None:
     run(
         services,
         ("sick", "today", "pm"),
@@ -188,7 +181,7 @@ def test_other_leave_insists_on_a_note(services: Services) -> None:
         )
 
 
-def test_a_backwards_range_is_refused_before_planning(services: Services) -> None:
+def test_backwards_range_is_refused_before_planning(services: Services) -> None:
     import click
 
     with pytest.raises(click.UsageError, match="runs backwards"):
@@ -202,9 +195,7 @@ def test_a_backwards_range_is_refused_before_planning(services: Services) -> Non
         )
 
 
-def test_a_span_of_only_weekends_books_nothing_and_says_so(
-    services: Services, session: Session
-) -> None:
+def test_weekend_only_span_books_nothing(services: Services, session: Session) -> None:
     code = run(
         services,
         ("annual", "2026-08-15", "to", "2026-08-16"),
@@ -217,10 +208,10 @@ def test_a_span_of_only_weekends_books_nothing_and_says_so(
     assert _booked(session) == []
 
 
-# -- what the confirmation says ----------------------------------------------
+# What the confirmation says -------------------------------------------------
 
 
-def test_the_render_names_the_bank_holiday(services: Services) -> None:
+def test_render_names_the_bank_holiday(services: Services) -> None:
     plan = services.absence.plan(
         date(2026, 8, 28), date(2026, 9, 2), AbsenceType.ANNUAL
     )
@@ -231,13 +222,13 @@ def test_the_render_names_the_bank_holiday(services: Services) -> None:
     assert "3 days" in shown
 
 
-def test_a_holiday_title_cannot_carry_instructions_to_the_terminal(
+def test_holiday_title_cannot_carry_terminal_escapes(
     services: Services, session: Session
 ) -> None:
-    """The title comes from GOV.UK and is echoed straight at the screen.
+    """The title comes from GOV.UK and is echoed at the screen.
 
     Click strips the CSI form and nothing else, so an OSC window title and a
-    carriage return in a tampered calendar reached the terminal intact.
+    carriage return in a tampered calendar would reach the terminal intact.
     """
     session.add(
         BankHolidayCache(
@@ -257,12 +248,12 @@ def test_a_holiday_title_cannot_carry_instructions_to_the_terminal(
     assert "\r" not in shown
 
 
-def test_the_render_shows_the_allowance_moving(services: Services) -> None:
+def test_render_shows_the_allowance_moving(services: Services) -> None:
     plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
     assert "25 → 20 days left" in render(plan)
 
 
-def test_the_render_keeps_cross_year_allowances_separate(
+def test_render_keeps_cross_year_allowances_separate(
     services: Services,
 ) -> None:
     services.settings.save_settings(
@@ -285,7 +276,7 @@ def test_the_render_keeps_cross_year_allowances_separate(
     assert "Annual leave 2027: 2 → 0 days left" in shown
 
 
-def test_a_stale_confirmation_is_reported_as_failure(
+def test_stale_confirmation_is_reported_as_failure(
     services: Services,
     session: Session,
     monkeypatch: pytest.MonkeyPatch,
@@ -315,10 +306,9 @@ def test_a_stale_confirmation_is_reported_as_failure(
     ]
 
 
-def test_annual_leave_does_not_warn_about_the_flexi_balance(
+def test_annual_leave_does_not_warn_about_flexi(
     services: Services,
 ) -> None:
-    """It does not touch it, so a balance already in deficit is not news."""
     plan = services.absence.plan(
         MONDAY, FRIDAY, AbsenceType.ANNUAL, available_toil_days=-90.0
     )
@@ -332,7 +322,7 @@ def test_taking_toil_beyond_the_balance_warns(services: Services) -> None:
     assert "deficit" in render(plan)
 
 
-# -- cancelling --------------------------------------------------------------
+# Cancelling -----------------------------------------------------------------
 
 
 def test_cancelling_removes_what_was_booked(
@@ -375,15 +365,10 @@ def test_cancelling_nothing_says_so(
     assert "Nothing is booked on" in capsys.readouterr().err
 
 
-def test_asking_for_one_half_of_a_full_day_says_what_is_booked(
+def test_cancelling_half_a_full_day_names_the_booking(
     services: Services, session: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A full booking matches neither half filter.
-
-    "Nothing is booked on Mon 10 Aug" about a day that is booked sends
-    somebody away believing the booking was never written, or booking it a
-    second time on top.
-    """
+    """A full booking matches neither half filter."""
     services.absence.book(MONDAY, AbsenceType.ANNUAL)
 
     code = run(
@@ -403,10 +388,9 @@ def test_asking_for_one_half_of_a_full_day_says_what_is_booked(
     assert len(_booked(session)) == 1
 
 
-def test_asking_for_one_half_of_an_empty_day_says_nothing_is_booked(
+def test_cancelling_half_an_empty_day_says_so(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The day really is empty here, and the plain sentence is the true one."""
     code = run(
         services,
         ("cancel", "monday", "am"),
@@ -462,29 +446,24 @@ def test_cancelling_one_half_preserves_the_other(
     ]
 
 
-def test_saying_nothing_at_all_is_told_what_the_kinds_are() -> None:
-    """`flexi leave` with the arguments quoted away, or a shell that ate them.
-
-    The answer has to be the vocabulary, not "missing argument": the whole
-    point of the grammar is that the first word comes from a closed list.
-    """
+def test_no_arguments_lists_the_kinds() -> None:
+    """The first word comes from a closed list, so the answer is the vocabulary."""
     import click
 
     with pytest.raises(click.UsageError, match="annual, sick, toil, unpaid, other"):
         parse_request(())
 
 
-# -- what the confirmation says ----------------------------------------------
+# Refusals in the confirmation -----------------------------------------------
 
 
-def test_a_day_that_is_already_booked_is_shown_as_refused(
+def test_already_booked_day_is_shown_as_refused(
     services: Services, session: Session
 ) -> None:
     """A refusal is not a skip.
 
-    A weekend is passed over because nobody meant it. A clash is a day
-    somebody did mean and cannot have, and it carries the reason so the
-    person can see which day to leave out of the second attempt.
+    A weekend is passed over unmeant; a clash is a day that was meant and cannot
+    be had, so it carries the reason.
     """
     run(
         services,
@@ -501,7 +480,7 @@ def test_a_day_that_is_already_booked_is_shown_as_refused(
     assert "4 days" in shown, "and the rest of the week is still bookable"
 
 
-# -- being asked before anything is written ----------------------------------
+# Being asked before anything is written -------------------------------------
 
 
 def refusing(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bool]]:
@@ -519,11 +498,7 @@ def refusing(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, bool]]:
 def test_declining_the_booking_writes_nothing(
     services: Services, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The plan is shown, the question is asked, and no is honoured.
-
-    The default is no: this runs after a block of text somebody may have
-    scrolled past, and a bare return must not book a week of leave.
-    """
+    """The default is no: a bare return after a block of text books nothing."""
     asked = refusing(monkeypatch)
 
     code = run(
@@ -540,7 +515,7 @@ def test_declining_the_booking_writes_nothing(
     assert asked == [("Book it?", False)]
 
 
-def test_declining_the_cancellation_leaves_the_leave_alone(
+def test_declining_the_cancellation_keeps_the_leave(
     services: Services, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Cancelling loses a booking, so backing out has to keep it."""
@@ -606,16 +581,12 @@ def test_cancellation_refuses_a_booking_added_after_confirmation(
     ]
 
 
-def test_a_refused_cancellation_is_red_like_a_refused_booking(
+def test_refused_cancellation_is_red(
     services: Services,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Two failures of the same kind, on the same command, in one colour.
-
-    Yellow is the tone the rest of the CLI keeps for a warning it carried on
-    past, and a cancellation that did not happen is not one of those.
-    """
+    """Yellow is the tone for a warning the CLI carried on past, and this is not."""
     run(
         services,
         ("annual", "monday"),

@@ -1,20 +1,10 @@
-"""Visual regression, against text rather than against SVG.
+"""Visual regression against text, not against SVG.
 
 ``pytest-textual-snapshot`` compares rendered SVGs, and an SVG diff is only
-readable as a picture — which means a CI failure is a file you have to download
-before you can tell whether the change was intended.
-
-So the snapshots here are the *characters* the compositor produced, committed
-alongside the SVGs in ``docs/shots/``. A failure prints a unified diff of two
-screens, in the terminal, where the person who caused it is already looking. The
-SVGs are still written by ``scripts/shoot.py`` and are still what a reviewer
-looks at; they are just not what the test asserts on.
-
-Regenerate deliberately:
-
-    uv run python scripts/shoot.py
-
-and read the diff before committing it.
+readable as a picture, so a CI failure is a file you have to download. These
+snapshots are the characters the compositor produced, committed beside the SVGs
+in ``docs/shots/``, and a failure prints a unified diff in the terminal.
+Regenerate with ``uv run python scripts/shoot.py`` and read the diff.
 """
 
 from __future__ import annotations
@@ -75,7 +65,6 @@ def demo_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 async def test_screen_matches_its_committed_render(
     name: str, size: tuple[int, int], keys: list[str], demo_db: Path
 ) -> None:
-    """It draws what it drew last time, or says exactly what changed."""
     expected_path = SHOTS / f"{name}.txt"
     assert expected_path.exists(), (
         f"{expected_path} is missing — run `uv run python scripts/shoot.py`"

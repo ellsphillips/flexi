@@ -1,7 +1,7 @@
 """Plotting: dots, bars, stacking and the bounds they are drawn against.
 
-Every rule here is arithmetic, so every test is arithmetic. The widget that
-turns a grid of glyphs into styled text is tested where the styles are.
+The widget that turns a grid of glyphs into styled text is tested where the
+styles are.
 """
 
 from __future__ import annotations
@@ -31,41 +31,32 @@ def drawn(grid: list[list[Glyph | None]]) -> list[str]:
     return ["".join(" " if cell is None else cell.char for cell in row) for row in grid]
 
 
-# -- bounds ------------------------------------------------------------------
+# ---- bounds ----
 
 
 def test_zero_is_always_in_view() -> None:
-    """These are hours against a contract, not an arbitrary quantity.
-
-    A chart of 7:20 to 7:30 that fills its height is a dramatic picture of
-    nothing happening, and the reader has no way to tell it from a week that
-    swung by ten hours.
-    """
+    """Hours against a contract: 7:20 to 7:30 must not fill the height."""
     bounds = Bounds.around([Series("a", (7.2, 7.3))], stacked=False)
 
     assert bounds.low == 0.0
     assert bounds.high == 7.3
 
 
-def test_a_deficit_pulls_the_floor_below_zero() -> None:
+def test_deficit_pulls_the_floor_below_zero() -> None:
     bounds = Bounds.around([Series("a", (-3.0, 2.0))], stacked=False)
 
     assert (bounds.low, bounds.high) == (-3.0, 2.0)
 
 
 def test_stacked_bars_are_measured_by_their_totals() -> None:
-    """The reader is looking at the top of the bar, so that is what has to fit.
-
-    Measured series by series, three bands of four would set the ceiling at
-    four and draw a bar of twelve three times off the top of the plot.
-    """
+    """Measured series by series, three bands of four would set the ceiling at four."""
     bands = [Series(name, (4.0,), Mark.BAR) for name in ("a", "b", "c")]
 
     assert Bounds.around(bands, stacked=True).high == 12.0
     assert Bounds.around(bands, stacked=False).high == 4.0
 
 
-def test_a_plot_of_nothing_has_a_span_that_can_be_divided_by() -> None:
+def test_empty_plot_has_a_non_zero_span() -> None:
     """Every position is a division by the span, including on an empty plot."""
     assert Bounds.around([], stacked=False).span == 1.0
     assert Bounds(0.0, 0.0).span == 1.0
@@ -76,11 +67,10 @@ def test_bounds_that_run_backwards_are_refused() -> None:
         Bounds(10.0, 0.0)
 
 
-# -- the canvas --------------------------------------------------------------
+# ---- the canvas ----
 
 
-def test_a_cell_carries_eight_dots_and_lights_them_independently() -> None:
-    """Braille is the whole reason a line can look like a line in a terminal."""
+def test_cell_carries_eight_independent_dots() -> None:
     canvas = Canvas(1, 1)
     for x in range(DOT_COLUMNS):
         for y in range(DOT_ROWS):
@@ -89,37 +79,25 @@ def test_a_cell_carries_eight_dots_and_lights_them_independently() -> None:
     assert canvas.rows() == ["⣿"]
 
 
-def test_a_canvas_needs_positive_extents() -> None:
+def test_canvas_needs_positive_extents() -> None:
     with pytest.raises(ValueError, match="positive extents"):
         Canvas(0, 4)
 
 
 @pytest.mark.parametrize("dot", [(-1, 0), (0, -1), (99, 0), (0, 99)])
-def test_a_dot_outside_the_canvas_is_dropped_rather_than_raising(
-    dot: tuple[int, int],
-) -> None:
-    """A series is clipped by the box it is drawn in.
-
-    A line leaving the top is an ordinary thing to ask a chart to draw, and the
-    rasteriser walks whole pixels between samples -- so the clipping has to
-    happen at the dot, not at the caller.
-    """
+def test_dot_outside_the_canvas_is_dropped(dot: tuple[int, int]) -> None:
+    """The rasteriser walks whole pixels between samples, so it clips at the dot."""
     canvas = Canvas(2, 2)
     canvas.light(*dot)
 
     assert canvas.rows() == [braille(0) * 2] * 2
 
 
-# -- lines -------------------------------------------------------------------
+# ---- lines ----
 
 
-def test_a_line_is_joined_rather_than_dotted() -> None:
-    """The samples are the corners; the rasteriser fills what is between them.
-
-    Two readings and forty columns is two dots and thirty-eight gaps unless
-    something walks the space between, which is the difference between a chart
-    and a scatter of pixels.
-    """
+def test_line_is_joined_and_not_dotted() -> None:
+    """The samples are the corners; the rasteriser fills what is between them."""
     canvas = Canvas(8, 2)
     line_dots((0.0, 1.0), Bounds(0.0, 1.0), canvas)
 
@@ -129,7 +107,7 @@ def test_a_line_is_joined_rather_than_dotted() -> None:
 
 
 def test_one_reading_is_a_point_and_none_is_nothing() -> None:
-    """A leave year one day old has one week in it, and must still draw."""
+    """A leave year one day old has one week in it, and still draws."""
     single = Canvas(4, 1)
     line_dots((5.0,), Bounds(0.0, 10.0), single)
     assert any(cell != braille(0) for cell in single.rows()[0])
@@ -139,10 +117,10 @@ def test_one_reading_is_a_point_and_none_is_nothing() -> None:
     assert empty.rows() == [braille(0) * 4]
 
 
-# -- bars --------------------------------------------------------------------
+# ---- bars ----
 
 
-def test_a_sample_owns_a_slice_of_the_width() -> None:
+def test_sample_owns_a_slice_of_the_width() -> None:
     """A fortnight in forty columns is two cells a bar, not a hairline each."""
     grid = bar_glyphs(
         [Series("a", (1.0, 1.0), Mark.BAR)], Bounds(0.0, 1.0), 8, 1, stacked=False
@@ -151,8 +129,7 @@ def test_a_sample_owns_a_slice_of_the_width() -> None:
     assert drawn(grid) == ["████████"]
 
 
-def test_bars_are_drawn_in_eighths_rather_than_whole_cells() -> None:
-    """A cell is eight steps tall, and a bar that rounds to cells is a staircase."""
+def test_bars_are_drawn_in_eighths_of_a_cell() -> None:
     grid = bar_glyphs(
         [Series("a", (0.5,), Mark.BAR)], Bounds(0.0, 1.0), 1, 1, stacked=False
     )
@@ -160,7 +137,7 @@ def test_bars_are_drawn_in_eighths_rather_than_whole_cells() -> None:
     assert drawn(grid) == ["▄"]
 
 
-def test_a_bar_of_nothing_draws_nothing() -> None:
+def test_bar_of_nothing_draws_nothing() -> None:
     grid = bar_glyphs(
         [Series("a", (0.0,), Mark.BAR)], Bounds(0.0, 1.0), 2, 1, stacked=False
     )
@@ -169,14 +146,14 @@ def test_a_bar_of_nothing_draws_nothing() -> None:
 
 
 def test_bars_with_no_samples_leave_an_empty_grid() -> None:
-    """A period that has not started yet has series and no values in them."""
+    """A period that has not started has series and no values in them."""
     assert drawn(bar_glyphs([Series("a", ())], Bounds(0, 1), 2, 1, stacked=False)) == [
         "  "
     ]
     assert drawn(bar_glyphs([], Bounds(0, 1), 2, 1, stacked=False)) == ["  "]
 
 
-# -- stacking ----------------------------------------------------------------
+# ---- stacking ----
 
 
 def test_stacking_puts_each_band_on_the_ones_below_it() -> None:
@@ -186,8 +163,7 @@ def test_stacking_puts_each_band_on_the_ones_below_it() -> None:
     ]
 
 
-def test_a_stacked_bar_is_as_tall_as_its_total() -> None:
-    """Two bands of one, on a plot of two, fill it."""
+def test_stacked_bar_is_as_tall_as_its_total() -> None:
     bands = [Series("a", (1.0,), Mark.BAR), Series("b", (1.0,), Mark.BAR)]
 
     grid = bar_glyphs(bands, Bounds(0.0, 2.0), 1, 2, stacked=True)
@@ -196,7 +172,6 @@ def test_a_stacked_bar_is_as_tall_as_its_total() -> None:
 
 
 def test_stacked_bands_keep_their_own_tones() -> None:
-    """The bands are only distinguishable by colour, so each has to carry one."""
     bands = [
         Series("a", (1.0,), Mark.BAR, "annual"),
         Series("b", (1.0,), Mark.BAR, "sick"),
@@ -207,15 +182,11 @@ def test_stacked_bands_keep_their_own_tones() -> None:
     assert [row[0].tone for row in grid if row[0]] == ["sick", "annual"]
 
 
-# -- both at once ------------------------------------------------------------
+# ---- both at once ----
 
 
-def test_a_line_is_drawn_over_the_bars() -> None:
-    """Bars are the context; the line is the reading taken against it.
-
-    Drawn the other way round, a full bar hides the line exactly where the two
-    meet -- which is the point on the chart the reader came for.
-    """
+def test_line_is_drawn_over_the_bars() -> None:
+    """Bars are the context, and one drawn over the line hides it where they meet."""
     grid = plot(
         [
             Series("bars", (1.0, 1.0), Mark.BAR, "series"),
@@ -229,29 +200,23 @@ def test_a_line_is_drawn_over_the_bars() -> None:
     assert grid[0][0].tone == "target", "the line took the cell"
 
 
-def test_a_series_must_be_named() -> None:
-    """The legend has nothing else to show, and an unnamed band is a colour."""
+def test_series_must_be_named() -> None:
     with pytest.raises(ValueError, match="needs a name"):
         Series("", (1.0,))
 
 
-# -- the reference rule ------------------------------------------------------
+# ---- the reference rule ----
 
 
-def test_a_rule_gives_way_to_a_bar_it_crosses() -> None:
-    """Zero is furniture, not a reading, so the data keeps its cells.
-
-    Bars are drawn before the rule and lines after it, so a bar is the one
-    thing already in the way when the rule is laid down. Painted over it, the
-    rule would cut a dashed line through solid bars and read as a gap in them.
-    """
+def test_rule_gives_way_to_a_bar_it_crosses() -> None:
+    """Bars are drawn before the rule, so the rule never cuts a gap through one."""
     grid = plot([Series("tall", (2.0,), Mark.BAR)], 4, 2, rule=1.0)
 
     tones = [cell.tone for row in grid for cell in row if cell]
     assert set(tones) == {"series"}, "the bar kept every cell the rule wanted"
 
 
-def test_a_rule_shows_beside_a_bar_that_does_not_reach_it() -> None:
+def test_rule_shows_beside_a_bar_short_of_it() -> None:
     """The half of the row the bar left empty is still the threshold."""
     grid = plot([Series("short", (2.0, 0.0), Mark.BAR)], 4, 2, rule=1.0)
 
@@ -259,30 +224,26 @@ def test_a_rule_shows_beside_a_bar_that_does_not_reach_it() -> None:
     assert tones == {"series", "rule"}
 
 
-def test_a_rule_reaches_across_a_plot_with_nothing_on_it() -> None:
+def test_rule_reaches_across_an_empty_plot() -> None:
     grid = plot([], 4, 3, rule=0.0)
 
     assert [cell.char if cell else " " for cell in grid[-1]] == ["╌"] * 4
 
 
-def test_a_rule_pulls_itself_into_view() -> None:
-    """A threshold off the top of the plot is a threshold nobody can see.
-
-    The bounds are widened to hold it, which is what makes "you are above the
-    line" a thing the picture can say rather than a thing it implies.
-    """
+def test_rule_pulls_itself_into_view() -> None:
+    """The bounds widen to hold a threshold that falls outside them."""
     grid = plot([Series("high", (10.0, 10.0), Mark.LINE)], 4, 4, rule=20.0)
 
     assert any(cell and cell.tone == "rule" for row in grid for cell in row)
 
 
-def test_a_rule_outside_its_own_bounds_is_not_drawn() -> None:
+def test_rule_outside_its_bounds_is_not_drawn() -> None:
     """`rule_row` answers for a plot whose bounds were fixed elsewhere."""
     assert rule_row(99.0, Bounds(0.0, 5.0), 10) is None
     assert rule_row(0.0, Bounds(0.0, 5.0), 10) == 9
 
 
-# -- two lines ---------------------------------------------------------------
+# ---- two lines ----
 
 
 def lit(grid: list[list[Glyph | None]]) -> set[tuple[int, int, int]]:
@@ -302,12 +263,7 @@ FALLING = Series("falling", (3.0, 2.0, 1.0, 0.0), Mark.LINE, "compare")
 
 
 def test_two_lines_keep_every_dot_the_other_lights() -> None:
-    """A cell is eight dots, and a crossing costs neither stroke a gap.
-
-    Written a cell at a time, the second line's glyph takes the whole cell and
-    the first line vanishes from it at the crossing, which is the part of the
-    picture the reader came for.
-    """
+    """A cell at a time, the second glyph would blank the first at a crossing."""
     merged = lit(plot([RISING, FALLING], 6, 3))
 
     assert lit(plot([RISING], 6, 3)) <= merged
@@ -315,8 +271,7 @@ def test_two_lines_keep_every_dot_the_other_lights() -> None:
     assert lit(plot([FALLING, RISING], 6, 3)) == merged
 
 
-def test_a_cell_two_lines_share_wears_the_later_tone() -> None:
-    """A cell carries one colour, and the drawing order decides which."""
+def test_shared_cell_wears_the_later_tone() -> None:
     grid = plot([RISING, FALLING], 6, 3)
     shared = grid[1][2]
 

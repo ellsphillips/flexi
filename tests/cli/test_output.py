@@ -1,9 +1,7 @@
-"""What the two output streams are told before anything is written to them.
+"""Stream setup: encoding tolerance, ANSI escapes, and colour.
 
-Three answers that belong to the terminal rather than to Flexi: whether it
-obeys an escape sequence, whether colour was asked for, and whether it can
-encode a U+2212. Each was settled nowhere, so the click-drawn commands and the
-Rich-drawn prompts disagreed about all three.
+The click-drawn commands and the Rich-drawn prompts must reach the same answer
+on all three.
 """
 
 from __future__ import annotations
@@ -20,7 +18,7 @@ from flexi.cli import output
 
 
 class _Stream(io.TextIOWrapper):
-    """A text stream that is, or is not, somebody's terminal."""
+    """A cp1252 text stream that answers ``isatty`` as told."""
 
     def __init__(self, *, tty: bool) -> None:
         self.bytes = io.BytesIO()
@@ -36,13 +34,8 @@ def _both(monkeypatch: pytest.MonkeyPatch, stream: object) -> None:
     monkeypatch.setattr(sys, "stderr", stream)
 
 
-def test_a_piped_stream_prints_a_replacement_rather_than_dying() -> None:
-    """`flexi balance show > balance.txt` on Windows is a cp1252 stream.
-
-    Every delta carries U+2212 and the leave-year line an arrow, so a strict
-    stream raises `UnicodeEncodeError` from inside `click.echo` and the command
-    dies after doing its work. A lost glyph is smaller than a lost line.
-    """
+def test_piped_stream_replaces_unencodable_glyphs() -> None:
+    """Every delta carries U+2212, which strict cp1252 cannot encode."""
     stream = _Stream(tty=False)
     with pytest.MonkeyPatch.context() as patched:
         _both(patched, stream)
@@ -55,8 +48,7 @@ def test_a_piped_stream_prints_a_replacement_rather_than_dying() -> None:
     assert b"balance ?4:14" in stream.bytes.getvalue()
 
 
-def test_a_terminal_is_left_exactly_as_it_is() -> None:
-    """A console encodes the glyphs, and nothing here should soften it."""
+def test_terminal_is_left_strict() -> None:
     stream = _Stream(tty=True)
     with pytest.MonkeyPatch.context() as patched:
         _both(patched, stream)
@@ -65,10 +57,10 @@ def test_a_terminal_is_left_exactly_as_it_is() -> None:
     assert stream.errors == "strict"
 
 
-def test_a_stream_with_nothing_to_reconfigure_is_passed_over(
+def test_stream_without_reconfigure_is_skipped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Not every stdout is a `TextIOWrapper`; some are a test harness."""
+    """Not every stdout is a ``TextIOWrapper``; some are a test harness."""
     plain = io.StringIO()
     _both(monkeypatch, plain)
 
@@ -77,10 +69,10 @@ def test_a_stream_with_nothing_to_reconfigure_is_passed_over(
     assert plain.getvalue() == ""
 
 
-def test_a_posix_terminal_needs_no_flag_turned_on(
+def test_posix_terminal_needs_no_ansi_flag(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The console mode is Windows's. Here there is nothing to enable."""
+    """Console mode is a Windows API; elsewhere there is nothing to enable."""
     output.enable_ansi()
 
     assert capsys.readouterr() == ("", "")
@@ -97,7 +89,7 @@ def test_a_posix_terminal_needs_no_flag_turned_on(
         pytest.param({"TERM": "xterm-256color"}, False, id="an ordinary terminal"),
     ],
 )
-def test_the_environment_is_read_the_way_rich_reads_it(
+def test_monochrome_reads_no_color_and_term(
     variables: dict[str, str], expected: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
@@ -133,14 +125,10 @@ def test_preparing_leaves_colour_to_click_otherwise(
 @pytest.mark.parametrize(
     "variable", [("NO_COLOR", "1"), ("TERM", "dumb")], ids=["NO_COLOR", "TERM"]
 )
-def test_the_commands_go_monochrome_with_the_prompts(
+def test_commands_go_monochrome_with_prompts(
     variable: tuple[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Click reads neither setting, so the group callback hands it the answer.
-
-    The `flexi init` rail and the application honour both while every
-    `click.secho` in the package keeps emitting colour on a terminal.
-    """
+    """Click reads neither setting, so the group callback hands it the answer."""
     monkeypatch.setenv(*variable)
 
     result = CliRunner().invoke(cli, ["balance", "show"], color=True)
@@ -151,7 +139,7 @@ def test_the_commands_go_monochrome_with_the_prompts(
 
 
 def test_colour_survives_a_terminal_that_wants_it() -> None:
-    """Otherwise the test above would pass on a command that never colours."""
+    """Guards the test above from passing on a command that never colours."""
     result = CliRunner().invoke(cli, ["balance", "show"], color=True)
 
     assert "\x1b[" in result.output

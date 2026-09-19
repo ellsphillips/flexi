@@ -1,10 +1,9 @@
 """One app, one seeded database, one frozen clock.
 
 Every test in this directory drives the real application through Textual's
-``Pilot``. Time is frozen at :data:`flexi.services.samples.NOW` — a Thursday
-afternoon with a session open — because half of what the dashboard shows is a
-function of *now*, and a test whose expectations drift at midnight is worse than
-no test.
+``Pilot``. Time is frozen at :data:`flexi.services.samples.NOW`, a Thursday
+afternoon with a session open, because half of what the dashboard shows is a
+function of *now*.
 """
 
 from __future__ import annotations
@@ -31,12 +30,10 @@ type AppFactory = Callable[[], FlexiApp]
 
 @pytest.fixture(autouse=True)
 def _frozen() -> Iterator[None]:
-    """Autouse, because the docstring above has always claimed it was.
+    """Autouse, not a dependency of `seeded_db`.
 
-    It reached tests only as a dependency of `seeded_db`, so the twenty Pilot
-    tests in `test_first_run.py` — which build their own database — ran on the
-    real system clock, and the `usefixtures("_frozen")` marks in the files that
-    do take `seeded_db` were doing nothing at all.
+    The tests that build their own database need the frozen clock too, and they
+    never ask for `seeded_db`.
     """
     with time_machine.travel(NOW, tick=False):
         yield
@@ -98,14 +95,12 @@ def screen_text(app: FlexiApp) -> str:
     return "\n".join("".join(segment.text for segment in strip) for strip in strips)
 
 
-# -- legibility --------------------------------------------------------------
+# legibility
 
 READABLE = 3.0
 """Contrast a piece of chrome has to clear against the ground behind it.
 
-Below three to one a dim tone stops being text and becomes a texture. Two have
-gone out this way: `$c-line` on a tinted calendar cell at 1.02:1, and the same
-colour on the header ground at 1.37:1.
+Below three to one a dim tone stops being text and becomes a texture.
 """
 
 

@@ -1,16 +1,8 @@
 """The prompt reader against a real terminal, which means a POSIX one.
 
-Split out of `test_ui.py` because these are the only tests in the suite that
-cannot run on Windows: they need `pty` to open a terminal and `termios` to look
-at the mode the reader put it in, and neither module exists there.
-
-Nothing is lost on Windows, because there is nothing equivalent to check. The
-POSIX reader has to arrange cbreak before it can read a byte, and a mocked
-`termios` would agree with whatever the code did to it -- so the mode is
-asserted against a driver that really has one. The Windows reader arranges
-nothing: `msvcrt.getwch` is unbuffered and unechoed by construction, so all
-that is left there is the scan-code protocol, and `test_ui.py` tests that on
-every platform by handing the reader a function that returns characters.
+`pty` and `termios` do not exist on Windows, so these tests are skipped there.
+Nothing equivalent is lost: `msvcrt.getwch` is unbuffered and unechoed by
+construction, and `test_ui.py` covers the scan-code protocol on every platform.
 """
 
 from __future__ import annotations
@@ -45,9 +37,7 @@ class _Descriptor:
 def pty_pair(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[int, int]]:
     """A real terminal, with `sys.stdin` pointed at the far end of it.
 
-    A fake `termios` would agree with whatever the reader did to it, which is
-    no test of raw mode at all. A pty is the smallest thing that has a line
-    discipline to put into cbreak and a buffer to type into.
+    A pty is the smallest thing with a line discipline to put into cbreak.
     """
     controller, terminal = pty.openpty()
     monkeypatch.setattr(sys, "stdin", _Descriptor(terminal))
@@ -58,14 +48,9 @@ def pty_pair(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[int, int]]:
         os.close(terminal)
 
 
-def test_an_arrow_key_arrives_as_three_bytes_and_is_read_as_one_press(
+def test_arrow_key_reads_as_one_press(
     pty_pair: tuple[int, int],
 ) -> None:
-    """Three bytes have to become one key, or the arrows do nothing.
-
-    The reader keeps going while the sequence is incomplete and something is
-    still coming, which is the only way that happens.
-    """
     controller, _ = pty_pair
 
     with prompt.unbuffered() as descriptor:
@@ -74,15 +59,12 @@ def test_an_arrow_key_arrives_as_three_bytes_and_is_read_as_one_press(
         assert prompt.read_key(descriptor) is Key.DOWN
 
 
-def test_an_escape_on_its_own_is_answered_rather_than_waited_on(
+def test_lone_escape_is_answered(
     pty_pair: tuple[int, int],
 ) -> None:
-    """The wait for the rest of a sequence has to end.
+    """A lone escape and the first byte of an arrow are the same byte.
 
-    A lone escape and the first byte of an arrow are the same byte, so the
-    reader waits a moment to find out which it was. Pressing escape to back out
-    of a question and having nothing happen is indistinguishable from a prompt
-    that has hung.
+    The reader waits a moment for the rest of a sequence and then gives up.
     """
     controller, _ = pty_pair
 
@@ -92,14 +74,13 @@ def test_an_escape_on_its_own_is_answered_rather_than_waited_on(
         assert prompt.read_key(descriptor) is Key.QUIT
 
 
-def test_a_key_this_terminal_cannot_name_is_ignored_rather_than_fatal(
+def test_undecodable_byte_reads_as_unknown(
     pty_pair: tuple[int, int],
 ) -> None:
     """Bytes are read one at a time.
 
-    The first half of a multi-byte character decodes to nothing, nothing is an
-    unknown key, and an unknown key leaves the menu where it was -- which is a
-    great deal better than a traceback over a half-drawn prompt.
+    The first half of a multi-byte character decodes to nothing, and nothing is
+    an unknown key.
     """
     controller, _ = pty_pair
 
@@ -109,13 +90,10 @@ def test_a_key_this_terminal_cannot_name_is_ignored_rather_than_fatal(
         assert prompt.read_key(descriptor) is Key.UNKNOWN
 
 
-def test_the_terminal_stops_waiting_for_a_line_inside_the_block(
+def test_cbreak_is_set_inside_the_block(
     pty_pair: tuple[int, int],
 ) -> None:
-    """A menu answers to a single keystroke.
-
-    A terminal in its default mode hands nothing over until enter is pressed.
-    """
+    """A terminal in its default mode hands nothing over until enter is pressed."""
     _, _terminal = pty_pair
 
     with prompt.unbuffered() as descriptor:
@@ -125,17 +103,14 @@ def test_the_terminal_stops_waiting_for_a_line_inside_the_block(
     assert not mode[3] & termios.ECHO, "the keystrokes would print themselves"
 
 
-def test_the_terminal_is_handed_back_however_the_block_is_left(
+def test_terminal_mode_is_restored_on_error(
     pty_pair: tuple[int, int],
 ) -> None:
     """Cbreak is a change to the shell's terminal, not to Flexi's.
 
-    Left set, it is a shell that echoes nothing and answers to no line editing
-    at all, and nothing on screen says what happened.
-
-    Only the local flags are compared, and only the three the mode is made of:
-    the driver sets `PENDIN` on the way through a mode change, so the whole
-    attribute list comes back equal in substance and unequal in value.
+    Only the three local flags the mode is made of are compared: the driver sets
+    `PENDIN` on the way through a mode change, so the whole attribute list comes
+    back equal in substance and unequal in value.
     """
     _, terminal = pty_pair
     mode = termios.ICANON | termios.ECHO | termios.ISIG

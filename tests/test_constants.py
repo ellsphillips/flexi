@@ -2,8 +2,8 @@ from flexi import constants
 from flexi.constants import AbsenceType
 
 
-def test_every_absence_type_reads_inside_a_sentence() -> None:
-    """`label.lower()` turned "TOIL" into "toil" in six places at once."""
+def test_every_absence_type_reads_mid_sentence() -> None:
+    """`label.lower()` turns "TOIL" into "toil", so each kind carries a phrase."""
     for kind in AbsenceType:
         assert kind.phrase, f"{kind.name} has no mid-sentence name"
         assert kind.phrase[0].islower() or kind.phrase.isupper(), (
@@ -14,12 +14,10 @@ def test_every_absence_type_reads_inside_a_sentence() -> None:
 
 
 def test_every_absence_type_declares_its_details() -> None:
-    """A member with no row is a KeyError on `.label`, at booking time.
+    """A member with no row is a `KeyError` on `.label`, at booking time.
 
-    Read straight off the private table, so `flexi.constants` carries no
-    function that exists for this assertion to call. Each row is then read
-    through the properties the booking path uses, so a row that is there and
-    blank is caught as well as a row that is missing.
+    Read off the private table, then through the properties the booking path
+    uses, so a row that is present and blank fails as well as a missing one.
     """
     assert frozenset(AbsenceType) == frozenset(constants._DETAILS)
     for kind in AbsenceType:

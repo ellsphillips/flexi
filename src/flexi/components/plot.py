@@ -112,7 +112,7 @@ class Plot(Widget):
         drawn.append_text(legend)
         return drawn
 
-    # -- the furniture -----------------------------------------------------
+    # --- the furniture ----------------------------------------------------
 
     def bounds(self) -> tuple[float, float]:
         """The range the axis is labelled with, low first."""

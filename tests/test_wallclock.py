@@ -1,10 +1,9 @@
 """The one module that reads the clock, and the pin that decides which clock.
 
-Every expectation in this suite about a time somebody lived rests on the pin in
-`tests/conftest.py`, so the pin gets tested rather than assumed. It replaced
-``TZ`` and :func:`time.tzset`, which are POSIX only and therefore pinned nothing
-at all on Windows -- and a pin that silently is not one is worse than none,
-because the run still carries the zone in its name.
+Every expectation in this suite about a local time rests on the pin in
+`tests/conftest.py`, so the pin is tested here rather than assumed. It works
+through :func:`wallclock.pinned`, because ``TZ`` and :func:`time.tzset` are
+POSIX-only and pin nothing on Windows.
 """
 
 from __future__ import annotations
@@ -24,13 +23,8 @@ MIDSUMMER = datetime(2026, 6, 11, 12, 0, tzinfo=UTC)
 """An instant in British Summer Time: 12:00 UTC is 13:00 in London."""
 
 
-def test_the_suite_runs_on_the_zone_it_says_it_does() -> None:
-    """Whatever the machine underneath is set to.
-
-    This is the assertion the timezone matrix rests on. Both rows run the same
-    suite; what the `Europe/London` row proves is that the machine's own zone
-    reaches none of it.
-    """
+def test_suite_runs_on_the_zone_it_names() -> None:
+    """The machine's own zone reaches none of the suite."""
     with time_machine.travel(MIDSUMMER, tick=False):
         assert wallclock.now() == datetime(2026, 6, 11, 12, 0, tzinfo=UTC)
 
@@ -55,9 +49,8 @@ def test_utc_readings_do_not_take_the_wall_time_pin() -> None:
 async def test_overlapping_tasks_cannot_move_each_others_pin() -> None:
     """A pin belongs to an execution context, not to the whole process.
 
-    London reads while the UTC task's pin is still open. With mutable global
-    state that second pin moves both tasks to UTC; a ContextVar leaves each task
-    on the zone it chose.
+    London reads while the UTC task's pin is still open, and a ContextVar leaves
+    each task on the zone it chose.
     """
     london_ready = asyncio.Event()
     utc_ready = asyncio.Event()
@@ -83,14 +76,8 @@ async def test_overlapping_tasks_cannot_move_each_others_pin() -> None:
     assert (london_hour, utc_hour) == (13, 12)
 
 
-def test_a_reading_carries_a_number_and_never_a_zone() -> None:
-    """The whole design of the module, and the pin must not undo it.
-
-    Two datetimes sharing a `ZoneInfo` subtract as wall times and lose a
-    transition. A pinned reading has to come back in the same shape an unpinned
-    one does, or the pin quietly reintroduces the bug the module exists to
-    prevent.
-    """
+def test_reading_carries_an_offset_never_a_zone() -> None:
+    """Two datetimes sharing a `ZoneInfo` subtract as wall times."""
     with wallclock.pinned(LONDON):
         moment = wallclock.local(datetime(2026, 6, 11, 9, 0))
 
@@ -98,34 +85,30 @@ def test_a_reading_carries_a_number_and_never_a_zone() -> None:
     assert moment.utcoffset() == timedelta(hours=1)
 
 
-def test_the_hour_that_happens_twice_resolves_to_the_first_of_them() -> None:
-    """A naive reading is a wall reading, and 01:30 that morning is two of them.
-
-    `fold=0` is what the unpinned reader gives, so it is what the pinned one
-    has to give.
-    """
+def test_repeated_hour_resolves_to_the_first() -> None:
+    """A naive reading is a wall reading, and `fold=0` picks the first one."""
     with wallclock.pinned(LONDON):
         moment = wallclock.local(datetime(2026, 10, 25, 1, 30))
 
     assert moment.utcoffset() == timedelta(hours=1)
 
 
-def test_the_hour_that_never_happens_resolves_to_the_instant_it_names() -> None:
-    """01:30 on the March Sunday is not a time. It still has to mean something."""
+def test_skipped_hour_resolves_to_its_instant() -> None:
+    """01:30 on the March Sunday is not a time, and still has to mean one."""
     with wallclock.pinned(LONDON):
         moment = wallclock.local(datetime(2026, 3, 29, 1, 30))
 
     assert moment.astimezone(UTC) == datetime(2026, 3, 29, 1, 30, tzinfo=UTC)
 
 
-def test_an_aware_moment_is_converted_to_the_pinned_zone() -> None:
+def test_aware_moment_converts_to_the_pinned_zone() -> None:
     with wallclock.pinned(LONDON):
         moment = wallclock.local(MIDSUMMER)
 
     assert (moment.hour, moment.utcoffset()) == (13, timedelta(hours=1))
 
 
-def test_elapsed_time_uses_instants_across_a_zone_transition() -> None:
+def test_elapsed_uses_instants_across_a_transition() -> None:
     start = datetime(2026, 10, 24, 22, 0, tzinfo=LONDON)
     end = datetime(2026, 10, 25, 6, 0, tzinfo=LONDON)
 
@@ -174,19 +157,14 @@ def test_elapsed_operations_refuse_naive_moments() -> None:
 
 
 def test_unpinned_it_asks_the_machine() -> None:
-    """The production path: no pin, and `astimezone` answers from the platform.
-
-    Asserted against the platform rather than against a zone, because what is
-    being checked is that nothing is pinned -- the answer is whatever the
-    machine running this says, which is the point.
-    """
+    """The production path: no pin, and `astimezone` answers from the platform."""
     with wallclock.pinned(None):
         assert wallclock.local(MIDSUMMER) == MIDSUMMER.astimezone()
         assert wallclock.today() == datetime.now(tz=UTC).astimezone().date()
 
 
 @pytest.mark.usefixtures("in_london")
-def test_the_london_fixture_is_the_pin_and_not_the_environment() -> None:
+def test_london_fixture_pins_without_tz() -> None:
     """`TZ` is not consulted, so a Windows runner reads the same as a Linux one."""
     with time_machine.travel(MIDSUMMER, tick=False):
         assert wallclock.now().utcoffset() == timedelta(hours=1)
@@ -196,9 +174,7 @@ class Unreadable(datetime):
     """A moment the platform's own `localtime` will not take.
 
     Windows raises ``OSError: [Errno 22]`` from `localtime_s` for any negative
-    ``time_t``, so every moment before 1970 reads this way there and none of
-    them do here. Subclassed rather than mocked because the failure belongs to
-    the value, not to the module.
+    ``time_t``, so every moment before 1970 reads this way there.
     """
 
     def astimezone(self, tz: tzinfo | None = None) -> Unreadable:
@@ -208,13 +184,8 @@ class Unreadable(datetime):
         return super().astimezone(tz)
 
 
-def test_a_wall_reading_the_platform_refuses_keeps_its_day() -> None:
-    """`end_of_day` manufactures one of these for every day it is asked about.
-
-    A balance as of 1960 walks days whose last microsecond is a naive 1959
-    reading, and the Windows rows of the matrix cannot be allowed to answer
-    that with a stack trace out of a service.
-    """
+def test_unreadable_wall_time_keeps_its_day() -> None:
+    """`end_of_day` manufactures one of these for every day it is asked about."""
     with wallclock.pinned(None):
         reading = wallclock.local(Unreadable(1959, 4, 6, 23, 59, 59))
 
@@ -222,7 +193,7 @@ def test_a_wall_reading_the_platform_refuses_keeps_its_day() -> None:
     assert reading.utcoffset() == datetime.now().astimezone().utcoffset()
 
 
-def test_an_instant_the_platform_refuses_stays_the_same_instant() -> None:
+def test_unreadable_instant_stays_the_same_instant() -> None:
     """Aware in, converted out: the fallback may not move the moment itself."""
     with wallclock.pinned(None):
         reading = wallclock.local(Unreadable(1959, 4, 6, 23, 59, 59, tzinfo=UTC))

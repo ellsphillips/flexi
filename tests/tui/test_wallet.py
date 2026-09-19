@@ -13,7 +13,7 @@ from tests.tui.conftest import WIDE, AppFactory, showing, status_text
 
 
 async def test_every_allowance_has_a_gauge(app_factory: AppFactory) -> None:
-    """It has a line for each type, whether or not anything is in it."""
+    """A line for each type, whether or not anything is in it."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -21,10 +21,9 @@ async def test_every_allowance_has_a_gauge(app_factory: AppFactory) -> None:
             assert app.screen.query_one(f"#gauge-{kind.token}", Gauge)
 
 
-async def test_a_type_with_nothing_recorded_is_not_drawn(
+async def test_empty_uncapped_allowance_is_hidden(
     app_factory: AppFactory,
 ) -> None:
-    """It hides an empty uncapped allowance rather than saying 'none' five times."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -32,10 +31,9 @@ async def test_a_type_with_nothing_recorded_is_not_drawn(
         assert app.screen.query_one("#gauge-sick", Gauge).display is True
 
 
-async def test_a_shifted_key_opens_the_booking_modal_prefilled(
+async def test_shifted_key_opens_a_prefilled_modal(
     app_factory: AppFactory,
 ) -> None:
-    """It books from anywhere on the dashboard, with the type already chosen."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("S")
@@ -46,8 +44,7 @@ async def test_a_shifted_key_opens_the_booking_modal_prefilled(
         assert pressed.name == AbsenceType.SICK.value
 
 
-async def test_booking_a_half_day_draws_down_a_half(app_factory: AppFactory) -> None:
-    """It records a morning and spends half a day of the allowance."""
+async def test_booking_a_half_day_spends_half(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         before = app.services.absence.get_remaining_annual_leave(date(2026, 6, 11))
@@ -69,10 +66,9 @@ async def test_booking_a_half_day_draws_down_a_half(app_factory: AppFactory) -> 
         assert before - after == 0.5
 
 
-async def test_booking_over_a_bank_holiday_is_refused_with_a_reason(
+async def test_bank_holiday_booking_is_refused_with_reason(
     app_factory: AppFactory,
 ) -> None:
-    """It says why, on the status bar, rather than failing silently."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("A")
@@ -98,10 +94,10 @@ async def test_other_absence_insists_on_a_note(app_factory: AppFactory) -> None:
         assert "note" in str(app.screen.query_one("#modal-error").render()).lower()
 
 
-async def test_taking_toil_beyond_the_balance_warns_but_proceeds(
+async def test_overdrawn_toil_warns_but_proceeds(
     app_factory: AppFactory,
 ) -> None:
-    """It lets you overdraw your own arithmetic, and says that you did."""
+    """Overdrawing is allowed, and reported."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -118,8 +114,7 @@ async def test_taking_toil_beyond_the_balance_warns_but_proceeds(
         assert len(app.services.absence.for_date(date(2026, 6, 24))) == 1
 
 
-async def test_the_modal_cancels_on_escape(app_factory: AppFactory) -> None:
-    """It dismisses with nothing, like every modal in the application."""
+async def test_modal_cancels_on_escape(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("A")

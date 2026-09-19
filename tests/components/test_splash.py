@@ -1,9 +1,8 @@
 """The animation, checked frame by frame without running a clock.
 
 Every frame is a pure function of elapsed seconds, so the geometry, the motion
-and the shading are all testable in microseconds. A test that waited for the
-real thing would add minutes to the suite, and `time_machine` does not freeze
-the clock Textual animates against.
+and the shading are all testable directly. `time_machine` does not freeze the
+clock Textual animates against.
 """
 
 from __future__ import annotations
@@ -25,11 +24,7 @@ NARROW_CANVAS = 10
 
 
 def where(column: int, row: int) -> tuple[int, int]:
-    """Where the centre of a model cell lands once the word has settled.
-
-    The same projection the renderer uses, so the test is asking "is the
-    wordmark where the wordmark should be" rather than restating the answer.
-    """
+    """Where the centre of a model cell lands once the word has settled."""
     width, height = splash.extent()
     x = column - (width - 1) / 2
     y = (height - 1) / 2 - row
@@ -45,7 +40,7 @@ def lit(canvas: list[list[int]]) -> int:
 
 @dataclass
 class Pretend:
-    """Something to stand in for stdout, which under pytest is never a terminal."""
+    """A stdout stand-in: pytest's own is never a terminal."""
 
     tty: bool
 
@@ -67,7 +62,7 @@ class Turning(App[None]):
         self.landings += 1
 
 
-# -- the model ---------------------------------------------------------------
+# ---- the model ----
 
 
 def test_every_letter_is_the_same_height() -> None:
@@ -80,23 +75,18 @@ def test_every_letter_is_rectangular() -> None:
         assert len({len(row) for row in rows}) == 1, character
 
 
-def test_the_word_is_spelled_with_letters_that_exist() -> None:
+def test_word_uses_only_defined_letters() -> None:
     assert set(splash.WORD) <= set(splash.LETTER_GLYPHS)
     assert splash.WORD.startswith("flexi")
 
 
-def test_the_wordmark_has_ink_in_every_row() -> None:
-    """A row with nothing in it would be a band of blank across the logo."""
+def test_wordmark_has_ink_in_every_row() -> None:
     rows = {row for _, row in splash.cells()}
     assert rows == set(range(splash.ROWS))
 
 
 def test_interior_walls_are_never_sampled() -> None:
-    """Faces between two touching cells cannot be seen from anywhere.
-
-    Sampling them would be most of the work of every frame for none of the
-    picture, so the count is a fair proxy for that culling still happening.
-    """
+    """Faces between two touching cells cannot be seen from anywhere."""
     inked = splash.cells()
     every_face = len(inked) * (
         2 * splash.FACE_SAMPLES**2 + 4 * splash.FACE_SAMPLES * splash.DEPTH_SAMPLES
@@ -104,12 +94,12 @@ def test_interior_walls_are_never_sampled() -> None:
     assert len(splash.surface()) < every_face
 
 
-def test_the_cloud_stays_affordable() -> None:
-    """It is rotated and projected thirty times a second on the interface thread."""
+def test_cloud_stays_affordable() -> None:
+    """The cloud is rotated and projected on the interface thread every frame."""
     assert len(splash.surface()) < 20_000
 
 
-def test_the_cloud_is_built_once() -> None:
+def test_cloud_is_built_once() -> None:
     assert splash.surface() is splash.surface()
 
 
@@ -118,40 +108,35 @@ def test_every_normal_is_a_unit_vector() -> None:
         assert math.isclose(math.sqrt(nx * nx + ny * ny + nz * nz), 1.0)
 
 
-# -- the motion --------------------------------------------------------------
+# ---- the motion ----
 
 
-def test_it_turns_several_times_on_the_way_in() -> None:
+def test_word_turns_several_times_before_landing() -> None:
     assert splash.yaw(0.0) == pytest.approx(splash.TURNS * 2 * math.pi)
     assert splash.yaw(splash.SPIN) == 0.0
 
 
-def test_it_slows_into_the_landing() -> None:
+def test_spin_slows_into_the_landing() -> None:
     """Cubic ease-out: most of the turning is done early."""
     half = splash.yaw(splash.SPIN / 2)
     assert half < splash.yaw(0.0) / 4
 
 
-def test_it_lands_square_on_and_stays_there() -> None:
+def test_word_lands_square_on_and_stays_there() -> None:
     for at in (splash.SPIN, splash.SPIN + 0.4, splash.DURATION):
         assert splash.yaw(at) == 0.0
         assert splash.pitch(at) == 0.0
 
 
 def test_nothing_moves_once_it_has_landed() -> None:
-    """It turned, and then it wobbled, and the wobble undercut the whole thing.
-
-    A mark that settles and then jiggles reads as a toy rather than as a title,
-    so the deceleration runs into stillness and stays there. Every frame from
-    the landing to the end is the same picture.
-    """
+    """Every frame from the landing to the end is the same picture."""
     landed = splash.luminance(splash.SPIN)
     for at in (splash.SPIN + 0.05, splash.SPIN + 0.9, splash.DURATION):
         assert splash.luminance(at) == landed, f"it moved again at {at:.2f}s"
 
 
 @pytest.mark.parametrize("at", [0.0, 0.3, 0.7, 1.1, 1.6, 2.2, 2.8, 3.35])
-def test_the_canvas_never_moves_or_changes_size(at: float) -> None:
+def test_canvas_never_moves_or_changes_size(at: float) -> None:
     canvas = splash.luminance(at)
     assert len(canvas) == splash.CANVAS_HEIGHT
     assert {len(row) for row in canvas} == {splash.CANVAS_WIDTH}
@@ -159,32 +144,27 @@ def test_the_canvas_never_moves_or_changes_size(at: float) -> None:
 
 @pytest.mark.parametrize("at", [0.0, 0.3, 0.7, 1.1, 1.6, 2.2, 2.8, 3.35])
 def test_there_is_always_something_on_screen(at: float) -> None:
-    """Including edge on, where a slab with no depth would vanish entirely."""
+    """Including edge on, where a slab with no depth would vanish."""
     assert lit(splash.luminance(at)) > 40
 
 
-def test_the_settled_frame_is_the_flat_wordmark() -> None:
-    """The spectacle has to resolve into something legible, not merely stop."""
+def test_settled_frame_is_the_flat_wordmark() -> None:
     canvas = splash.luminance(splash.DURATION)
     for column, row in splash.cells():
         across, down = where(column, row)
         assert canvas[down][across] == BRIGHTEST, f"cell {column},{row} is not solid"
 
 
-def test_the_settled_frame_is_solid_rather_than_dithered() -> None:
+def test_settled_frame_is_solid() -> None:
     canvas = splash.luminance(splash.DURATION)
     shades = {level for row in canvas for level in row if level >= 0}
     assert shades == {BRIGHTEST}
 
 
-def test_the_settled_wordmark_is_letters_rather_than_a_slab() -> None:
-    """The counters have to stay open.
+def test_settled_wordmark_is_not_a_solid_slab() -> None:
+    """The counters stay open: a cell's side faces are edge-on at rest.
 
-    Every cell has four side faces, and at rest they are exactly edge-on: no
-    projected area at all, but normals that are perpendicular rather than turned
-    away. Culling only what points backwards left them being painted a column to
-    the side of the cell they belong to, which closed the hole in the `e` and
-    turned the whole word into a brick.
+    Culling only what points backwards would paint them beside their own cell.
     """
     canvas = splash.luminance(splash.DURATION)
     rows = [at for at, row in enumerate(canvas) if any(level >= 0 for level in row)]
@@ -195,28 +175,26 @@ def test_the_settled_wordmark_is_letters_rather_than_a_slab() -> None:
     assert lit(canvas) < box * 0.6, "the wordmark is filled in"
 
 
-def test_the_settled_wordmark_is_the_height_of_the_font() -> None:
+def test_settled_wordmark_is_the_font_height() -> None:
     canvas = splash.luminance(splash.DURATION)
     rows = [at for at, row in enumerate(canvas) if any(level >= 0 for level in row)]
     assert rows[-1] - rows[0] + 1 == splash.ROWS
 
 
-def test_nothing_is_drawn_facing_away_from_the_eye() -> None:
-    """Half the cloud, every frame, and it would show through the front."""
+def test_back_faces_are_not_drawn() -> None:
+    """A back face would show through the front of the word."""
     canvas = splash.luminance(0.0)
     assert lit(canvas) < len(splash.surface())
 
 
-def test_a_word_wider_than_the_canvas_is_cropped_rather_than_wrapped(
+def test_word_wider_than_the_canvas_is_cropped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A negative column is a perfectly good index, and it addresses the far edge.
+    """A negative column is a valid index, and it addresses the far edge.
 
-    So a cell projecting off the left would be painted on the right, and would
-    take the depth buffer with it — the left of the word occluding the right of
-    it. The canvas is generously sized for the word as it stands, which is
-    exactly why this has to be checked deliberately: the day the word grows a
-    letter, the failure is a smear rather than an exception.
+    Uncropped, a cell projecting off the left is painted on the right and takes
+    the depth buffer with it. The canvas is wide enough for the word as it
+    stands, so a longer word fails as a smear and not as an exception.
     """
     full = splash.luminance(splash.DURATION)
     margin = splash.CANVAS_WIDTH // 2 - NARROW_CANVAS // 2
@@ -228,37 +206,37 @@ def test_a_word_wider_than_the_canvas_is_cropped_rather_than_wrapped(
     assert cropped == [row[margin : margin + NARROW_CANVAS] for row in full]
 
 
-# -- the strapline -----------------------------------------------------------
+# ---- the strapline ----
 
 
-def test_the_strapline_waits_for_the_word_to_stop() -> None:
+def test_strapline_waits_for_the_word_to_stop() -> None:
     assert splash.strapline_fade(0.0) == 0.0
     assert splash.strapline_fade(splash.SPIN - 0.01) == 0.0
 
 
-def test_the_strapline_arrives_and_finishes() -> None:
+def test_strapline_arrives_and_finishes() -> None:
     begun = splash.SPIN + splash.STRAPLINE_IN / 2
     assert 0.0 < splash.strapline_fade(begun) < 1.0
     assert splash.strapline_fade(splash.DURATION) == 1.0
     assert splash.STRAPLINE == "Manage your time, flexibly."
 
 
-# -- timing ------------------------------------------------------------------
+# ---- timing ----
 
 
-def test_it_holds_still_once_it_has_arrived() -> None:
-    """Snatching it away as it settles reads as a glitch rather than a title."""
+def test_splash_holds_still_once_it_arrives() -> None:
+    """A second of stillness follows the strapline, so the end is not a snatch."""
     settled = splash.SPIN + splash.STRAPLINE_IN
     assert splash.DURATION - settled >= 1.0
     assert not splash.is_finished(settled + 0.5)
 
 
-def test_it_ends() -> None:
+def test_splash_ends() -> None:
     assert not splash.is_finished(splash.DURATION - 0.01)
     assert splash.is_finished(splash.DURATION)
 
 
-def test_it_is_long_enough_to_watch_and_short_enough_to_forgive() -> None:
+def test_splash_lasts_three_to_six_seconds() -> None:
     assert 3.0 <= splash.DURATION <= 6.0
 
 
@@ -266,32 +244,25 @@ def test_it_is_long_enough_to_watch_and_short_enough_to_forgive() -> None:
     ("interactive", "animations", "expected"),
     [(True, True, True), (False, True, False), (True, False, False)],
 )
-def test_it_only_plays_where_somebody_can_see_it(
+def test_splash_plays_only_on_an_animating_terminal(
     *, interactive: bool, animations: bool, expected: bool
 ) -> None:
-    """Textual detects neither a missing terminal nor a timer it should stop.
+    """Textual's `animation_level` gates the Animator, not a timer.
 
-    animation_level gates the Animator and not a timer, so a per-frame splash
-    keeps running in CI and in a pipe unless something asks first.
+    A per-frame splash on a timer keeps running in CI and in a pipe.
     """
     assert (
         splash.should_play(interactive=interactive, animations=animations) is expected
     )
 
 
-# -- the widget --------------------------------------------------------------
+# ---- the widget ----
 
 
-def test_the_word_only_turns_where_there_is_somebody_to_watch_it(
+def test_widget_turns_only_on_an_animating_tty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`flexi init` piped into a file must not spend three seconds animating.
-
-    The widget is what joins the two halves of that decision: whether stdout is
-    a terminal at all, and whether the person has turned animation off. Textual
-    reports neither — its animation level gates the Animator rather than a
-    timer, and a per-frame splash on a timer keeps running in a pipe.
-    """
+    """The widget joins the two halves: a real terminal, and animation left on."""
     monkeypatch.setattr(sys, "stdout", Pretend(tty=False))
     assert wordmark.wanted(animation_level="full") is False
 
@@ -300,14 +271,8 @@ def test_the_word_only_turns_where_there_is_somebody_to_watch_it(
     assert wordmark.wanted(animation_level="none") is False
 
 
-async def test_the_landing_is_announced_exactly_once() -> None:
-    """The message is what reveals the setup questions underneath the word.
-
-    Nothing else stops the timer, so a landing announced on every frame from
-    then on would open the form thirty times a second — and `skip` exists
-    precisely so somebody setting up twice can land it early, which is a second
-    way into the same announcement.
-    """
+async def test_landing_is_announced_once() -> None:
+    """The message reveals the setup questions, and `skip` is a second way in."""
     app = Turning()
     async with app.run_test(size=(60, 20)) as pilot:
         mark = app.query_one(Wordmark)

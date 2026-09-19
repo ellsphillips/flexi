@@ -75,14 +75,14 @@ def test_application_teardown_owns_each_cleanup_once(
     assert events == ["session closed", "engine disposed"]
 
 
-async def test_a_blocked_fetch_cannot_retain_the_database_after_unmount(
+async def test_blocked_fetch_cannot_retain_the_database(
     tmp_path: Path,
 ) -> None:
     """The database directory is removable before the network call returns.
 
-    A synchronous request running in a thread cannot be cancelled by Textual.
-    It may therefore outlive the application, but it must not outlive with a
-    SQLAlchemy session, engine connection, or database lease in its closure.
+    Textual cannot cancel a synchronous request running in a thread, so it may
+    outlive the application, but not with a session, a connection or a lease in
+    its closure.
     """
     directory = tmp_path / "blocked-refresh"
     directory.mkdir()

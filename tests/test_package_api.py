@@ -18,16 +18,11 @@ import flexi
 def unresolved_version() -> Iterator[None]:
     """Return the package metadata API to its just-imported state.
 
-    Plainly, not through `monkeypatch`. `delitem` records the value it removed
-    so it can put it back at teardown, and what it recorded on the way out was
-    the *patched* version this test had just installed -- so the fixture meant
-    to clean up ended by restoring the fake.
+    Plainly, not through `monkeypatch`: `delitem` restores the value it removed
+    at teardown, which here is the patched one the test installed.
 
-    `flexi.__version__` is resolved once and cached in the module's own globals,
-    which is what makes it worth cleaning up at all: left there, a version
-    invented for one test is the version every later test in the same worker
-    reads. Ordering decides whether that is noticed, so it fails one run in
-    several and never the same one.
+    `flexi.__version__` is resolved once and cached in the module's globals, so
+    a version invented for one test is read by every later test in the worker.
     """
     _forget()
     yield
@@ -39,9 +34,7 @@ def _forget() -> None:
     vars(flexi).pop("__version__", None)
 
 
-def test_the_public_root_api_is_typed_and_discoverable(
-    unresolved_version: None,
-) -> None:
+def test_root_api_is_typed_and_discoverable(unresolved_version: None) -> None:
     with patch.object(importlib.metadata, "version", return_value="1.2.3"):
         assert flexi.__all__ == ("__version__", "version")
         assert {"__version__", "version"} <= set(dir(flexi))
@@ -70,7 +63,7 @@ def test_version_has_a_source_checkout_fallback(unresolved_version: None) -> Non
     resolve.assert_called_once_with("flexi")
 
 
-def test_an_unknown_root_attribute_still_raises(unresolved_version: None) -> None:
+def test_unknown_root_attribute_raises(unresolved_version: None) -> None:
     name = "not_an_api"
     with pytest.raises(
         AttributeError,
@@ -80,7 +73,7 @@ def test_an_unknown_root_attribute_still_raises(unresolved_version: None) -> Non
 
 
 def test_importing_the_root_is_lazy_and_lightweight() -> None:
-    """A fresh interpreter catches imports already loaded by this test worker."""
+    """A fresh interpreter, so imports already loaded by this worker do not hide."""
     script = """
 import importlib.metadata
 import sys

@@ -1,4 +1,4 @@
-"""Booking a span: partial by design, and honest about what it skipped."""
+"""Booking a span: partial where it has to be, and explicit about skips."""
 
 from __future__ import annotations
 
@@ -16,11 +16,10 @@ FRIDAY = date(2026, 8, 14)
 NEXT_FRIDAY = date(2026, 8, 21)
 BANK_HOLIDAY = DEFAULT_HOLIDAY
 BEFORE_THE_SPAN = datetime(2026, 8, 7, 9, 0, tzinfo=UTC)
-"""The Friday before MONDAY: TOIL draws on the balance only for days the
-balance has not already counted."""
+"""The Friday before MONDAY; TOIL draws only on days the balance has not counted."""
 
 
-def test_a_working_week_books_five_days(services: Services) -> None:
+def test_working_week_books_five_days(services: Services) -> None:
     """Monday to Friday is five, not seven."""
     result = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
     assert len(result.booked) == 5
@@ -28,18 +27,15 @@ def test_a_working_week_books_five_days(services: Services) -> None:
 
 
 def test_weekends_are_skipped_quietly(services: Services) -> None:
-    """Nobody booking a fortnight means to book the Saturdays.
-
-    Reporting them as refusals would bury the one refusal that matters.
-    """
+    """Reporting the Saturdays as refusals would bury the refusal that matters."""
     result = services.absence.book_range(MONDAY, NEXT_FRIDAY, AbsenceType.ANNUAL)
     assert len(result.booked) == 10
     assert not result.skipped
     assert "10 days" in result.message("booked")
 
 
-def test_a_bank_holiday_is_skipped_quietly_too(services: Services) -> None:
-    """It is not yours to book, and it is not a mistake that you tried."""
+def test_bank_holidays_are_skipped_quietly(services: Services) -> None:
+    """A bank holiday is not bookable, and asking for one is not an error."""
     result = services.absence.book_range(
         BANK_HOLIDAY, BANK_HOLIDAY + timedelta(days=4), AbsenceType.ANNUAL
     )
@@ -48,8 +44,8 @@ def test_a_bank_holiday_is_skipped_quietly_too(services: Services) -> None:
     assert not result.skipped
 
 
-def test_a_day_already_booked_is_reported(services: Services) -> None:
-    """This one is worth saying: something is there that you did not expect."""
+def test_day_already_booked_is_reported(services: Services) -> None:
+    """An existing booking is the one skip worth reporting."""
     services.absence.book(date(2026, 8, 12), AbsenceType.SICK)
     result = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
     assert len(result.booked) == 4
@@ -57,7 +53,7 @@ def test_a_day_already_booked_is_reported(services: Services) -> None:
     assert "already booked" in result.message("booked")
 
 
-def test_running_out_of_leave_mid_range_books_what_it_can(services: Services) -> None:
+def test_partial_booking_when_leave_runs_out(services: Services) -> None:
     """Partial, and it says how far it got."""
     services.settings.save_entitlement(2025, 2.0)
     result = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
@@ -67,7 +63,7 @@ def test_running_out_of_leave_mid_range_books_what_it_can(services: Services) ->
 
 
 def test_toil_across_a_range_warns_once(services: Services) -> None:
-    """Not five times for five days."""
+    """Once for the span, not once per day."""
     with time_machine.travel(BEFORE_THE_SPAN, tick=False):
         result = services.absence.book_range(
             MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=1.0
@@ -85,7 +81,7 @@ def test_half_days_across_a_range(services: Services) -> None:
 
 
 def test_clearing_a_range_removes_what_is_there(services: Services) -> None:
-    """And says what it removed, not what was already free."""
+    """It reports what it removed, not what was already free."""
     services.absence.book_range(MONDAY, date(2026, 8, 12), AbsenceType.ANNUAL)
     result = services.absence.clear_range(MONDAY, FRIDAY)
     assert len(result.booked) == 3
@@ -99,15 +95,10 @@ def test_clearing_an_empty_range_says_so(services: Services) -> None:
     assert result.message("removed") == "Nothing to do"
 
 
-def test_a_span_that_books_nothing_gives_the_reason_unedited(
+def test_span_that_books_nothing_gives_the_reason(
     services: Services,
 ) -> None:
-    """One refusal is a sentence, not a report on a span.
-
-    "Nothing booked: That day is already booked in full" is the status bar
-    apologising for itself. When every day was turned down for the same reason,
-    the reason *is* the answer.
-    """
+    """When every day is turned down for one reason, that reason is the answer."""
     services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
 
     again = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
@@ -117,14 +108,10 @@ def test_a_span_that_books_nothing_gives_the_reason_unedited(
     assert again.message("booked") == "That day is already booked in full"
 
 
-def test_a_span_refused_for_two_different_reasons_names_both(
+def test_span_refused_twice_over_names_both_reasons(
     services: Services,
 ) -> None:
-    """Each reason once, however many days it accounts for.
-
-    Five days short of leave and one already booked is two things to fix, and
-    listing the same sentence four times over would hide the second.
-    """
+    """Each reason once, however many days it accounts for."""
     services.absence.book(MONDAY, AbsenceType.SICK)
     services.settings.save_entitlement(2025, 0.0)
 
@@ -138,18 +125,14 @@ def test_a_span_refused_for_two_different_reasons_names_both(
     )
 
 
-def test_a_single_day_reads_as_a_day(services: Services) -> None:
-    """'1 day booked', not '1 days booked'."""
+def test_single_day_reads_as_a_day(services: Services) -> None:
+    """One day reads as "1 day booked", not "1 days booked"."""
     result = services.absence.book_range(MONDAY, MONDAY, AbsenceType.SICK)
     assert result.message("booked") == "1 day booked"
 
 
-def test_a_week_of_afternoons_reads_as_afternoons(services: Services) -> None:
-    """Five afternoons are five afternoons and two and a half days.
-
-    The confirmation said "5 days, 2.5 used" and the receipt said "5 days of
-    annual leave booked", which reads as five whole days having gone.
-    """
+def test_week_of_afternoons_reads_as_afternoons(services: Services) -> None:
+    """Five afternoons are two and a half days, not five whole days."""
     result = services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL, Portion.PM)
 
     assert result.message("of annual leave booked") == (
@@ -158,7 +141,7 @@ def test_a_week_of_afternoons_reads_as_afternoons(services: Services) -> None:
 
 
 def test_clearing_afternoons_reads_as_afternoons(services: Services) -> None:
-    """The removal says it in the same unit the confirmation asked it in."""
+    """The removal answers in the unit the confirmation asked in."""
     services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL, Portion.PM)
 
     result = services.absence.clear_range(MONDAY, FRIDAY)
@@ -166,7 +149,7 @@ def test_clearing_afternoons_reads_as_afternoons(services: Services) -> None:
     assert result.message("removed") == "5 afternoons removed"
 
 
-def test_clearing_both_halves_of_a_day_reads_as_a_day(services: Services) -> None:
+def test_clearing_both_halves_reads_as_a_day(services: Services) -> None:
     """A morning and an afternoon off one date are one day, not one morning."""
     services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM)
     services.absence.book(MONDAY, AbsenceType.SICK, Portion.PM)
@@ -176,12 +159,8 @@ def test_clearing_both_halves_of_a_day_reads_as_a_day(services: Services) -> Non
     assert result.message("removed") == "1 day removed"
 
 
-def test_a_removal_plan_names_what_would_go(services: Services) -> None:
-    """A bare count is something to take on trust; a list is something to read.
-
-    Nine days of annual leave and nine sick mornings are not the same thing to
-    agree to, and the old question could not tell them apart.
-    """
+def test_removal_plan_names_what_would_go(services: Services) -> None:
+    """Nine days of annual leave and nine sick mornings are different to agree to."""
     services.absence.book_range(MONDAY, date(2026, 8, 12), AbsenceType.ANNUAL)
     services.absence.book_range(
         date(2026, 8, 13), FRIDAY, AbsenceType.FLEXI, Portion.AM
@@ -205,7 +184,7 @@ def test_a_removal_plan_names_what_would_go(services: Services) -> None:
     assert plan.summary == ("  3 days of annual leave\n  2 mornings of TOIL")
 
 
-def test_a_removal_plan_removes_nothing(services: Services) -> None:
+def test_removal_plan_removes_nothing(services: Services) -> None:
     """Planning is the half that does not write, on this side too."""
     services.absence.book_range(MONDAY, FRIDAY, AbsenceType.ANNUAL)
 
@@ -214,7 +193,7 @@ def test_a_removal_plan_removes_nothing(services: Services) -> None:
     assert len(services.absence.in_range(MONDAY, FRIDAY)) == 5
 
 
-def test_a_portion_specific_removal_plan_preserves_the_other_half(
+def test_removal_plan_by_portion_keeps_the_rest(
     services: Services,
 ) -> None:
     services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM)
@@ -232,7 +211,7 @@ def test_a_portion_specific_removal_plan_preserves_the_other_half(
     ] == [(AbsenceType.ANNUAL, Portion.AM)]
 
 
-def test_an_empty_removal_plan_is_empty(services: Services) -> None:
+def test_empty_removal_plan_is_empty(services: Services) -> None:
     plan = services.absence.removal_plan(MONDAY, FRIDAY)
     assert plan.is_empty
     assert plan.count == 0
@@ -248,10 +227,10 @@ def test_one_of_a_kind_reads_in_the_singular(services: Services) -> None:
     assert plan.summary == ("  1 day of sickness\n  1 afternoon of TOIL")
 
 
-def test_a_booking_added_after_confirmation_is_not_removed(
+def test_booking_added_after_confirmation_is_kept(
     services: Services,
 ) -> None:
-    """The confirmed snapshot is all-or-nothing, not permission to clear a span."""
+    """The confirmed snapshot is all-or-nothing, not a licence to clear a span."""
     services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM)
     confirmed = services.absence.removal_plan(MONDAY, FRIDAY)
     services.absence.book(MONDAY, AbsenceType.SICK, Portion.PM)

@@ -1,10 +1,9 @@
 """An allowance belongs to a leave year, not to a calendar year.
 
-Setup filed it under `wallclock.today().year`. Set Flexi up in February against
-an April leave year and the allowance landed on a year that had not started, so
-get_active_entitlement_days returned None -- and None reads as "no limit
-recorded", which means annual leave was refused on nothing at all.
-Anyone on a UK April leave year had an uncapped allowance until the April.
+Filed under `wallclock.today().year`, a February setup against an April leave
+year lands the allowance on a year that has not started, and
+`get_active_entitlement_days` then returns None. None reads as "no limit
+recorded", so annual leave would be capped by nothing until the April.
 """
 
 from __future__ import annotations
@@ -22,8 +21,7 @@ from flexi.services.settings import SettingsService, parse_settings
 APRIL_LEAVE_YEAR = "04-06"
 BEFORE_IT_TURNS = date(2026, 2, 15)
 A_WORKING_DAY_BEFORE_IT_TURNS = date(2026, 2, 16)
-"""The Monday after. `book()` refuses a Sunday before it looks at any allowance,
-which is why this used to be asserted against a private helper instead."""
+"""The Monday after: `book()` refuses a Sunday before it reads any allowance."""
 AFTER_IT_TURNS = date(2026, 6, 11)
 
 
@@ -63,32 +61,30 @@ def _configure(session: Session, start: str = APRIL_LEAVE_YEAR) -> SettingsServi
 
 
 @pytest.mark.parametrize("today", [BEFORE_IT_TURNS, AFTER_IT_TURNS])
-def test_the_allowance_is_found_whenever_setup_ran(
-    session: Session, today: date
-) -> None:
+def test_allowance_is_found_whenever_setup_ran(session: Session, today: date) -> None:
     settings = _configure(session)
     settings.save_entitlement(settings.active_leave_year(today), 25.0)
 
     assert settings.get_active_entitlement_days(today) == 25.0
 
 
-def test_february_and_june_file_it_under_different_years(session: Session) -> None:
-    """The two sides of an April turnover. Both must resolve."""
+def test_february_and_june_file_under_different_years(session: Session) -> None:
+    """The two sides of an April turnover, both of which have to resolve."""
     settings = _configure(session)
     assert settings.active_leave_year(BEFORE_IT_TURNS) == 2025
     assert settings.active_leave_year(AFTER_IT_TURNS) == 2026
 
 
-def test_a_january_leave_year_is_unaffected(session: Session) -> None:
-    """Where the bug hid: calendar year and leave year agree, so it never showed."""
+def test_january_leave_year_is_unaffected(session: Session) -> None:
+    """Calendar year and leave year agree, so the two spellings cannot differ."""
     settings = _configure(session, start="01-01")
     settings.save_entitlement(settings.active_leave_year(BEFORE_IT_TURNS), 25.0)
     assert settings.active_leave_year(BEFORE_IT_TURNS) == BEFORE_IT_TURNS.year
     assert settings.get_active_entitlement_days(BEFORE_IT_TURNS) == 25.0
 
 
-def test_annual_leave_is_capped_rather_than_unlimited(session: Session) -> None:
-    """The consequence. None reads as 'no limit', so the allowance must be found."""
+def test_annual_leave_is_capped_by_the_allowance(session: Session) -> None:
+    """None reads as 'no limit', so the allowance has to be found."""
     settings = _configure(session)
     settings.save_entitlement(settings.active_leave_year(BEFORE_IT_TURNS), 1.0)
     services = build_services(session)
@@ -97,22 +93,15 @@ def test_annual_leave_is_capped_rather_than_unlimited(session: Session) -> None:
     assert remaining == 1.0, "None here means annual leave is refused on nothing"
 
 
-def test_filing_it_under_the_calendar_year_is_what_broke_it(session: Session) -> None:
-    """Pins the old behaviour as wrong, so nobody reintroduces it."""
+def test_calendar_year_filing_is_not_found(session: Session) -> None:
     settings = _configure(session)
-    settings.save_entitlement(BEFORE_IT_TURNS.year, 25.0)  # the old call
+    settings.save_entitlement(BEFORE_IT_TURNS.year, 25.0)  # not the leave year
 
     assert settings.get_active_entitlement_days(BEFORE_IT_TURNS) is None
 
 
 def test_no_allowance_found_means_no_limit_applied(session: Session) -> None:
-    """Why the misfiling mattered: None reads as "no limit recorded".
-
-    Asserted through `book()` now, with a calendar seeded so the booking is not
-    refused a step earlier for want of one. It used to call a private refusal
-    helper directly -- the shape of a missing seam -- and that helper turned out
-    to be dead code that only this test kept alive.
-    """
+    """None reads as "no limit recorded", so `book()` allows the day."""
     _configure(session)
     _seed_calendar(session)
     absence = build_services(session).absence

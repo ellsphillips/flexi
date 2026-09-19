@@ -1,15 +1,10 @@
 """One way to say "a Flexi that has been set up".
 
-Fifteen files in this directory built that phrase by hand, two of them byte for
-byte, and the invariant that makes them work was re-explained in three different
-comments: there has to be at least one row in the bank holiday cache, because
-`BankHolidayService.titles_between` answers `None` — not an empty mapping —
-when the calendar is absent, and `AbsenceService` refuses to book against `None` rather
-than silently treating an unknown day as workable.
-
-A test that forgets the cache row does not fail loudly. It gets "Bank holiday
-data unavailable; cannot book absence" back from every booking and then asserts
-something else, which is how a test can pass while exercising nothing.
+The bank holiday cache needs at least one row. `BankHolidayService.titles_between`
+answers `None`, not an empty mapping, when the calendar is absent, and
+`AbsenceService` refuses to book against `None`. A test that forgets the row
+gets "Bank holiday data unavailable; cannot book absence" back from every
+booking and can then assert something else and pass.
 """
 
 from __future__ import annotations
@@ -25,12 +20,11 @@ from flexi.services.registry import Services, build_services, invalidate_service
 from flexi.services.settings import parse_settings
 
 CONTRACTED = timedelta(minutes=444)
-"""7:24, the default working day. Named because a test asserting `444` is a test
-whose reader has to go and look."""
+"""7:24, the default working day."""
 
 DEFAULT_HOLIDAY = date(2026, 8, 31)
-"""Summer bank holiday, England & Wales. Far enough from most test weeks to be
-inert, and present so the calendar answers `False` rather than `None`."""
+"""Summer bank holiday, England & Wales: far from most test weeks, and present
+so the calendar answers `False` and not `None`."""
 
 type Configured = Callable[..., Services]
 
@@ -61,9 +55,8 @@ def configure(session: Session) -> Configured:
             )
         )
         # Set after saving, which stamps it with today. `None` is the migrated
-        # database's answer -- every day in the leave year counts -- and it is
-        # what every test here assumed before there was a column to say
-        # otherwise. A test about the gap before setup passes a date.
+        # database's answer: every day in the leave year counts. A test about
+        # the gap before setup passes a date.
         stored = built.settings.get_settings()
         assert stored is not None
         stored.tracking_since = tracking_since
@@ -92,11 +85,10 @@ def services(configure: Configured) -> Services:
 
 
 def work(services: Services, when: date, hours: float, *, start_hour: int = 9) -> None:
-    """A session on a date, clocked in and out like any other.
+    """Clock a session in and out on a date.
 
-    Written through the clock rather than by inserting rows, so a test that
-    depends on work having happened depends on the same code the application
-    runs — including the void-if-too-short rule.
+    Through the clock and not by inserting rows, so the void-if-too-short rule
+    applies here as it does in the application.
     """
     start = datetime.combine(when, datetime.min.time(), tzinfo=UTC).replace(
         hour=start_hour

@@ -47,15 +47,13 @@ class TestForeignKeyEnforcement:
 
 
 class TestTheDefaultDatabase:
-    """What the argumentless calls resolve to.
+    """The argumentless calls resolve to the real database.
 
-    Almost every caller passes an explicit path, so the defaults are exercised
-    only by the short-lived CLI commands -- and a default pointing somewhere
-    else would not raise. It would give `flexi status` a private empty database
-    and a cheerful "not clocked in" for somebody who is.
+    Almost every caller passes a path, so the defaults are reached only by the
+    short-lived CLI commands, where a wrong default would raise nothing.
     """
 
-    def test_a_session_opened_with_no_engine_reaches_the_real_database(self) -> None:
+    def test_a_session_with_no_engine_reaches_the_real_db(self) -> None:
         engine = create_db_engine()
         try:
             with get_session(engine) as session:
@@ -65,28 +63,14 @@ class TestTheDefaultDatabase:
         assert isinstance(bound, Engine)
         assert bound.url.database == str(database_file())
 
-    def test_migrations_asked_for_no_path_stamp_the_real_database(self) -> None:
-        """Startup passes no path at all, and every command afterwards does.
-
-        A default resolving anywhere else would migrate a file nobody reads and
-        raise nothing, leaving the database the application then opens
-        unstamped -- which does not look like a fault either. It looks like an
-        empty timesheet.
-        """
+    def test_migrations_with_no_path_stamp_the_real_db(self) -> None:
+        """A wrong default would migrate an unread file and raise nothing."""
         run_migrations()
 
         assert verify(database_file()), "the real database was not migrated"
 
-    def test_a_backup_asked_for_no_path_copies_the_real_database(self) -> None:
-        """The real database, and a copy that opens and is stamped.
-
-        Not byte for byte. `sqlite3.Connection.backup` writes a fresh file
-        through the engine rather than copying the bytes -- which is the whole
-        reason to use it, since it cannot tear -- so the header's change
-        counter differs while every page of content is the same. What has to
-        hold is that the artefact somebody is told to fall back on passes an
-        integrity check and carries a revision.
-        """
+    def test_a_backup_with_no_path_copies_the_real_db(self) -> None:
+        """`sqlite3.Connection.backup` writes a fresh file, not a byte copy."""
         live = database_file()
         run_migrations(live)
 
@@ -154,10 +138,10 @@ class TestBackupCreation:
         assert backup.suffix == ".bak"
         assert backup.stat().st_size == db_path.stat().st_size
 
-    def test_a_copy_that_fails_partway_through_does_not_stay(
+    def test_a_copy_that_fails_partway_does_not_stay(
         self, db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """What is left otherwise is a truncated file named like a backup."""
+        """Otherwise a truncated file is left behind, named like a backup."""
         backup_dir = tmp_path / "backups"
         monkeypatch.setattr(
             "flexi.models.database.backup.backups_directory", lambda: backup_dir
@@ -189,9 +173,9 @@ class TestBackupCreation:
 
 
 class TestOpeningWithoutWriting:
-    """The connection every read of a database Flexi does not own goes through."""
+    """The connection used for every read of a database Flexi does not own."""
 
-    def test_a_path_with_no_database_is_not_opened_into_existence(
+    def test_a_missing_database_is_not_opened_into_existence(
         self, db_path: Path
     ) -> None:
         """``sqlite3.connect`` creates the file; asking after one must not."""
@@ -200,7 +184,7 @@ class TestOpeningWithoutWriting:
 
         assert not db_path.exists()
 
-    def test_a_copy_that_is_not_there_does_not_verify(self, db_path: Path) -> None:
+    def test_a_missing_copy_does_not_verify(self, db_path: Path) -> None:
         assert verify(db_path) is False
         assert not db_path.exists()
 
@@ -216,12 +200,7 @@ class TestOpeningWithoutWriting:
     def test_the_database_reaches_sqlite_as_a_path(
         self, db_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A path is not a URI, and one shape of path has no URI at all.
-
-        `Path.as_uri` renders a Windows UNC path as ``file://server/share/...``
-        and SQLite accepts no authority but an empty one, so a data directory
-        on a share cannot be read through one.
-        """
+        """`Path.as_uri` gives a UNC path an authority SQLite rejects."""
         run_migrations(db_path)
         seen: list[tuple[Any, dict[str, Any]]] = []
         real = sqlite3.connect
@@ -248,12 +227,8 @@ class TestBackupFailure:
         # Patch backup to return None (simulate failure)
         with (
             patch("flexi.models.database.migrate.backup_database", return_value=None),
-            # Force current != head so the backup path is taken. Through
-            # `current_revision`, which is what `run_migrations` now asks --
-            # it settles the common case against a written-down revision
-            # rather than starting Alembic up to find out. A real revision,
-            # because a stamp this build cannot place is refused before the
-            # backup is reached.
+            # Force current != head so the backup path is taken. A real
+            # revision: a stamp this build cannot place is refused earlier.
             patch(
                 "flexi.models.database.migrate.current_revision",
                 return_value=DatabaseRevision(RevisionState.STAMPED, "0014"),
@@ -266,16 +241,14 @@ class TestBackupFailure:
 # ---------- verifying a copy ----------
 
 STAMP = b"2026-03-01"
-"""A booked date unique to one row, so it appears once in the table pages and
-once in the index built over them."""
+"""A booked date unique to one row: once in the table pages, once in the index."""
 
 REWRITTEN = b"1999-01-01"
-"""What that date becomes in the table alone. The same length, so the rewrite
-stays inside the cell it lands in and moves nothing else on the page."""
+"""What that date becomes in the table alone, at the same length so nothing moves."""
 
 
 def populated(path: Path) -> Path:
-    """A migrated database with enough booked days to fill several pages."""
+    """Return a migrated database with enough booked days to fill several pages."""
     run_migrations(path)
     first = date(2026, 1, 1)
     connection = sqlite3.connect(path)
@@ -292,11 +265,10 @@ def populated(path: Path) -> Path:
 
 
 def scan_finds(path: Path, booked: bytes) -> int:
-    """How many rows a full table scan reads under that date.
+    """Return how many rows a full table scan finds under that date.
 
-    ``NOT INDEXED`` because the index is the thing not to be trusted here: left
-    to itself SQLite answers a lookup on ``date`` out of the index and never
-    goes near the row.
+    ``NOT INDEXED`` because SQLite would otherwise answer a lookup on ``date``
+    out of the index and never read the row.
     """
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
@@ -312,19 +284,10 @@ def scan_finds(path: Path, booked: bytes) -> int:
 def tear(path: Path) -> Path:
     """Rewrite one date in the table pages, leaving the index over it alone.
 
-    Which of the file's copies of that date to rewrite cannot be assumed. A
-    b-tree that has rebalanced leaves the cells it moved behind in the
-    unallocated part of a page, so most matches in the file are dead space that
-    nothing ever reads, and only a SQLite compiled with ``SQLITE_SECURE_DELETE``
-    clears it. Whether an interpreter's SQLite was is not a question of version
-    and not something this project picks -- CPython 3.13.11 ships one that
-    clears and 3.13.15 one that does not -- so rewriting the first match tore
-    the file on one machine and left it pristine on the next.
-
-    Each match is therefore rewritten in turn and the file kept at the one a
-    table scan can see, which is what it means for a byte to have been holding
-    a row. The index still carries the old key, so what is left is a copy taken
-    mid-write: some pages from before it, some from after.
+    Most matches in the file are cells a rebalanced b-tree left in unallocated
+    space, which only a SQLite built with ``SQLITE_SECURE_DELETE`` clears, so
+    each match is rewritten in turn and the file kept at the one a table scan
+    can see. The index still carries the old key: a copy taken mid-write.
     """
     original = path.read_bytes()
     offset = original.find(STAMP)
@@ -342,45 +305,31 @@ def tear(path: Path) -> Path:
 
 
 class TestVerifyingACopy:
-    """What stands between somebody and a backup that cannot be restored.
+    """A backup that cannot be restored has to be refused.
 
-    A copy taken while the application was mid-write can open perfectly and
-    still be wrong, and it is the one artefact a person is told they can fall
-    back on. Every refusal below has to be a refusal, because the alternative is
-    finding out at the moment the original is gone.
+    A copy taken mid-write opens perfectly and is still wrong, and it is the
+    artefact a person is told to fall back on.
     """
 
     def test_an_intact_copy_is_accepted(self, db_path: Path) -> None:
         """The control: without it, the refusals below prove nothing."""
         assert verify(populated(db_path))
 
-    def test_a_copy_that_no_longer_agrees_with_its_own_index_is_refused(
+    def test_a_copy_that_disagrees_with_its_index_is_refused(
         self, db_path: Path
     ) -> None:
-        """The torn copy that opens cleanly.
-
-        One date rewritten in the table and not in the index over it: SQLite
-        connects, answers queries and quietly cannot find that booking by date.
-        Nothing short of an integrity check notices, which is why `verify` runs
-        one rather than settling for the file opening.
-        """
+        """Nothing short of an integrity check notices a torn copy."""
         tear(populated(db_path))
 
         assert not verify(db_path)
 
-    def test_a_copy_that_is_not_a_database_at_all_is_refused(
-        self, db_path: Path
-    ) -> None:
+    def test_a_copy_that_is_not_a_database_is_refused(self, db_path: Path) -> None:
         """A backup interrupted before it wrote a header is a file, not a copy."""
         db_path.write_bytes(b"this is not a database")
         assert not verify(db_path)
 
     def test_a_copy_carrying_no_schema_version_is_refused(self, db_path: Path) -> None:
-        """An unstamped database cannot be migrated onto the current schema.
-
-        Restoring one would give Alembic a file it has to guess the shape of,
-        and guessing wrong is what a backup exists to avoid.
-        """
+        """An unstamped database cannot be migrated onto the current schema."""
         connection = sqlite3.connect(db_path)
         try:
             connection.execute("CREATE TABLE clock_events (id integer primary key)")
@@ -393,15 +342,7 @@ class TestVerifyingACopy:
     def test_a_copy_whose_version_table_is_empty_is_refused(
         self, db_path: Path
     ) -> None:
-        """The unstamped database that does not announce itself.
-
-        Alembic creates ``alembic_version`` and then writes the revision into
-        it, so a copy taken between the two carries the table and no row. That
-        one asks for `SELECT 1 FROM alembic_version` and gets nothing back
-        rather than an error, so it is the only unstamped file that reaches the
-        last line of `verify` at all — every other one has already been turned
-        away by the exception.
-        """
+        """Alembic creates ``alembic_version`` before it writes the revision."""
         connection = sqlite3.connect(db_path)
         try:
             connection.execute("CREATE TABLE alembic_version (version_num varchar)")
@@ -419,7 +360,6 @@ class TestMigrationFailure:
     def test_bad_migration_raises(
         self, db_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """If alembic upgrade fails, the error propagates."""
         with (
             patch(
                 "alembic.command.upgrade",

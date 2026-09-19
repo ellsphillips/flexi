@@ -1,13 +1,8 @@
 """The gap between a leave year opening and Flexi being installed.
 
-Almost nobody sets Flexi up on the first day of their leave year. The days in
-between have no sessions on them, and until there was a date to say so each one
-scored a full contracted day of deficit: the first user to try it opened on
--762 hours, every one of them from a day they were never asked about.
-
-`tracking_since` is the answer, and it is stamped once, at setup. These are the
-tests for what it does to a balance, what it does to a day, and what it does
-*not* do when the settings are edited afterwards.
+The days in between have no sessions on them. `tracking_since` is stamped once,
+at setup, and says which of them count: below is what that does to a balance,
+to a day, and what it leaves alone when the settings are edited afterwards.
 """
 
 from __future__ import annotations
@@ -32,16 +27,10 @@ def balance_hours(services: Services, as_of: date) -> float:
     return services.ledger.balance(as_of).delta.total_seconds() / 3600
 
 
-def test_setting_up_months_into_the_leave_year_is_not_a_deficit(
+def test_setting_up_mid_year_is_not_a_deficit(
     configure: Configured,
 ) -> None:
-    """The bug, in the shape a user met it.
-
-    An April leave year set up in August is a hundred working days with nothing
-    recorded against them. Counted, that is 762 hours in the red on a dashboard
-    somebody has never used; the only day that should count is the one they are
-    standing on.
-    """
+    """An April leave year set up in August has a hundred empty days behind it."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
 
@@ -51,12 +40,10 @@ def test_setting_up_months_into_the_leave_year_is_not_a_deficit(
 def test_without_a_tracking_date_every_day_still_counts(
     configure: Configured,
 ) -> None:
-    """`None` is the migrated database's answer, and it has to mean what it did.
+    """`None` is the answer on a database migrated from before the column.
 
-    A database written before the column existed, with nothing recorded to date
-    it by, cannot say when tracking began. Guessing would silently rewrite a
-    real balance, so it counts every day exactly as it did before -- which is
-    what makes this the safe backfill.
+    Nothing dates the start of tracking there, and guessing would rewrite a
+    real balance, so every day counts.
     """
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=None)
@@ -64,10 +51,10 @@ def test_without_a_tracking_date_every_day_still_counts(
         assert balance_hours(services, INSTALLED) < -700
 
 
-def test_a_day_before_setup_says_it_was_not_being_tracked(
+def test_day_before_setup_is_untracked(
     configure: Configured,
 ) -> None:
-    """It is not a working day somebody missed, and must not be drawn as one."""
+    """It is not a missed working day, and must not be drawn as one."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
 
@@ -77,12 +64,8 @@ def test_a_day_before_setup_says_it_was_not_being_tracked(
         assert before.delta == timedelta(), "an untracked day moves nothing"
 
 
-def test_the_day_setup_happened_is_tracked(configure: Configured) -> None:
-    """The boundary is inclusive: you are being tracked from the day you say so.
-
-    Excluding it would lose the first day's work for anybody who set Flexi up
-    and then clocked in, which is the whole of a first session.
-    """
+def test_the_setup_day_itself_is_tracked(configure: Configured) -> None:
+    """The boundary is inclusive: tracking starts on the day the stamp names."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
 
@@ -90,15 +73,10 @@ def test_the_day_setup_happened_is_tracked(configure: Configured) -> None:
         assert services.ledger.day(INSTALLED).expected == CONTRACTED
 
 
-def test_editing_the_settings_afterwards_does_not_move_the_date(
+def test_editing_the_settings_does_not_move_the_stamp(
     configure: Configured,
 ) -> None:
-    """When the leave year starts and when Flexi arrived are two facts.
-
-    Changing one must not restate the other. Re-stamping on every save would
-    quietly wipe the history of anybody who corrected a typo in their leave year
-    months later -- their whole balance, gone, with nothing said.
-    """
+    """When the leave year opens and when Flexi arrived are two separate facts."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
 
@@ -116,11 +94,9 @@ def test_editing_the_settings_afterwards_does_not_move_the_date(
 
 
 def test_setting_up_stamps_the_day_it_happened(session: Session) -> None:
-    """Nothing asks the user for this date, so setup has to record it itself.
+    """Nothing asks the user for this date, so `save_settings` records it.
 
-    Through `save_settings`, because that is the one call every route into
-    setup goes through -- the first-run form, the settings screen and
-    `flexi init` alike.
+    That is the one call every route into setup goes through.
     """
     services = build_services(session)
     with time_machine.travel(INSTALLED, tick=False):
@@ -136,15 +112,13 @@ def test_setting_up_stamps_the_day_it_happened(session: Session) -> None:
     assert services.settings.resolved().tracking_since == INSTALLED
 
 
-def test_a_day_with_work_on_it_is_tracked_whatever_the_stamp_says(
+def test_day_with_work_on_it_is_tracked(
     configure: Configured,
 ) -> None:
     """A recorded session is proof Flexi was there, and outranks the stamp.
 
-    The two rules have to agree. While `_kind` called such a day worked and
-    `expected_for` asked nothing of it, a session before the stamp read as pure
-    surplus -- two hours worked against nothing expected is +2:00 for a day that
-    was four short.
+    `_kind` and `expected_for` have to agree, or work against nothing expected
+    reads as pure surplus.
     """
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(
@@ -162,31 +136,24 @@ def test_a_day_with_work_on_it_is_tracked_whatever_the_stamp_says(
     assert day.delta < timedelta(), "two hours on a seven-hour day is a shortfall"
 
 
-# -- corrections against the stamp -------------------------------------------
+# ---------- corrections against the stamp ----------
 
 BEFORE_SETUP = date(2026, 6, 3)
 """A Wednesday, well inside the leave year and well before Flexi arrived."""
 
 
 def banked(services: Services, as_of: date) -> timedelta:
-    """The balance as a timedelta.
-
-    These are whole minutes, and 7.4 hours is not one of the numbers binary
-    floating point can hold.
-    """
+    """The balance as a timedelta: 7.4 hours is not exact in binary floating point."""
     return services.ledger.balance(as_of).delta
 
 
-def test_correcting_a_day_from_before_setup_adds_the_hours_to_the_balance(
+def test_correcting_a_day_before_setup_banks_the_hours(
     configure: Configured,
 ) -> None:
-    """Remembering a morning must never cost hours, and it used to cost 3:54.
+    """A punched session vouches for its own day; a correction does not.
 
-    A punched session vouches for its own day -- something clocked in, so Flexi
-    was plainly running. A correction is the opposite: those hours went
-    unrecorded *because* nobody was clocking. Read as a punch, it pulled a
-    pre-setup day into tracking, billed it a full contracted day, and paid back
-    only the half somebody could remember.
+    Corrected hours went unrecorded because nothing was clocking, so the day
+    still expects nothing of itself.
     """
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
@@ -198,15 +165,10 @@ def test_correcting_a_day_from_before_setup_adds_the_hours_to_the_balance(
         assert banked(services, INSTALLED) == before + timedelta(hours=3, minutes=30)
 
 
-def test_a_full_day_corrected_from_before_setup_is_banked_rather_than_absorbed(
+def test_full_day_corrected_before_setup_is_banked(
     configure: Configured,
 ) -> None:
-    """The same rule a Saturday and a bank holiday already run on.
-
-    A day Flexi never asked for work expects nothing, so work done on one is
-    surplus. Anything else means a full day recovered from memory moves the
-    balance by exactly zero, which reads as the feature not working.
-    """
+    """A day Flexi never asked for work expects nothing, so work on it is surplus."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
         before = banked(services, INSTALLED)
@@ -217,14 +179,10 @@ def test_a_full_day_corrected_from_before_setup_is_banked_rather_than_absorbed(
         assert banked(services, INSTALLED) == before + CONTRACTED
 
 
-def test_a_corrected_day_from_before_setup_still_expects_nothing_of_itself(
+def test_corrected_day_before_setup_expects_nothing(
     configure: Configured,
 ) -> None:
-    """The day is no longer unknown, but it was never asked to be worked.
-
-    Two facts that `is_tracked` used to answer with one bit: what a day expects,
-    and whether anything is known about it.
-    """
+    """What a day expects and whether anything is known about it are two facts."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
         services.clock.correct(BEFORE_SETUP, time(9, 0), time(12, 30))
@@ -235,14 +193,10 @@ def test_a_corrected_day_from_before_setup_still_expects_nothing_of_itself(
         assert day.kind is not DayKind.UNTRACKED, "there is work recorded on it"
 
 
-def test_a_punched_session_before_setup_still_vouches_for_its_day(
+def test_punch_before_setup_makes_a_working_day(
     configure: Configured,
 ) -> None:
-    """The rule corrections are being carved out of, left standing.
-
-    Somebody who installed Flexi, clocked in, and only later filled the stamp
-    in has real events from that day, and it is a working day like any other.
-    """
+    """Real events from a day make it a working day like any other."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
         work(services, BEFORE_SETUP, hours=7.4)
@@ -252,14 +206,10 @@ def test_a_punched_session_before_setup_still_vouches_for_its_day(
         assert day.kind is DayKind.WORKING
 
 
-def test_a_correction_after_setup_is_measured_against_the_contract(
+def test_correction_after_setup_meets_the_contract(
     configure: Configured,
 ) -> None:
-    """The carve-out stops at the stamp.
-
-    Past it, a half-day is a half-day: the contract asked for a full one, and
-    a correction that only accounts for part of it leaves the day behind.
-    """
+    """The carve-out stops at the stamp: past it, a half-day is a half-day."""
     tracked_day = INSTALLED - timedelta(days=1)
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=tracked_day)
@@ -272,19 +222,13 @@ def test_a_correction_after_setup_is_measured_against_the_contract(
         assert services.ledger.day(tracked_day).expected == CONTRACTED
 
 
-# -- TOIL drawn against a day nothing was expected of -------------------------
+# ---------- TOIL against a day nothing was expected of ----------
 
 
-def test_a_toil_day_from_before_setup_withdraws_nothing(
+def test_toil_day_from_before_setup_withdraws_nothing(
     configure: Configured,
 ) -> None:
-    """Flexi expects nothing of the days before it, so it may charge for none.
-
-    Back-filling last quarter's absences from a spreadsheet is a record, not a
-    withdrawal. The day asked for no work, so there is no deficit for a day of
-    TOIL to pay off, and a balance just settled with `flexi balance zero` fell
-    by 7:24 for every one entered.
-    """
+    """The day asked for no work, so there is no deficit for TOIL to pay off."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
         before = banked(services, INSTALLED)
@@ -298,7 +242,7 @@ def test_a_toil_day_from_before_setup_withdraws_nothing(
         assert banked(services, INSTALLED) == before
 
 
-def test_a_toil_day_the_stamp_covers_still_costs_a_day(
+def test_toil_day_the_stamp_covers_still_costs_a_day(
     configure: Configured,
 ) -> None:
     """The carve-out stops at the stamp, exactly as it does for a correction."""
@@ -313,15 +257,10 @@ def test_a_toil_day_the_stamp_covers_still_costs_a_day(
         assert day.balance_effect == -CONTRACTED
 
 
-def test_toil_on_a_day_that_became_a_bank_holiday_withdraws_nothing(
+def test_toil_on_a_new_bank_holiday_withdraws_nothing(
     configure: Configured, session: Session
 ) -> None:
-    """GOV.UK publishes a one-off holiday on a Monday already booked as TOIL.
-
-    The day stops expecting work and the clock refuses it, so a full day taken
-    out of the balance pays off a deficit that no longer exists -- and the
-    calendar beside it paints the day as the holiday it became.
-    """
+    """The day stops expecting work, so TOIL on it pays off nothing."""
     booked = date(2026, 6, 15)
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=LEAVE_YEAR_OPENED)

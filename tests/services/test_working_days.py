@@ -1,9 +1,4 @@
-"""Whatever somebody types into "working days", the application still opens.
-
-The field used to be labelled "Working days (indices)" and saved unchecked, so
-answering it with `Mon-Fri` -- the obvious answer -- stored a value that every
-later launch failed to read. First run succeeded, second run did not.
-"""
+"""Whatever is typed into "working days", the application still opens."""
 
 from __future__ import annotations
 
@@ -35,12 +30,11 @@ def test_it_reads_what_a_person_would_type(typed: str, expected: list[int]) -> N
     "typed", ["", "   ", "xyz", "9", "-1", "fri-mon", "mon-xyz", ","]
 )
 def test_it_refuses_what_it_cannot_read(typed: str) -> None:
-    """Refusing at the door is the whole point; the old code stored it."""
     with pytest.raises(ValueError, match=r".+"):
         parse_working_days(typed)
 
 
-def test_the_refusal_says_what_to_do_instead() -> None:
+def test_refusal_says_what_to_do_instead() -> None:
     with pytest.raises(ValueError, match="Monday") as raised:
         parse_working_days("someday")
     assert "someday" in str(raised.value)
@@ -76,8 +70,8 @@ def test_saving_something_unreadable_is_refused(session: Session) -> None:
     assert settings.get_settings() is None
 
 
-def test_an_unreadable_stored_value_does_not_stop_the_app(session: Session) -> None:
-    """Databases predate validation. Falling back beats refusing to open."""
+def test_unreadable_stored_value_does_not_stop_the_app(session: Session) -> None:
+    """A database written before the field was validated still opens."""
     settings = SettingsService(session)
     settings.save_settings(
         parse_settings(
@@ -89,7 +83,7 @@ def test_an_unreadable_stored_value_does_not_stop_the_app(session: Session) -> N
     )
     stored = settings.get_settings()
     assert stored is not None
-    stored.working_days = "Mon-Fri"  # what an older Flexi would have written
+    stored.working_days = "Mon-Fri"  # as an unvalidated Flexi wrote it
     session.commit()
 
     assert settings.get_working_day_indices() == [0, 1, 2, 3, 4]

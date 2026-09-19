@@ -1,4 +1,4 @@
-"""Feature 4: the calendar drives the period, and says where you are."""
+"""The calendar drives the period, and the header says which one is showing."""
 
 from __future__ import annotations
 
@@ -32,10 +32,10 @@ def day_rows(app: FlexiApp) -> int:
         ("y", Granularity.YEAR, 365),
     ],
 )
-async def test_a_key_per_granularity(
+async def test_each_granularity_has_a_key(
     app_factory: AppFactory, key: str, granularity: Granularity, rows: int
 ) -> None:
-    """It changes how much of time is on screen, and the table follows."""
+    """The key changes how much time is on screen, and the table follows."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press(key)
@@ -45,7 +45,7 @@ async def test_a_key_per_granularity(
 
 
 async def test_zooming_out_and_back_keeps_your_place(app_factory: AppFactory) -> None:
-    """It keeps the anchor, so a month view and back is the same week."""
+    """The anchor is kept, so a month view and back is the same week."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         before = dashboard(app).period
@@ -57,7 +57,7 @@ async def test_zooming_out_and_back_keeps_your_place(app_factory: AppFactory) ->
 
 
 async def test_brackets_step_and_t_returns(app_factory: AppFactory) -> None:
-    """It moves a period at a time and comes home without changing the width."""
+    """A bracket moves one period; `t` comes home without changing the width."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("right_square_bracket", "right_square_bracket")
@@ -73,8 +73,8 @@ async def test_brackets_step_and_t_returns(app_factory: AppFactory) -> None:
         assert home.granularity is Granularity.WEEK
 
 
-async def test_the_future_is_reachable(app_factory: AppFactory) -> None:
-    """It can show next month, which an offset-from-today model cannot."""
+async def test_future_periods_are_reachable(app_factory: AppFactory) -> None:
+    """The period is anchored to a date, so a future month is reachable."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("m")
@@ -85,7 +85,7 @@ async def test_the_future_is_reachable(app_factory: AppFactory) -> None:
 
 
 async def test_p_cycles_the_granularity(app_factory: AppFactory) -> None:
-    """It cycles day to week to month to year, and wraps."""
+    """The cycle runs day, week, month, year, and wraps."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("p")
@@ -93,13 +93,7 @@ async def test_p_cycles_the_granularity(app_factory: AppFactory) -> None:
         assert dashboard(app).period.granularity is Granularity.MONTH
 
 
-async def test_the_header_says_where_you_are(app_factory: AppFactory) -> None:
-    """It names the shown period, always, in the same place.
-
-    The date left this slot for the clock panel, beside the figure that moves
-    every second. Two facts sharing one corner meant the period -- the thing the
-    period key changes -- was the half a reader had to look past.
-    """
+async def test_header_says_which_period_is_showing(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -112,7 +106,6 @@ async def test_the_header_says_where_you_are(app_factory: AppFactory) -> None:
 
 
 async def test_go_to_date_accepts_an_offset(app_factory: AppFactory) -> None:
-    """It takes the several ways somebody might type a date."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("g")
@@ -123,10 +116,10 @@ async def test_go_to_date_accepts_an_offset(app_factory: AppFactory) -> None:
         assert dashboard(app).period.anchor == date(2026, 6, 14)
 
 
-async def test_the_calendar_marks_today_the_selection_and_the_period(
+async def test_calendar_marks_today_and_the_selection(
     app_factory: AppFactory,
 ) -> None:
-    """It uses three devices for three facts, so one cell can carry them all."""
+    """Three devices for three facts, so one cell can carry them all."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -139,14 +132,13 @@ async def test_the_calendar_marks_today_the_selection_and_the_period(
         assert any("selected" in item for item in classes.values())
 
 
-async def test_the_calendar_moves_the_period_by_posting_the_day_it_landed_on(
+async def test_calendar_posts_the_day_it_landed_on(
     app_factory: AppFactory,
 ) -> None:
     """The calendar asks for a day; the screen owns the period.
 
-    Arrowing onto a day in another week has to take the whole dashboard with it,
-    or the calendar highlights one week while the records table below it still
-    lists another — two views of the same thing disagreeing on screen.
+    Arrowing onto a day in another week takes the whole dashboard with it, or
+    the calendar and the records table below it show different weeks.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -168,15 +160,10 @@ async def test_the_calendar_moves_the_period_by_posting_the_day_it_landed_on(
         assert "Week of 15 Jun" in str(app.screen.query_one("#header-context").render())
 
 
-async def test_leaving_the_go_to_date_prompt_stays_where_you_were(
+async def test_escaping_go_to_date_changes_nothing(
     app_factory: AppFactory,
 ) -> None:
-    """Escape is not an answer, and must not be read as one.
-
-    The prompt hands back a date or nothing. Treating nothing as today would
-    make cancelling out of it indistinguishable from pressing `t`, and quietly
-    throw away the week somebody had browsed to.
-    """
+    """The prompt hands back a date or nothing, and nothing is not today."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.press("right_square_bracket")
@@ -192,15 +179,10 @@ async def test_leaving_the_go_to_date_prompt_stays_where_you_were(
         assert dashboard(app).period == before
 
 
-# -- the calendar's window is visible, and follows the cycle -----------------
+# The period window ----------------------------------------------------------
 
 LEGIBLE_LIFT = 12.0
-"""How far the window has to lift the ground to be seen, in luminance.
-
-The tint was `$c-accent-deep` blended to 40%, which lifted it by nine -- about
-three and a half percent of the range. Present in the compositor and invisible
-on a screen, which is a feature that has not been built.
-"""
+"""How far the window has to lift the ground to be seen, in luminance."""
 
 
 def luminance(colour: tuple[int, int, int]) -> float:
@@ -224,8 +206,7 @@ def grounds(app: FlexiApp) -> dict[str, tuple[int, int, int]]:
     }
 
 
-async def test_the_period_window_is_actually_visible(app_factory: AppFactory) -> None:
-    """A tint the compositor records and a screen cannot show is not a tint."""
+async def test_period_window_is_visible(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -238,13 +219,12 @@ async def test_the_period_window_is_actually_visible(app_factory: AppFactory) ->
         )
 
 
-async def test_cycling_the_period_moves_the_window_with_it(
+async def test_cycling_the_period_moves_the_window(
     app_factory: AppFactory,
 ) -> None:
-    """The hotkey is what the tint exists to explain.
+    """Each granularity covers more of the grid than the one before it.
 
-    Each granularity covers strictly more of the grid than the one before it,
-    so the calendar says what "day", "week" and "month" mean without a legend.
+    The calendar says what "day", "week" and "month" mean without a legend.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -263,7 +243,7 @@ async def test_cycling_the_period_moves_the_window_with_it(
         assert covered["day"] < covered["week"] < covered["month"] <= covered["year"]
 
 
-# -- and legible once it is tinted -------------------------------------------
+# Legibility under the tint --------------------------------------------------
 
 
 @pytest.mark.parametrize("granularity", list(Granularity))
@@ -272,15 +252,9 @@ async def test_every_day_inside_the_window_stays_readable(
 ) -> None:
     """The window lifts the ground under days drawn in the dimmest tones.
 
-    A fortnight of untracked days, or the tail of an adjacent month inside a
-    leave year, are exactly the cells a period window covers and exactly the
-    ones drawn faintest. Lifting the ground without lifting them leaves the
-    numbers missing from cells that still have borders.
-
-    The seed records work from the first day of its leave year, so the dimmest
-    tier does not occur in it and a test taking the seed as it comes cannot see
-    this. Setup is moved forward to put a fortnight of untracked days on screen,
-    which is what a first month of use actually looks like.
+    The seed records work from the first day of its leave year, so the untracked
+    tier does not occur in it; tracking is moved forward here to put a fortnight
+    of untracked days on screen.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -305,15 +279,10 @@ async def test_every_day_inside_the_window_stays_readable(
         assert worst[0] >= READABLE, f"{worst[1]} reads at {worst[0]:.2f}:1"
 
 
-async def test_the_cursor_keeps_its_own_colours_on_a_day_that_was_worked(
+async def test_cursor_keeps_its_colours_on_worked_days(
     app_factory: AppFactory,
 ) -> None:
-    """Every calendar rule is one class on one element, so the last one wins.
-
-    The day-type colours were written after the selection and took it, which put
-    the accent's own lift on the accent itself: the cursor was least readable on
-    a day somebody had worked, which is most of the days there are.
-    """
+    """Every calendar rule is one class on one element, so the last one wins."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -327,14 +296,10 @@ async def test_the_cursor_keeps_its_own_colours_on_a_day_that_was_worked(
 
 
 @pytest.mark.parametrize("granularity", list(Granularity))
-async def test_the_calendar_names_the_period_type_it_is_windowing(
+async def test_calendar_names_the_period_it_is_windowing(
     app_factory: AppFactory, granularity: Granularity
 ) -> None:
-    """The row above the days already names the month the grid is drawn around.
-
-    Repeating it underneath spent the one live slot on the panel saying the same
-    thing twice, and left the span the window is tinting for unnamed.
-    """
+    """The row above the days names the month, so the subtitle names the span."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()

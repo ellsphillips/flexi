@@ -16,7 +16,7 @@ LONDON = ZoneInfo("Europe/London")
 CONTRACTED = timedelta(hours=7, minutes=24)
 
 
-def test_reduced_projection_uses_expected_time_and_destination_offset() -> None:
+def test_half_day_finish_uses_destination_offset() -> None:
     """A half day crossing spring forward finishes at 05:12 BST, not 04:12 GMT."""
     with wallclock.pinned(LONDON):
         now = wallclock.local(datetime(2026, 3, 29, 0, 30))
@@ -43,8 +43,7 @@ def test_reduced_projection_uses_expected_time_and_destination_offset() -> None:
     assert "hours met at 05:12" in rendered.plain
 
 
-def test_the_rail_carries_the_palette_the_dashboard_uses() -> None:
-    """Otherwise the tone tables in `ui.onclock` are elaborate dead code."""
+def test_rail_renders_with_colour() -> None:
     with wallclock.pinned(LONDON):
         since = wallclock.local(datetime(2026, 6, 10, 9, 0))
         now = wallclock.local(datetime(2026, 6, 10, 11, 30))

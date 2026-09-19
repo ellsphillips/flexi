@@ -1,4 +1,4 @@
-"""A slip of the finger is not a minute of work."""
+"""A session under the threshold is discarded, not recorded as work."""
 
 from __future__ import annotations
 
@@ -27,10 +27,8 @@ NOON = NINE.replace(hour=12)
 def _on_the_day() -> Iterator[None]:
     """Hold the clock at DAY, so every test here means the same thing every day.
 
-    DAY is a fixed date and the stale sweep reads the real one, so an open
-    session on it stopped being "today" at midnight and started being swept as
-    yesterday's. These tests passed on the tenth of August and failed on the
-    eleventh, which is a poor way to find out.
+    DAY is fixed and the stale sweep reads the clock, so an open session on it
+    has to stay today's to escape the sweep.
     """
     with time_machine.travel(NOON, tick=False):
         yield
@@ -45,8 +43,7 @@ def rows(session: Session) -> list[WorkSession]:
     return list(session.query(WorkSession).all())
 
 
-def test_a_double_press_is_discarded(services: Services, session: Session) -> None:
-    """Clocking in and straight back out never happened."""
+def test_double_press_is_discarded(services: Services, session: Session) -> None:
     services.clock.clock_in(now=NINE)
     result = services.clock.clock_out(now=NINE + timedelta(seconds=2))
 
@@ -55,8 +52,8 @@ def test_a_double_press_is_discarded(services: Services, session: Session) -> No
     assert sessions_on(session, DAY) == []
 
 
-def test_the_events_are_kept(services: Services, session: Session) -> None:
-    """Voided, not deleted. Clock events are immutable and the trail is the point."""
+def test_events_are_kept(services: Services, session: Session) -> None:
+    """Voided, not deleted: clock events are immutable."""
     services.clock.clock_in(now=NINE)
     services.clock.clock_out(now=NINE + timedelta(seconds=2))
 
@@ -65,8 +62,7 @@ def test_the_events_are_kept(services: Services, session: Session) -> None:
     assert session.query(WorkSession).count() == 1
 
 
-def test_a_discarded_session_is_absent_from_the_arithmetic(services: Services) -> None:
-    """It is not a short day, it is no day at all."""
+def test_discarded_session_is_not_counted(services: Services) -> None:
     services.clock.clock_in(now=NINE)
     services.clock.clock_out(now=NINE + timedelta(seconds=2))
     invalidate_services(services)
@@ -76,8 +72,7 @@ def test_a_discarded_session_is_absent_from_the_arithmetic(services: Services) -
     assert ledger.worked == timedelta()
 
 
-def test_a_real_session_is_untouched(services: Services, session: Session) -> None:
-    """The threshold has to be short enough that nobody loses an errand to it."""
+def test_real_session_is_untouched(services: Services, session: Session) -> None:
     services.clock.clock_in(now=NINE)
     result = services.clock.clock_out(now=NINE + timedelta(minutes=3))
 
@@ -85,15 +80,15 @@ def test_a_real_session_is_untouched(services: Services, session: Session) -> No
     assert len(sessions_on(session, DAY)) == 1
 
 
-def test_the_boundary_counts(services: Services) -> None:
+def test_boundary_counts(services: Services) -> None:
     """Exactly the threshold is long enough."""
     services.clock.clock_in(now=NINE)
     result = services.clock.clock_out(now=NINE + timedelta(seconds=60))
     assert result.message == "Clocked out"
 
 
-def test_the_threshold_is_configurable(session: Session) -> None:
-    """Sixty seconds is a default, not a law."""
+def test_threshold_is_configurable(session: Session) -> None:
+    """Sixty seconds is the default, not a fixed rule."""
     built = build_services(session)
     clock = ClockService(
         session, built.settings, built.bank_holidays, timedelta(seconds=5)
@@ -108,21 +103,20 @@ def test_the_threshold_is_configurable(session: Session) -> None:
     )
 
 
-def test_the_message_reads_like_a_person_said_it(services: Services) -> None:
+def test_discard_message_names_the_minute(services: Services) -> None:
     services.clock.clock_in(now=NINE)
     result = services.clock.clock_out(now=NINE + timedelta(seconds=1))
     assert result.message == "Discarded — under 1 minute on the clock"
 
 
-# -- databases that predate the threshold ----------------------------------
+# ---- sessions written before the threshold ----
 
 
 def add_session(session: Session, start: datetime, end: datetime) -> None:
-    """A session written straight to the table.
+    """Write a session straight to the table.
 
-    Not through ClockService: clocking in runs the startup sweep, so a loop that
-    used the service would void each row as it created the next and there would
-    be nothing left for the sweep to find.
+    Clocking in through ClockService runs the startup sweep, which would void
+    each row as the next one was created.
     """
     events = []
     for action, when in ((ClockAction.IN, start), (ClockAction.OUT, end)):
@@ -143,7 +137,7 @@ def add_session(session: Session, start: datetime, end: datetime) -> None:
 def test_old_short_sessions_are_not_reinterpreted_on_startup(
     services: Services, session: Session
 ) -> None:
-    """A changed preference cannot silently void work accepted in the past."""
+    """A changed preference cannot void work that was already accepted."""
     for offset in range(5):
         at = NINE + timedelta(minutes=offset)
         add_session(session, at, at + timedelta(seconds=1))
@@ -157,15 +151,15 @@ def test_old_short_sessions_are_not_reinterpreted_on_startup(
     assert not any(work.voided for work in rows(session))
 
 
-def test_an_open_session_is_never_swept(services: Services, session: Session) -> None:
-    """It has no length yet, so it cannot be too short."""
+def test_open_session_is_never_swept(services: Services, session: Session) -> None:
+    """An open session has no length yet, so it cannot be too short."""
     services.clock.clock_in(now=NINE)
     built = build_services(session)
     built.clock.sweep()
     assert services.clock.is_clocked_in()
 
 
-def test_the_schema_will_not_let_a_clock_out_dangle(
+def test_schema_refuses_a_dangling_clock_out(
     services: Services, session: Session
 ) -> None:
     """A closed session always resolves the event that defines its duration."""

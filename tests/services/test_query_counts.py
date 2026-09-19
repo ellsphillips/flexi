@@ -1,16 +1,9 @@
-"""What the read paths cost in round trips, pinned so they cannot drift back.
+"""The read paths are held to a ceiling of round trips.
 
-Every figure here was once linear in the length of the span. The rules read the
-database for themselves, one date at a time -- a settings row, two bank-holiday
-rows, an absence row and a session row each -- so planning a year of leave was
-better than two thousand queries to answer a question about 365 dates, and
-clearing one was 415 queries and 25 separate commits.
-
-A ceiling rather than an equality: an assertion on an exact count fails on any
-change that adds a query anywhere, including a correct one, and a test nobody
-can read the intent of gets its number bumped rather than investigated. What
-must not happen is the count growing *with the span*, so the year and the
-fortnight are both measured and the year is held to the same ceiling.
+Each figure is a ceiling, not an equality: an exact count fails on any change
+that adds a query anywhere, including a correct one. What must not happen is
+the count growing *with the span*, so the year and the fortnight are both
+measured and the year is held to the same ceiling.
 """
 
 from __future__ import annotations
@@ -40,7 +33,7 @@ CLEAR_CEILING = 4
 
 @contextmanager
 def counting(session: Session) -> Iterator[list[str]]:
-    """Every statement the session sends while the block runs."""
+    """Record every statement the session sends while the block runs."""
     seen: list[str] = []
     bind = session.get_bind()
 
@@ -67,10 +60,9 @@ def booked(configure: Configured) -> Services:
     return services
 
 
-def test_planning_a_year_costs_no_more_than_planning_a_fortnight(
+def test_planning_cost_does_not_grow_with_the_span(
     booked: Services, session: Session
 ) -> None:
-    """The whole point: the cost is the number of *questions*, not of dates."""
     with counting(session) as fortnight:
         booked.absence.plan(YEAR_START, FORTNIGHT_END, AbsenceType.ANNUAL)
     with counting(session) as year:
@@ -80,15 +72,7 @@ def test_planning_a_year_costs_no_more_than_planning_a_fortnight(
     assert len(year) <= PLAN_CEILING, "\n".join(year)
 
 
-def test_the_wallet_reads_the_leave_year_once(
-    booked: Services, session: Session
-) -> None:
-    """It asked for days and occurrences separately, per type: ten scans.
-
-    Each of those then validated every row it had read with three queries of
-    its own, so the twenty-five rows here cost 162 round trips to produce ten
-    pairs of numbers.
-    """
+def test_wallet_reads_the_leave_year_once(booked: Services, session: Session) -> None:
     with counting(session) as seen:
         booked.wallet.compute(YEAR_START, FORTNIGHT_END, today=YEAR_START)
 

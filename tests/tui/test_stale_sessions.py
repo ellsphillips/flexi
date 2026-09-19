@@ -1,20 +1,9 @@
 """A session left open overnight, seen from the application.
 
-The CLI sweeps stale sessions when it opens the database, in
-`__main__.open_database`. The application never did. So a Tuesday somebody
-forgot to close was still drawn as running when they opened Flexi on Thursday,
-and pressing `/` closed Tuesday's session at Thursday's time -- one work session,
-dated Tuesday, fifty-one hours long, and about forty-three hours of overtime
-that never happened.
-
-`flexi clock out` did the right thing with the identical database, because the
-CLI had swept on the way in. Which of the two you reached for decided what got
-written, and that is the tell: the invariant belonged to opening the database,
-and only one of the two ways in established it.
-
-Sweeping inside `clock_out` instead looks tempting and is wrong -- it would
-auto-close backdated sessions before they could be closed properly, which is how
-the demo seed and a good deal of the suite write history.
+Sweeping stale sessions belongs to opening the database, so both ways in (the
+CLI in `__main__.open_database` and the application) have to do it. Sweeping
+inside `clock_out` instead would auto-close backdated sessions before they
+could be closed properly, which is how the demo seed writes history.
 """
 
 from __future__ import annotations
@@ -71,7 +60,7 @@ def left_open(tmp_path: Path) -> Path:
     return path
 
 
-async def test_opening_the_application_closes_monday_at_its_own_evening(
+async def test_opening_closes_monday_at_its_own_evening(
     left_open: Path,
 ) -> None:
     app = FlexiApp(db_path=left_open)
@@ -86,10 +75,10 @@ async def test_opening_the_application_closes_monday_at_its_own_evening(
             assert monday[0].auto_closed is True
 
 
-async def test_pressing_the_clock_key_starts_tuesday_rather_than_ending_monday(
+async def test_clock_key_starts_tuesday_not_ends_monday(
     left_open: Path,
 ) -> None:
-    """The wrong figure: Monday 09:00 to Tuesday 10:00, recorded as one day."""
+    """Without the sweep this records Monday 09:00 to Tuesday 10:00 as one day."""
     app = FlexiApp(db_path=left_open)
     with time_machine.travel(TUESDAY_TEN, tick=False):
         async with app.run_test(size=WIDE) as pilot:

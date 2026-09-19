@@ -1,15 +1,10 @@
 """The demo seed, against the day it is actually run on.
 
-`flexi --demo` is the README's invitation to look around before committing your
-own data, and it seeds a throwaway database and opens the application on today.
-The seed was anchored to a fixed Thursday in June 2026, so on any later day it
-filled six weeks that had already gone by and opened on an empty current week:
-no sessions, no punch strips, and a deficit of a full working week. The first
-thing a new person saw was a screen that made the application look broken.
-
-Everything here is checked at a spread of anchors, because the interesting cases
-are the ones a fixed date cannot reach -- a Saturday, the day after a bank
-holiday, the first week of a leave year, and the last.
+`flexi --demo` seeds a throwaway database and opens the application on today, so
+the seed is anchored to the day it runs. Everything here is checked at a spread
+of anchors, because the interesting cases are the ones a fixed date cannot
+reach: a Saturday, the day after a bank holiday, the first week of a leave year,
+and the last.
 """
 
 from __future__ import annotations
@@ -38,8 +33,7 @@ from flexi.services.registry import build_services
 from flexi.services.samples import ANCHOR, holidays_in, seed_demo
 
 DAY_WINDOW_END = time(19, 0)
-"""The right-hand edge of the punch strip. A session running past it is drawn
-off the end of the picture."""
+"""The right-hand edge of the punch strip; a session past it is drawn off."""
 
 ANCHORS = [
     pytest.param(ANCHOR, id="the Thursday the screenshots are taken on"),
@@ -77,8 +71,7 @@ def _holidays_around(when: date) -> set[date]:
     """Every bank holiday the seed could have had to step over.
 
     Three leave years, because an anchor near either edge of one reaches into
-    its neighbour and `holidays_in` answers for a leave year rather than a
-    calendar year.
+    its neighbour and `holidays_in` answers for a leave year.
     """
     return {
         day
@@ -98,14 +91,11 @@ def test_reseeding_removes_existing_balance_corrections(session: Session) -> Non
 
 
 @pytest.mark.parametrize("anchor", ANCHORS)
-def test_the_week_the_demo_opens_on_has_work_in_it(
-    session: Session, anchor: date
-) -> None:
-    """The whole point: the screen a person lands on is not empty.
+def test_opening_week_has_work_in_it(session: Session, anchor: date) -> None:
+    """The screen a person lands on is not empty.
 
-    Asserted over the working days of the anchor's own week, since that is what
-    the dashboard shows -- and up to the anchor, because a demo does not record
-    days that have not happened.
+    Asserted over the working days of the anchor's own week up to the anchor,
+    which is what the dashboard shows.
     """
     seed_demo(session, anchor=anchor)
 
@@ -130,10 +120,7 @@ def test_the_week_the_demo_opens_on_has_work_in_it(
 
 
 @pytest.mark.parametrize("anchor", ANCHORS)
-def test_nothing_is_recorded_after_the_day_it_was_seeded_for(
-    session: Session, anchor: date
-) -> None:
-    """A demo of a working life cannot include work nobody has done yet."""
+def test_nothing_is_recorded_after_the_anchor(session: Session, anchor: date) -> None:
     seed_demo(session, anchor=anchor)
 
     latest = max(_worked(session))
@@ -141,15 +128,10 @@ def test_nothing_is_recorded_after_the_day_it_was_seeded_for(
 
 
 @pytest.mark.parametrize("anchor", ANCHORS)
-def test_no_absence_lands_where_flexi_would_refuse_to_book_one(
-    session: Session, anchor: date
-) -> None:
-    """A fixture the application would not let you build is a bad fixture.
+def test_no_absence_lands_on_an_unbookable_day(session: Session, anchor: date) -> None:
+    """Weekends and bank holidays are both refused by `book_range`.
 
-    Weekends and bank holidays are both refused by `book_range`, so a seed that
-    put a sick day on a Sunday would be showing a state no user could reach --
-    and the offsets that never did with a fixed anchor do most weeks with a
-    moving one.
+    A seed that put a sick day on a Sunday would show a state no user can reach.
     """
     seed_demo(session, anchor=anchor)
 
@@ -161,8 +143,8 @@ def test_no_absence_lands_where_flexi_would_refuse_to_book_one(
 
 
 @pytest.mark.parametrize("anchor", ANCHORS)
-def test_no_day_is_both_worked_and_taken_off(session: Session, anchor: date) -> None:
-    """Except the half day, which is exactly one day and is meant to be both."""
+def test_no_day_is_worked_and_taken_off(session: Session, anchor: date) -> None:
+    """The half day is the one exception, and is meant to be both."""
     seed_demo(session, anchor=anchor)
 
     whole_days = set(
@@ -175,14 +157,13 @@ def test_no_day_is_both_worked_and_taken_off(session: Session, anchor: date) -> 
 
 
 @pytest.mark.parametrize("anchor", ANCHORS)
-def test_the_sample_has_every_shape_the_screens_are_built_to_draw(
+def test_sample_has_every_shape_the_screens_draw(
     session: Session, anchor: date
 ) -> None:
     """A week off, a sick day, a TOIL day and a half day, wherever the anchor is.
 
     The half day is what gives the records table a row to expand and the punch
-    strip a day drawn in two colours, and walking absences off a weekend could
-    have quietly dropped one by landing it on a day already taken.
+    strip a day drawn in two colours.
     """
     seed_demo(session, anchor=anchor)
 
@@ -195,14 +176,12 @@ def test_the_sample_has_every_shape_the_screens_are_built_to_draw(
 
 
 @pytest.mark.parametrize("anchor", ANCHORS)
-def test_the_leave_year_is_the_one_the_anchor_falls_in(
-    session: Session, anchor: date
-) -> None:
-    """Not its calendar year.
+def test_leave_year_follows_the_anchor(session: Session, anchor: date) -> None:
+    """The entitlement is filed under the leave year, not the calendar year.
 
     Between January and the 6th of April those differ, and an entitlement filed
-    under a leave year that has not started yet cannot be found by the screen
-    looking for this one's -- the demo would open showing no annual leave at all.
+    under a leave year that has not started cannot be found by the screen
+    looking for this one's.
     """
     seed_demo(session, anchor=anchor)
 
@@ -214,15 +193,10 @@ def test_the_leave_year_is_the_one_the_anchor_falls_in(
     assert entitlement.year == expected
 
 
-def test_the_screenshot_anchor_still_seeds_what_it_always_did(
+def test_screenshot_anchor_seeds_a_fixed_calendar(
     session: Session,
 ) -> None:
-    """The committed shots are bytes, so this seed cannot drift.
-
-    `tests/snapshot/` compares the rendered screens, which would catch a change
-    too -- but only by failing on fourteen files at once and looking like a
-    layout regression. This says what actually moved.
-    """
+    """The committed screenshots are bytes, so this seed cannot drift."""
     seed_demo(session)
 
     assert holidays_in(2026) == (
@@ -241,15 +215,8 @@ def test_the_screenshot_anchor_still_seeds_what_it_always_did(
 
 
 @pytest.mark.parametrize("anchor", ANCHORS)
-def test_a_bank_holiday_is_never_a_day_with_work_on_it(
-    session: Session, anchor: date
-) -> None:
-    """Nobody clocks in on Christmas Day, and the demo should not say they did.
-
-    The seed used to know about three bank holidays, all of them in May and
-    August, so every Easter and every Christmas in the span was generated as an
-    ordinary working day.
-    """
+def test_no_bank_holiday_has_work_on_it(session: Session, anchor: date) -> None:
+    """The demo should not show anyone clocked in on Christmas Day."""
     seed_demo(session, anchor=anchor)
 
     cached = _cached_holidays(session)
@@ -259,18 +226,18 @@ def test_a_bank_holiday_is_never_a_day_with_work_on_it(
 
 
 def test_christmas_is_drawn_as_a_bank_holiday(session: Session) -> None:
-    """The one a reader notices, on a demo opened in the new year."""
+    """A demo opened in the new year still shows last Christmas as a holiday."""
     seed_demo(session, anchor=date(2027, 1, 14))
 
     assert date(2026, 12, 25) in _cached_holidays(session)
     assert date(2026, 12, 25) not in _worked(session)
 
 
-def test_the_half_day_works_half_a_day(session: Session) -> None:
+def test_half_day_works_half_a_day(session: Session) -> None:
     """Its morning is booked as annual leave, so its afternoon owes half a day.
 
-    Given a whole contract it drew a day off that also earned nearly four hours
-    of flexi and ran to 20:36, past the right-hand edge of the punch strip.
+    A whole contract worked on the afternoon runs past the right-hand edge of
+    the punch strip.
     """
     seed_demo(session)
 
@@ -297,15 +264,10 @@ def test_the_half_day_works_half_a_day(session: Session) -> None:
         pytest.param(time(15, 0), 2, 3, id="back from lunch and still on"),
     ],
 )
-def test_the_anchor_day_records_nothing_later_than_now(
+def test_anchor_day_records_nothing_later_than_now(
     session: Session, now: time, sessions: int, punches: int
 ) -> None:
-    """A demo seeded at nine cannot show a clock-in at twenty past one.
-
-    It did, and `flexi --demo` opened claiming a session that had not started,
-    a morning that had not happened, and a clock-out key that answered "That
-    clock-out is earlier than the clock-in".
-    """
+    """A demo seeded at nine cannot show a clock-in at twenty past one."""
     seed_demo(session, anchor=ANCHOR, now=now)
 
     readings = _punches(session, ANCHOR)
@@ -321,9 +283,7 @@ def test_the_anchor_day_records_nothing_later_than_now(
 
 
 @pytest.mark.parametrize("now", [time(10, 0), time(15, 0)])
-def test_the_seeded_open_session_can_be_clocked_out_of(
-    session: Session, now: time
-) -> None:
+def test_seeded_session_can_be_clocked_out(session: Session, now: time) -> None:
     """The first key a stranger presses on the dashboard has to work."""
     seed_demo(session, anchor=ANCHOR, now=now)
 

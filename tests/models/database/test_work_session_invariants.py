@@ -90,7 +90,7 @@ def normalise_sql(statement: str) -> str:
         ("UPDATE", WORK_SESSION_ACTION_UPDATE_TRIGGER),
     ],
 )
-def test_both_schema_paths_install_the_canonical_role_triggers(
+def test_both_schema_paths_install_the_triggers(
     work_session_engine: Engine,
     operation: TriggerOperation,
     name: str,
@@ -167,7 +167,7 @@ def test_one_clock_out_event_cannot_finish_two_sessions(
     ],
     ids=("clock-in-role", "clock-out-role"),
 )
-def test_insert_requires_events_to_match_their_session_roles(
+def test_insert_requires_events_to_match_roles(
     work_session_engine: Engine,
     clock_in_action: ClockAction,
     clock_out_action: ClockAction | None,
@@ -284,7 +284,7 @@ def test_trigger_callbacks_ignore_non_sqlite_dialects() -> None:
     candidate.exec_driver_sql.assert_not_called()
 
 
-def test_registration_and_operation_boundaries_reject_invalid_values() -> None:
+def test_invalid_table_and_operation_are_rejected() -> None:
     invalid_table = cast("FromClause", object())
     with pytest.raises(TypeError, match="must be registered on a Table"):
         register_clock_event_immutability(invalid_table)

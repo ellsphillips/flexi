@@ -19,16 +19,9 @@ from tests.services.conftest import Configured
 TODAY = date(2026, 8, 11)
 """The day these tests run on, held still.
 
-Every test here opens a session "yesterday" and sweeps as at "today", and both
-used to come from the real clock. That put the whole file at the mercy of the
-calendar twice over: `configure` caches a bank holiday, and `clock_in` refuses
-to open a session on one, so on the day after that holiday every clock-in here
-silently did nothing and six tests failed asserting on the session it did not
-create. A suite that is green on the thirtieth and red on the first is worse
-than a red one, because nothing changed to make it red.
-
-A Tuesday, so yesterday is a working Monday, and both are clear of the holiday
-`tests/services/conftest.py` seeds.
+A Tuesday, so yesterday is a working Monday and both are clear of the bank
+holiday `tests/services/conftest.py` seeds. `clock_in` refuses to open a
+session on a holiday, and every test here opens one yesterday.
 """
 
 YESTERDAY = TODAY - timedelta(days=1)
@@ -43,14 +36,7 @@ def _on_the_day() -> Iterator[None]:
 
 @pytest.fixture
 def svc(configure: Configured) -> ClockService:
-    """A configured application, which this file only appeared to have.
-
-    There was a `_settings` fixture here that nothing requested and no
-    `usefixtures` mark, so all eight tests ran against `SettingsService`
-    defaults while reading as though they were configured. The sweep behaved
-    the same either way, which is why it went unnoticed — but a test that looks
-    configured and is not will mislead the next person to change the defaults.
-    """
+    """The clock service of an application configured through `configure`."""
     return configure(leave_year_start="01-01", entitlement=(2026, 25.0)).clock
 
 
@@ -132,14 +118,13 @@ class TestFallbackTo2359:
         close_time = closing.timestamp.replace(tzinfo=None).time()
         assert close_time == time(23, 59)
 
-    def test_clock_in_after_the_fallback_closes_at_the_clock_in(
+    def test_clock_in_after_2359_closes_at_the_clock_in(
         self, svc: ClockService, session: Session
     ) -> None:
         """A clock-out cannot precede its own clock-in.
 
-        23:59:30 is half a minute past the fallback, and a fallback that
-        ignores it makes the segment negative: thirty seconds off the balance
-        for a day nobody worked, drawn as 0:00 because `hm` hides the sign.
+        23:59:30 is past the fallback, and a fallback that ignores it makes the
+        segment negative.
         """
         yesterday_late = datetime.combine(YESTERDAY, time(23, 59, 30), tzinfo=UTC)
         svc.clock_in(now=yesterday_late)
@@ -184,19 +169,15 @@ class TestCountsTowardWorkedTime:
         start = ws.clock_in_event.timestamp.replace(tzinfo=None)
         end = ws.clock_out_event.timestamp.replace(tzinfo=None)
         duration = (end - start).total_seconds()
-        assert duration > 0  # Has positive duration
-        assert duration == 9 * 3600  # 9am to 18:00 = 9 hours
+        assert duration > 0
+        assert duration == 9 * 3600  # 9am to 18:00
 
 
-def test_the_sweep_can_be_told_what_day_it_is(
-    svc: ClockService, session: Session
-) -> None:
+def test_sweep_can_be_told_what_day_it_is(svc: ClockService, session: Session) -> None:
     """`today` is a parameter so a caller can sweep as at a date it chooses.
 
-    `run_startup_cleanup` lets it default to the wall clock, but the auto-close
-    backfill in `flexi init` sweeps a database it has just migrated as at the
-    day it is doing the migrating — and a test that only ever lets it read the
-    clock cannot tell the two apart.
+    `run_startup_cleanup` lets it default to the wall clock; the auto-close
+    backfill in `flexi init` sweeps as at the day it is migrating.
     """
     monday = date(2026, 8, 10)
     svc.clock_in(now=datetime.combine(monday, time(9, 0), tzinfo=UTC))
@@ -213,15 +194,14 @@ def test_the_sweep_can_be_told_what_day_it_is(
     assert closed[0].auto_closed is True
 
 
-def test_a_session_closed_under_the_sweep_is_not_reported_as_swept(
+def test_session_closed_mid_sweep_is_not_reported(
     svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The sweep reads the stale sessions, then closes them one at a time.
 
-    Between the read and the update another writer can close the same session
-    -- the application starting twice is the ordinary way. The conditional
-    update declines, and the sweep must leave it out of what it says it did
-    rather than claim a clock-out it did not write.
+    Another writer, such as a second copy of the application starting, can
+    close one in between. The conditional update declines, and the sweep
+    reports only the clock-outs it wrote.
     """
     yesterday = NOW - timedelta(days=1)
     svc.clock_in(now=yesterday)
@@ -234,15 +214,13 @@ def test_a_session_closed_under_the_sweep_is_not_reported_as_swept(
 
 
 class TestASessionDatedAfterToday:
-    """The machine's clock was ahead, and then somebody put it right.
+    """A session dated in the future, left behind by a clock that was ahead.
 
-    Nothing reached the session that left behind. `clock in` answered "Already
-    clocked in", the sweep closes only days that have been and gone, and there
-    is no way to delete a session -- so clocking was shut until that date came
-    round.
+    `clock in` answers "Already clocked in" and the sweep closes only days that
+    have been and gone, so clocking out is the only way back.
     """
 
-    def test_the_sweep_leaves_it_alone(self, svc: ClockService) -> None:
+    def test_sweep_leaves_it_alone(self, svc: ClockService) -> None:
         """A day that has not happened is not a day that was left open."""
         svc.clock_in(now=NOW + timedelta(days=3))
 
@@ -259,13 +237,11 @@ class TestASessionDatedAfterToday:
         assert "Fri 14 Aug 2026" in result.message
         assert not svc.is_clocked_in()
 
-    def test_the_hours_it_was_carrying_are_discarded(
-        self, svc: ClockService, session: Session
-    ) -> None:
-        """They were read off a clock that was wrong.
+    def test_its_hours_are_discarded(self, svc: ClockService, session: Session) -> None:
+        """The hours were read off a clock that was wrong.
 
-        The events stay -- they are immutable, and the day can be put back with
-        a correction -- but nothing derived from the session counts them.
+        The events stay (they are immutable, and the day can be put back with a
+        correction), but nothing derived from the session counts them.
         """
         svc.clock_in(now=NOW + timedelta(days=3))
 

@@ -30,9 +30,8 @@ CONTRACTED = timedelta(minutes=444)
 def services(configure: Configured) -> Services:
     """25 days' leave, and a leave year starting on the Monday of the test week.
 
-    The start date is deliberate: the balance accumulates from it, so a January
-    start would score five months of unworked days as deficit and every
-    assertion below would be about the fixture rather than the behaviour.
+    The balance accumulates from the start date, so a January start would score
+    five months of unworked days as deficit.
     """
     return configure(
         leave_year_start="06-08",
@@ -48,11 +47,10 @@ def work(services: Services, when: date, hours: float) -> None:
     invalidate_services(services)
 
 
-# -- allowances ------------------------------------------------------------
+# Allowances
 
 
 def test_an_untouched_wallet_reports_the_whole_entitlement(services: Services) -> None:
-    """It shows everything available and nothing spent."""
     data = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY)
     annual = data.allowance(AbsenceType.ANNUAL)
     assert annual.total == 25.0
@@ -61,7 +59,6 @@ def test_an_untouched_wallet_reports_the_whole_entitlement(services: Services) -
 
 
 def test_a_booked_day_is_drawn_down(services: Services) -> None:
-    """It spends a day of annual leave when one is booked."""
     services.absence.book(date(2026, 6, 10), AbsenceType.ANNUAL)
     invalidate_services(services)
     annual = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY).allowance(
@@ -72,7 +69,7 @@ def test_a_booked_day_is_drawn_down(services: Services) -> None:
 
 
 def test_a_half_day_costs_half(services: Services) -> None:
-    """It counts a morning as half a day and as one occasion."""
+    """A morning is half a day and one occasion."""
     services.absence.book(date(2026, 6, 10), AbsenceType.ANNUAL, Portion.AM)
     invalidate_services(services)
     annual = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY).allowance(
@@ -84,7 +81,6 @@ def test_a_half_day_costs_half(services: Services) -> None:
 
 
 def test_sickness_is_counted_but_never_capped(services: Services) -> None:
-    """It reports sickness without an entitlement to run out of."""
     services.absence.book(date(2026, 6, 9), AbsenceType.SICK)
     invalidate_services(services)
     sick = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY).allowance(
@@ -96,17 +92,17 @@ def test_sickness_is_counted_but_never_capped(services: Services) -> None:
 
 
 def test_pace_marks_where_an_even_spread_would_be(services: Services) -> None:
-    """It answers 'am I banking leave I cannot take' with a marker, not a number."""
     data = services.wallet.compute(MONDAY, SUNDAY, today=date(2026, 12, 8))
     annual = data.allowance(AbsenceType.ANNUAL)
-    #  Half a year gone, none of it spent: behind pace, which is the warning.
+    # Half the year gone and none of it spent: under the even spread, which
+    # `Pace` counts as on track. Only overspending is worth a marker.
     assert annual.pace is not None
     assert 11.0 < annual.pace < 14.0
     assert annual.pace_state is Pace.ON_TRACK
 
 
-def test_an_unrecorded_entitlement_reads_as_unknown_not_zero(session: Session) -> None:
-    """It distinguishes 'no allowance recorded' from 'no allowance left'."""
+def test_an_unrecorded_entitlement_is_unknown(session: Session) -> None:
+    """An allowance not recorded is not an allowance spent."""
     services = build_services(session)
     services.settings.save_settings(
         parse_settings(
@@ -120,11 +116,10 @@ def test_an_unrecorded_entitlement_reads_as_unknown_not_zero(session: Session) -
     assert data.allowance(AbsenceType.ANNUAL).remaining is None
 
 
-# -- balance ---------------------------------------------------------------
+# Balance
 
 
 def test_the_balance_banks_overtime(services: Services) -> None:
-    """It adds what was worked beyond the contract."""
     work(services, MONDAY, hours=9.4)
     data = services.wallet.compute(MONDAY, SUNDAY, today=MONDAY)
     assert data.balance.delta == timedelta(hours=9.4) - CONTRACTED
@@ -132,7 +127,6 @@ def test_the_balance_banks_overtime(services: Services) -> None:
 
 
 def test_the_balance_ignores_a_day_of_annual_leave(services: Services) -> None:
-    """It neither earns nor costs flexi to take annual leave."""
     services.absence.book(MONDAY, AbsenceType.ANNUAL)
     invalidate_services(services)
     data = services.wallet.compute(MONDAY, SUNDAY, today=MONDAY)
@@ -140,7 +134,6 @@ def test_the_balance_ignores_a_day_of_annual_leave(services: Services) -> None:
 
 
 def test_a_toil_day_spends_the_balance(services: Services) -> None:
-    """It withdraws a day of contracted hours when TOIL is taken."""
     services.absence.book(MONDAY, AbsenceType.FLEXI)
     invalidate_services(services)
     data = services.wallet.compute(MONDAY, SUNDAY, today=MONDAY)
@@ -149,20 +142,14 @@ def test_a_toil_day_spends_the_balance(services: Services) -> None:
 
 
 def test_available_toil_is_the_balance_in_days(services: Services) -> None:
-    """It answers the question the booking modal asks."""
     work(services, MONDAY, hours=7.4 + 7.4)
     assert available_toil_days(services, MONDAY) == pytest.approx(1.0, abs=0.05)
 
 
-def test_toil_booked_on_a_day_since_made_a_holiday_is_not_held_back(
+def test_toil_booked_on_a_new_holiday_is_freed(
     services: Services, session: Session
 ) -> None:
-    """The ledger asks nothing of a bank holiday, so it takes no TOIL on one.
-
-    Counting the booking as committed anyway holds back a day of TOIL nothing
-    will ever be charged for -- and the wallet's own TOIL allowance, which
-    drops the same markers, disagreed with this figure.
-    """
+    """The ledger asks nothing of a bank holiday, so it takes no TOIL on one."""
     work(services, MONDAY, hours=7.4 + 7.4)
     friday = date(2026, 6, 12)
     services.absence.book(friday, AbsenceType.FLEXI)
@@ -181,7 +168,6 @@ def test_toil_booked_on_a_day_since_made_a_holiday_is_not_held_back(
 
 
 def test_the_period_figures_cover_only_the_shown_span(services: Services) -> None:
-    """It separates 'this week' from 'this leave year'."""
     work(services, THURSDAY, hours=8)
     work(services, date(2026, 6, 15), hours=12)  # the Monday after the shown week
     data = services.wallet.compute(MONDAY, SUNDAY, today=date(2026, 6, 15))
@@ -190,24 +176,17 @@ def test_the_period_figures_cover_only_the_shown_span(services: Services) -> Non
 
 
 def test_the_leave_year_bounds_a_year(services: Services) -> None:
-    """It reports the span the allowances reset over."""
     start, end = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY).leave_year
     assert (start, end) == (date(2026, 6, 8), date(2027, 6, 7))
 
 
-# -- a contracted day of nothing -------------------------------------------
+# A contracted day of nothing
 
 
-def test_a_contracted_day_of_zero_is_not_a_division_by_zero(
+def test_a_zero_contracted_day_does_not_divide_by_zero(
     services: Services, session: Session
 ) -> None:
-    """The settings screen takes the number of minutes, and 0 is typeable.
-
-    Every figure in the wallet is a balance divided by a contracted day, so a
-    zero there is a `ZeroDivisionError` on the way to drawing the sidebar —
-    which is the whole application refusing to open over a settings mistake
-    there is then no screen left to correct it from.
-    """
+    """Every wallet figure is a balance divided by the contracted day."""
     services.settings.save_settings(
         parse_settings(
             leave_year_start="06-08",
@@ -224,7 +203,7 @@ def test_a_contracted_day_of_zero_is_not_a_division_by_zero(
     assert rebuilt.wallet.compute(MONDAY, SUNDAY, today=MONDAY).balance_days == 0.0
 
 
-# -- how far through the year we are ---------------------------------------
+# How far through the year we are
 
 
 @pytest.mark.parametrize(
@@ -239,20 +218,11 @@ def test_a_contracted_day_of_zero_is_not_a_division_by_zero(
 def test_the_elapsed_fraction_never_leaves_the_track(
     today: date, expected: float
 ) -> None:
-    """A pace marker past the end of a gauge reads as a rendering fault.
-
-    A leave year can be looked at from before it starts and from after it ends —
-    the year calendar scrolls — and the honest statement at each end is "none of
-    it" and "all of it", not a negative marker or one off the right-hand side.
-    """
+    """The year calendar scrolls, so a year is seen from outside its own ends."""
     assert fraction_elapsed(date(2026, 6, 8), date(2027, 6, 7), today) == expected
 
 
 def test_a_leave_year_of_one_day_is_wholly_elapsed() -> None:
-    """Rather than dividing by the nothing between its ends.
-
-    `leaveyear.bounds` cannot produce one today, but the clamp is what stops a
-    future change to it taking the sidebar down with a `ZeroDivisionError`.
-    """
+    """`leaveyear.bounds` makes no such year; the clamp still guards the division."""
     day = date(2026, 6, 8)
     assert fraction_elapsed(day, day, day) == 1.0

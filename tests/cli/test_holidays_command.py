@@ -1,11 +1,4 @@
-"""Refreshing the bank holiday calendar from the command line.
-
-An empty cache is not a quiet failure. Every leave booking is refused against
-it, and every bank holiday is counted as a working day nobody worked -- so the
-one command that fills it has to say plainly whether it managed, and for which
-region. `flexi.cli.holidays.run` is a plain function taking the registry and
-returning an exit code, so a script can read the answer and a test can too.
-"""
+"""Refreshing the bank holiday calendar from the command line."""
 
 from __future__ import annotations
 
@@ -37,7 +30,7 @@ PAYLOAD: dict[str, Any] = {
 
 
 class _Answered:
-    """What `httpx.Client.get` hands back when the request goes through."""
+    """Stand-in for the response `httpx.Client.get` returns."""
 
     def __init__(self, payload: dict[str, Any]) -> None:
         self._payload = payload
@@ -51,17 +44,17 @@ class _Answered:
 
 @pytest.fixture
 def answering(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Let GOV.UK reply, over the top of the suite's refusal to make requests."""
+    """Allow a GOV.UK reply, over the suite-wide block on outbound requests."""
     monkeypatch.setattr(
         "httpx.Client.get", lambda *_args, **_kwargs: _Answered(PAYLOAD)
     )
 
 
 def configured(session: Session, division: str = "england-and-wales") -> Services:
-    """A registry for a machine whose region has been chosen.
+    """Return a registry for a machine whose region has been chosen.
 
-    Rebuilt after saving: `build_services` reads the division once, and a
-    registry made before the settings row exists holds the default.
+    `build_services` reads the division once, so the registry is rebuilt after
+    the settings row is saved.
     """
     built = build_services(session)
     built.settings.save_settings(
@@ -75,10 +68,7 @@ def configured(session: Session, division: str = "england-and-wales") -> Service
     return build_services(session)
 
 
-def test_a_refresh_that_reaches_govuk_caches_the_calendar(
-    session: Session, answering: None
-) -> None:
-    """The point of the command: dates in the cache afterwards."""
+def test_refresh_caches_the_calendar(session: Session, answering: None) -> None:
     services = configured(session)
 
     assert holidays_cli.run(services) == 0
@@ -88,40 +78,25 @@ def test_a_refresh_that_reaches_govuk_caches_the_calendar(
     }
 
 
-def test_a_refresh_says_how_many_it_cached_and_for_where(
+def test_refresh_reports_count_and_region(
     session: Session, answering: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """It names the region as well as the count.
-
-    Two calendars differ by a handful of days, and picking the wrong region is
-    silent until somebody is refused leave on a day their office is shut.
-    """
     holidays_cli.run(configured(session))
 
     assert "2 bank holidays cached for England & Wales." in capsys.readouterr().out
 
 
-def test_a_division_govuk_publishes_nothing_for_reports_none_rather_than_failing(
+def test_empty_division_reports_zero(
     session: Session, answering: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`get_dates` answers None, not an empty set, when the cache is bare.
-
-    The fetch succeeded; there is simply nothing under that key. Counting the
-    answer without allowing for None is a `TypeError` on the last line of a
-    command that had already done its job.
-    """
+    """`get_dates` answers None, not an empty set, when the cache is bare."""
     assert holidays_cli.run(configured(session, SCOTLAND)) == 0
     assert "0 bank holidays cached for Scotland." in capsys.readouterr().out
 
 
-def test_a_refresh_that_cannot_reach_govuk_fails_without_hiding_it(
+def test_unreachable_govuk_fails_loudly(
     session: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Offline is the ordinary case on a train, and it is not a silent one.
-
-    The exit code is what a cron entry reads. Flexi keeps working; it just has
-    no calendar until the fetch can go through.
-    """
     services = configured(session)
 
     assert holidays_cli.run(services) == 1
@@ -132,16 +107,10 @@ def test_a_refresh_that_cannot_reach_govuk_fails_without_hiding_it(
     assert services.bank_holidays.get_dates() is None
 
 
-def test_a_refresh_that_fails_over_a_cached_calendar_says_which_it_kept(
+def test_failed_refresh_keeps_the_cached_calendar(
     session: Session, answering: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Still exit 1 -- the refresh failed -- but not "bank holidays will be missing".
-
-    They will not be missing. Every command runs `fill_if_empty` on the way in,
-    so by the time this runs there is usually a calendar, and a stale one still
-    answers correctly for the year it holds. Telling somebody their calendar has
-    gone when it has not is how a warning stops being read.
-    """
+    """A stale calendar still answers for the year it holds, so it is kept."""
     services = configured(session)
     assert holidays_cli.run(services) == 0, "the first refresh fills the cache"
     capsys.readouterr()
@@ -164,13 +133,8 @@ def test_a_refresh_that_fails_over_a_cached_calendar_says_which_it_kept(
     }
 
 
-def test_a_machine_with_no_settings_row_is_named_by_the_default_region(
+def test_missing_settings_reports_the_default_region(
     session: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Setup has not been answered, so there is no chosen region to report.
-
-    Saying nothing at all would leave somebody reading "could not reach GOV.UK
-    for " with a blank where the answer should be.
-    """
     assert holidays_cli.run(build_services(session)) == 1
     assert DEFAULT_DIVISION.label in capsys.readouterr().err

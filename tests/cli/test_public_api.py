@@ -139,7 +139,7 @@ def test_cli_facade_routes_every_leaf_export_once() -> None:
     assert cli_api.ui is ui_api
 
 
-def test_ui_facade_has_one_unambiguous_route_to_every_export() -> None:
+def test_ui_facade_routes_every_export_once() -> None:
     owners: defaultdict[str, list[str]] = defaultdict(list)
     modules = {
         name: importlib.import_module(f"flexi.cli.ui.{name}")
@@ -170,23 +170,22 @@ def test_facades_are_static_and_runtime_typed() -> None:
 
 
 @pytest.mark.parametrize("typed", ["+999999999d", "-999999999w"])
-def test_typed_dates_report_extreme_offsets_as_usage_errors(typed: str) -> None:
+def test_extreme_date_offsets_are_usage_errors(typed: str) -> None:
     with pytest.raises(click.BadParameter, match="outside"):
         cli_api.TypedDate().convert(typed, None, None)
 
 
-def test_free_text_sqlite_cannot_store_is_refused_at_the_boundary() -> None:
+def test_text_sqlite_cannot_store_is_refused() -> None:
     """Python decodes argv with `surrogateescape`.
 
-    A cp1252 note pasted into a UTF-8 process arrives as a lone surrogate,
-    which SQLite refuses -- after the plan had been shown, agreed to, and the
-    transaction rolled back under a traceback.
+    A cp1252 note pasted into a UTF-8 process arrives as a lone surrogate, which
+    SQLite refuses.
     """
     with pytest.raises(click.BadParameter, match="not valid UTF-8"):
         cli_api.Utf8Text().convert("caf\udce9", None, None)
 
 
-def test_free_text_that_can_be_stored_passes_through_unchanged() -> None:
+def test_storable_free_text_passes_through() -> None:
     assert cli_api.Utf8Text().convert("café ☕", None, None) == "café ☕"
 
 
@@ -228,7 +227,7 @@ def test_unknown_facade_attributes_still_raise(module: object) -> None:
         getattr(module, name)
 
 
-def test_lightweight_ui_import_does_not_load_the_command_or_ui_graph() -> None:
+def test_light_ui_import_loads_nothing_heavy() -> None:
     """A fresh interpreter makes the dependency budget observable."""
     script = """
 import sys
@@ -258,11 +257,11 @@ if loaded_heavy:
     )
 
 
-def test_the_date_grammar_is_paid_for_by_the_options_that_take_one() -> None:
+def test_date_grammar_is_imported_only_on_conversion() -> None:
     """`flexi --version` builds two `ParamType`s and converts nothing with them.
 
     The entry point imports this package at module scope for `TypedDate` and
-    `Utf8Text`, and the date grammar was most of what that import cost.
+    `Utf8Text`, so the date grammar loads on the first conversion instead.
     """
     script = """
 import sys

@@ -1,11 +1,8 @@
-"""Every way somebody might type a date at a command line, and shifting one.
+"""Reading a date typed at a command line, and shifting one.
 
-The parser used to live beside the "go to date" modal, accepted none of the
-words a CLI user reaches for, and had no tests at all.
-
-`add_months` and `days_between` were four implementations across the widgets and
-the services before they were one here, so the cases that separated them --
-clamping a short month, and a span that runs backwards -- are pinned below.
+`add_months` clamps into a shorter month and `days_between` is inclusive at
+both ends, so both are pinned below along with the words, spans and offsets
+the parser accepts.
 """
 
 from __future__ import annotations
@@ -51,7 +48,7 @@ FRIDAY = date(2026, 8, 14)
         ("last week", date(2026, 8, 3)),
     ],
 )
-def test_the_relative_words(typed: str, expected: date) -> None:
+def test_relative_words(typed: str, expected: date) -> None:
     assert parse_date(typed, reference=MONDAY) == expected
 
 
@@ -65,14 +62,11 @@ def test_the_relative_words(typed: str, expected: date) -> None:
         ("sunday", date(2026, 8, 16)),
     ],
 )
-def test_a_bare_weekday_is_the_next_one_and_today_counts(
-    typed: str, expected: date
-) -> None:
+def test_bare_weekday_is_the_next_one_or_today(typed: str, expected: date) -> None:
     assert parse_date(typed, reference=MONDAY) == expected
 
 
 def test_next_weekday_never_means_today() -> None:
-    """Said on a Monday, "next monday" is a week away, not now."""
     assert parse_date("next monday", reference=MONDAY) == date(2026, 8, 17)
 
 
@@ -93,11 +87,11 @@ def test_last_weekday_means_the_one_just_gone() -> None:
         ("12", date(2026, 8, 12)),
     ],
 )
-def test_the_written_forms(typed: str, expected: date) -> None:
+def test_written_forms(typed: str, expected: date) -> None:
     assert parse_date(typed, reference=MONDAY) == expected
 
 
-def test_english_month_names_do_not_come_from_the_process_locale() -> None:
+def test_month_names_ignore_the_process_locale() -> None:
     assert MONTH_NAMES[5] == "june"
     assert month_index("jun") == month_index("June") == 6
     assert month_index("juin") is None
@@ -114,18 +108,18 @@ def test_english_month_names_do_not_come_from_the_process_locale() -> None:
         ("+1y", date(2027, 8, 10)),
     ],
 )
-def test_the_offsets(typed: str, expected: date) -> None:
+def test_offsets(typed: str, expected: date) -> None:
     assert parse_date(typed, reference=MONDAY) == expected
 
 
-def test_a_month_offset_clamps_to_a_shorter_month() -> None:
+def test_month_offset_clamps_to_a_shorter_month() -> None:
     assert parse_date("+1m", reference=date(2026, 1, 31)) == date(2026, 2, 28)
 
 
-# -- the two preferences ----------------------------------------------------
+# ---------- the two preferences ----------
 
 
-def test_a_dialog_reads_a_bare_day_as_this_month() -> None:
+def test_dialog_reads_a_bare_day_as_this_month() -> None:
     """Looking at August and typing 5 means the 5th of August, passed or not."""
     assert parse_date("5", reference=MONDAY) == date(2026, 8, 5)
 
@@ -137,50 +131,39 @@ def test_booking_reads_a_bare_day_as_the_next_one() -> None:
     )
 
 
-def test_booking_a_day_this_month_does_not_have_finds_one_that_does() -> None:
-    """The next date with that day number on it, which is not always next month.
-
-    `flexi leave annual 30` in February was refused outright -- "February has
-    no day 30", for a day somebody was entitled to ask for -- because the day
-    was landed in today's month before the preference was consulted.
-    """
+def test_booking_skips_months_without_that_day() -> None:
+    """The next date carrying that day number, which is not always next month."""
     assert parse_date(
         "30", reference=date(2026, 2, 10), prefer=Preference.FORWARD
     ) == date(2026, 3, 30)
 
 
-def test_booking_forward_over_a_short_month_does_not_clamp_into_it() -> None:
-    """The 30th, asked for on the 31st of January, is the 30th of March.
-
-    It used to take the 30th of January one month forward and clamp, booking
-    the 28th of February -- a different day, silently, for a request that could
-    not have meant it.
-    """
+def test_booking_forward_does_not_clamp_into_february() -> None:
+    """The 30th, asked for on the 31st of January, is the 30th of March."""
     assert parse_date(
         "30", reference=date(2026, 1, 31), prefer=Preference.FORWARD
     ) == date(2026, 3, 30)
 
 
-def test_a_day_no_month_has_is_still_refused_when_booking_forwards() -> None:
-    """32 is a typo whichever way the preference points."""
+def test_day_32_is_refused_when_booking_forwards() -> None:
     with pytest.raises(ValueError, match="has no day 32"):
         parse_date("32", reference=MONDAY, prefer=Preference.FORWARD)
 
 
-def test_a_month_that_has_passed_books_next_year() -> None:
+def test_month_that_has_passed_books_next_year() -> None:
     assert parse_date("12 jun", reference=MONDAY, prefer=Preference.FORWARD) == date(
         2027, 6, 12
     )
 
 
-def test_a_month_still_to_come_stays_this_year() -> None:
+def test_month_still_to_come_stays_this_year() -> None:
     assert parse_date("12 dec", reference=MONDAY, prefer=Preference.FORWARD) == date(
         2026, 12, 12
     )
 
 
 @pytest.mark.parametrize("typed", ["29 feb", "feb 29", "29/02"])
-def test_a_yearless_leap_day_finds_the_next_real_occurrence(typed: str) -> None:
+def test_yearless_leap_day_finds_the_next_real_one(typed: str) -> None:
     assert parse_date(
         typed, reference=date(2026, 8, 10), prefer=Preference.FORWARD
     ) == date(2028, 2, 29)
@@ -192,33 +175,33 @@ def test_a_yearless_leap_day_finds_the_next_real_occurrence(typed: str) -> None:
     ) == date(2032, 2, 29)
 
 
-def test_a_leap_day_in_the_current_common_year_is_not_clamped() -> None:
+def test_feb_29_is_refused_in_a_common_year() -> None:
     with pytest.raises(ValueError, match="February 2026 has no day 29"):
         parse_date("29 feb", reference=date(2026, 8, 10))
 
 
-def test_an_explicit_leap_year_is_not_moved_by_a_forward_preference() -> None:
+def test_explicit_leap_year_ignores_the_preference() -> None:
     assert parse_date(
         "29 feb 2028", reference=date(2030, 1, 1), prefer=Preference.FORWARD
     ) == date(2028, 2, 29)
 
 
-# -- spans -------------------------------------------------------------------
+# ---------- spans ----------
 
 
 @pytest.mark.parametrize("separator", ["to", "until", "through"])
-def test_a_span_can_be_written_several_ways(separator: str) -> None:
+def test_span_can_be_written_several_ways(separator: str) -> None:
     assert parse_span(f"monday {separator} friday", reference=MONDAY) == (
         MONDAY,
         FRIDAY,
     )
 
 
-def test_a_span_can_use_dots() -> None:
+def test_span_can_use_dots() -> None:
     assert parse_span("monday..friday", reference=MONDAY) == (MONDAY, FRIDAY)
 
 
-def test_the_end_is_read_from_the_start_not_from_today() -> None:
+def test_span_end_is_read_from_its_start() -> None:
     """Otherwise 28 Dec to 4 Jan books eleven months backwards."""
     assert parse_span("28 dec to 4 jan", reference=MONDAY) == (
         date(2026, 12, 28),
@@ -226,7 +209,7 @@ def test_the_end_is_read_from_the_start_not_from_today() -> None:
     )
 
 
-def test_a_weekday_span_stays_inside_one_week() -> None:
+def test_weekday_span_stays_inside_one_week() -> None:
     assert parse_span("friday to monday", reference=MONDAY) == (
         FRIDAY,
         date(2026, 8, 17),
@@ -240,13 +223,12 @@ def test_one_date_is_a_span_of_one_day() -> None:
     )
 
 
-def test_a_backwards_range_is_refused() -> None:
-    """A transposed range used to plan most of a year of annual leave."""
+def test_backwards_range_is_refused() -> None:
     with pytest.raises(ValueError, match="runs backwards"):
         parse_span("2026-09-10 to 2026-08-10", reference=MONDAY)
 
 
-# -- refusals ----------------------------------------------------------------
+# ---------- refusals ----------
 
 
 @pytest.mark.parametrize("typed", ["", "   ", "someday", "next someday", "12 smarch"])
@@ -255,14 +237,14 @@ def test_it_refuses_what_it_cannot_read(typed: str) -> None:
         parse_date(typed, reference=MONDAY)
 
 
-def test_the_refusal_names_the_forms_it_understands() -> None:
+def test_refusal_names_the_forms_it_understands() -> None:
     with pytest.raises(ValueError, match="friday") as raised:
         parse_date("whenever", reference=MONDAY)
     assert "+3d" in str(raised.value)
 
 
-def test_a_day_the_month_does_not_have() -> None:
-    """Reading a date, not booking one: February has no 30th and that is that."""
+def test_day_the_month_lacks_is_refused() -> None:
+    """Reading a date, not booking one, so no later month is tried."""
     with pytest.raises(ValueError, match="February has no day 30"):
         parse_date("30", reference=date(2026, 2, 10))
 
@@ -308,13 +290,11 @@ def test_public_date_arithmetic_reports_range_errors_as_values(
     assert str(raised.value) == DATE_RANGE_ERROR
 
 
-def test_an_offset_beyond_the_calendar_is_a_value_error_not_an_overflow() -> None:
-    """`+999999999999d` is a typo, and `date` answers it with `OverflowError`.
+def test_offset_past_the_calendar_is_a_value_error() -> None:
+    """`date` answers an offset this large with `OverflowError`.
 
-    Every other unreadable date leaves `parse_date` as a `ValueError` naming the
-    forms it understands. One arriving as an `OverflowError` would escape every
-    caller that catches the documented one -- the CLI's `TypedDate` and the
-    go-to-date modal both.
+    Every caller catches the `ValueError` that `parse_date` documents, so the
+    overflow is converted before it leaves the parser.
     """
     with pytest.raises(ValueError, match="outside") as raised:
         parse_date("+999999999999d", reference=date(2026, 6, 11))
@@ -323,35 +303,27 @@ def test_an_offset_beyond_the_calendar_is_a_value_error_not_an_overflow() -> Non
 
 
 @pytest.mark.parametrize("typed", ["31/02/2026", "29/02/2026", "31/04/2026"])
-def test_a_written_date_that_is_not_a_real_day_is_refused(typed: str) -> None:
-    """A day the month does not have is not a date, however well spelled.
+def test_written_date_must_name_a_real_day(typed: str) -> None:
+    """With a year given there is nothing to resolve, so the reader declines.
 
-    With a year given there is nothing to resolve, so the reader has to decide:
-    it answers `None` and lets the next reader try, which ends in the help
-    string rather than a `ValueError` from inside `date`.
+    It answers `None` and the next reader tries, which ends in the help string
+    instead of a `ValueError` raised inside `date`.
     """
     with pytest.raises(ValueError, match="Try"):
         parse_date(typed, reference=date(2026, 6, 11))
 
 
-def test_resolving_a_month_and_day_that_no_year_has_says_so() -> None:
-    """The 30th of February is not a date that a different year would fix.
-
-    Distinct from the range error above: this is a pair that cannot be a day in
-    any year, so it is refused before a year is chosen rather than after.
-    """
+def test_an_impossible_month_day_pair_is_refused() -> None:
+    """The 30th of February cannot be a day in any year, so no year is chosen."""
     with pytest.raises(ValueError, match="not a valid calendar day"):
         resolve_month_day(2, 30, date(2026, 6, 11), Preference.CURRENT)
 
 
-# -- arithmetic --------------------------------------------------------------
+# ---------- arithmetic ----------
 
 
-def test_a_span_of_days_includes_both_of_its_ends() -> None:
-    """A fortnight booked Monday to the Friday after is ten working days.
-
-    An exclusive end would quietly book nine of them.
-    """
+def test_span_of_days_includes_both_of_its_ends() -> None:
+    """A fortnight booked Monday to the Friday after is ten working days."""
     june = date(2026, 6, 1)
     assert days_between(june, june) == [june]
     assert days_between(june, date(2026, 6, 5)) == [
@@ -359,14 +331,8 @@ def test_a_span_of_days_includes_both_of_its_ends() -> None:
     ]
 
 
-def test_a_backwards_span_holds_no_days() -> None:
-    """Not `[start]`.
-
-    Every caller refuses a backwards span before it gets here, so the honest
-    answer to "which dates lie between these two" is none of them. The three
-    copies this replaced disagreed: two answered `[start]` and one answered
-    nothing, and no caller could tell which it had.
-    """
+def test_backwards_span_holds_no_days() -> None:
+    """Every caller refuses a backwards span first, so the answer is no days."""
     assert days_between(date(2026, 6, 3), date(2026, 6, 1)) == []
 
 
@@ -389,7 +355,7 @@ def test_moving_whole_months_clamps_to_a_shorter_one(
     assert add_months(start, count) == expected
 
 
-# -- a span's end -------------------------------------------------------------
+# ---------- a span's end ----------
 
 
 @pytest.mark.parametrize(
@@ -402,25 +368,20 @@ def test_moving_whole_months_clamps_to_a_shorter_one(
         ("+1d to +3d", (date(2026, 8, 11), date(2026, 8, 13))),
     ],
 )
-def test_a_word_or_an_offset_ending_a_span_counts_from_today(
+def test_relative_span_end_counts_from_today(
     typed: str, expected: tuple[date, date]
 ) -> None:
-    """`last week to today`, typed on the Friday back, is a week of sickness.
-
-    Read from the start of the range instead, every one of these collapses:
-    `last week to today` is the one day the range starts on, and `+1d to +3d`
-    runs a day too long.
-    """
+    """Read from the start instead, `last week to today` is a single day."""
     assert parse_span(typed, reference=MONDAY) == expected
 
 
-def test_a_span_whose_end_is_before_its_start_is_still_refused() -> None:
+def test_relative_end_before_its_start_is_refused() -> None:
     """Friday comes after today, so `friday to today` runs backwards."""
     with pytest.raises(ValueError, match="runs backwards"):
         parse_span("friday to today", reference=MONDAY)
 
 
-# -- numbers no calendar has -------------------------------------------------
+# ---------- numbers no calendar has ----------
 
 
 @pytest.mark.parametrize(
@@ -465,32 +426,28 @@ def test_a_span_whose_end_is_before_its_start_is_still_refused() -> None:
         ),
     ],
 )
-def test_a_day_number_too_large_for_the_calendar_is_refused(
+def test_day_number_too_large_is_refused(
     read: Callable[[], object], message: str
 ) -> None:
     """`date` answers a day of 2147483648 with `OverflowError`, not `ValueError`.
 
-    Every caller of the parser catches the documented failure only: the CLI's
-    `TypedDate`, `flexi leave`, and the two modals. One arriving as an
-    `OverflowError` is a stack trace on the command line and Textual's crash
-    screen in the application.
+    Every caller of the parser catches the documented failure only.
     """
     with pytest.raises(ValueError, match=message):
         read()
 
 
-def test_a_digit_int_cannot_read_is_not_a_day_number() -> None:
+def test_only_decimal_digits_are_day_numbers() -> None:
     """`'²'.isdigit()` is true and `int('²')` raises, so the test is decimal.
 
-    Arabic-Indic digits are decimal and `int` reads them, so they stay a day of
-    the month; a superscript is not a number anybody typed as one.
+    Arabic-Indic digits are decimal and stay a day of the month.
     """
     with pytest.raises(ValueError, match="Try 2026"):
         parse_date("²", reference=MONDAY)
     assert parse_date("٣", reference=MONDAY) == date(2026, 8, 3)
 
 
-# -- the window Flexi works in -----------------------------------------------
+# ---------- the window Flexi works in ----------
 
 
 @pytest.mark.parametrize(
@@ -508,14 +465,12 @@ def test_a_digit_int_cannot_read_is_not_a_day_number() -> None:
         ),
     ],
 )
-def test_a_date_outside_the_window_flexi_works_in_is_refused(
+def test_date_outside_the_supported_window_is_refused(
     read: Callable[[], object],
 ) -> None:
-    """The leave year either side of year 1 and year 9999 is not a date.
+    """`--as-of 9999-12-31` reaches `leaveyear.bounds`, which asks for year 10000.
 
-    `--as-of 9999-12-31` reaches `leaveyear.bounds`, which asks for the year
-    10000; the refusal has to come from the parser, where every caller is
-    already expecting one.
+    The refusal comes from the parser, where every caller already expects one.
     """
     with pytest.raises(ValueError, match="outside") as raised:
         read()
@@ -525,7 +480,7 @@ def test_a_date_outside_the_window_flexi_works_in_is_refused(
 
 @pytest.mark.parametrize("edge", [SUPPORTED_FIRST, SUPPORTED_LAST])
 def test_both_edges_of_the_window_have_a_leave_year(edge: date) -> None:
-    """Which is what the window is for: a date it accepts can be worked with."""
+    """A date the window accepts can be worked with."""
     start, end = leaveyear.bounds(edge, 4, 6)
 
     assert start <= edge <= end

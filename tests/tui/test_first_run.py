@@ -1,8 +1,4 @@
-"""Install, launch, answer five questions, and get to the dashboard.
-
-This is the only path every single user takes, and the one nobody runs again
-after their first day -- so it is the one most likely to rot unnoticed.
-"""
+"""Install, launch, answer five questions, and get to the dashboard."""
 
 from __future__ import annotations
 
@@ -30,7 +26,7 @@ from tests.tui.conftest import WIDE, showing
 
 @pytest.fixture
 def fresh_db(tmp_path: Path) -> Path:
-    """A migrated database with nothing in it, as run_migrations would leave it."""
+    """A migrated database with nothing in it, as `run_migrations` leaves it."""
     path = tmp_path / "flexi.db"
     engine = create_db_engine(path)
     Base.metadata.create_all(engine)
@@ -44,23 +40,14 @@ def notices(app: FlexiApp) -> list[str]:
 
 
 async def revealed(pilot: Pilot[None]) -> None:
-    """Wait for the setup screen's reveal to finish, rather than hoping it has.
+    """Wait for the setup screen's reveal to finish.
 
-    Eleven tests here pumped `pilot.pause()` twenty-four times and then asserted
-    on what had been drawn. `pause` drains the messages queued at the moment it
-    is called, so how far an animation has run when the twenty-fourth returns is
-    a property of how loaded the machine is -- and the setup screen animates
-    three things: the marker's row, the question block's height, and its
-    opacity, the last on a delay.
+    `pause` drains the messages queued when it is called, so pumping it a fixed
+    number of times samples the animation wherever the machine happens to be.
+    An opacity of 0.99 renders `$c-accent` as `#00A9AC` instead of `#00AAAD`.
 
-    Sampled a fraction early, an opacity of 0.99 renders `$c-accent` as
-    `#00A9AC` instead of `#00AAAD`. That is one CI failure on one Windows row of
-    twenty-seven, which is the worst kind: it reruns green, so it reads as
-    infrastructure rather than as the test asking a question before the answer
-    exists.
-
-    `wait_for_scheduled_animations` waits for the delayed ones too, which the
-    opacity animation is.
+    The wait is on `wait_for_scheduled_animations`, which covers the delayed
+    opacity animation as well as the marker row and the question height.
     """
     await pilot.wait_for_scheduled_animations()
     await pilot.pause()
@@ -75,24 +62,15 @@ async def _answer(app: FlexiApp, working_days: str) -> None:
     screen.query_one("#input-auto-close", Input).value = "18:30"
 
 
-async def test_a_fresh_database_opens_on_setup(fresh_db: Path) -> None:
+async def test_fresh_database_opens_on_setup(fresh_db: Path) -> None:
     app = FlexiApp(db_path=fresh_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         showing(app, SetupScreen)
 
 
-async def test_setup_accepts_a_reasonable_answer_and_lands_on_the_dashboard(
-    fresh_db: Path,
-) -> None:
-    """One spelling, one boot.
-
-    This was parametrised over three spellings of a working week, spending two
-    extra full application boots to re-assert string parsing that
-    `tests/services/test_working_days.py` pins exhaustively in microseconds.
-    What the boot is here to prove is that an answer reaches the database and
-    the app moves on, and one answer proves that.
-    """
+async def test_reasonable_answer_lands_on_the_dashboard(fresh_db: Path) -> None:
+    """One spelling, one boot; spelling is `tests/services/test_working_days.py`."""
     app = FlexiApp(db_path=fresh_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -104,8 +82,7 @@ async def test_setup_accepts_a_reasonable_answer_and_lands_on_the_dashboard(
         showing(app, DashboardScreen)
 
 
-async def test_a_second_launch_goes_straight_to_the_dashboard(fresh_db: Path) -> None:
-    """The regression: setup used to succeed and the next launch to raise."""
+async def test_second_launch_goes_straight_to_the_dashboard(fresh_db: Path) -> None:
     app = FlexiApp(db_path=fresh_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -121,13 +98,8 @@ async def test_a_second_launch_goes_straight_to_the_dashboard(fresh_db: Path) ->
         showing(again, DashboardScreen)
 
 
-async def test_enter_in_the_last_field_is_the_way_to_finish(fresh_db: Path) -> None:
-    """The screen says "enter to save", so enter has to save.
-
-    Every other question is left with tab, and reaching for ctrl+s at the end
-    of a form that has just told you which key finishes it is the kind of
-    small betrayal nobody reports.
-    """
+async def test_enter_in_the_last_field_finishes_the_form(fresh_db: Path) -> None:
+    """The screen says "enter to save", so enter has to save."""
     app = FlexiApp(db_path=fresh_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -142,12 +114,7 @@ async def test_enter_in_the_last_field_is_the_way_to_finish(fresh_db: Path) -> N
         showing(app, DashboardScreen)
 
 
-async def test_a_half_answered_form_is_not_saved(fresh_db: Path) -> None:
-    """Five questions, and a blank one is unanswered rather than defaulted.
-
-    Guessing at an entitlement nobody typed would be filed under a leave year
-    and then quietly spent against.
-    """
+async def test_half_answered_form_is_not_saved(fresh_db: Path) -> None:
     app = FlexiApp(db_path=fresh_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -166,13 +133,8 @@ async def test_a_half_answered_form_is_not_saved(fresh_db: Path) -> None:
         assert SettingsService(session).get_settings() is None
 
 
-async def test_an_entitlement_that_is_not_a_number_is_refused(fresh_db: Path) -> None:
-    """An entitlement spelled out in words is unusable, however reasonable.
-
-    The settings themselves would save perfectly happily, leaving somebody set
-    up with no entitlement and a screen that had said nothing about it — so the
-    answer is read before anything at all is written.
-    """
+async def test_non_numeric_entitlement_is_refused(fresh_db: Path) -> None:
+    """The answer is read before anything is written, the settings included."""
     app = FlexiApp(db_path=fresh_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -194,7 +156,7 @@ async def test_an_entitlement_that_is_not_a_number_is_refused(fresh_db: Path) ->
 
 
 @pytest.mark.parametrize("value", ["-1", "nan", "inf"])
-async def test_an_entitlement_outside_the_domain_is_refused(
+async def test_entitlement_outside_the_domain_is_refused(
     fresh_db: Path, value: str
 ) -> None:
     """A parseable float is not necessarily a meaningful leave allowance."""
@@ -215,15 +177,8 @@ async def test_an_entitlement_outside_the_domain_is_refused(
         assert SettingsService(session).get_settings() is None
 
 
-async def test_a_cleared_region_is_asked_for_again(fresh_db: Path) -> None:
-    """The bank holiday calendar is the one answer with no sensible default.
-
-    Absence cannot be booked at all until the division is known, so an empty
-    select has to come back as a question rather than be filed as "nowhere".
-
-    The wording is the settings screen's, imported rather than repeated: the two
-    forms asked the same question and refused it in two different sentences.
-    """
+async def test_cleared_region_is_asked_for_again(fresh_db: Path) -> None:
+    """Absence cannot be booked until the division is known, and it has no default."""
     app = FlexiApp(db_path=fresh_db)
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
@@ -278,7 +233,7 @@ async def test_what_was_answered_is_what_was_saved(fresh_db: Path) -> None:
         assert settings.get_active_entitlement_days(None) == 28.0
 
 
-# -- the year the allowance is filed under ---------------------------------
+# ---- the year the allowance is filed under ----
 
 FEBRUARY = datetime(2026, 2, 16, 10, 0, tzinfo=UTC)
 """A day the two leave years disagree about: 2026 from 1 January, 2025 from 6 April."""
@@ -298,15 +253,13 @@ def filed(db_path: Path) -> list[tuple[int, float]]:
         ]
 
 
-async def test_the_note_names_the_year_the_answer_is_filed_under(
+async def test_note_names_the_year_days_are_filed_under(
     fresh_db: Path,
 ) -> None:
-    """The form offers 6 April and the stored default is 1 January.
+    """The note and the save both read the leave year start on the form.
 
-    Set up in February the note worked its year out of the setting nobody had
-    answered yet and the save filed the days under the one on the form: 28
-    days said to be "for 2026", written against 2025, and nothing at all for
-    2026 when April came round.
+    The form offers 6 April and the stored default is 1 January, so in February
+    the two settings name different years.
     """
     with time_machine.travel(FEBRUARY, tick=False):
         app = FlexiApp(db_path=fresh_db)
@@ -323,7 +276,7 @@ async def test_the_note_names_the_year_the_answer_is_filed_under(
     assert filed(fresh_db) == [(2025, 28.0)]
 
 
-async def test_the_note_follows_the_start_that_is_typed(fresh_db: Path) -> None:
+async def test_note_follows_the_start_that_is_typed(fresh_db: Path) -> None:
     """A leave year running with the calendar files February under this year."""
     with time_machine.travel(FEBRUARY, tick=False):
         app = FlexiApp(db_path=fresh_db)
@@ -342,9 +295,7 @@ async def test_the_note_follows_the_start_that_is_typed(fresh_db: Path) -> None:
     assert filed(fresh_db) == [(2026, 28.0)]
 
 
-async def test_a_start_half_typed_leaves_the_note_where_it_was(
-    fresh_db: Path,
-) -> None:
+async def test_half_typed_start_leaves_the_note_alone(fresh_db: Path) -> None:
     """Half a date is not an answer yet, and a note that flashes is noise."""
     with time_machine.travel(FEBRUARY, tick=False):
         app = FlexiApp(db_path=fresh_db)
@@ -360,17 +311,10 @@ async def test_a_start_half_typed_leaves_the_note_where_it_was(
             assert entitlement_note(app) == "days for 2026, halves allowed"
 
 
-async def test_the_wordmark_lands_and_the_questions_arrive_under_it(
+async def test_wordmark_lands_and_the_questions_arrive(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The whole of `flexi init` on a new machine, animation and all.
-
-    The animation used to be a screen of its own pushed over this one, and
-    `Screen.dismiss` pops the top of the stack rather than the screen it is
-    called on -- so when the word landed it deleted the form and left its own
-    last frame with nothing behind it. It is a widget on this screen now, so
-    there is no second screen to pop and the questions arrive underneath it.
-    """
+    """`Screen.dismiss` pops the top of the stack, so the wordmark is a widget here."""
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
 
     app = FlexiApp(db_path=fresh_db)
@@ -402,15 +346,10 @@ async def test_the_wordmark_lands_and_the_questions_arrive_under_it(
 async def test_any_key_cuts_the_animation_short(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch, key: str
 ) -> None:
-    """A splash that cannot be skipped is a splash that is in the way.
+    """Setting Flexi up again should not mean sitting through the word.
 
-    Somebody setting Flexi up a second time — a new machine, a reset database —
-    should not have to sit through the word turning in.
-
-    A printable key is the case that used to fail both ways: the leave-year
-    field was focused from the moment the screen mounted, so the key went into
-    an Input clipped to nothing — the animation played on, and the field
-    arrived holding `x` where its default should have been.
+    A printable key can fail both ways: the leave-year field has focus from the
+    moment the screen mounts, so the key must skip and not be typed into it.
     """
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
@@ -429,14 +368,12 @@ async def test_any_key_cuts_the_animation_short(
         )
 
 
-async def test_the_quit_key_quits_during_the_animation(
+async def test_quit_key_quits_during_the_animation(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Skipping a splash is not a reason to hold somebody in the program.
+    """Every key is stopped at the screen so that the skip does nothing else.
 
-    Every key is stopped at the screen so that the one that cuts the animation
-    short does nothing else, and ctrl+q was stopped with the rest: the
-    documented quit key took two presses, one to skip and one to leave.
+    ctrl+q is the exception, or the documented quit key takes two presses.
     """
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
@@ -451,17 +388,10 @@ async def test_the_quit_key_quits_during_the_animation(
         assert not app.is_running
 
 
-async def test_once_the_questions_are_up_tab_moves_between_them_again(
+async def test_tab_moves_between_the_questions_once_they_are_up(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The skip is not allowed to go on eating keystrokes.
-
-    Tab is the key that proves it, and the only key that can: printable
-    characters are claimed by the focused field and never reach the screen at
-    all, so tab is the one the skip could still be swallowing. A form that
-    cannot be moved through is a worse first run than an animation nobody can
-    skip.
-    """
+    """Printable characters are claimed by the focused field, so tab is the proof."""
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
     app.show_splash = True
@@ -493,14 +423,10 @@ def _logo_span(app: FlexiApp) -> tuple[int, int]:
 
 
 @pytest.mark.parametrize("width", [92, 104, 120])
-async def test_the_wordmark_is_centred_over_the_questions(
+async def test_wordmark_is_centred_over_the_questions(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch, width: int
 ) -> None:
-    """It was as wide as its canvas, and the questions are wider than that.
-
-    A narrower widget sits against the left edge of the column it is in, which
-    is correctly centred as a block and visibly off to one side as a logo.
-    """
+    """A widget narrower than its column sits against the left edge of it."""
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
     app.show_splash = True
@@ -514,10 +440,10 @@ async def test_the_wordmark_is_centred_over_the_questions(
         assert abs((left + right) / 2 - (questions.x + questions.width / 2)) <= 1
 
 
-async def test_the_wordmark_does_not_move_sideways_when_the_questions_arrive(
+async def test_wordmark_does_not_move_sideways_on_the_reveal(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The reveal widens the column, and the logo used to slide left with it."""
+    """The reveal widens the column under the logo, which stays where it is."""
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
     app.show_splash = True
@@ -532,10 +458,9 @@ async def test_the_wordmark_does_not_move_sideways_when_the_questions_arrive(
         assert wordmark.region.x == before
 
 
-async def test_the_wordmark_rises_to_make_room(
+async def test_wordmark_rises_to_make_room(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The questions open out and push the logo up, rather than replacing it."""
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
     app.show_splash = True
@@ -554,13 +479,12 @@ async def test_the_wordmark_rises_to_make_room(
         assert questions.region.height > 0
 
 
-async def test_the_counted_height_is_the_real_one(
+async def test_counted_height_is_the_real_one(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The rise animates to a counted height, because measuring means a flash.
 
-    Counting is only safe while it agrees with what the stylesheet lays out, so
-    this is the thing that stops the two drifting apart in silence.
+    Counting is only safe while `form_rows` agrees with the stylesheet.
     """
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
@@ -575,15 +499,13 @@ async def test_the_counted_height_is_the_real_one(
         assert screen.query_one("#setup-questions").region.height == counted
 
 
-async def test_the_questions_open_out_rather_than_appear(
+async def test_questions_open_out_instead_of_appearing(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Headless, animations resolve at once, so the rise cannot be watched.
 
-    `test_the_wordmark_rises_to_make_room` checks where everything ends up, and
-    passes just as happily if the height is assigned instead of animated. What
-    can still be checked is that the rise is asked for -- and that is the whole
-    difference between a logo making room and a screen jumping.
+    `test_wordmark_rises_to_make_room` checks where everything ends up and
+    passes either way; what can be checked here is that the rise is asked for.
     """
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     asked: list[str] = []
@@ -608,14 +530,10 @@ async def test_the_questions_open_out_rather_than_appear(
     assert "opacity" in asked, "and fade up as they do"
 
 
-async def test_the_rail_is_one_unbroken_line(
+async def test_rail_is_one_unbroken_line(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A rail drawn a piece per question has a gap wherever the rows are spaced.
-
-    That is a dotted line pretending to be a continuous one, and a marker made
-    of pieces can only blink from one to the next.
-    """
+    """A rail drawn a piece per question has a gap wherever the rows are spaced."""
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
     app.show_splash = True
@@ -639,7 +557,7 @@ async def test_the_rail_is_one_unbroken_line(
         assert " " not in drawn, f"the rail has a gap in it: {drawn!r}"
 
 
-async def test_the_marker_sits_on_the_question_holding_the_cursor(
+async def test_marker_sits_on_the_focused_question(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
@@ -660,14 +578,12 @@ async def test_the_marker_sits_on_the_question_holding_the_cursor(
         assert rail.marker > first, "the marker should follow the cursor down"
 
 
-async def test_the_marker_travels_rather_than_jumps(
+async def test_marker_travels_instead_of_jumping(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Headless, animations resolve at once, so the travel cannot be watched.
 
-    What can be checked is that it is asked for. `marker` is a float for exactly
-    this reason -- Textual can only interpolate numbers, and a marker that could
-    only hold whole rows could only blink between them.
+    `marker` is a float because Textual interpolates numbers; whole rows blink.
     """
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     asked: list[str] = []
@@ -714,10 +630,10 @@ def _rail_column(app: FlexiApp, rail: Rail) -> list[tuple[str, str]]:
     return drawn
 
 
-async def test_the_foot_of_the_rail_matches_the_line_above_it(
+async def test_foot_of_the_rail_matches_the_line_above(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """It is structure, not content. A brighter one drew the eye to the end."""
+    """The tail is structure, not content, so it carries the hairline colour."""
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
     app.show_splash = True
@@ -733,15 +649,9 @@ async def test_the_foot_of_the_rail_matches_the_line_above_it(
         assert foot[1] == hairline
 
 
-async def test_the_marker_is_the_only_thing_lit_on_the_rail(
+async def test_only_the_marker_is_lit_on_the_rail(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The rail is one weight from top to bottom, and the diamond sits on it.
-
-    Lighting the row beneath the marker as well, to pick out the two-row segment
-    a question occupies, made the rail busier without saying anything the
-    diamond had not already said.
-    """
     monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
     app = FlexiApp(db_path=fresh_db)
     app.show_splash = True

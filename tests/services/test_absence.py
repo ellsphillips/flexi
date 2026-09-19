@@ -1,7 +1,7 @@
 """Booking absence, and every reason a booking is refused.
 
-The refusals matter more than the bookings: each one is a sentence the status
-bar shows unedited, so a change in wording is a change in the interface.
+Each refusal is a sentence the status bar shows unedited, so a change in
+wording is a change in the interface.
 """
 
 from __future__ import annotations
@@ -58,9 +58,8 @@ def settings(session: Session) -> SettingsService:
             auto_close_time="18:00",
         )
     )
-    # The active leave year, not a fixed one. A hardcoded 2026 here is compared
-    # against the real clock by get_active_entitlement_days, so the test would
-    # have started failing on 1 January 2027 with nothing having changed.
+    # The active leave year, not a fixed one: get_active_entitlement_days
+    # compares the year it is filed under against the clock.
     svc.save_entitlement(svc.active_leave_year(), 25.0)
     return svc
 
@@ -68,11 +67,8 @@ def settings(session: Session) -> SettingsService:
 MIDSUMMER = datetime(2026, 6, 10, 12, 0)
 """The clock these tests run against.
 
-Every date here is fixed, and several of them ask a question about "the active
-leave year", which reads the real one. Left alone the two agree until the
-calendar turns and then quietly stop: a booking on a 2026 date stops counting
-against an allowance filed under 2027, and the suite fails on a morning when
-nothing has changed.
+Every date here is fixed, and several of these tests ask about "the active
+leave year", which reads the clock. Pinning it keeps the two in step.
 """
 
 
@@ -146,12 +142,10 @@ class TestRejections:
         assert result.success is False
 
     def test_reject_when_bh_unavailable(self, tmp_path: Path) -> None:
-        """It refuses rather than guess when it cannot tell if a date is a holiday.
+        """Refuses when it cannot tell whether a date is a bank holiday.
 
-        A fresh database, so the bank-holiday cache is genuinely empty:
-        `titles_between` answers None, which is not the same as an empty mapping, and
-        booking leave over a bank holiday it could not see would be worse than
-        refusing.
+        A fresh database, so the cache is empty and `titles_between` answers
+        None, which is not the same as an empty mapping.
         """
         engine = create_db_engine(tmp_path / "empty.db")
         Base.metadata.create_all(engine)
@@ -199,7 +193,7 @@ class TestRejections:
             (14, 16, Portion.PM, Portion.AM),
         ],
     )
-    def test_a_half_day_is_refused_only_over_the_half_that_was_worked(
+    def test_half_day_refused_only_over_worked_half(
         self,
         absence: AbsenceService,
         session: Session,
@@ -208,13 +202,10 @@ class TestRejections:
         refused: Portion,
         allowed: Portion,
     ) -> None:
-        """`flexi leave sick today pm` is one of the command's own examples.
+        """`Portion.FULL` returns before any time is compared.
 
-        `Portion.FULL` returns before any time is compared, so the whole-day
-        test above never reached the comparison. Once clock events began coming
-        back from `moment_of` as aware datetimes, the naive midday built beside
-        them raised `TypeError: can't compare offset-naive and offset-aware`
-        for every half day booked against a day with work on it.
+        Only a half day reaches the comparison between the aware datetimes
+        `moment_of` returns and the midday built beside them.
         """
         d = _next_weekday(date(2026, 7, 6), 0)
         clock = build_services(session).clock
@@ -229,15 +220,10 @@ class TestRejections:
         the_other_half = absence.book(d, AbsenceType.SICK, portion=allowed)
         assert the_other_half.success is True, the_other_half.message
 
-    def test_other_leave_without_a_note_is_refused_and_writes_nothing(
+    def test_other_leave_needs_a_note(
         self, absence: AbsenceService, session: Session
     ) -> None:
-        """An `Other` absence is the one whose label says nothing about the day.
-
-        Annual, sick, TOIL and unpaid each name themselves in the records table;
-        an "Other" with no note is a day off with no recoverable reason, which
-        is the one absence a manager will ask about a year later.
-        """
+        """`Other` is the one type whose label says nothing about the day."""
         d = _next_weekday(date(2026, 6, 8), 0)
 
         result = absence.book(d, AbsenceType.OTHER)
@@ -247,10 +233,7 @@ class TestRejections:
         assert absence.for_date(d) == []
         assert session.query(AbsenceDay).count() == 0
 
-    def test_a_note_of_nothing_but_spaces_does_not_count_as_a_reason(
-        self, absence: AbsenceService
-    ) -> None:
-        """Pressing space past the prompt is not answering it."""
+    def test_note_of_only_spaces_is_refused(self, absence: AbsenceService) -> None:
         d = _next_weekday(date(2026, 6, 8), 1)
 
         result = absence.book(d, AbsenceType.OTHER, note="   ")
@@ -272,18 +255,13 @@ class TestRejections:
 
 
 class TestReadingADay:
-    """What a surface drawing one date is told about it.
+    """Reading a single date, and what counts as covering it.
 
-    A half day that reads as a whole one takes the date out of the calendar
-    entirely: `covers_the_whole_day` is the answer to "may anything be worked
-    here", and a morning off is not a day off. It is asked from both sides --
-    the clock refuses a day that is fully booked, and `verdict_for` refuses a
-    booking over a day that is fully worked.
+    `covers_the_whole_day` answers "may anything be worked here": the clock
+    refuses a fully booked day, and `verdict_for` a booking over a worked one.
     """
 
-    def test_an_empty_day_is_spoken_for_by_nothing(
-        self, absence: AbsenceService
-    ) -> None:
+    def test_empty_day_has_nothing_booked(self, absence: AbsenceService) -> None:
         when = _next_weekday(date(2026, 6, 8), 0)
 
         assert absence.for_date(when) == []
@@ -291,7 +269,7 @@ class TestReadingADay:
             False
         )
 
-    def test_a_booked_morning_leaves_the_afternoon_workable(
+    def test_booked_morning_leaves_afternoon_workable(
         self, absence: AbsenceService
     ) -> None:
         when = _next_weekday(date(2026, 6, 8), 0)
@@ -301,14 +279,8 @@ class TestReadingADay:
         assert [row.portion for row in booked] == [Portion.AM]
         assert covers_the_whole_day(row.portion for row in booked) is False
 
-    def test_two_halves_of_different_types_add_up_to_a_whole_day(
-        self, absence: AbsenceService
-    ) -> None:
-        """A sick morning and an annual afternoon is a real thing that happens.
-
-        Nothing else on the date is available to be worked, even though no row
-        on it says "full day".
-        """
+    def test_two_halves_add_up_to_a_whole_day(self, absence: AbsenceService) -> None:
+        """No row on the date says "full day", and the date is covered."""
         when = _next_weekday(date(2026, 6, 8), 0)
         absence.book(when, AbsenceType.SICK, portion=Portion.AM)
         absence.book(when, AbsenceType.ANNUAL, portion=Portion.PM)
@@ -316,7 +288,7 @@ class TestReadingADay:
         booked = absence.for_date(when)
         assert covers_the_whole_day(row.portion for row in booked) is True
 
-    def test_a_full_day_is_reported_as_one_day(self, absence: AbsenceService) -> None:
+    def test_full_day_is_reported_as_one_day(self, absence: AbsenceService) -> None:
         when = _next_weekday(date(2026, 6, 8), 0)
         absence.book(when, AbsenceType.ANNUAL)
 
@@ -358,7 +330,7 @@ class TestRemoval:
             AbsenceType.SICK
         ]
 
-    def test_immediate_removal_reserves_the_target_before_reading_it(
+    def test_immediate_removal_reserves_its_target(
         self,
         absence: AbsenceService,
         engine: Engine,
@@ -396,16 +368,12 @@ class TestRemoval:
         assert read(when) == []
 
 
-# ---------- type change ----------
+# ---------- what is left ----------
 
 
 class TestBalance:
     def test_remaining_after_booking(self, absence: AbsenceService) -> None:
-        """Asked about the leave year the day is in, not the one today is in.
-
-        With no argument this reads the real clock, so a booking on a fixed
-        2026 date stopped counting against it the moment the calendar turned.
-        """
+        """Asked about the leave year the day is in, not the one today is in."""
         d = _next_weekday(date(2026, 6, 8), 0)
         absence.book(d, AbsenceType.ANNUAL)
 
@@ -431,17 +399,12 @@ class TestBalance:
 
 
 class TestOpenSessions:
-    """What a session nobody has closed is worth to a booking decision."""
+    """How an open session weighs on a booking decision."""
 
-    def test_the_afternoon_is_bookable_while_the_morning_is_running(
+    def test_afternoon_is_bookable_mid_morning(
         self, absence: AbsenceService, session: Session
     ) -> None:
-        """Leaving at lunch is a decision people make at ten in the morning.
-
-        An open session used to be valued to the end of its own day, so at ten
-        the afternoon already counted as worked and booking it off was refused
-        for work nobody had recorded.
-        """
+        """An open session is worth what has been worked, not the whole day."""
         clock = build_services(session).clock
         with time_machine.travel(datetime(2026, 6, 10, 10, 0, tzinfo=UTC), tick=False):
             clock.clock_in(now=datetime(2026, 6, 10, 8, 30, tzinfo=UTC))
@@ -453,10 +416,9 @@ class TestOpenSessions:
         assert morning.success is False
         assert "recorded work" in morning.message
 
-    def test_the_afternoon_stops_being_bookable_once_it_is_worked(
+    def test_afternoon_is_not_bookable_once_worked(
         self, absence: AbsenceService, session: Session
     ) -> None:
-        """The same session, an hour after lunch, does cover the afternoon."""
         clock = build_services(session).clock
         with time_machine.travel(datetime(2026, 6, 10, 13, 0, tzinfo=UTC), tick=False):
             clock.clock_in(now=datetime(2026, 6, 10, 8, 30, tzinfo=UTC))
@@ -466,15 +428,10 @@ class TestOpenSessions:
         assert result.success is False
         assert "recorded work" in result.message
 
-    def test_a_session_left_open_on_an_earlier_day_covers_the_rest_of_it(
+    def test_session_left_open_yesterday_covers_that_day(
         self, absence: AbsenceService, session: Session
     ) -> None:
-        """The window between a crash and the sweep on the next launch.
-
-        Yesterday is over, so a clock-out that never came is worth the rest of
-        that day and no more -- which is the ledger's rule, and the half of it
-        that has to stay.
-        """
+        """Yesterday is over, so a missing clock-out is worth the rest of it."""
         yesterday = date(2026, 6, 9)
         clock = build_services(session).clock
         with time_machine.travel(datetime(2026, 6, 9, 9, 0, tzinfo=UTC), tick=False):
@@ -485,10 +442,9 @@ class TestOpenSessions:
         assert result.success is False
         assert "recorded work" in result.message
 
-    def test_span_of_reads_the_clock_when_it_is_not_handed_one(
+    def test_span_of_reads_the_clock_by_default(
         self, absence: AbsenceService, session: Session
     ) -> None:
-        """The exported helper stays usable on its own."""
         clock = build_services(session).clock
         clock.clock_in(now=datetime(2026, 6, 10, 8, 30, tzinfo=UTC))
         running = sessions_on(session, MIDSUMMER.date())[0]
@@ -506,7 +462,7 @@ class TestBalanceCost:
     def tracked_since_january(
         self, session: Session, settings: SettingsService
     ) -> None:
-        """Flexi has been watching all year, so every day in June is counted."""
+        """Track from January, so every day in June is counted."""
         stored = settings.get_settings()
         assert stored is not None
         stored.tracking_since = date(2026, 1, 1)
@@ -515,12 +471,7 @@ class TestBalanceCost:
     def test_toil_for_a_day_gone_by_does_not_warn(
         self, absence: AbsenceService, tracked_since_january: None
     ) -> None:
-        """The day already expected its hours and already scored the shortfall.
-
-        Booking TOIL over it trades the expectation for a withdrawal of the same
-        size. The balance reads afterwards what it read before, so a warning
-        that it is about to go a day into deficit describes nothing.
-        """
+        """A past day already scored its shortfall, so the balance does not move."""
         result = absence.book(
             date(2026, 6, 9), AbsenceType.FLEXI, available_toil_days=0.0
         )
@@ -556,15 +507,10 @@ class TestCounts:
         assert counted[AbsenceType.SICK] == (2.0, 2)
         assert counted[AbsenceType.ANNUAL] == (0.0, 0)
 
-    def test_counting_valid_days_only_drops_what_is_no_longer_bookable(
+    def test_valid_only_drops_unbookable_days(
         self, absence: AbsenceService, settings: SettingsService
     ) -> None:
-        """An allowance is spent on days that could be booked, not days that were.
-
-        Someone books a Friday, then drops Friday from their working pattern.
-        The marker stays -- it is a record of a decision -- but it no longer
-        costs a day of leave, because it no longer costs a day of work.
-        """
+        """A day dropped from the pattern keeps its marker and costs no leave."""
         friday = _next_weekday(date(2026, 6, 8), 4)
         assert absence.book(friday, AbsenceType.ANNUAL).success
         current = settings.resolved()
@@ -583,25 +529,14 @@ class TestCounts:
         assert counted == 1.0, "the booking is still on record"
         assert spent == 0.0, "and no longer drawn against the allowance"
 
-    def test_remaining_allowances_for_no_years_reads_nothing(
-        self, absence: AbsenceService
-    ) -> None:
-        """Planning an empty span asks for no years, and must not scan the table.
-
-        The bounded read is built from the lowest and highest year requested;
-        with none there is no range to build and nothing to answer.
-        """
+    def test_no_years_asked_reads_nothing(self, absence: AbsenceService) -> None:
+        """The bounded read is built from the lowest and highest year asked for."""
         assert absence.get_remaining_annual_leave_by_year(()) == {}
 
-    def test_a_booking_the_pattern_no_longer_covers_is_not_charged_to_its_year(
+    def test_unbookable_day_is_not_charged_to_its_year(
         self, absence: AbsenceService, settings: SettingsService
     ) -> None:
-        """The same rule as `valid_only`, applied where the allowance is read.
-
-        Both sides have to agree: a day that stops counting against the balance
-        has to stop counting against the entitlement, or the wallet reports
-        leave spent that the planner will happily let you book again.
-        """
+        """The balance and the entitlement have to drop the same day."""
         friday = _next_weekday(date(2026, 6, 8), 4)
         assert absence.book(friday, AbsenceType.ANNUAL).success
         year = leaveyear.active_year(friday, *settings.resolved().leave_year_start)
@@ -622,15 +557,10 @@ class TestCounts:
         assert after is not None
         assert after == before + 1.0, "the day came back to the allowance"
 
-    def test_removing_one_portion_leaves_the_other_half_of_the_day(
+    def test_removing_one_portion_keeps_the_other(
         self, absence: AbsenceService
     ) -> None:
-        """A sick morning and an annual afternoon are two bookings, not one day.
-
-        `remove(day)` clears the date; naming a portion clears that half. With
-        the filter untested, removing a morning could take the afternoon with
-        it and nothing would have said so.
-        """
+        """`remove(day)` clears the date; naming a portion clears that half."""
         when = _next_weekday(date(2026, 6, 8), 0)
         assert absence.book(when, AbsenceType.SICK, Portion.AM).success
         assert absence.book(when, AbsenceType.ANNUAL, Portion.PM).success
