@@ -41,6 +41,16 @@ def routine(directory: Path, count: int) -> None:
         os.utime(path, (1_000_000 + n, 1_000_000 + n))
 
 
+def test_ten_routine_snapshots_are_what_is_kept() -> None:
+    """The number itself, which the README states as a promise.
+
+    Every other test in this file is written against the constant, so all of
+    them pass whatever it is moved to, and the "newest ten kept" in README's
+    "Your data" quietly stops being true.
+    """
+    assert migrate.MAX_BACKUPS == 10
+
+
 def test_it_keeps_only_the_most_recent_routine_backups(backups: Path) -> None:
     routine(backups, migrate.MAX_BACKUPS + 5)
     migrate.prune_backups(backups)

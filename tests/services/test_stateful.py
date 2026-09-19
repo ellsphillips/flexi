@@ -50,14 +50,20 @@ from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.registry import build_services, invalidate_services
 from flexi.services.settings import parse_settings
+from tests import strategies
 
 START = datetime(2026, 6, 1, 8, 0)
 """A Monday morning, early in a leave year that starts on 6 April."""
 
 AUTO_CLOSE = time(18, 0)
-HOLIDAY = date(2026, 8, 31)
-"""One real bank holiday inside the window, so the calendar is present and the
-"cannot clock in on a bank holiday" branch is reachable."""
+HOLIDAY = date(2026, 6, 2)
+"""A bank holiday on the Tuesday of the first week.
+
+Inside the eight days the clock may wander, so the calendar is present for the
+absence service and the "cannot clock in on a bank holiday" branch is one the
+model reaches. A real August bank holiday sits twelve weeks past the far end of
+the window, where no run arrives and the branch is never taken.
+"""
 
 DAYS = 8
 """How far a single run may wander. Long enough to cross a weekend and to leave
@@ -101,7 +107,7 @@ class TimesheetModel(RuleBasedStateMachine):
                 BankHolidayCache(
                     division="england-and-wales",
                     date=HOLIDAY,
-                    title="Summer bank holiday",
+                    title="Bank holiday",
                 ),
             )
         )
@@ -209,7 +215,7 @@ class TimesheetModel(RuleBasedStateMachine):
     @rule(
         offset=st.integers(min_value=0, max_value=DAYS),
         kind=st.sampled_from([AbsenceType.ANNUAL, AbsenceType.SICK, AbsenceType.FLEXI]),
-        portion=st.sampled_from(list(Portion)),
+        portion=strategies.portions,
     )
     def book(self, offset: int, kind: AbsenceType, portion: Portion) -> None:
         """Book a day off, and believe what the service says about it."""

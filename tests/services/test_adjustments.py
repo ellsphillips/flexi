@@ -95,11 +95,28 @@ def test_an_adjustment_needs_a_reason(services: Services) -> None:
     assert "reason" in result.message
 
 
-def test_a_zero_adjustment_is_refused(services: Services) -> None:
-    """It would be a row that says nothing."""
-    result = services.adjustments.record(MONDAY, timedelta(seconds=20), "rounding")
-    assert not result.success
-    assert "zero minutes" in result.message
+@pytest.mark.parametrize(
+    ("seconds", "minutes"),
+    [(20, None), (29, None), (30, None), (31, 1), (40, 1), (-40, -1), (90, 2)],
+)
+def test_a_correction_lands_on_the_nearest_minute(
+    services: Services, seconds: int, minutes: int | None
+) -> None:
+    """Nearest, not truncated, and nothing is a refusal rather than a row.
+
+    Forty seconds is the case the service's own docstring is about: truncated
+    it reads as +0:00 while the balance moves by forty seconds. Thirty is
+    refused and ninety is two minutes because Python rounds a half to even,
+    and those two are what tell rounding from truncation.
+    """
+    result = services.adjustments.record(MONDAY, timedelta(seconds=seconds), "rounding")
+
+    assert result.success is (minutes is not None)
+    if minutes is None:
+        assert "zero minutes" in result.message
+    else:
+        assert result.adjustment is not None
+        assert result.adjustment.minutes == minutes
 
 
 def test_removing_something_that_is_not_there_says_so(services: Services) -> None:

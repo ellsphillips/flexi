@@ -17,6 +17,12 @@ def test_every_absence_type_declares_its_details() -> None:
     """A member with no row is a KeyError on `.label`, at booking time.
 
     Read straight off the private table, so `flexi.constants` carries no
-    function that exists for this assertion to call.
+    function that exists for this assertion to call. Each row is then read
+    through the properties the booking path uses, so a row that is there and
+    blank is caught as well as a row that is missing.
     """
     assert frozenset(AbsenceType) == frozenset(constants._DETAILS)
+    for kind in AbsenceType:
+        assert kind.label, kind.name
+        assert kind.short, kind.name
+        assert kind.token, kind.name

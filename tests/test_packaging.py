@@ -7,6 +7,8 @@ against an installed wheel checks the built artefact rather than the source.
 """
 
 import ast
+import doctest
+import importlib
 import re
 import sys
 import tomllib
@@ -59,6 +61,37 @@ def test_the_theme_can_be_parsed_from_the_installed_stylesheet() -> None:
 def test_the_package_ships_its_typing_marker() -> None:
     """Without py.typed, a downstream mypy silently ignores every annotation."""
     assert (PACKAGE / "py.typed").is_file()
+
+
+@pytest.mark.skipif(
+    not PROJECT_ROOT.joinpath("pyproject.toml").is_file(), reason="sdist"
+)
+def test_every_example_in_the_source_is_run() -> None:
+    """`--doctest-modules` collects an allowlist, and `>>>` goes anywhere.
+
+    `testpaths` names three trees under `src`. An example written in a fourth
+    reads as checked -- it is in the same house style, beside the same kind of
+    docstring -- and nothing runs it. `components/yearcalendar.py` carries two.
+    """
+    spec = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    # By dotted name, not by directory: the package under test may be an
+    # installed one, and then no path under it is inside this checkout.
+    collected = tuple(
+        path.removeprefix("src/").replace("/", ".")
+        for path in spec["tool"]["pytest"]["ini_options"]["testpaths"]
+        if path.startswith("src/")
+    )
+
+    for path in sorted(PACKAGE.rglob("*.py")):
+        if ">>>" not in path.read_text(encoding="utf-8"):
+            continue
+        inside = path.relative_to(PACKAGE).with_suffix("").parts
+        qualified = ".".join(("flexi", *inside))
+        if qualified.startswith(collected):
+            continue
+        outcome = doctest.testmod(importlib.import_module(qualified))
+        assert outcome.attempted, f"{qualified} has no runnable example"
+        assert not outcome.failed, f"{qualified} has a failing example"
 
 
 @pytest.mark.skipif(not PROJECT_ROOT.joinpath("README.md").is_file(), reason="sdist")

@@ -230,10 +230,10 @@ def test_first_weekday_moves_the_week_boundary() -> None:
 
 
 @st.composite
-def periods(draw: st.DrawFn) -> Period:
-    """Any period a user could put on screen."""
+def periods(draw: st.DrawFn, granularity: Granularity | None = None) -> Period:
+    """Any period a user could put on screen, or any of one granularity."""
     return Period(
-        draw(strategies.granularities),
+        granularity if granularity is not None else draw(strategies.granularities),
         draw(strategies.dates),
         draw(strategies.year_starts()),
         draw(strategies.first_weekdays),
@@ -304,7 +304,7 @@ def test_shifting_back_and_forward_settles_after_one_clamp(
     assert moved.shift(-count).shift(count) == moved
 
 
-@given(period=periods())
+@given(period=periods(granularity=Granularity.YEAR))
 def test_a_year_period_is_the_leave_year_the_services_use(period: Period) -> None:
     """One question, one answer, whichever surface is asking.
 
@@ -314,8 +314,6 @@ def test_a_year_period_is_the_leave_year_the_services_use(period: Period) -> Non
     Leave screen therefore drew a year one day shorter than every service
     counted, and 28 February 2020 belonged to neither year on screen.
     """
-    if period.granularity is not Granularity.YEAR:
-        return
     assert (period.start, period.end) == leaveyear.bounds(
         period.anchor, *period.year_start
     )

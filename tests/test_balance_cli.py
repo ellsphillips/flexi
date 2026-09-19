@@ -16,7 +16,7 @@ from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
 from flexi.services.registry import build_services
 from flexi.services.settings import parse_settings
-from tests.conftest import sessions_on
+from tests.conftest import session_at, sessions_on
 
 NOON = datetime(2026, 6, 10, 12, 0)
 """The clock these tests run against.
@@ -204,12 +204,12 @@ def test_the_line_can_be_taken_back(home: Path) -> None:
 
 def test_the_work_records_are_untouched(home: Path) -> None:
     """Settling is a correction, never a deletion."""
-    CliRunner().invoke(cli, ["balance", "zero", "--yes"])
-    session = get_session(create_db_engine(home))
-    try:
+    result = CliRunner().invoke(cli, ["balance", "zero", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "adjusted" in result.output.lower()
+
+    with session_at(home) as session:
         assert len(sessions_on(session, YESTERDAY)) == 1
-    finally:
-        session.close()
 
 
 def test_as_of_reads_the_dates_the_rest_of_the_command_line_reads(home: Path) -> None:

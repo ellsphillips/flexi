@@ -20,12 +20,18 @@ from typing import Any
 
 import pytest
 
-import flexi
 import flexi.app
 import flexi.models.database.migrate
 
-DEV_SCRIPT = Path(flexi.__file__).resolve().parent.parent.parent / "scripts" / "dev.py"
-"""Named by path, never imported -- the same way the runner is reached for."""
+DEV_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "dev.py"
+"""Named by path, never imported -- the same way the runner is reached for.
+
+Anchored on this file, not on `flexi.__file__`: installed rather than run from
+a checkout, the package sits in `site-packages` and the same arithmetic points
+at a `scripts` directory that was never there.
+"""
+
+pytestmark = pytest.mark.skipif(not DEV_SCRIPT.is_file(), reason="sdist")
 
 
 @pytest.fixture

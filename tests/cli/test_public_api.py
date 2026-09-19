@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import ast
 import importlib
 import subprocess
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from types import ModuleType
@@ -26,7 +25,11 @@ from flexi.cli.init import Contents
 from flexi.cli.ui import Key as FacadeKey
 from flexi.cli.ui.keys import Key
 from flexi.services.registry import Services
-from tests.public_api import contains_any, public_type_hints
+from tests.public_api import (
+    check_declared_api,
+    check_public_annotations,
+    locally_defined_public_names,
+)
 
 CLI = Path(cli_api.__file__).parent
 UI = Path(ui_api.__file__).parent
@@ -77,67 +80,9 @@ CLI_ROUTES = {
 }
 
 
-def target_names(target: ast.expr) -> Iterator[str]:
-    """Names assigned by one module-level target, including tuple unpacking."""
-    if isinstance(target, ast.Name):
-        yield target.id
-    elif isinstance(target, ast.List | ast.Tuple):
-        for item in target.elts:
-            yield from target_names(item)
-
-
-def locally_defined_public_names(path: Path) -> set[str]:
-    """Public names the module defines itself rather than imports."""
-    found: set[str] = set()
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for statement in tree.body:
-        if isinstance(
-            statement,
-            ast.AsyncFunctionDef | ast.ClassDef | ast.FunctionDef,
-        ):
-            if not statement.name.startswith("_"):
-                found.add(statement.name)
-        elif isinstance(statement, ast.TypeAlias):
-            found.update(
-                name
-                for name in target_names(statement.name)
-                if not name.startswith("_")
-            )
-        elif isinstance(statement, ast.AnnAssign | ast.Assign):
-            targets = (
-                statement.targets
-                if isinstance(statement, ast.Assign)
-                else [statement.target]
-            )
-            found.update(
-                name
-                for target in targets
-                for name in target_names(target)
-                if not name.startswith("_")
-            )
-    return found
-
-
 @pytest.mark.parametrize("qualified_name", LEAF_MODULES)
 def test_every_leaf_declares_its_complete_local_api(qualified_name: str) -> None:
-    module = importlib.import_module(qualified_name)
-    assert module.__file__ is not None
-    path = Path(module.__file__)
-
-    assert isinstance(module.__all__, tuple)
-    assert len(module.__all__) == len(set(module.__all__))
-    assert set(module.__all__) == locally_defined_public_names(path)
-
-
-@pytest.mark.parametrize("qualified_name", LEAF_MODULES)
-def test_leaf_wildcards_export_only_the_declared_api(qualified_name: str) -> None:
-    module = importlib.import_module(qualified_name)
-    namespace: dict[str, object] = {}
-
-    exec(f"from {qualified_name} import *", namespace)  # noqa: S102
-
-    exported = {name for name in namespace if not name.startswith("_")}
-    assert exported == set(module.__all__)
+    check_declared_api(importlib.import_module(qualified_name))
 
 
 @pytest.mark.parametrize(
@@ -168,7 +113,7 @@ def test_cli_facade_routes_every_leaf_export_once() -> None:
 
     assert set(CLI_ROUTES.values()) == expected_sources
     assert all(count == 1 for count in Counter(CLI_ROUTES.values()).values())
-    assert locally_defined_public_names(CLI / "__init__.py") == {
+    assert locally_defined_public_names(cli_api) == {
         "TypedDate",
         "Utf8Text",
         "report",
@@ -250,11 +195,7 @@ def test_public_annotations_resolve_at_runtime() -> None:
     modules.append(cli_api)
 
     for module in modules:
-        checked = list(public_type_hints(module))
-        assert checked
-        for qualified, hints in checked:
-            assert hints, f"{qualified} has no annotations"
-            assert not any(map(contains_any, hints.values())), qualified
+        check_public_annotations(module)
 
     assert get_type_hints(cli_api.TypedDate.convert)["return"] is date
 

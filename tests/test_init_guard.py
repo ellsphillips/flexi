@@ -9,6 +9,7 @@ and presented as fact.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import click.testing
@@ -66,20 +67,21 @@ def test_a_zero_byte_database_is_not_an_install(tmp_path: Path) -> None:
 def test_a_stamped_but_unconfigured_database_is_not_ready(tmp_path: Path) -> None:
     """The -1161:48 bug: every getter has a default, so it answers confidently."""
     db = tmp_path / "db.db"
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE alembic_version (version_num varchar(32))")
         connection.execute("INSERT INTO alembic_version VALUES ('0010')")
         connection.execute(
             "CREATE TABLE settings (id integer primary key, leave_year_start text,"
             " working_days text, bank_holiday_division text, auto_close_time text)"
         )
+        connection.commit()
 
     assert setup.is_initialised(db) is False
 
 
 def test_a_configured_database_is_ready(tmp_path: Path) -> None:
     db = tmp_path / "db.db"
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE alembic_version (version_num varchar(32))")
         connection.execute("INSERT INTO alembic_version VALUES ('0010')")
         connection.execute(
@@ -89,13 +91,14 @@ def test_a_configured_database_is_ready(tmp_path: Path) -> None:
         connection.execute(
             "INSERT INTO settings VALUES (1,'04-06','0,1,2,3,4','scotland','18:00')"
         )
+        connection.commit()
 
     assert setup.is_initialised(db) is True
 
 
 def test_a_half_filled_settings_row_is_not_ready(tmp_path: Path) -> None:
     db = tmp_path / "db.db"
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE alembic_version (version_num varchar(32))")
         connection.execute("INSERT INTO alembic_version VALUES ('0010')")
         connection.execute(
@@ -103,6 +106,7 @@ def test_a_half_filled_settings_row_is_not_ready(tmp_path: Path) -> None:
             " working_days text, bank_holiday_division text, auto_close_time text)"
         )
         connection.execute("INSERT INTO settings VALUES (1,'04-06','','scotland','')")
+        connection.commit()
 
     assert setup.is_initialised(db) is False
 

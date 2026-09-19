@@ -27,6 +27,7 @@ from flexi.models.database.db import (
 )
 from flexi.services import bank_holidays
 from flexi.services.bank_holidays import (
+    CACHE_MAX_AGE,
     BankHolidayFetcher,
     BankHolidayService,
     ParsedBankHoliday,
@@ -141,9 +142,38 @@ class TestCacheHit:
 
 
 class TestStaleRefresh:
+    @pytest.mark.parametrize(
+        ("age", "fresh"),
+        [
+            (CACHE_MAX_AGE - timedelta(minutes=1), True),
+            (CACHE_MAX_AGE + timedelta(minutes=1), False),
+        ],
+        ids=("a-minute-inside", "a-minute-outside"),
+    )
+    def test_a_week_old_calendar_is_where_fresh_ends(
+        self, session: Session, age: timedelta, fresh: bool
+    ) -> None:
+        """The boundary itself, which ten days and 2020 both clear by miles.
+
+        README says Flexi caches the calendar for a week, so the number is a
+        promise and a minute either side of it is the only thing that pins it.
+        """
+        assert timedelta(days=7) == CACHE_MAX_AGE
+        session.add(
+            BankHolidayRefresh(
+                division="england-and-wales",
+                fetched_at=(wallclock.utc_now() - age).replace(tzinfo=None),
+            )
+        )
+        session.commit()
+
+        svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
+
+        assert svc.is_fresh() is fresh
+
     def test_stale_cache_triggers_refresh(self, session: Session) -> None:
         # Insert old entries
-        old = datetime.now(tz=UTC) - timedelta(days=10)
+        old = datetime.now(tz=UTC) - CACHE_MAX_AGE - timedelta(days=3)
         session.add_all(
             (
                 BankHolidayRefresh(
@@ -552,7 +582,9 @@ class TestRefreshingOnlyWhenItIsStale:
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Stale means a substitute day may have moved since it was written."""
-        stale = (datetime.now(tz=UTC) - timedelta(days=10)).replace(tzinfo=None)
+        stale = (wallclock.utc_now() - CACHE_MAX_AGE - timedelta(days=3)).replace(
+            tzinfo=None
+        )
         session.add_all(
             (
                 BankHolidayRefresh(division="england-and-wales", fetched_at=stale),

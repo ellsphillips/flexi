@@ -15,7 +15,9 @@ existed: ruff makes its own exception for `os.environ` mutation between imports,
 precisely so that a file can do this.
 """
 
+import atexit
 import os
+import shutil
 import tempfile
 
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="flexi-config-")
@@ -28,6 +30,7 @@ os.environ["TERM"] = "xterm-256color"
 import asyncio
 import inspect
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, date
 from pathlib import Path
 from typing import Any
@@ -35,7 +38,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
-from hypothesis import HealthCheck, settings
+from hypothesis import settings
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 from textual.message_pump import MessagePump
@@ -46,12 +49,7 @@ from flexi.models.database.db import Base, WorkSession
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services import setup
 
-settings.register_profile(
-    "dev",
-    max_examples=100,
-    deadline=None,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
-)
+settings.register_profile("dev", max_examples=100, deadline=None)
 """How hard Hypothesis tries by default.
 
 No deadline: the suite runs under `-n auto`, so a worker can be descheduled
@@ -59,10 +57,10 @@ mid-example and a per-example time limit turns a loaded laptop into a failing
 test. Hypothesis's own shrinking still bounds the work, and `--timeout` catches
 a genuine hang.
 
-`function_scoped_fixture` is suppressed because the database fixtures here build
-one empty SQLite file and are cheap to reuse across examples; the health check
-exists to warn that the fixture is not reset per example, and every property
-test that takes one either resets it or does not care.
+Every health check stays on. A property test taking a function-scoped fixture
+shares one setup across every example, and the check that says so is worth more
+than suppressing it suite-wide on behalf of a test nobody has written. One that
+needs it can say so itself.
 """
 
 settings.register_profile("ci", parent=settings.get_profile("dev"), max_examples=500)
@@ -71,10 +69,28 @@ settings.register_profile("ci", parent=settings.get_profile("dev"), max_examples
 settings.register_profile(
     "thorough", parent=settings.get_profile("dev"), max_examples=5000
 )
-"""For deliberately hunting a suspected property failure: `-p no:randomly
+"""For hunting a suspected property failure: `-p no:randomly
 --hypothesis-profile=thorough`."""
 
-settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
+PROFILES = ("dev", "ci", "thorough")
+"""Checked against, because `load_profile` accepts a name nobody registered and
+silently leaves the current profile in place."""
+
+_WANTED = os.environ.get("HYPOTHESIS_PROFILE", "dev")
+if _WANTED not in PROFILES:
+    _MSG = f"HYPOTHESIS_PROFILE={_WANTED!r} is not one of {PROFILES}"
+    raise RuntimeError(_MSG)
+settings.load_profile(_WANTED)
+
+
+# Below the imports, which is where `E402` allows a call. Read back out of the
+# environment because nothing has moved it yet: `_never_the_real_home` replaces
+# the variable per test, and that is long after this line. Every xdist worker
+# imports this file, so every process removes the directory it made.
+atexit.register(shutil.rmtree, os.environ["XDG_CONFIG_HOME"], ignore_errors=True)
+
+# So a failed `__all__` check names the module rather than saying `assert False`.
+pytest.register_assert_rewrite("tests.public_api")
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -290,6 +306,23 @@ def engine(tmp_path: Path) -> Iterator[Engine]:
 def session(engine: Engine) -> Iterator[Session]:
     with get_session(engine) as open_session:
         yield open_session
+
+
+@contextmanager
+def session_at(path: Path) -> Iterator[Session]:
+    """A session on a database a test has already built, engine and all.
+
+    For the databases no fixture owns: the one a migration wrote, the one a
+    command built, the one the application is running on. `get_session` takes an
+    engine its caller disposes of, and `get_session(create_db_engine(path))`
+    gives that engine to nobody, so its connection outlives the session.
+    """
+    opened = create_db_engine(path)
+    try:
+        with get_session(opened) as open_session:
+            yield open_session
+    finally:
+        opened.dispose()
 
 
 def sessions_on(session: Session, when: date) -> list[WorkSession]:

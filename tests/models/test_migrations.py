@@ -12,6 +12,7 @@ import os
 import sqlite3
 from argparse import Namespace
 from configparser import ConfigParser
+from contextlib import closing
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -50,6 +51,7 @@ from flexi.models.database.migrate import (
     run_migrations,
 )
 from flexi.services.registry import build_services
+from tests.conftest import session_at
 
 BEFORE_HALF_DAYS = "0006"
 BEFORE_OFFSETS = "0009"
@@ -171,15 +173,17 @@ def test_revision_inspection_distinguishes_missing_and_empty_databases(
 def test_revision_inspection_identifies_an_unstamped_schema(
     db: Path, schema: str
 ) -> None:
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute(schema)
+        connection.commit()
 
     assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
 
 
 def test_revision_inspection_identifies_an_empty_stamp_table(db: Path) -> None:
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+        connection.commit()
 
     assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
 
@@ -202,11 +206,12 @@ def test_revision_inspection_carries_the_database_stamp(db: Path) -> None:
 def test_revision_inspection_refuses_ambiguous_stamps(
     db: Path, rows: tuple[str | None, ...], message: str
 ) -> None:
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
         connection.executemany(
             "INSERT INTO alembic_version VALUES (?)", ((row,) for row in rows)
         )
+        connection.commit()
 
     with pytest.raises(RuntimeError, match=message):
         current_revision(db)
@@ -224,14 +229,15 @@ def test_a_corrupt_database_is_not_mistaken_for_a_fresh_one(db: Path) -> None:
 def test_an_unstamped_existing_schema_is_not_assumed_to_belong_to_flexi(
     db: Path,
 ) -> None:
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE somebody_elses_data (value TEXT)")
         connection.execute("INSERT INTO somebody_elses_data VALUES ('kept')")
+        connection.commit()
 
     with pytest.raises(RuntimeError, match="unstamped schema"):
         run_migrations(db)
 
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         assert connection.execute(
             "SELECT value FROM somebody_elses_data"
         ).fetchone() == ("kept",)
@@ -330,14 +336,11 @@ def test_existing_absences_survive_the_rebuild(db: Path) -> None:
 
     upgrade(db, HEAD)
 
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         booked = session.query(AbsenceDay).order_by(AbsenceDay.date).all()
         assert [item.date for item in booked] == [date(2026, 6, 10), date(2026, 6, 11)]
         assert all(item.portion is Portion.FULL for item in booked)
         assert booked[0].absence_type is AbsenceType.ANNUAL
-    finally:
-        session.close()
 
 
 def test_the_new_columns_are_backfilled(db: Path) -> None:
@@ -358,14 +361,11 @@ def test_the_new_columns_are_backfilled(db: Path) -> None:
 
     upgrade(db, HEAD)
 
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         settings = session.query(Settings).one()
         assert settings.contracted_minutes == 444
         assert settings.day_window_start == "07:00"
         assert settings.day_window_end == "19:00"
-    finally:
-        session.close()
 
 
 def test_bank_holiday_refresh_metadata_is_backfilled(db: Path) -> None:
@@ -413,8 +413,7 @@ def test_bank_holiday_refresh_metadata_is_backfilled(db: Path) -> None:
 def test_half_days_of_different_types_share_a_date(db: Path) -> None:
     """It moves uniqueness from the date to the pair, which is the point of 0007."""
     upgrade(db, HEAD)
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         session.add_all(
             [
                 AbsenceDay(
@@ -431,8 +430,6 @@ def test_half_days_of_different_types_share_a_date(db: Path) -> None:
         )
         session.commit()
         assert session.query(AbsenceDay).count() == 2
-    finally:
-        session.close()
 
 
 def test_a_second_booking_of_the_same_portion_is_refused_by_the_database(
@@ -440,8 +437,7 @@ def test_a_second_booking_of_the_same_portion_is_refused_by_the_database(
 ) -> None:
     """The constraint is real, not just an application rule."""
     upgrade(db, HEAD)
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         session.add(
             AbsenceDay(
                 date=date(2026, 6, 10),
@@ -459,9 +455,6 @@ def test_a_second_booking_of_the_same_portion_is_refused_by_the_database(
         )
         with pytest.raises(sa.exc.IntegrityError):
             session.commit()
-    finally:
-        session.rollback()
-        session.close()
 
 
 def test_work_sessions_keep_their_events_across_the_upgrade(db: Path) -> None:
@@ -534,8 +527,7 @@ def test_valid_legacy_states_survive_the_invariant_upgrade(db: Path) -> None:
 
     upgrade(db, HEAD)
 
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         settings = session.query(Settings).one()
         assert settings.id == 41
         assert settings.singleton_key == 1
@@ -546,8 +538,6 @@ def test_valid_legacy_states_survive_the_invariant_upgrade(db: Path) -> None:
             71,
             72,
         ]
-    finally:
-        session.close()
 
 
 @pytest.mark.parametrize(
@@ -658,7 +648,7 @@ def test_clock_session_conflicts_fail_before_revision_0014_changes_anything(
 
     assert revision_of(db) == BEFORE_CLOCK_SESSION_INVARIANTS
     assert rows(db, "work_sessions") == before
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         indexes = {
             str(row[0])
             for row in connection.execute(
@@ -705,7 +695,7 @@ def test_clock_session_invariant_downgrade_preserves_history(db: Path) -> None:
 
     assert revision_of(db) == BEFORE_CLOCK_SESSION_INVARIANTS
     assert rows(db, "work_sessions") == before
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         indexes = {
             str(row[0])
             for row in connection.execute(
@@ -735,8 +725,7 @@ def test_head_downgrades_and_upgrades_again(db: Path) -> None:
     representable comes back.
     """
     upgrade(db, HEAD)
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         session.add_all(
             [
                 AbsenceDay(
@@ -757,19 +746,14 @@ def test_head_downgrades_and_upgrades_again(db: Path) -> None:
             ]
         )
         session.commit()
-    finally:
-        session.close()
 
     downgrade(db, BEFORE_HALF_DAYS)
     surviving = rows(db, "absence_days")
     assert len(surviving) == 1, "only the representable full day should remain"
 
     upgrade(db, HEAD)
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         assert session.query(AbsenceDay).count() == 1
-    finally:
-        session.close()
 
 
 def test_upgrading_an_existing_database_snapshots_it_as_it_was(db: Path) -> None:
@@ -844,8 +828,9 @@ def test_the_backup_an_upgrade_takes_ages_out_the_oldest_one(db: Path) -> None:
 
 def stamped_as(db: Path, revision: str) -> None:
     """Rewrite the migration stamp, leaving the schema where it is."""
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute("UPDATE alembic_version SET version_num = ?", (revision,))
+        connection.commit()
 
 
 def test_a_database_from_a_newer_flexi_is_refused_before_it_is_copied(
@@ -993,11 +978,8 @@ def tracking_since_of(db: Path) -> date | None:
     SQLite has no date type, so the column holds a string either way; what
     matters is that `Settings.tracking_since` comes back as a `date`.
     """
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         return session.query(Settings).one().tracking_since
-    finally:
-        session.close()
 
 
 def configured(db: Path, leave_year_start: str = "04-06") -> None:

@@ -19,6 +19,7 @@ connections the code actually opens, which is why it says something a mocked
 
 from __future__ import annotations
 
+import ast
 import sqlite3
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -110,3 +111,89 @@ def test_the_reset_can_remove_a_database_it_has_just_read(
     assert taken is not None
     assert not database.exists()
     assert still_open(opened) == []
+
+
+# -- and the suite closes its own --------------------------------------------
+
+REPO = Path(__file__).resolve().parent.parent
+SOURCES = sorted((REPO / "src").rglob("*.py")) + sorted((REPO / "tests").rglob("*.py"))
+
+
+def sqlite_connect(node: ast.expr) -> bool:
+    """Whether an expression is a direct ``sqlite3.connect(...)`` call."""
+    if not isinstance(node, ast.Call):
+        return False
+    called = node.func
+    return (
+        isinstance(called, ast.Attribute)
+        and called.attr == "connect"
+        and isinstance(called.value, ast.Name)
+        and called.value.id == "sqlite3"
+    )
+
+
+def named(node: ast.expr, name: str) -> bool:
+    """Whether an expression is a call to a function of this name."""
+    if not isinstance(node, ast.Call):
+        return False
+    called = node.func
+    if isinstance(called, ast.Attribute):
+        return called.attr == name
+    return isinstance(called, ast.Name) and called.id == name
+
+
+def bare_connections(tree: ast.Module) -> list[int]:
+    """Lines where a ``with`` block holds a connection nothing will close."""
+    return [
+        item.context_expr.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.With)
+        for item in node.items
+        if sqlite_connect(item.context_expr)
+    ]
+
+
+def borrowed_engines(tree: ast.Module) -> list[int]:
+    """Lines where an engine is built inside the call that only borrows it."""
+    return [
+        argument.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and named(node, "get_session")
+        for argument in node.args
+        if named(argument, "create_db_engine")
+    ]
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda path: path.name)
+def test_no_with_block_holds_a_bare_connection(path: Path) -> None:
+    """The rule above, read off the source instead of watched at runtime.
+
+    A spy sees the connections the call it drives opens. This sees the ones
+    nothing drives, including the suite's own: `with sqlite3.connect(...)`
+    leaves a database open per test, and the warning lands on whichever test
+    the garbage collector happens to be inside when it finally closes.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found = bare_connections(tree)
+    assert found == [], (
+        f"{path.name} opens a connection in a `with` at line "
+        f"{', '.join(str(line) for line in found)}; wrap it in "
+        f"`contextlib.closing` and commit what it writes"
+    )
+
+
+@pytest.mark.parametrize("path", SOURCES, ids=lambda path: path.name)
+def test_no_engine_is_built_inside_a_borrowing_call(path: Path) -> None:
+    """`get_session` takes an engine its caller disposes of.
+
+    `get_session(create_db_engine(path))` gives that engine to nobody, so
+    closing the session returns its connection to a pool that is never
+    disposed and the SQLite file stays open.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found = borrowed_engines(tree)
+    assert found == [], (
+        f"{path.name} builds an engine inside `get_session` at line "
+        f"{', '.join(str(line) for line in found)}; hold it and dispose it, "
+        f"or use `database_scope`"
+    )

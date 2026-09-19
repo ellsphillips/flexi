@@ -18,7 +18,6 @@ from threading import get_ident
 import httpx
 import pytest
 from sqlalchemy import delete, update
-from textual.css.query import NoMatches
 from textual.pilot import Pilot
 from textual.widgets import Input, Select
 
@@ -29,7 +28,7 @@ from flexi.components.modules.records import RecordsModule
 from flexi.constants import Division
 from flexi.context import flexi_app
 from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh, Base
-from flexi.models.database.engine import create_db_engine, get_session
+from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
@@ -38,6 +37,7 @@ from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import CACHE_MAX_AGE, BankHolidayService
 from flexi.services.samples import NOW
 from flexi.versioning import UPGRADE_HINT
+from tests.conftest import session_at
 from tests.tui.conftest import (
     READABLE,
     WIDE,
@@ -124,7 +124,7 @@ MISSING_CALENDAR = "No bank holiday calendar. Days off will count as working day
 
 def empty_the_calendar(path: Path) -> None:
     """Leave the database with no cached holidays for any division."""
-    with get_session(create_db_engine(path)) as session:
+    with session_at(path) as session:
         session.execute(delete(BankHolidayCache))
         session.execute(delete(BankHolidayRefresh))
         session.commit()
@@ -165,7 +165,7 @@ async def test_a_calendar_too_old_to_trust_is_not_reported_as_missing(
     one thing this test turns on is written down in it.
     """
     stale = NOW - CACHE_MAX_AGE - timedelta(days=1)
-    with get_session(create_db_engine(seeded_db)) as session:
+    with session_at(seeded_db) as session:
         session.execute(update(BankHolidayRefresh).values(fetched_at=stale))
         session.commit()
 
@@ -235,7 +235,7 @@ async def test_a_calendar_fetched_this_week_is_left_alone(seeded_db: Path) -> No
     dashboard once a day, and warning about a calendar that is present would
     train people to ignore the warning that matters.
     """
-    with get_session(create_db_engine(seeded_db)) as session:
+    with session_at(seeded_db) as session:
         session.execute(update(BankHolidayRefresh).values(fetched_at=NOW))
         session.commit()
 
@@ -269,23 +269,25 @@ async def test_a_redraw_arriving_while_the_screen_mounts_is_not_a_crash(
     why the first fix for this did not take.
     """
     app = FlexiApp(db_path=seeded_db)
-    raised: list[NoMatches] = []
+    ticks = 0
 
     async def redraw_throughout_mounting() -> None:
+        nonlocal ticks
         for _ in range(MOUNT_TICKS):
-            try:
-                app.refresh_open_screens()
-            except NoMatches as error:
-                raised.append(error)
-                return
+            app.refresh_open_screens()
+            ticks += 1
             await asyncio.sleep(0)
 
     hammer = asyncio.create_task(redraw_throughout_mounting())
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-    hammer.cancel()
+        # Awaited rather than cancelled, and inside the block: nothing retrieves
+        # the exception of a task that dies on its first turn, so a crash there
+        # is a log line at collection and a green test. Awaiting re-raises it,
+        # whatever it was, and says that every tick ran while the app was up.
+        await hammer
 
-    assert not raised, f"a redraw during mounting raised {raised[0]!r}"
+    assert ticks == MOUNT_TICKS
 
 
 async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
@@ -304,7 +306,7 @@ async def test_a_stale_calendar_is_refetched_off_the_message_loop_and_redrawn(
     until an unrelated keystroke.
     """
     stale = NOW - CACHE_MAX_AGE - timedelta(days=1)
-    with get_session(create_db_engine(seeded_db)) as session:
+    with session_at(seeded_db) as session:
         session.execute(update(BankHolidayRefresh).values(fetched_at=stale))
         session.commit()
 

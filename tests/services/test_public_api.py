@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import ast
 import importlib
 import subprocess
 import sys
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from typing import assert_type, get_type_hints
@@ -27,6 +26,7 @@ from flexi.services.registry import (
     settlement_date,
     zero_balance,
 )
+from tests.public_api import check_declared_api, check_public_annotations
 
 SERVICES = Path(service_api.__file__).parent
 MODULE_NAMES = tuple(
@@ -34,55 +34,15 @@ MODULE_NAMES = tuple(
 )
 
 
-def target_names(target: ast.expr) -> Iterator[str]:
-    """Names assigned by one module-level target, including tuple unpacking."""
-    if isinstance(target, ast.Name):
-        yield target.id
-    elif isinstance(target, ast.List | ast.Tuple):
-        for item in target.elts:
-            yield from target_names(item)
-
-
-def locally_defined_public_names(path: Path) -> set[str]:
-    """Public names the module defines itself rather than imports."""
-    found: set[str] = set()
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for statement in tree.body:
-        if isinstance(
-            statement,
-            ast.AsyncFunctionDef | ast.ClassDef | ast.FunctionDef,
-        ):
-            if not statement.name.startswith("_"):
-                found.add(statement.name)
-        elif isinstance(statement, ast.TypeAlias):
-            found.update(
-                name
-                for name in target_names(statement.name)
-                if not name.startswith("_")
-            )
-        elif isinstance(statement, ast.AnnAssign | ast.Assign):
-            targets = (
-                statement.targets
-                if isinstance(statement, ast.Assign)
-                else [statement.target]
-            )
-            found.update(
-                name
-                for target in targets
-                for name in target_names(target)
-                if not name.startswith("_")
-            )
-    return found
+@pytest.mark.parametrize("module_name", MODULE_NAMES)
+def test_each_service_module_exports_every_local_public_name(module_name: str) -> None:
+    check_declared_api(importlib.import_module(f"flexi.services.{module_name}"))
 
 
 @pytest.mark.parametrize("module_name", MODULE_NAMES)
-def test_each_service_module_exports_every_local_public_name(module_name: str) -> None:
-    module = importlib.import_module(f"flexi.services.{module_name}")
-    declared = module.__all__
-
-    assert isinstance(declared, tuple)
-    assert len(declared) == len(set(declared))
-    assert set(declared) == locally_defined_public_names(SERVICES / f"{module_name}.py")
+def test_every_service_annotation_resolves(module_name: str) -> None:
+    """The check the other four packages already make of their leaves."""
+    check_public_annotations(importlib.import_module(f"flexi.services.{module_name}"))
 
 
 def test_the_facade_has_one_unambiguous_route_to_every_export() -> None:

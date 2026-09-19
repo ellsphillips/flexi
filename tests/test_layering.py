@@ -89,6 +89,24 @@ def python_files(package: str) -> list[Path]:
     return sorted((SRC / package).rglob("*.py"))
 
 
+def first_banned(module: str, banned: frozenset[str]) -> str | None:
+    """The rule an imported module name offends, if it offends one.
+
+    The whole name, not its root package: a rule naming one module, such as
+    `flexi.app` or `flexi.services.wallet`, is offended by `from flexi.app
+    import FlexiApp` as well as by anything underneath it. Matched on the root
+    it is offended by neither, which leaves every dotted rule here decorative.
+    """
+    return next(
+        (
+            rule
+            for rule in sorted(banned)
+            if module == rule or module.startswith(f"{rule}.")
+        ),
+        None,
+    )
+
+
 @pytest.mark.parametrize("package", sorted(FORBIDDEN))
 def test_package_exists(package: str) -> None:
     """It fails loudly if a package is renamed and the rule is left behind."""
@@ -109,15 +127,48 @@ def test_layer_imports(package: str, path: Path) -> None:
     """It keeps each layer inside the imports it is allowed."""
     banned = FORBIDDEN[package]
     for module in imported_modules(path):
-        root = module.split(".")[0]
-        offending = next(
-            (rule for rule in banned if root == rule or module.startswith(f"{rule}.")),
-            None,
-        )
+        offending = first_banned(module, banned)
         assert offending is None, (
             f"{path.relative_to(SRC)} imports {module!r}; "
             f"flexi/{package}/ may not depend on {offending!r}"
         )
+
+
+@pytest.mark.parametrize(
+    ("package", "module", "rule"),
+    [
+        ("cli", "flexi.app", "flexi.app"),
+        ("components", "flexi.services.wallet", "flexi.services.wallet"),
+        ("domain", "textual", "textual"),
+        ("domain", "flexi.services.registry", "flexi.services"),
+        ("models", "flexi.cli.balance", "flexi.cli"),
+        ("screens", "sqlalchemy.orm", "sqlalchemy"),
+    ],
+)
+def test_an_import_of_the_banned_name_itself_offends(
+    package: str, module: str, rule: str
+) -> None:
+    """A rule is a module name, and importing that name is what breaks it.
+
+    Asked of the matcher rather than of `src`, because `src` obeys the rule:
+    the first three rows are imports nothing writes today and the matcher has
+    to refuse the day one appears.
+    """
+    assert first_banned(module, FORBIDDEN[package]) == rule
+
+
+@pytest.mark.parametrize(
+    ("package", "module"),
+    [
+        ("components", "flexi.services.absence"),
+        ("domain", "flexi.constants"),
+        ("cli", "flexi.app_state"),
+        ("models", "textualize"),
+    ],
+)
+def test_a_name_that_only_starts_like_a_rule_is_free(package: str, module: str) -> None:
+    """A rule ends at a dot, so `flexi.app_state` is not `flexi.app`."""
+    assert first_banned(module, FORBIDDEN[package]) is None
 
 
 EXPENSIVE = frozenset(
@@ -156,14 +207,7 @@ def test_the_entry_point_stays_cheap_to_import() -> None:
     """
     entry = SRC / "__main__.py"
     for module in module_scope_imports(entry):
-        offending = next(
-            (
-                rule
-                for rule in EXPENSIVE
-                if module == rule or module.startswith(f"{rule}.")
-            ),
-            None,
-        )
+        offending = first_banned(module, EXPENSIVE)
         assert offending is None, (
             f"__main__.py imports {module!r} at module scope, so every command "
             f"pays for it. Move it into the function that uses it."

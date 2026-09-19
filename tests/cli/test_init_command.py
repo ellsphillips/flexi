@@ -11,6 +11,7 @@ from __future__ import annotations
 import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -62,7 +63,7 @@ def test_a_snapshot_is_consistent_and_verifies(populated: Path) -> None:
 
 def test_a_snapshot_holds_what_the_database_held(populated: Path) -> None:
     taken = snapshot(populated)
-    with sqlite3.connect(f"file:{taken}?mode=ro", uri=True) as copy:
+    with closing(sqlite3.connect(f"file:{taken}?mode=ro", uri=True)) as copy:
         events = copy.execute("SELECT count(*) FROM clock_events").fetchone()[0]
     assert events == 1
 
@@ -127,7 +128,7 @@ with database_scope(Path(sys.argv[1])) as (_engine, session):
 
     taken = init_cli.reset(populated)
     assert taken is not None
-    with sqlite3.connect(f"file:{taken}?mode=ro", uri=True) as copy:
+    with closing(sqlite3.connect(f"file:{taken}?mode=ro", uri=True)) as copy:
         assert copy.execute("SELECT value FROM lease_commits").fetchall() == [(42,)]
 
 
@@ -162,7 +163,7 @@ def test_a_reset_through_a_link_is_refused_and_names_both_ends(
     assert str(target) in str(raised.value)
     assert target.is_file()
     assert populated.is_symlink()
-    with sqlite3.connect(f"file:{target}?mode=ro", uri=True) as kept:
+    with closing(sqlite3.connect(f"file:{target}?mode=ro", uri=True)) as kept:
         assert kept.execute("SELECT count(*) FROM clock_events").fetchone()[0] == 1
 
 
@@ -287,9 +288,10 @@ def test_a_table_this_list_has_not_heard_of_does_not_blank_the_count(
     the whole database as holding nothing.
     """
     db = tmp_path / "older.db"
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE clock_events (id integer primary key)")
         connection.execute("INSERT INTO clock_events VALUES (1)")
+        connection.commit()
 
     contents = init_cli.describe(db)
 

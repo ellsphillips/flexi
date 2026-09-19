@@ -88,6 +88,60 @@ def test_the_gate_waits_for_every_workflow_ci_calls() -> None:
     assert set(jobs["green"]["needs"]) == calling
 
 
+def _needs(job: dict[str, Any]) -> set[str]:
+    """What a job waits for. YAML allows one name or a list of them."""
+    required = job.get("needs", [])
+    return {required} if isinstance(required, str) else set(required)
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_green_reads_a_result_for_every_job_it_needs() -> None:
+    """Waiting for a check is not the same as reading what it said.
+
+    `always()` means the gate runs whatever happened, so a job listed in
+    `needs` and left out of `RESULTS` is waited for and then ignored: it can
+    fail and `All green` still passes.
+    """
+    jobs = _workflow("ci.yaml")["jobs"]
+    results = jobs["green"]["steps"][0]["env"]["RESULTS"]
+
+    for name in _needs(jobs["green"]):
+        assert f"needs.{name}.result" in results, f"the gate never reads {name}"
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_publishing_waits_for_every_check_the_release_calls() -> None:
+    """The list the release calls is not what gates it. `artefact.needs` is.
+
+    A fourth check added to both pipelines satisfies the two lists above and
+    changes nothing here: `artefact` would start as soon as the three it knows
+    about finished, `publish` waits only for `artefact`, and the release ships
+    while the new check is still running.
+    """
+    jobs = _workflow("release.yaml")["jobs"]
+    calling = {name for name, job in jobs.items() if isinstance(job.get("uses"), str)}
+
+    assert calling | {"guard"} <= _needs(jobs["artefact"])
+    assert "artefact" in _needs(jobs["publish"])
+    assert "publish" in _needs(jobs["tag"])
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_every_check_the_release_calls_is_behind_the_guard() -> None:
+    """A push to main that changes no version runs the guard and stops.
+
+    A check that does not carry the condition runs the whole matrix on every
+    README fix, and one that does not wait for the guard cannot read it.
+    """
+    jobs = _workflow("release.yaml")["jobs"]
+
+    for name, job in jobs.items():
+        if not isinstance(job.get("uses"), str):
+            continue
+        assert "guard" in _needs(job), f"{name} cannot read the guard"
+        assert job.get("if") == "needs.guard.outputs.publish == 'true'", name
+
+
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
 def test_third_party_actions_are_pinned_to_reviewable_commits() -> None:
     """A mutable tag cannot change the code a trusted workflow executes."""

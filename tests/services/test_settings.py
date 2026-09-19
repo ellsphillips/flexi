@@ -755,19 +755,6 @@ def test_failed_commits_are_rolled_back(
 # ---- the closed vocabularies ----
 
 
-def test_every_absence_type_declares_its_details() -> None:
-    """Adding a member and forgetting the table used to be a KeyError.
-
-    On the booking path, with mypy clean and the suite green. The guard is at
-    import time, so this test is really asserting that the guard is still there
-    and still reachable.
-    """
-    for kind in AbsenceType:
-        assert kind.label, kind.name
-        assert kind.short, kind.name
-        assert kind.token, kind.name
-
-
 def test_every_absence_type_has_a_key_that_books_it() -> None:
     """The year calendar's legend derives from this rather than restating it.
 

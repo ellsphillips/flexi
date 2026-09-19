@@ -56,9 +56,12 @@ class TestTheDefaultDatabase:
     """
 
     def test_a_session_opened_with_no_engine_reaches_the_real_database(self) -> None:
-        bound = None
-        with get_session(create_db_engine()) as session:
-            bound = session.get_bind()
+        engine = create_db_engine()
+        try:
+            with get_session(engine) as session:
+                bound = session.get_bind()
+        finally:
+            engine.dispose()
         assert isinstance(bound, Engine)
         assert bound.url.database == str(database_file())
 

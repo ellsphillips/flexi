@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import ast
 import importlib
 import subprocess
 import sys
 from collections import defaultdict
-from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
 from typing import assert_type, get_type_hints
@@ -28,7 +26,11 @@ from flexi.components.common import Gauge
 from flexi.components.modules.base import Module
 from flexi.screens import DashboardScreen as FacadeDashboardScreen
 from flexi.screens.dashboard import DashboardScreen
-from tests.public_api import contains_any, public_type_hints
+from tests.public_api import (
+    check_declared_api,
+    check_public_annotations,
+    wildcard_names,
+)
 
 COMPONENTS = Path(component_api.__file__).parent
 SCREENS = Path(screen_api.__file__).parent
@@ -59,59 +61,6 @@ SCREEN_LEAVES = tuple(
 LEAVES = (*COMPONENT_LEAVES, *DASHBOARD_MODULE_LEAVES, *SCREEN_LEAVES, theme)
 
 
-def module_statements(statements: list[ast.stmt]) -> Iterator[ast.stmt]:
-    """Statements evaluated at module scope, including conditional branches."""
-    for statement in statements:
-        yield statement
-        if isinstance(statement, ast.If):
-            yield from module_statements(statement.body)
-            yield from module_statements(statement.orelse)
-
-
-def target_names(target: ast.expr) -> Iterator[str]:
-    if isinstance(target, ast.Name):
-        yield target.id
-    elif isinstance(target, ast.List | ast.Tuple):
-        for item in target.elts:
-            yield from target_names(item)
-
-
-def locally_defined_public_names(module: ModuleType) -> set[str]:
-    """Public values defined by a leaf rather than imported into it."""
-    path = Path(module.__file__ or "")
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    found: set[str] = set()
-    for statement in module_statements(tree.body):
-        if isinstance(statement, ast.AsyncFunctionDef | ast.ClassDef | ast.FunctionDef):
-            if not statement.name.startswith("_"):
-                found.add(statement.name)
-        elif isinstance(statement, ast.TypeAlias):
-            found.update(
-                name
-                for name in target_names(statement.name)
-                if not name.startswith("_")
-            )
-        elif isinstance(statement, ast.AnnAssign | ast.Assign):
-            targets = (
-                statement.targets
-                if isinstance(statement, ast.Assign)
-                else [statement.target]
-            )
-            found.update(
-                name
-                for target in targets
-                for name in target_names(target)
-                if not name.startswith("_")
-            )
-    return found
-
-
-def wildcard_names(module: ModuleType) -> set[str]:
-    namespace: dict[str, object] = {}
-    exec(f"from {module.__name__} import *", namespace)  # noqa: S102
-    return set(namespace) - {"__builtins__"}
-
-
 def owners_of(modules: tuple[ModuleType, ...]) -> dict[str, list[ModuleType]]:
     owners: defaultdict[str, list[ModuleType]] = defaultdict(list)
     for module in modules:
@@ -122,10 +71,7 @@ def owners_of(modules: tuple[ModuleType, ...]) -> dict[str, list[ModuleType]]:
 
 @pytest.mark.parametrize("module", LEAVES, ids=lambda module: module.__name__)
 def test_each_ui_leaf_publishes_every_local_name(module: ModuleType) -> None:
-    assert isinstance(module.__all__, tuple)
-    assert len(module.__all__) == len(set(module.__all__))
-    assert set(module.__all__) == locally_defined_public_names(module)
-    assert wildcard_names(module) == set(module.__all__)
+    check_declared_api(module)
 
 
 @pytest.mark.parametrize("facade", [component_api, module_api, screen_api])
@@ -198,11 +144,7 @@ def test_facades_are_statically_typed() -> None:
 
 def test_public_annotations_resolve_at_runtime() -> None:
     for module in LEAVES:
-        checked = list(public_type_hints(module))
-        assert checked
-        for qualified, hints in checked:
-            assert hints, f"{qualified} has no annotations"
-            assert not any(map(contains_any, hints.values())), qualified
+        check_public_annotations(module)
 
     common_hints = get_type_hints(component_api.styled_track)
     assert common_hints["track"].__module__ == "rich.style"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
 from pathlib import Path
 from types import MappingProxyType, ModuleType
 from typing import cast
@@ -25,7 +24,7 @@ from flexi import (
     wallclock,
 )
 from flexi.services.registry import Services
-from tests.public_api import contains_any, public_type_hints
+from tests.public_api import check_declared_api, check_public_annotations
 
 MODULES = (
     app,
@@ -47,74 +46,14 @@ class ServiceOnlyApp(TextualApp[None]):
     services = cast("Services", object())
 
 
-def module_statements(statements: list[ast.stmt]) -> Iterator[ast.stmt]:
-    """Statements evaluated at module scope, including conditional branches."""
-    for statement in statements:
-        yield statement
-        if isinstance(statement, ast.If):
-            yield from module_statements(statement.body)
-            yield from module_statements(statement.orelse)
-
-
-def target_names(target: ast.expr) -> Iterator[str]:
-    if isinstance(target, ast.Name):
-        yield target.id
-    elif isinstance(target, ast.List | ast.Tuple):
-        for item in target.elts:
-            yield from target_names(item)
-
-
-def locally_defined_public_names(module: ModuleType) -> set[str]:
-    """Public values defined by a module rather than imported into it."""
-    path = Path(module.__file__ or "")
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    found: set[str] = set()
-    for statement in module_statements(tree.body):
-        if isinstance(statement, ast.AsyncFunctionDef | ast.ClassDef | ast.FunctionDef):
-            if not statement.name.startswith("_"):
-                found.add(statement.name)
-        elif isinstance(statement, ast.TypeAlias):
-            found.update(
-                name
-                for name in target_names(statement.name)
-                if not name.startswith("_")
-            )
-        elif isinstance(statement, ast.AnnAssign | ast.Assign):
-            targets = (
-                statement.targets
-                if isinstance(statement, ast.Assign)
-                else [statement.target]
-            )
-            found.update(
-                name
-                for target in targets
-                for name in target_names(target)
-                if not name.startswith("_")
-            )
-    return found
-
-
-def wildcard_names(module: ModuleType) -> set[str]:
-    namespace: dict[str, object] = {}
-    exec(f"from {module.__name__} import *", namespace)  # noqa: S102
-    return set(namespace) - {"__builtins__"}
-
-
 @pytest.mark.parametrize("module", MODULES, ids=lambda module: module.__name__)
 def test_each_top_level_module_publishes_every_local_name(module: ModuleType) -> None:
-    assert isinstance(module.__all__, tuple)
-    assert len(module.__all__) == len(set(module.__all__))
-    assert set(module.__all__) == locally_defined_public_names(module)
-    assert wildcard_names(module) == set(module.__all__)
+    check_declared_api(module)
 
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda module: module.__name__)
 def test_public_annotations_are_resolvable(module: ModuleType) -> None:
-    checked = list(public_type_hints(module))
-    assert checked
-    for qualified, hints in checked:
-        assert hints, f"{qualified} has no annotations"
-        assert not any(map(contains_any, hints.values())), qualified
+    check_public_annotations(module)
 
 
 def test_closed_constant_tables_and_choices_are_immutable() -> None:

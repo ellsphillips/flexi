@@ -18,12 +18,13 @@ from textual.widgets import Input, Select, Static
 from flexi.app import FlexiApp
 from flexi.components.wordmark import Wordmark
 from flexi.models.database.db import Base
-from flexi.models.database.engine import create_db_engine, get_session
+from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.settings import NO_DIVISION
 from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
 from flexi.services.settings import SettingsService
 from flexi.theme import MARK_LIVE, TAIL, colour
+from tests.conftest import session_at
 from tests.tui.conftest import WIDE, showing
 
 
@@ -161,7 +162,7 @@ async def test_a_half_answered_form_is_not_saved(fresh_db: Path) -> None:
         assert "All fields are required" in notices(app)
         showing(app, SetupScreen)
 
-    with get_session(create_db_engine(fresh_db)) as session:
+    with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
 
 
@@ -188,7 +189,7 @@ async def test_an_entitlement_that_is_not_a_number_is_refused(fresh_db: Path) ->
         )
         showing(app, SetupScreen)
 
-    with get_session(create_db_engine(fresh_db)) as session:
+    with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
 
 
@@ -210,7 +211,7 @@ async def test_an_entitlement_outside_the_domain_is_refused(
         assert any("finite and zero or more" in notice for notice in notices(app))
         showing(app, SetupScreen)
 
-    with get_session(create_db_engine(fresh_db)) as session:
+    with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
 
 
@@ -237,7 +238,7 @@ async def test_a_cleared_region_is_asked_for_again(fresh_db: Path) -> None:
         assert NO_DIVISION in notices(app)
         showing(app, SetupScreen)
 
-    with get_session(create_db_engine(fresh_db)) as session:
+    with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
 
 
@@ -252,7 +253,7 @@ async def test_setup_refuses_an_answer_it_cannot_read(fresh_db: Path) -> None:
 
         showing(app, SetupScreen)  # still here, not dismissed
 
-    with get_session(create_db_engine(fresh_db)) as session:
+    with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
 
 
@@ -266,7 +267,7 @@ async def test_what_was_answered_is_what_was_saved(fresh_db: Path) -> None:
         await pilot.pause()
         await pilot.pause()
 
-    with get_session(create_db_engine(fresh_db)) as session:
+    with session_at(fresh_db) as session:
         settings = SettingsService(session)
         stored = settings.get_settings()
         assert stored is not None
@@ -291,7 +292,7 @@ def entitlement_note(app: FlexiApp) -> str:
 
 def filed(db_path: Path) -> list[tuple[int, float]]:
     """Every entitlement in the database, by year."""
-    with get_session(create_db_engine(db_path)) as session:
+    with session_at(db_path) as session:
         return [
             (row.year, row.days) for row in SettingsService(session).all_entitlements()
         ]
@@ -391,7 +392,7 @@ async def test_the_wordmark_lands_and_the_questions_arrive_under_it(
         await pilot.pause()
         showing(app, DashboardScreen)
 
-    with get_session(create_db_engine(fresh_db)) as session:
+    with session_at(fresh_db) as session:
         stored = SettingsService(session).get_settings()
         assert stored is not None, "the answers survived the animation"
         assert stored.leave_year_start == "04-06"

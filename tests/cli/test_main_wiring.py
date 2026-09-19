@@ -240,7 +240,8 @@ def test_the_demo_opens_a_working_life_rather_than_an_empty_week(
     counted: list[int] = []
 
     def read_it(app: _Opened) -> None:
-        with sqlite3.connect(f"file:{app.db_path}?mode=ro", uri=True) as sample:
+        read_only = f"file:{app.db_path}?mode=ro"
+        with closing(sqlite3.connect(read_only, uri=True)) as sample:
             counted.append(
                 sample.execute("SELECT count(*) FROM work_sessions").fetchone()[0]
             )
@@ -266,7 +267,8 @@ def test_the_demo_records_nothing_that_has_not_happened_yet(
     latest: list[str | None] = []
 
     def read_it(app: _Opened) -> None:
-        with sqlite3.connect(f"file:{app.db_path}?mode=ro", uri=True) as sample:
+        read_only = f"file:{app.db_path}?mode=ro"
+        with closing(sqlite3.connect(read_only, uri=True)) as sample:
             latest.append(
                 sample.execute("SELECT max(timestamp) FROM clock_events").fetchone()[0]
             )
@@ -511,8 +513,9 @@ def test_a_schema_with_no_stamp_says_where_the_database_is() -> None:
     """Alembic cannot upgrade what it cannot place, and refuses to guess."""
     db = database_file()
     db.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         connection.execute("CREATE TABLE settings (id integer primary key)")
+        connection.commit()
 
     result = CliRunner().invoke(cli, ["init"])
 
