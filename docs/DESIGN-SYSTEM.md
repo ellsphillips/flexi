@@ -13,7 +13,7 @@ a cyan accent, a categorical day-type scale, and one signature element.
 ## 1. The signature: the punch strip
 
 A single row of cells across the working-day window, filled where you were on the
-clock. It is the time card redrawn, it encodes real data rather than decorating
+clock. It is the time card redrawn, it encodes real data instead of decorating
 the screen, and it appears at three scales:
 
 ```
@@ -28,6 +28,7 @@ Fri 12   ░░░░░░░░░░░░░░░░░░░░░░░�
 | Glyph | Meaning | Colour |
 |---|---|---|
 | `█` | on the clock | `$c-accent` |
+| `▒` | recorded after the fact, never clocked | `$c-accent` |
 | `·` | a break between two sessions | `$c-ash` |
 | `─` | inside the window, never on the clock | `$c-line` |
 | `▌` | on the clock *now* (today's live edge) | `$c-accent-lift`, bold |
@@ -35,11 +36,15 @@ Fri 12   ░░░░░░░░░░░░░░░░░░░░░░░�
 | `░` | bank holiday | `$c-holiday` |
 | `┊` | where contracted hours would be met | `$c-muted` |
 
+The glyphs are `flexi.theme.CELL_GLYPHS`, keyed by `flexi.domain.punch.Cell`, and
+the order of that enum is the precedence order: a later state overwrites an
+earlier one on the same cell.
+
 **Adaptive resolution.** The strip renders into whatever width it is handed and
-picks the largest bucket from `{5, 10, 15, 20, 30, 60}` minutes that fits. It
-never truncates the window; it coarsens. Below 24 columns it degrades to a
-three-cell summary (`morning · afternoon · evening`) rather than lying about
-precision.
+takes the finest bucket from `BUCKET_SIZES` — `{5, 10, 15, 20, 30, 60}` minutes —
+that fits it. It never truncates the window; it coarsens. Below `MIN_CELLS` (12
+columns) it falls back to a three-cell summary, which claims no precision it
+cannot draw.
 
 Three placements: full width in an expanded row, one line per day in the records
 table (above), and — the reason it is the signature — **seven stacked on one time
@@ -60,8 +65,9 @@ file into a Textual `Theme` so the names are available in every stylesheet. See
 §7 for why.
 
 Values are not eyeballed. Each ramp is a fixed OKLCH hue rendered at a chosen
-lightness and chroma, and the day-type scale is validated with the
-`dataviz` skill's checker (`scripts/validate_palette.js`) — see §3.
+lightness and chroma, and the three colours that carry series identity in a chart
+were checked for contrast against `$c-surface` and for pairwise separation under
+deutan and protan simulation — see §3.
 
 ```css
 /* Grounds — warm graphite. Terminals are dark; a warm ground gives the cool
@@ -105,7 +111,7 @@ $c-warning-deep: #3A2400;
 
 /* Day types. toil/annual/sick are the validated chart scale — cyan, violet and
    orange, which clear an all-pairs colour-vision check. The other three are
-   deliberately quieter, because a bank holiday should not compete with a sick
+   quieter, because a bank holiday should not compete with a sick
    day for attention. */
 $c-toil: #00AAAD;
 $c-toil-lift: #4CDCDF;
@@ -134,43 +140,42 @@ decoration.
 
 ---
 
-## 3. The day-type scale, and why it fails the validator on purpose
+## 3. The day-type scale, and why only three of six are chart colours
 
-Three of the six day-type colours are a validated categorical scale. Run:
+Three of the six day-type colours are a categorical chart scale: **TOIL (cyan
+`#00AAAD`), annual (violet `#8451C9`) and sick (orange `#DB703B`)**. Against the
+`$c-surface` ground `#171614` all three clear the contrast floor, and under
+all-pairs colour-vision-deficiency simulation the worst pair separates by ΔE 15.7
+deutan (25.6 unsimulated). They are the only colours that may carry series
+identity in a chart; a fourth series folds into a neutral "Other".
 
-```
-node scripts/validate_palette.js "#00AAAD,#8451C9,#DB703B" --mode dark \
-     --surface "#171614" --pairs all
-```
-
-All five checks pass, including all-pairs CVD separation (worst pair ΔE 15.7
-deutan / 25.6 normal). These three — **TOIL (cyan), annual (violet) and sick
-(orange)** — are the only colours that may carry series identity in a chart. A
-fourth series folds into a neutral "Other".
+The method, so any public OKLCH tool can re-check it: fixed hue, chosen
+lightness and chroma, all-pairs ΔE under deutan and protan simulation against
+that surface.
 
 TOIL wears the house cyan because TOIL is the application's own currency, and
 the accent is what everything else has to be picked around. A blue accent was
 tried and rejected: it read too dark against the warm ground, and at hue 255 it
 left no room for a violet, which pushed annual leave to magenta.
 
-The accent sits at the very top of the dark lightness band (L 0.67). That is
-deliberate — one step lower and the large fills, the primary button and the
-punch strip, go muddy.
+The accent sits at the very top of the dark lightness band (L 0.67). One step
+lower and the large fills — the primary button and the punch strip — go muddy.
 
-The remaining three are **not** chart series and deliberately fail the chroma
-floor:
+The remaining three are **not** chart series, and they fail the chroma floor by
+design:
 
-- `$c-holiday` and `$c-unpaid` are low-chroma on purpose. They say *not one of
-  the things you are tracking*. Giving them chart-grade saturation would make a
+- `$c-holiday` and `$c-unpaid` are low-chroma. They say *not one of the things
+  you are tracking*. Giving them chart-grade saturation would make a
   bank holiday compete with a sick day for attention, which is exactly backwards.
 - `$c-other` is a real hue — magenta — but sits close to `$c-annual` under
   protanopia. It is legal here and illegal in a chart, because
   in the interface it only ever appears as a one-cell rule beside the literal
   word "Other".
 
-**Do not "fix" this.** A future agent running the validator over all six will get
-a FAIL; that FAIL is documented, intended, and load-bearing. The rule that makes
-it safe is the one in `docs/README.md`: colour is never the only encoding.
+**Do not "fix" this.** Anyone re-checking all six against the chart-series
+criteria will find the last three fail the chroma floor, and that is the intent.
+The rule that makes it safe is the one in [`README.md`](README.md): colour is
+never the only encoding.
 
 ---
 
@@ -191,7 +196,7 @@ colour and space. Five roles, and no sixth:
 application exists to show, so it is drawn with Textual's `Digits` widget —
 seven-segment glyphs three rows tall. That is the only place in Flexi where type
 gets bigger, and spending the effect there is what makes it read as the headline
-rather than as one stat among five.
+and not as one stat among five.
 
 ```
    ┏━┓ ┓  ┏━┓ ╻ ┏━┓
@@ -207,9 +212,9 @@ Sign is mandatory and always drawn: `+` in `$c-surplus-lift`, `−` in
 
 ## 5. Components
 
-`flexi/components/common.py` — the four every screen needs, so no screen invents
-its own. Each is a thin wrapper whose whole job is to carry a class from the
-stylesheet.
+`flexi/components/common.py` holds the pieces every screen needs, so no screen
+invents its own. Most are a thin wrapper whose whole job is to carry a class from
+the stylesheet.
 
 | Component | API | Notes |
 |---|---|---|
@@ -218,10 +223,14 @@ stylesheet.
 | `StatCard(label, value, note)` | reactive `.value` | Overline / figure / caption. |
 | `KeyHint(key, action)` | — | For the few shortcuts a region wants to teach in place. |
 | `Rule(label, accent=False)` | — | A hairline with an optional label above it. This is how sections separate. Distinct from `textual.widgets.Rule`. |
-| `Gauge(label, low, high, mode)` | `.show(value, target)` | A track, a fill, and a marker where the target sits, coloured by distance from it. The wallet's allowance bars. |
-| `PunchStrip(ledger, window)` | `.set_ledger()` | §1. |
-| `ProgressRail(label)` | `.show(done, total, compact=)` | One bar: how much of an expectation is met. Overshoot is *drawn*, not clipped — a ten-hour day against a seven-hour contract is the most interesting thing this application can tell you, and a bar that stopped at full would say it was ordinary. |
-| `TimeProgress` | `.show(...)` | The two rails under the header: today, and the shown period. |
+| `Gauge` | `.show(...)` | A track, a fill, and a marker where the target sits. The caller passes the `Tone`, because whether a reading is good news is a question about leave policy, not about bars. The wallet's allowance bars. |
+| `EmptyIndicator(message)` | — | What a panel says when there is nothing in it. |
+
+Three more live beside it: `PunchStrip` in `punch.py` (§1), and `ProgressRail`
+and `TimeProgress` in `progress.py`. A rail draws overshoot instead of clipping
+it — a ten-hour day against a seven-hour contract is the most interesting thing
+this application can tell you, and a bar that stopped at full would say it was
+ordinary.
 
 `flexi/components/chrome.py` — the frame:
 `Lockup`, `NavBar` (+`NavItem` table, the single place a screen is registered),
@@ -257,7 +266,7 @@ what stops the keyboard experience being a lie. `footer_key_cost` and
 
 **A module has no ground of its own.** It is a rounded rule drawn *on* the page,
 not a lighter rectangle floating above it — which is what makes a panel read as
-part of the application rather than as a card dropped onto it. Everything
+part of the application and not as a card dropped onto it. Everything
 inside inherits the same ground, including the records table; a `DataTable` left
 on `$c-surface` grows a lighter rectangle in the middle of its own panel.
 
@@ -265,8 +274,7 @@ on `$c-surface` grows a lighter rectangle in the middle of its own panel.
 lift: a modal, a hover, a field, the footer.
 
 **Never add or remove a border on `:focus`.** A border occupies layout space, so
-adding one on focus reflows the panel by two cells. Change the colour only. (The
-current `components/welcome/style.scss` gets this wrong; it goes.)
+adding one on focus reflows the panel by two cells. Change the colour only.
 
 Titles are set from Python in `__init__` via
 `super().__setattr__("border_title", ...)` — plain assignment routes through
@@ -283,60 +291,35 @@ leave year. This removes a whole summary row per module.
 Terminal CSS has no media query, so the class is the query:
 
 ```python
-def on_resize(self, event: Resize) -> None:
-    self.set_class(event.size.width < 100, "-narrow")
-    self.set_class(event.size.width < 64, "-tiny")
+def on_resize(self) -> None:
+    mark_width(self, self.size.width)  # sets -narrow under 100, -tiny under 64
 ```
 
-Three layouts, driven by the terminal's width — never a widget's own, which is
-what keeps a fold from changing the measurement that caused it:
+`mark_width` is in `components/common.py` and the thresholds are
+`NARROW_COLUMNS = 100` and `TINY_COLUMNS = 64`. The screen's own stylesheet says
+what the classes mean for it. Always the terminal's width, never the widget's
+own, which is what keeps a fold from changing the measurement that caused it.
 
 | Width | Dashboard |
 |---|---|
-| ≥ 100 | Control column (30 cells) left, records right. |
-| 64–99 | Stacked: clock + balance strip across the top, records below, wallet and calendar behind tabs. |
-| < 64 | Records only, with the balance in the header context slot. Everything else is reachable by jump mode. |
+| ≥ 100 | Control column (34 cells) on the left, records on the right. |
+| 64–99 | Stacked: clock, balance and wallet in a row across the top, records below. The calendar is hidden. |
+| < 64 | Balance and wallet go too, leaving the clock strip and records. The rest is one jump away. |
 
 ### The dashboard, at width ≥ 100
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│ flexi·   Dashboard  Insights  Settings          Thu 11 Jun · Week of 8 Jun│
-├──────────────────────────────────────────────────────────────────────────┤
-│ TODAY ━━━━━━━━━━━━━━━ 6:08 of 7:24   WEEK ━━━━━━━━━━━━━━┿ 29:29 of 25:54 │
-│ ╭─ Clock ─────────── 6:08:00 ─╮ ╭─ Records ──────────── 29:29 of 25:54 ─╮ │
-│ │ on the clock          [▉ ]  │ │  Day                       Worked   ± │ │
-│ │ ───██████████████▌─┊────    │ │  Mon 08  ──███████··██████  8:13 +0:49│ │
-│ │ since 08:44 · go home 16:48 │ │  Tue 09  ▓▓▓▓▓▓───█████████ 7:36 +3:54│ │
-│ │           Depart            │ │  Wed 10  ────█████··███████ 7:32 +0:08│ │
-│ ╰─────────────────────────────╯ │  Thu 11  ───███████··███▌─┊ 6:08 −1:16│ │
-│ ╭─ Balance ─── 6 Apr–5 Apr 27 ─╮ │  Fri 12  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  TOIL     │ │
-│ │    ╶─╮╭─╮   ╷ ╷╭─╮          │ │  Sat 13  ─────────────────      —     │ │
-│ │ ╶┼╴┌─┘│ │ : ╰─┤├─┤          │ │  Sun 14  ─────────────────      —     │ │
-│ │    ╰─╴╰─╯     ╵╰─╯          │ │  Week                     29:29 −3:49 │ │
-│ │       FLEXI BALANCE         │ │                                       │ │
-│ │  20:48 banked · +2.8 days   │ │                                       │ │
-│ ╰─────────────────────────────╯ │                                       │ │
-│ ╭─ Wallet ──── −3:49 this period ╮                                      │ │
-│ │ ANNUAL  20.5 left of 25     │ │                                       │ │
-│ │ ━━━━━┿━━━━━━━━━━━━━━━━━━━━━ │ │                                       │ │
-│ │ TOIL        +20:48  (+2.8d) │ │                                       │ │
-│ │ SICK      1d · 1 occasion   │ │                                       │ │
-│ ╰─────────────────────────────╯ │                                       │ │
-│ ╭─ Calendar ───── Week of 8 Jun ╮                                       │ │
-│ │  ‹      June 2026       ›    │ │                                      │ │
-│ │  M  T  W  T  F  S  S         │ ╰───────────────────────────────────────╯ │
-│ │  8  9 10 11 12 13 14         │                                          │
-│ ╰─────────────────────────────╯                                          │
-├──────────────────────────────────────────────────────────────────────────┤
-│ Clocked in at 09:12                                          ● on clock  │
-│ t Today  p Period  / Clock  v Jump  ? Help  f1 Dashboard  f2 Insights    │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+The committed render is [`shots/dashboard-wide.txt`](shots/dashboard-wide.txt),
+and the narrow and tiny cases sit beside it. Those files are regenerated by
+`scripts/shoot.py` and asserted byte-for-byte by the snapshot tests, so they
+cannot drift from what the application draws; a sketch in this document could.
+
+The arrangement they show: header with the nav and the period label, two progress
+rails, a control column of Clock / Balance / Wallet / Calendar on the left,
+Records taking the rest, and the status bar over the key strip.
 
 ### The rails
 
-Two bars under the header, flowed rather than docked: **two widgets docked to the
+Two bars under the header, flowed and not docked: **two widgets docked to the
 same edge both land on the same row and the later one wins**, so the header is
 docked above them and the footer below, which leaves exactly one row.
 
@@ -370,8 +353,8 @@ def palette(path: Path = THEME_PATH) -> dict[str, str]:
     return {name: value.strip() for name, value in _PALETTE.findall(source)}
 ```
 
-A value containing `$` is skipped deliberately — the parser does no substitution
-and a half-resolved colour is worse than an absent one. Add a colour to the
+A value containing `$` is skipped: the parser does no substitution, and a
+half-resolved colour is worse than an absent one. Add a colour to the
 `PALETTE` block and every screen gets it; there is exactly one place a colour is
 written down.
 
@@ -389,16 +372,41 @@ Three traps:
   property survives it, which is why it looks arbitrary until you hit it. So the
   two hatch colours are **theme-only** tokens — `$c-hatch-empty` and
   `$c-hatch-jump`, derived from the palette in `theme_variables()` and
-  deliberately absent from `flexi.tcss`. A new `hatch:` rule needs the same
+  absent from `flexi.tcss`. A new `hatch:` rule needs the same
   treatment.
 
-Flexi ships one theme. `ENABLE_COMMAND_PALETTE` stays **on** (the current app
-turns it off, which also disables Textual's theme provider) so the palette can
-carry Flexi's own commands — see `ARCHITECTURE.md` §5.
+Flexi ships one theme. `ENABLE_COMMAND_PALETTE` stays **on** so the palette can
+carry Flexi's own commands — see [`ARCHITECTURE.md`](ARCHITECTURE.md) §5.
 
 ---
 
-## 8. Checklist for a new component
+## 8. Charts
+
+The five Insights panels are drawn character by character, with no plotting
+library. Three rules hold across them:
+
+- **Series colours come from the three chart slots only** — `$c-toil`,
+  `$c-annual`, `$c-sick` (§3). A fourth series folds into a neutral "Other".
+- **Whole cells, both arms.** Eighths read beautifully upward (`▁▂▃▄▅▆▇`) and
+  need U+1FB0x Symbols for Legacy Computing to do the same downward. Most
+  terminal fonts do not carry those, so a diverging bar uses whole cells in both
+  directions.
+- **A chart stops at today.** Every working day after it expects hours and has
+  none recorded, so charting the rest of a leave year draws a cliff of deficits
+  for days that have not happened yet.
+
+Sequential ramps are one hue, light to dark. The year heatmap is diverging: two
+poles with a grey midpoint, never a rainbow. `DIVERGING_STEPS` is four per arm,
+each a fixed OKLCH hue at rising lightness, chosen for monotonic steps and
+contrast against the surface.
+
+The line chart in the running-balance panel is Braille (`flexi/domain/plot.py`):
+each cell carries a two-by-four dot grid, so forty cells is eighty positions
+across.
+
+---
+
+## 9. Checklist for a new component
 
 1. Does an existing component do it? `Pill`, `StatCard`, `Rule`, `Gauge`,
    `KeyHint` cover most of it.
@@ -407,6 +415,6 @@ carry Flexi's own commands — see `ARCHITECTURE.md` §5.
 3. Does it draw its own border? It should use `.module`, or no border at all.
 4. Does `:focus` change anything about its *size*? Fix it.
 5. Is there a hardcoded hex anywhere in it? Move it to the palette block.
-6. Does it degrade at 64 columns and at 40? Add the `-narrow` rule or say in a
-   comment why it does not need one.
+6. Does it degrade below 100 columns and below 64? Add the `-narrow` and
+   `-tiny` rules, or say in a comment why it does not need them.
 7. Is it in the jump target table if it is focusable? See `KEYMAP.md`.

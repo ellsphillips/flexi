@@ -19,16 +19,20 @@ The three that matter most:
 
 ```python
 @pytest.mark.parametrize(
-    ("worked", "expected", "want"),
+    ("value", "want"),
     [
-        (h(7, 24), h(7, 24), "0:00"),
-        (h(8, 12), h(7, 24), "+0:48"),
-        (h(3, 10), h(7, 24), "−4:14"),  # U+2212, not a hyphen
+        (timedelta(0), "0:00"),
+        (timedelta(minutes=48), "+0:48"),
+        (timedelta(hours=-4, minutes=-14), "−4:14"),  # U+2212, not a hyphen
     ],
 )
-def test_delta_formatting(worked, expected, want):
-    assert format_delta(worked - expected) == want
+def test_delta_formatting(value, want):
+    assert delta(value) == want
 ```
+
+`flexi.domain.format` also carries doctests, and `pytest` runs them: `pyproject`
+puts `src/flexi/domain`, `src/flexi/cli/ui` and `src/flexi/services` on
+`testpaths` with `--doctest-modules`. An example in a docstring there is a test.
 
 `Period` gets a full matrix: every granularity × {start, end, label, shift(±1),
 zoom, contains}, including the boundaries that break naive implementations —
@@ -40,7 +44,7 @@ the signature and a one-cell drift is invisible in review and obvious in use.
 
 ## 2. Service tests
 
-The fixtures are already written; use them rather than rolling your own.
+The fixtures are already written; use them.
 `tests/conftest.py` gives every test an `engine` and a `session` against a
 throwaway SQLite file under `tmp_path`. `tests/services/conftest.py` adds
 `configure` — one call that sets Flexi up and hands back a built `Services`
@@ -77,13 +81,13 @@ Every service method that returns a `Result` needs both branches tested. The
 refusal message is part of the contract — it is what the status bar shows.
 
 **Migrations.** `tests/models/test_migrations.py` upgrades and downgrades a
-*populated* database. `0007` rebuilds `absence_days` rather than altering it, and
+*populated* database. `0007` rebuilds `absence_days` instead of altering it, and
 a table rebuild that silently loses rows is the kind of bug only discovered by the
 person whose leave records it ate.
 
 Write to those tables with **raw SQL, not the ORM**: the models carry columns a
 later revision adds, so writing through them tests the schema against itself
-rather than against what is on disk.
+instead of against what is on disk.
 
 ## 3. Pilot tests
 
@@ -100,16 +104,16 @@ async def test_slash_toggles_the_clock(app_factory):
 ```
 
 `app_factory` builds a `FlexiApp` against a temporary database with settings
-already saved, so the setup screen does not intercept. Put it in
+already saved, so the setup screen does not intercept. It lives in
 `tests/tui/conftest.py`.
 
-What to cover here, at minimum — these are the acceptance tests for the six
-features:
+What to cover here, at minimum:
 
 - `/` clocks in and out from every screen, and does **not** fire inside an
   `Input`.
 - `space` expands the row under the cursor and the cursor does not move.
-- `d`/`w`/`m`/`y` change the records table's row count to 1 / 7 / 28–31 / 12.
+- `d`/`w`/`m`/`y` give the records table a row per day in the period plus one
+  total row: 2, 8, 29–32, 366.
 - `t` returns to today from any period.
 - `v` opens the overlay, a target key focuses that panel, `escape` restores the
   previously focused widget.
@@ -125,14 +129,15 @@ features:
 
 ## 4. Snapshot tests
 
-`tests/snapshot/test_screens.py` drives eleven screens and compares what the
-compositor produced against the text committed in `docs/shots/`.
+`tests/snapshot/test_screens.py` drives every case in its `CASES` tuple and
+compares what the compositor produced against the text committed in
+`docs/shots/`.
 
-**Text, not SVG.** `pytest-textual-snapshot` is installed and compares rendered
-SVGs, which are only readable as pictures — a CI failure becomes a file you have
-to download before you can tell whether the change was intended. Comparing
-characters means a failure prints a unified diff of two screens, in the terminal,
-where whoever caused it is already looking:
+**Text, not SVG.** `pytest-textual-snapshot` compares rendered SVGs, which are
+only readable as pictures — a CI failure becomes a file you have to download
+before you can tell whether the change was intended. So Flexi does not use it.
+Comparing characters means a failure prints a unified diff of two screens, in the
+terminal, where whoever caused it is already looking:
 
 ```
 -  │ ANNUAL LEAVE  20.5 left of 25 │
@@ -142,15 +147,20 @@ where whoever caused it is already looking:
 The SVGs are still written and are still what a reviewer looks at; they are just
 not what the test asserts on.
 
-Rules that keep them useful rather than noisy:
+Rules that keep them useful:
 
 - **Freeze time.** Every case runs inside `time_machine.travel` at
   `flexi.services.samples.NOW` against the seeded database, otherwise the diff is
   the clock.
-- **Three widths, every time**: 120×36 (wide), 84×28 (narrow), 64×22 (tiny). The
-  responsive rules in `DESIGN-SYSTEM.md` §6 only exist if all three are pinned.
-- **Update deliberately**: `uv run python scripts/shoot.py` regenerates both the
-  SVGs and the text, and the diff is what you review before committing it.
+- **Pin the widths the case is about.** The three are 120×36 (wide), 84×28
+  (narrow) and 64×22 (tiny). The dashboard is pinned at all three, leave at wide
+  and narrow, insights at 120×36 and 120×44, and the rest at wide only. The
+  responsive rules in `DESIGN-SYSTEM.md` §6 only exist where they are pinned.
+- **Regenerate, then read the diff.** `uv run python scripts/shoot.py` rewrites
+  both the SVGs and the text; the diff is what you review before committing.
+- **A version bump is a visual change.** The header carries `v0.2.0`, so every
+  `.txt` twin carries it too, and bumping `version` in `pyproject.toml` without
+  re-shooting turns the snapshot suite red.
 
 ## 5. Screenshots for review
 
@@ -159,30 +169,35 @@ app headlessly and export SVG:
 
 ```python
 # scripts/shoot.py
-async def shoot(name: str, size: tuple[int, int], keys: list[str]) -> None:
-    app = build_demo_app()
-    async with app.run_test(size=size) as pilot:
-        for key in keys:
-            await pilot.press(key)
-        await pilot.pause()
-        app.save_screenshot(f"docs/shots/{name}.svg")
+def build_database(path: Path) -> Session: ...
+
+
+async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> None:
+    ...
+    app.save_screenshot(str(SHOTS / f"{name}.svg"))
+    (SHOTS / f"{name}.txt").write_text(screen_text(app), encoding="utf-8")
 ```
 
 `uv run python scripts/shoot.py` writes the set into `docs/shots/`, as an SVG and
-a text twin per screen. Convert to PNG for a terminal that renders images:
+a text twin per screen. `SHOOTS` there is `CASES` plus the five wider
+`showcase-*` shots the README embeds; the two lists are kept in step by hand.
+Convert to PNG for a terminal that renders images:
 
 ```
 rsvg-convert -w 1600 docs/shots/dashboard-wide.svg -o /tmp/dashboard-wide.png
 ```
 
 The demo seeds a leave year of plausible data — some overtime, one short day, a
-booked week of annual leave, two bank holidays, a sick day, a half-day and a TOIL
-day — so the shots show the interesting cases rather than an empty database. It
-lives in `flexi/services/samples.py` and is what `flexi --demo` runs, which makes
-it the same data a reviewer, a snapshot test and a new user all see.
+week of annual leave, the year's bank holidays, a sick day, a half day and a TOIL
+day — so the shots show the interesting cases and not an empty database. It lives
+in `flexi/services/samples.py` and is what `flexi --demo` runs, which makes it
+the same data a reviewer, a snapshot test and a new user all see.
 
-`--demo` builds it in a temporary directory and throws it away on exit, so it can
-never be confused with real records.
+Everything is derived from the anchor it is handed. The snapshots pass `ANCHOR`,
+a fixed Thursday, because a committed SVG cannot move; `--demo` passes today,
+along with the wall time that day has reached, so nothing is seeded that has not
+happened yet. `--demo` builds it in a temporary directory and throws it away on
+exit.
 
 ## 6. Running
 
@@ -203,7 +218,7 @@ either.
 `uv run pre-commit run --all-files` runs the lot, and those hooks are the same
 commands CI runs.
 
-A failed snapshot prints its diff, so nothing needs uploading as an artifact.
+A failed snapshot prints its diff, so nothing needs uploading as an artefact.
 
 ## 7. Reproducing a loaded runner
 
@@ -214,7 +229,7 @@ FLEXI_LATE_CALLBACKS=0.05 uv run pytest -q
 `pilot.pause()` drains the messages queued at the moment it is called. Work that
 a *layout* schedules — `RecordsModule` measuring its strip column, the key strip
 recomposing — may or may not have landed by the time it returns, and which of
-those happens is a property of how loaded the machine is rather than of the
+those happens is a property of how loaded the machine is, not of the
 code. On a laptop it lands early and every test passes. On a three-core runner
 it lands a moment later, on top of whatever the test had just set up: a table the
 test emptied fills again, a ledger cache the test just invalidated refills.
@@ -224,7 +239,7 @@ That variable puts every deferred callback behind a timer, which is the one thin
 machine in twenty seconds. **It is expected to be green**, and a test that passes
 without it and fails with it has not found a bug — it is asserting on a screen
 that had not finished drawing. The cure is `await settled(pilot)` from
-`tests/conftest.py`, which waits for the callbacks themselves rather than
+`tests/conftest.py`, which waits for the callbacks themselves instead of
 guessing at a number of pauses.
 
 Both failures that motivated it were real CI failures, in different files, that
@@ -239,15 +254,14 @@ by pushing.
 
 | Workflow | Job | The same thing, locally |
 |---|---|---|
-| `static.yaml` | `Lint and types` | `uv sync --locked --dev && uv lock --check && uv run ruff check && uv run ruff format --check && uv run mypy` |
-| `tests.yaml` | the matrix | `TZ=UTC uv run pytest` and `TZ=Europe/London uv run pytest` |
+| `static.yaml` | `Lint and types` | `uv sync --locked --dev && uv lock --check && uv run ruff check && uv run ruff format --check && uv run mypy && uv run mypy --platform win32 --no-warn-unreachable` |
+| `tests.yaml` | the matrix | `TZ=UTC uv run pytest`, `TZ=Europe/London uv run pytest`, `TZ=America/New_York uv run pytest` |
 | `tests.yaml` | the coverage row | `TZ=UTC uv run pytest --cov` |
 | `tests.yaml` | `Deferred callbacks land late` | `TZ=UTC FLEXI_LATE_CALLBACKS=0.05 uv run pytest` |
 | `package.yaml` | `Wheel installs and runs` | see below |
 
-`tests/test_pipelines.py` asserts that both pipelines call the same three and
-that `All green` waits for all of them, which is what used to be guaranteed by
-there being a single `verify.yaml` holding every job.
+`tests/test_pipelines.py` asserts that both pipelines call the same three, and
+that `All green` waits for all of them.
 
 ```
 # wheel: build it, install it where no source tree can be imported, run it
@@ -260,7 +274,7 @@ uv pip install --python .probe/bin/python dist/*.whl --group dev
 ```
 
 On Windows the interpreter is `.probe/Scripts/python`; the job picks between
-the two rather than assuming. The venv is relative and inside the checkout
+the two by looking. The venv is relative and inside the checkout
 because bash on Windows rewrites an absolute POSIX path on its way to a native
 binary, and the src layout is what keeps the check honest — the working
 directory is the source tree and `flexi` is still importable only from the
@@ -272,20 +286,20 @@ supplies the first two:
 ```
 UV_PROJECT_ENVIRONMENT=/tmp/py314 uv sync --locked --dev --python 3.14
 TZ=Europe/London /tmp/py314/bin/python -m pytest -q
+TZ=America/New_York /tmp/py314/bin/python -m pytest -q
 ```
 
 The third cannot be supplied here, and does not need to be. The suite pins its
 own clock through `flexi.wallclock`, so `TZ` is not what makes the timezone
-rows differ — the machine underneath them is, and green under both is the
+rows differ — the machine underneath them is, and green under all three is the
 evidence that no reading escapes the pin. Windows sets its zone with `tzutil`
-rather than `TZ`, which is a POSIX idea `time.tzset` implements and Windows
+and not with `TZ`, which is a POSIX idea `time.tzset` implements and Windows
 does not have. Two tests are skipped there and say so: the pty reader in
 `tests/cli/test_terminal.py`, which needs a terminal Windows has no equivalent
 of, and the pair in `tests/services/test_setup.py` that need a file `chmod`
 can genuinely deny.
 
-The workflow files themselves are checked the same way, by the linter that knows
-about them rather than by reading:
+The workflow files themselves are checked by the linter that knows about them:
 
 ```
 uvx --from actionlint-py actionlint .github/workflows/*.yaml
