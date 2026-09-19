@@ -69,17 +69,16 @@ MINUTES_IN_HOUR = 60
 NOON = 12
 
 DEFAULT_AUTO_CLOSE = time(18, 0)
-"""When a session somebody forgot to close is closed for them."""
+"""When a session left open overnight is closed for the user."""
 
 DEFAULT_LEAVE_YEAR_START = "01-01"
-"""The calendar year, until somebody says otherwise."""
+"""The calendar year, until setup says otherwise."""
 
 DEFAULT_ENTITLEMENT_DAYS = 25.0
-"""What a year of annual leave is offered as before anybody edits it.
+"""The annual leave a new install is offered, before it is edited.
 
-Named because the setup form, the settings screen and the demo data each typed
-it out, so the number a new install sees was three numbers that happened to
-agree."""
+Shared by the setup form, the settings screen and the demo data, so a new
+install sees one number and not three that agree."""
 
 INVALID_ENTITLEMENT = "Entitlement must be a number of days (finite and zero or more)"
 """The shared user-facing contract for an invalid leave allowance."""
@@ -94,9 +93,8 @@ type WorkingDays = tuple[int, ...]
 def validate_entitlement_days(days: float) -> float:
     """Return a finite non-negative allowance, or reject it.
 
-    ``nan`` is especially dangerous here: SQLite's driver turns it into
-    ``NULL``, so without an explicit domain boundary the error arrives as an
-    unrelated persistence failure during commit.
+    ``nan`` reaches SQLite as ``NULL``, so without this boundary the failure
+    surfaces at commit time as an unrelated persistence error.
     """
     if not isfinite(days) or days < 0:
         raise ValueError(INVALID_ENTITLEMENT)
@@ -116,9 +114,9 @@ def parse_entitlement_days(raw: str) -> float:
 class SettingsUpdate:
     """A typed settings write, expressed entirely in domain values.
 
-    ``contracted`` and ``day_window`` are updates rather than nullable stored
-    values. Omitting either preserves the value already persisted; on the first
-    write, the database defaults are used. A zero contracted duration remains
+    ``contracted`` and ``day_window`` are updates, not nullable stored values.
+    Omitting either keeps the value already persisted; on the first write, the
+    database defaults are used. A zero contracted duration remains
     an explicit update because absence is represented only by ``None``.
     """
 
@@ -134,12 +132,6 @@ class SettingsUpdate:
 class ResolvedSettings:
     """The settings row, read once, with every fallback already applied.
 
-    The six accessors below each opened by selecting the one-row settings
-    table and each wrote its own "or the default" clause. Drawing a wallet took
-    ten of those selects, and two of the six had drifted from the rule the
-    other four state: a stored value that cannot be read is a settings problem,
-    not a reason to refuse to open somebody's time records.
-
     One read, one place the fallbacks live, and a value the hot paths can take
     once and pass down.
     """
@@ -151,10 +143,10 @@ class ResolvedSettings:
     division: Division
     leave_year_start: LeaveYearStart
     tracking_since: date | None
-    """The day setup was answered. Days before it expect no work.
+    """The day setup was answered; days before it expect no work.
 
-    ``None`` on a database migrated from before the column existed with nothing
-    recorded to date it by, and it means what Flexi did then: every day counts.
+    ``None`` on a database migrated from before 0015 with nothing recorded to
+    date it by, and it means every day counts.
     """
 
 
@@ -211,10 +203,8 @@ def readable_window(start: str, end: str) -> Window:
 def read_or[T](value: Callable[[], T], fallback: T) -> T:
     """A stored field, or the default when it cannot be read.
 
-    The bargain the module strikes, in one place rather than in four of the six
-    accessors that were supposed to be striking it. A value written by an older
-    version, or by hand, must not be an application that will not open — there
-    would be no way in to correct the setting.
+    A value written by an older version, or by hand, must not stop Flexi
+    opening: there would be no way in to correct the setting.
     """
     try:
         return value()
@@ -236,11 +226,9 @@ class SettingsService:
     def is_setup_complete(self) -> bool:
         """Whether this database has everything Flexi needs to open on it.
 
-        The fields come from :data:`~flexi.services.setup.REQUIRED_SETTINGS`
-        rather than being spelled out again. The command line reads that same
-        list over a read-only connection, and two entry points disagreeing about
-        one file is a bare `flexi` opening the dashboard on a database that
-        `flexi clock in` calls unconfigured.
+        The fields come from :data:`~flexi.services.setup.REQUIRED_SETTINGS`,
+        which the command line reads over a read-only connection, so the two
+        entry points cannot disagree about one database.
         """
         stored = self.get_settings()
         if stored is None:
@@ -255,10 +243,9 @@ class SettingsService:
     def stage_settings(self, update: SettingsUpdate) -> Settings:
         """Apply a typed update to this transaction without committing it.
 
-        This is the composable persistence primitive used when settings and
-        entitlements must succeed or fail together. Application callers will
-        normally prefer :meth:`save_settings` or
-        :meth:`save_settings_and_entitlements`.
+        For a caller that needs settings and entitlements to succeed or fail
+        together. :meth:`save_settings` and
+        :meth:`save_settings_and_entitlements` commit.
         """
         leave_year_start = format_leave_year_start(update.leave_year_start)
         working_days = format_working_days(update.working_days)
@@ -275,9 +262,8 @@ class SettingsService:
         settings = self.get_settings()
         if settings is None:
             settings = Settings(
-                # Stamped on creation only. This is the answer to "when did
-                # Flexi start watching", and editing the settings later does not
-                # change it -- the update path below deliberately leaves it.
+                # Stamped on creation only: this is when Flexi started
+                # watching, and the update path below leaves it alone.
                 tracking_since=wallclock.today(),
                 leave_year_start=leave_year_start,
                 working_days=working_days,
@@ -322,17 +308,17 @@ class SettingsService:
     def resolved(self) -> ResolvedSettings:
         """Every setting, in one read, with the fallbacks already applied.
 
-        What a caller that needs more than one of them should ask for. The
-        accessors below are for the callers that need exactly one.
+        For a caller that needs more than one; the accessors below are for a
+        caller that needs exactly one.
         """
         return resolve_settings(self.get_settings())
 
     def get_contracted(self) -> timedelta:
         """How long a standard working day is.
 
-        Held as minutes rather than hours: 7.4 is not representable in binary
-        floating point, and a leave year of rounding it produces a balance that
-        disagrees with the sum of its own rows.
+        Held as minutes, not hours: 7.4 is not representable in binary floating
+        point, and a leave year of rounding it produces a balance that disagrees
+        with the sum of its own rows.
         """
         return self.resolved().contracted
 
@@ -345,7 +331,7 @@ class SettingsService:
         return list(self.resolved().working_days)
 
     def get_auto_close_time(self) -> time:
-        """When to close a session nobody closed."""
+        """When to close a session that was left open."""
         return self.resolved().auto_close
 
     def get_division(self) -> Division:
@@ -396,12 +382,11 @@ DEFAULT_WORKING_DAYS = (0, 1, 2, 3, 4)
 
 
 def named_weekday(token: str) -> int:
-    """One weekday of a working pattern, by name or by index.
+    """A weekday of a working pattern, by name or by index.
 
-    Raising rather than answering ``None``, because every caller is reading a
-    field somebody typed into and the message is the whole of what they get
-    back. The names themselves come from `flexi.domain.dates`, which is where
-    the rest of the grammar reads them.
+    Raises instead of answering ``None``: every caller is reading a field the
+    user typed into, and the message is the whole of the feedback. The names
+    come from `flexi.domain.dates`.
     """
     token = token.strip().lower()
     if token.isdigit():
@@ -418,12 +403,11 @@ def named_weekday(token: str) -> int:
 
 
 def parse_working_days(raw: str) -> list[int]:
-    """Weekday indices from whatever somebody typed.
+    """Weekday indices from whatever the user typed.
 
     A field labelled "working days" invites ``Mon-Fri`` as readily as
-    ``0,1,2,3,4``, so it takes both, and ranges of either. What it will not do
-    is accept something it cannot read: this used to be saved unchecked, and the
-    application then failed to start on every subsequent launch.
+    ``0,1,2,3,4``, so it takes both, and ranges of either. Anything it cannot
+    read is refused here, before it can be stored.
 
     Examples:
         >>> parse_working_days("0,1,2,3,4")
@@ -462,11 +446,11 @@ CLOCK_PATTERN = re.compile(r"^(\d{1,2})(?:[:.](\d{1,2}))?\s*([ap]m?)?$", re.IGNO
 
 
 def parse_clock_time(raw: str) -> tuple[int, int]:
-    """Hour and minute from whatever somebody typed.
+    """Hour and minute from whatever the user typed.
 
     A field labelled "auto-close time" invites `6pm` as readily as `18:00`, so
-    it takes both. What it will not do is accept something it cannot read: this
-    used to be saved unchecked, and every later launch then died unpacking it.
+    it takes both. Anything it cannot read is refused here, before it can be
+    stored.
 
     Examples:
         >>> parse_clock_time("18:00")
@@ -503,10 +487,7 @@ def parse_clock_time(raw: str) -> tuple[int, int]:
 
 
 def parse_month_day(raw: str) -> tuple[int, int]:
-    """Parse a MM-DD or MM/DD string into (month, day).
-
-    Raises ValueError if the string is not a valid month-day.
-    """
+    """Parse a MM-DD or MM/DD string into (month, day)."""
     m = re.match(r"^(\d{1,2})[/\-](\d{1,2})$", raw.strip())
     if not m:
         msg = f"Invalid date format '{raw}', expected MM-DD or MM/DD"
@@ -592,10 +573,10 @@ def parse_settings(
 ) -> SettingsUpdate:
     """Parse raw form or CLI values into one immutable settings update.
 
-    The persistence service never accepts strings. This function is the one
-    boundary at which permissive human input such as ``Mon-Fri`` and ``6pm``
-    is interpreted and normalised. A day window is one value, so its two raw
-    endpoints must either both be supplied or both be omitted.
+    The persistence service never accepts strings: this is the one boundary at
+    which permissive input such as ``Mon-Fri`` and ``6pm`` is read and
+    normalised. A day window is one value, so its two raw endpoints are supplied
+    together or omitted together.
     """
     if (day_window_start is None) != (day_window_end is None):
         msg = "Day window start and end must be provided together"

@@ -1,14 +1,11 @@
 """Where Flexi keeps its database and its preferences, on any operating system.
 
-XDG first. ``XDG_DATA_HOME`` and ``XDG_CONFIG_HOME`` are honoured wherever they
-are set, including on Windows, because somebody who sets them means it.
-Otherwise the platform's own convention: ``%LOCALAPPDATA%`` and ``%APPDATA%`` on
-Windows, ``~/.local/share`` and ``~/.config`` everywhere else.
+``XDG_DATA_HOME`` and ``XDG_CONFIG_HOME`` win when set, on every platform.
+Otherwise ``%LOCALAPPDATA%`` and ``%APPDATA%`` on Windows, ``~/.local/share``
+and ``~/.config`` elsewhere.
 
-Nothing here creates a directory. Asking where a file lives should not put
-anything on disk -- ``flexi --version`` used to leave a config directory behind
-on a machine that had never run the application. Writers call :func:`ensure` at
-the point they write.
+Nothing here creates a directory: asking where a file lives puts nothing on
+disk. Writers call :func:`ensure` at the point they write.
 """
 
 from __future__ import annotations
@@ -40,12 +37,11 @@ BACKUPS_DIRNAME = "backups"
 
 
 def absolute_from_env(variable: str) -> Path | None:
-    """An absolute path from the environment, or ``None``.
+    """Return an absolute path from the environment, or ``None``.
 
-    A relative value is ignored rather than resolved against the working
-    directory. That is what the XDG specification asks for, and it stops a
-    stray ``XDG_DATA_HOME=.`` leaving databases wherever you happened to be
-    standing.
+    A relative value is ignored, as the XDG specification asks: a stray
+    ``XDG_DATA_HOME=.`` would leave databases wherever the shell happened to
+    be standing.
     """
     raw = os.environ.get(variable, "").strip()
     if not raw:
@@ -97,15 +93,12 @@ def backups_directory() -> Path:
 def ensure(directory: Path) -> Path:
     """Create a directory, private to its owner, and return it.
 
-    For the moment before a write. What goes in here is clock times, sick days
-    and the notes beside them, and on a shared machine the 0755 a default umask
-    produces is readable by every other account on it. The XDG specification
-    asks for 0700 on a base directory for the same reason.
-
-    Both lines are needed: `mkdir` applies its mode to the leaf alone and the
-    umask masks it, and neither applies at all to a directory that is already
-    there. On Windows the mode is ignored and `chmod` reaches only the
-    read-only attribute, which 0o700 leaves clear.
+    0700, because the contents are clock times, sick days and the notes beside
+    them; the XDG specification asks the same of a base directory. Both calls
+    are needed: `mkdir` applies its mode to the leaf alone, the umask masks it,
+    and neither reaches a directory that is already there. On Windows the mode
+    is ignored and `chmod` touches only the read-only attribute, which 0o700
+    leaves clear.
     """
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     directory.chmod(0o700)

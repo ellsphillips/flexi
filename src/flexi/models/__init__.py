@@ -1,7 +1,7 @@
 """Flexi's persistence model and database operations.
 
-The direct facade mirrors :mod:`flexi.models.database` for callers that do not
-need to name the storage backend. Existing deep imports remain valid.
+Re-exports :mod:`flexi.models.database` for callers that do not need to name
+the storage backend; the deep imports stay valid alongside it.
 """
 
 from __future__ import annotations

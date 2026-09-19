@@ -1,9 +1,8 @@
 """Contracted hours and the day window on settings.
 
-Adds the three numbers the v1 code held as module constants: how long a standard
-day is (``STANDARD_DAY_HOURS = 7.4`` in ``services/wallet.py``) and the span the
-punch strip draws. Backfilled to 7h24 and 07:00-19:00, which is what the constant
-said, so an existing database keeps the balance it had.
+Adds three numbers the code held as constants: how long a standard day is, and
+the two ends of the span the punch strip draws. Backfilled to 7h24 and
+07:00-19:00, so an existing database keeps the balance it had.
 
 Revision ID: 0006
 Revises: 0005

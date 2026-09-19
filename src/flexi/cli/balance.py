@@ -1,8 +1,7 @@
 """Reading and correcting the flexi balance from the command line.
 
-Plain functions taking the service registry and returning an exit code, so they
-can be called and asserted on without Click's test runner and without a
-subprocess. The decorators in `__main__` are adapters over these.
+Plain functions taking the service registry and returning an exit code. The
+decorators in `__main__` are adapters over these.
 """
 
 from __future__ import annotations
@@ -25,10 +24,9 @@ NO_CALENDAR = (
 )
 """Said under the balance, and only there.
 
-Without a calendar every bank holiday is counted as a working day nobody
-worked -- roughly eight days of deficit a leave year -- and this figure is the
-only place that shows. Saying it before every command instead would be a warning
-nobody can act on, printed where it has nothing to do with anything.
+Without a calendar every bank holiday is counted as an unworked working day,
+about eight days of deficit a leave year, and the balance is the only figure
+that shows it.
 """
 
 
@@ -37,9 +35,8 @@ def show(services: Services, as_of: date | None = None) -> int:
     now = wallclock.today()
     today = as_of or now
     if today > now:
-        # Every working day between now and then is charged as a full day
-        # nobody worked, so the figure is a deficit invented from days nobody
-        # has lived. `zero` refuses a future date for the same reason.
+        # A future date charges every working day between now and then as
+        # unworked, so the figure would be a deficit of days not yet lived.
         click.secho(
             f"{long_date(today)} has not happened; the balance runs to today",
             fg="yellow",
@@ -53,10 +50,8 @@ def show(services: Services, as_of: date | None = None) -> int:
     click.echo(
         f"leave year   {stamp(start, '%-d %b %Y')} → {stamp(today, '%-d %b %Y')}"
     )
-    # Said only when it falls inside the reported span, which is the case it
-    # explains: four months of leave year and seven hours expected is a figure
-    # nobody can check without being told which days were counted. A tracking
-    # date after the span explains nothing about it.
+    # Shown only when the tracking date falls inside the reported span, where
+    # it explains why `expected` covers less of the leave year than the dates do.
     since = services.settings.resolved().tracking_since
     if since is not None and start < since <= today:
         click.echo(f"tracking     {stamp(since, '%-d %b %Y')} onwards")
@@ -82,18 +77,15 @@ def zero(
 ) -> int:
     """Draw a line under everything up to a date.
 
-    Records one signed adjustment rather than deleting anything: the clock
-    events that produced the balance stay exactly where they are, and the line
-    can be taken back with `flexi balance undo`.
-
-    Declining exits 1, as declining a booking does: the write that was asked
-    for did not happen, and a script chaining on `&&` has to be able to tell.
+    Records one signed adjustment and deletes nothing, so the clock events that
+    produced the balance stay where they are and `flexi balance undo` can take
+    the line back. Declining exits 1, as declining a booking does, so a script
+    chaining on `&&` can tell the write did not happen.
     """
     when = settlement_date(as_of)
     if when >= wallclock.today():
-        # `zero_balance` refuses this, and the standing it would be sized from
-        # is a projection in which every day between now and then was worked
-        # zero hours. Printing that figure first offers it as a reading.
+        # `zero_balance` refuses a future date, and the standing it would be
+        # sized from counts every day between now and then as unworked.
         return report(zero_balance(services, when, reason=reason or OPENING_BALANCE))
 
     standing = services.ledger.balance(when).delta

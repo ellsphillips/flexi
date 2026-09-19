@@ -1,14 +1,11 @@
 """Plotting a series onto a character grid, without a character in sight.
 
-A terminal cell is not a pixel, and a chart drawn one glyph per sample is a
-histogram whatever it is called. Braille is the way out: every cell carries a
-two-by-four grid of dots, so a strip forty cells wide is eighty positions across
-and thirty-two down, which is enough for a line to look like a line.
+Braille carries the resolution: every cell holds a two-by-four grid of dots, so
+a strip forty cells wide is eighty positions across and thirty-two down.
 
-The whole module is arithmetic over integers and floats. It knows about dots,
-columns and bounds; it does not know about Rich, Textual, colour or styling. A
-:class:`Glyph` names the tone it wants and the widget decides what that means,
-which is what keeps every rule here testable without mounting anything.
+The module is arithmetic over integers and floats. It knows dots, columns and
+bounds, and nothing of Rich, Textual, colour or styling: a :class:`Glyph` names
+the tone it wants and the widget decides what that means.
 """
 
 from __future__ import annotations
@@ -52,7 +49,7 @@ DOT_BITS: Final[tuple[tuple[int, ...], ...]] = (
 """Which bit lights the dot at ``[column][row]``, top row first.
 
 Braille numbers its dots 1-2-3-7 down the left and 4-5-6-8 down the right, which
-is not the order a raster wants. The table is the translation, written once.
+is not the order a raster wants. The table is the translation.
 """
 
 _BAR_LEVELS: Final[str] = " ▁▂▃▄▅▆▇█"
@@ -68,15 +65,14 @@ class Mark(StrEnum):
     """Joined, at braille resolution. For a quantity that moves continuously."""
 
     BAR = "bar"
-    """A column per sample. For a quantity that is counted rather than traced."""
+    """A column per sample. For a quantity that is counted, not traced."""
 
 
 @dataclass(frozen=True, slots=True)
 class Series:
     """One run of values, and how it wants to be drawn.
 
-    ``tone`` is a name, not a colour. The domain must not know what teal is, and
-    the widget that does can look it up.
+    ``tone`` is a name, not a colour: the domain must not know what teal is.
     """
 
     name: str
@@ -119,10 +115,9 @@ class Bounds:
     def around(cls, series: Sequence[Series], *, stacked: bool) -> Bounds:
         """The range that fits every series, with zero always included.
 
-        Zero is kept in view because these are hours against a contract: a
-        chart of 7:20 to 7:30 that fills its height is a dramatic picture of
-        nothing happening. Stacked bars are measured by their totals, which is
-        what the reader is looking at.
+        Zero stays in view because these are hours against a contract: a chart
+        of 7:20 to 7:30 filling its height makes nothing look like something.
+        Stacked bars are measured by their totals.
         """
         readings = list(_readings(series, stacked=stacked))
         return cls(min(0.0, *readings), max(0.0, *readings)) if readings else cls(0, 0)
@@ -176,8 +171,8 @@ def braille(bits: int) -> str:
 class Canvas:
     """A braille bitmap: ``width`` by ``height`` cells, eight dots in each.
 
-    Mutable on purpose. Rasterising a line is a loop that lights one dot at a
-    time, and rebuilding a frozen grid per dot would be a copy per pixel.
+    Mutable: rasterising a line lights one dot at a time, and rebuilding a
+    frozen grid per dot would be a copy per pixel.
 
     Examples:
         >>> canvas = Canvas(2, 1)
@@ -207,9 +202,8 @@ class Canvas:
     def light(self, x: int, y: int) -> None:
         """Light the dot at ``(x, y)``, measured from the bottom left.
 
-        Out-of-range dots are dropped rather than raising: a series is clipped
-        by the box it is drawn in, and a line that leaves the top is a normal
-        thing for a chart to be asked to draw.
+        Out-of-range dots are dropped: a series is clipped by the box it is
+        drawn in, and a line may leave the top of it.
         """
         if not (0 <= x < self.dot_width and 0 <= y < self.dot_height):
             return
@@ -227,8 +221,8 @@ def line_dots(values: Sequence[float], bounds: Bounds, canvas: Canvas) -> None:
     """Draw ``values`` as a joined line onto ``canvas``.
 
     The samples are spread across the full width and the gaps between them are
-    filled in, so the result reads as one stroke rather than a row of dots. One
-    value is a point; none is nothing.
+    filled in, so the result reads as one stroke. One value is a point; none is
+    nothing.
     """
     if not values:
         return
@@ -279,7 +273,7 @@ def bar_glyphs(
     """Bars as a grid of glyphs, top row first, ``None`` where nothing is drawn.
 
     Each sample owns a slice of the width, so a fortnight in forty columns is
-    drawn two cells wide rather than as a hairline with a gap beside it.
+    drawn two cells wide.
     """
     grid: list[list[Glyph | None]] = [[None] * width for _ in range(height)]
     if not series or width <= 0 or height <= 0:
@@ -357,17 +351,11 @@ def plot(
 ) -> list[list[Glyph | None]]:
     """Every series, drawn onto one grid of glyphs, top row first.
 
-    Bars go down first and lines over them, because a line is the reading and
-    bars are the context it is read against. Two lines share a cell by lighting
-    their dots in it, which is what braille is for: a cell is eight dots and
-    two strokes rarely want the same one. The later line's tone is the one a
-    shared cell wears, since a cell carries one colour and the drawing order
-    already decides what sits on top.
+    Bars go down first and lines over them. Two lines share a cell by lighting
+    their own dots in it, and the later tone wins, a cell carrying one colour.
 
-    ``rule`` is a threshold rather than a series: it is drawn under everything,
-    only where nothing else is, and it never appears in a legend. Zero on a
-    balance chart is not a reading somebody took -- it is the line the readings
-    are on one side of or the other. It is pulled into the bounds, so a rule
+    ``rule`` is a threshold, not a series: drawn under everything, only where
+    nothing else is, never in a legend, and pulled into the bounds so that it
     always shows.
     """
     bounds = Bounds.around(series, stacked=stacked)

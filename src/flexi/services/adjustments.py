@@ -1,12 +1,8 @@
-"""Drawing a line under a stretch nobody tracked.
+"""Drawing a line under an untracked stretch.
 
-Install Flexi in August against a leave year that began the previous October and
-two hundred untracked working days each expect their contracted hours, so the
-balance opens at minus ninety.
-
-Deleting the records would lose the proof of what did happen and would not
-survive the next recomputation. An adjustment is one signed row with a date and
-a reason, counted like any other term in the sum, and removable.
+An adjustment is one signed row with a date and a reason, counted like any other
+term in the sum, and removable. Deleting the records instead would lose the
+proof of what did happen and would not survive the next recomputation.
 """
 
 from __future__ import annotations
@@ -44,7 +40,7 @@ class AdjustmentService:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    # -- reading -----------------------------------------------------------
+    # --- reading ----------------------------------------------------------
 
     def all(self) -> list[BalanceAdjustment]:
         """Every correction ever recorded, newest first."""
@@ -68,7 +64,7 @@ class AdjustmentService:
         )
         return self._session.execute(stmt).scalars().first()
 
-    # -- writing -----------------------------------------------------------
+    # --- writing ----------------------------------------------------------
 
     def record(self, when: date, amount: timedelta, reason: str) -> AdjustmentResult:
         """Validate, store and commit one correction."""
@@ -80,13 +76,11 @@ class AdjustmentService:
     ) -> AdjustmentResult:
         """Validate and stage one correction in a caller-owned transaction.
 
-        Rounded to whole minutes, because that is the resolution every figure in
-        the interface is shown at and a correction that reads as ``+0:00`` while
-        moving the balance by forty seconds is worse than no correction at all.
+        Rounded to whole minutes, the resolution every figure in the interface
+        is shown at, and refused when it rounds to nothing.
 
-        This composable boundary deliberately does not commit. Cross-service
-        decisions can therefore read and stage their consequence beneath one
-        writer reservation instead of introducing a stale-read window.
+        Staged and not committed, so a cross-service decision can read and stage
+        its consequence under one writer reservation, with no stale-read window.
         """
         if not reason.strip():
             return AdjustmentResult(False, "An adjustment needs a reason")
@@ -110,7 +104,7 @@ class AdjustmentService:
         )
 
     def remove(self, adjustment_id: int) -> AdjustmentResult:
-        """Undo a correction. It is one row, so it can simply go."""
+        """Undo a correction: it is one row, so it can go."""
         with write_transaction(self._session):
             row = self._session.get(BalanceAdjustment, adjustment_id)
             if row is None:

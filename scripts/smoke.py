@@ -1,8 +1,7 @@
 """Boot the installed package once, against a throwaway database.
 
-Run by CI with an interpreter that has Flexi installed from a wheel and no
-source tree on the path. It is the check the test suite cannot make: whether
-the artefact people actually download starts.
+Runs against an interpreter carrying Flexi installed from a wheel, with no
+source tree on the path.
 
     python scripts/smoke.py
 """
@@ -28,8 +27,7 @@ async def _boot(db: Path) -> str:
 
 
 def main() -> int:
-    # This job answers "does the wheel boot". It must not go red over a
-    # temporary file Windows declines to delete.
+    # Windows can refuse to delete the database file while the engine holds it.
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         db = Path(tmp) / "smoke.db"
 

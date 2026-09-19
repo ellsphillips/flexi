@@ -1,20 +1,14 @@
 """The rail: setup drawn as a line of time with punches on it.
 
-Flexi draws a working day as a strip of cells, filled where you were on the
-clock. The rail is that idea stood on its end -- one continuous line down the
-left margin, a marker at each moment, **heavy through the step being answered
-and hairline through the ones already passed**. The weight is not decoration; it
-is the only thing that says which question is live, which is why the rail can
-carry the whole flow without drawing a single box.
+One continuous line down the left margin, a marker at each moment, heavy
+through the step being answered and hairline through the ones already passed.
+Weight, not colour, says which question is live.
 
 Colours come from ``flexi.theme``, which parses them out of ``flexi.tcss``, so
-the prompt and the application are painted from one palette. Text itself stays
-in default ink: a coloured marker beside an uncoloured label reads on a cream
-terminal as well as a black one, and a prompt is a bad place to discover
-somebody's background is not what you assumed. The accent is spent on the rail
-and the cursor, and nowhere else.
+the prompt and the application are painted from one palette. Labels stay in
+default ink, which reads on a cream terminal as well as a black one.
 
-Pure. Every function returns a Rich renderable and touches no terminal.
+Pure: every function returns a Rich renderable and touches no terminal.
 """
 
 from __future__ import annotations
@@ -53,8 +47,8 @@ __all__ = (
     "wordmark",
 )
 
-# Named for what they do here; defined once, in the design system, so the setup
-# screen draws the same rail as the prompt that precedes it.
+# Local names for the design-system values, so the setup screen draws the same
+# rail as the prompt that precedes it.
 HEAVY: Final = RAIL_LIVE
 HAIRLINE: Final = RAIL_SETTLED
 ACTIVE: Final = MARK_LIVE
@@ -69,19 +63,19 @@ LABEL_WIDTH: Final = 18
 
 
 class Tone(Enum):
-    """What a marker means, in the only four flavours Flexi needs."""
+    """The four marker meanings Flexi draws."""
 
     LIVE = "c-accent"
-    """The step being answered. The teal the application focuses with."""
+    """The step being answered; the teal the application focuses with."""
 
     DONE = "c-surplus"
-    """Settled. The green a surplus wears."""
+    """Settled; the green a surplus wears."""
 
     GRAVE = "c-deficit"
-    """About to lose something. The red a deficit wears."""
+    """About to lose something; the red a deficit wears."""
 
     QUIET = "c-muted"
-    """Structure rather than content: a settled rail, and hints."""
+    """Structure: a settled rail, and hints."""
 
     @property
     def style(self) -> str:
@@ -91,15 +85,10 @@ class Tone(Enum):
 def rail_line(tone: Tone) -> Text:
     """A line beginning with the rail, and nothing else styled.
 
-    ``QUIET`` draws the hairline and everything else draws heavy, so a section
-    is live or settled by virtue of the tone it is asked for. That is what lets
-    the destructive step run heavy *red* down its whole height rather than
-    wearing the accent, which would be the wrong promise entirely.
-
-    The glyph is appended rather than passed to the constructor. ``Text(s,
-    style=...)`` styles the whole object, so everything appended afterwards
-    inherits it -- which paints the labels in the accent and leaves the rail
-    saying nothing, because it says it everywhere.
+    ``QUIET`` draws the hairline and every other tone draws heavy, so a section
+    is live or settled by the tone it is asked for. The glyph is appended, not
+    passed to the constructor: ``Text(s, style=...)`` styles the whole object,
+    so everything appended afterwards would inherit the rail's colour.
     """
     line = Text(GUTTER)
     line.append(HAIRLINE if tone is Tone.QUIET else HEAVY, style=tone.style)
@@ -143,10 +132,9 @@ def measure(count: int, label: str, *, tone: Tone = Tone.QUIET) -> Text:
 def option(label: str, hint: str, *, picked: bool, grave: bool = False) -> Text:
     """One row of a chooser.
 
-    The cursor carries the selection and weight confirms it, so somebody who
+    The cursor carries the selection and weight confirms it, so a reader who
     cannot separate teal from grey still sees which row they are on. A row that
-    destroys something is red whether or not it is picked: finding that out by
-    landing on it is one keystroke too late to be useful.
+    destroys something is red whether or not it is picked.
     """
     tone = Tone.GRAVE if grave else Tone.LIVE
     line = rail_line(Tone.LIVE)

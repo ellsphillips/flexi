@@ -1,22 +1,10 @@
 """A plausible working life, for demos, screenshots and snapshot tests.
 
-`seed_demo` is the module's only mutation and composition boundary. The public
-constants and pure date helpers describe its deterministic scenario; the
-private steps under it are its body broken up to be readable, and they run in
-an order nothing enforces -- wiping before settings, settings before work,
-absences before the work that has to skip them. Publishing those stages would
-advertise a sequence a caller could get wrong, which is the one case where
-private earns its keep here.
-
-Deterministic by construction -- no ``random``, no clock reads. Every figure is
-derived from the day's index, so the seed produces byte-identical output on any
-machine on any day, which is what a committed SVG snapshot requires.
-
-Deterministic is not the same as fixed, and this module used to confuse the two.
-Everything is derived from the anchor it is handed: the leave year it falls in,
-the bank holidays of that year by their own rules, the absences around it.
-``flexi --demo`` hands it today and gets a working life ending today; the
-screenshots hand it :data:`ANCHOR` and get the same bytes they got last year.
+`seed_demo` is the only mutation here, and its private steps run in an order
+nothing enforces: wipe, settings, holidays, absences, then the work that has to
+skip them. Nothing is random and no clock is read; every figure derives from
+the day's index and from the anchor, so a committed SVG snapshot stays
+byte-identical.
 """
 
 from __future__ import annotations
@@ -68,37 +56,28 @@ FRIDAY = 4
 """The last working weekday, as datetime.weekday() numbers them."""
 
 ANCHOR = date(2026, 6, 11)
-"""The Thursday the *screenshots* are drawn as at. Mid-week, mid-month,
-mid-leave-year, and fixed because a committed SVG cannot move.
-
-`flexi --demo` passes today instead. Everything below is derived from whatever
-anchor it is given, so the two uses do not have to agree on a date -- and until
-they stopped agreeing, `--demo` seeded six weeks ending on the 11th of June and
-then opened on the real current week, which after that date is empty. The
-invitation in the README to look around before committing your own data showed
-a blank dashboard and a deficit of a working week."""
+"""The Thursday the *screenshots* are drawn as at, fixed because a committed
+SVG cannot move. `flexi --demo` passes today instead: everything below derives
+from whichever anchor it is given."""
 
 TIMEZONE = "UTC"
 """The timezone every demo is drawn in.
 
-Flexi records local wall time, so "local" has to be a fixed thing or the demo
-moves with the machine: `time_machine` reads a naive target as UTC, which puts
-the frozen clock an hour later on a BST laptop than on a UTC runner. Declared
-here because both the snapshot suite and `scripts/shoot.py` have to agree on
-it, and for a while only one of them pinned it.
+Flexi records local wall time, and `time_machine` reads a naive target as UTC,
+which puts the frozen clock an hour later on a BST laptop than on a UTC one.
+The snapshot suite and `scripts/shoot.py` both read the zone from here.
 """
 
 NOW = datetime(2026, 6, 11, 14, 32)
-"""Early afternoon, with a session open — the state the dashboard is most often
-looked at in, and the one that exercises the live edge of the punch strip."""
+"""Early afternoon, with a session open: the state that exercises the live edge
+of the punch strip."""
 
 LEAVE_YEAR = (4, 6)
 """The 6th of April, as a month and a day: the common one, and the default.
 
-Work is generated from the start of the leave year containing the anchor, not
-from a fixed number of weeks back. The balance accumulates from that start, so a
-seed covering only the last six weeks would score every earlier working day as a
-full day's deficit and open the demo on a balance of minus a hundred hours.
+Work is generated from the start of the leave year containing the anchor. The
+balance accumulates from that start, so a seed covering only the last six weeks
+would score every earlier working day as a full day's deficit.
 """
 
 # Arrival and departure minutes past 08:00 / 16:00, cycled by day index. Chosen
@@ -114,9 +93,8 @@ MAY, AUGUST = 5, 8
 def nth_monday(year: int, month: int, *, last: bool) -> date:
     """The first or last Monday of a month.
 
-    `Calendar(MONDAY)` explicitly, not the bare `monthcalendar`: that one reads
-    a module-global first weekday which `setfirstweekday` mutates, and this
-    application lets somebody choose one.
+    `Calendar(MONDAY)`, not the bare `monthcalendar`: that one reads a
+    module-global first weekday which `setfirstweekday` mutates.
     """
     weeks = calendar.Calendar(calendar.MONDAY).monthdayscalendar(year, month)
     mondays = [week[0] for week in weeks if week[0]]
@@ -126,7 +104,7 @@ def nth_monday(year: int, month: int, *, last: bool) -> date:
 def _easter(year: int) -> date:
     """Easter Sunday, by the Gregorian computus.
 
-    A rule rather than a table, so Good Friday and Easter Monday sit where they
+    Computed, not tabulated, so Good Friday and Easter Monday sit where they
     belong in whichever year the demo is run in.
 
     Examples:
@@ -151,13 +129,9 @@ def _easter(year: int) -> date:
 def _free(when: date, taken: set[date], *, forward: bool = False) -> date:
     """The nearest day nothing else claims, walking away from ``when``.
 
-    A weekend, a bank holiday and a day already booked are all days Flexi
-    refuses to put absence on, and a seed that produced a state the application
-    would not let you reach is a bad fixture. With a fixed anchor the offsets
-    below never landed on one; anchored to today they land on one most weeks.
-
-    The same walk keeps a fixed bank holiday on the next free weekday, which is
-    what a substitute day is.
+    Flexi refuses absence on a weekend, a bank holiday or a day already
+    booked, so the offsets below walk off those. The same walk puts a fixed
+    bank holiday on the next free weekday, which is what a substitute day is.
     """
     step = timedelta(days=1 if forward else -1)
     while when.weekday() > FRIDAY or when in taken:
@@ -195,17 +169,13 @@ def _dated_holidays(year: int) -> tuple[tuple[date, str], ...]:
 def holidays_in(year: int) -> tuple[tuple[date, str], ...]:
     """The English bank holidays of the leave year beginning in ``year``.
 
-    By their rules -- computus for Easter, the nth Monday of a month for the
+    By their rules: computus for Easter, the nth Monday of a month for the
     spring and summer holidays, the next free weekday for a fixed date on a
-    weekend -- rather than a list typed out for one particular year. A demo
-    seeded from a fixed list has bank holidays in the wrong place the moment the
-    year moves on, and Flexi refuses to book leave on them and draws them
-    differently, so being wrong about one is visible.
+    weekend.
 
-    Read over the leave year's own span rather than its starting calendar year.
-    New Year's Day belongs to the following one, and Easter falls either side of
-    the 6th of April depending on the year: the leave year opening in April 2027
-    has no Easter in it at all, and the one opening in April 2028 has two.
+    Read over the leave year's own span, not its starting calendar year. New
+    Year's Day belongs to the following one, the leave year opening in April
+    2027 has no Easter in it, and the one opening in April 2028 has two.
     """
     month, day = LEAVE_YEAR
     start, end = date(year, month, day), date(year + 1, month, day)
@@ -222,16 +192,14 @@ def seed_demo(
     """Replace the database atomically with a life ending on ``anchor``.
 
     ``now`` is the wall time the anchor day has reached: it decides how much of
-    that day is already recorded, and nothing is written past it. A caller
-    seeding today has to pass the real one, or the demo opens with a clock-in
-    that has not happened and a clock-out key that refuses. The default is
-    :data:`NOW`, which is what the screenshots are drawn at.
+    that day is recorded, and nothing is written past it. A caller seeding today
+    passes the real one. The default is :data:`NOW`.
     """
     moment = NOW.time() if now is None else now
     start = leaveyear.start_of(anchor, *LEAVE_YEAR)
-    # Three leave years, because the absences reach a fortnight back and a week
-    # forward from the anchor and an anchor near either edge crosses out of its
-    # own. Only the anchor's year is cached: those are the dates the demo draws.
+    # Three leave years: absences reach a fortnight back and a week forward, so
+    # an anchor near either edge crosses out of its own. Only the anchor's year
+    # is cached, which is what the demo draws.
     holidays = {
         when
         for year in (start.year - 1, start.year, start.year + 1)
@@ -264,9 +232,8 @@ def _settings(session: Session, anchor: date, start: date) -> None:
     month, day = LEAVE_YEAR
     session.add(
         Settings(
-            # The demo has been keeping records since the leave year opened, so
-            # that is when it started tracking. Left unset, every seeded day
-            # would draw as one Flexi was not there for.
+            # Tracking starts when the leave year opened. Left unset, every
+            # seeded day would draw as one Flexi was not there for.
             tracking_since=start,
             leave_year_start=f"{month:02d}-{day:02d}",
             working_days="0,1,2,3,4",
@@ -277,9 +244,8 @@ def _settings(session: Session, anchor: date, start: date) -> None:
             day_window_end=DEFAULT_WINDOW_END,
         )
     )
-    # The leave year the anchor is in, which is not its calendar year between
-    # January and April: an allowance filed under a year that has not started
-    # cannot be found by the screen looking for this one's.
+    # The leave year the anchor is in, which between January and April is not
+    # its calendar year: the screen asks for the active one.
     session.add(
         LeaveEntitlement(
             year=leaveyear.active_year(anchor, *LEAVE_YEAR),
@@ -289,10 +255,8 @@ def _settings(session: Session, anchor: date, start: date) -> None:
 
 
 def _holidays(session: Session, year: int, anchor: date, now: time) -> None:
-    # Fetched this morning, so the cache reads as fresh whenever the demo is
-    # opened. A timestamp from a fixed date would have the command palette's
-    # refresh reach for the network on a machine being shown the sample data,
-    # and one later than `now` would have it fetched in the future.
+    # Fetched this morning, so the cache reads as fresh whenever the demo opens
+    # and no refresh reaches for the network. Capped at `now`.
     fetched = datetime.combine(anchor, min(time(9, 0), now))
     session.add(
         BankHolidayRefresh(
@@ -315,18 +279,14 @@ def _absences(
 ) -> tuple[set[date], date]:
     """A week off, a sick day, a half day and a TOIL day.
 
-    Returns the whole days that are spoken for, so the work generator skips them
-    -- booking absence over recorded work is refused by the service, for the
-    same reason -- and the half day, which it draws half of.
+    Returns the whole days that are spoken for, which the work generator skips,
+    and the half day, which it draws half of.
     """
     week_off_start = anchor - timedelta(days=anchor.weekday() + 14)
     booked: set[date] = set()
 
-    # Skipping the bank holiday rather than booking over it, which is what
-    # `book_range` does and what the README describes: a week off that crosses
-    # one takes four days of leave, not five. The fixed anchor's week off began
-    # on the Spring bank holiday and the seed booked annual leave on top of it,
-    # so the demo showed the one state the application refuses to create.
+    # Skip the bank holiday instead of booking over it, as `book_range` does: a
+    # week off that crosses one takes four days of leave, not five.
     for offset in range(5):
         when = week_off_start + timedelta(days=offset)
         if when in holidays:
@@ -347,8 +307,8 @@ def _absences(
     taken.add(toil)
 
     # A half day, so the records table has a PARTIAL row to expand and the punch
-    # strip has a day drawn in two colours. Not added to `booked`: half a day off
-    # is half a day worked, and the work generator draws the other half.
+    # strip has a day in two colours. Not added to `booked`: half a day off is
+    # half a day worked, and the work generator draws the other half.
     half = _free(anchor - timedelta(days=2), taken)
     session.add(
         AbsenceDay(date=half, absence_type=AbsenceType.ANNUAL, portion=Portion.AM)
@@ -377,9 +337,8 @@ def _work(
 def _closed_day(session: Session, when: date, index: int, *, morning: bool) -> None:
     """A normal day: in, lunch, out. A half day skips the morning.
 
-    The half day is half a day. Its morning is booked as annual leave, so the
-    afternoon owes half a contract; a whole one there draws a day off that also
-    earns nearly four hours of flexi and runs past the punch window.
+    The half day's morning is booked as annual leave, so its afternoon owes
+    half a contract.
     """
     arrive = time(8, ARRIVALS[index % len(ARRIVALS)] % 60)
     lunch = LUNCHES[index % len(LUNCHES)]
@@ -399,11 +358,8 @@ def _closed_day(session: Session, when: date, index: int, *, morning: bool) -> N
 def _open_session(session: Session, when: date, index: int, now: time) -> None:
     """The anchor day, as far as ``now`` has taken it.
 
-    Four shapes, and which one a demo opens on depends on the hour it is run at:
-    not in yet, on the clock all morning, off the clock at lunch, or back and
-    still on the clock. A fixed 13:20 clock-in shown to somebody running the
-    demo at nine is a session that has not started, and the clock-out key
-    refuses it.
+    Four shapes, by the hour the demo is run at: not in yet, on the clock all
+    morning, off the clock at lunch, or back and still on the clock.
     """
     arrive = time(8, ARRIVALS[index % len(ARRIVALS)] % 60)
     lunch, back = time(12, 40), time(13, 20)

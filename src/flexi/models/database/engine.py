@@ -26,9 +26,7 @@ def enforce_foreign_keys(
 ) -> None:
     """Enable SQLite foreign key enforcement on every connection.
 
-    Public, and named for what it does rather than for how: `migrations/env.py`
-    carried a byte-identical private copy, so the guarantee held on whichever
-    of the two connections the reader happened to look at.
+    Shared with `migrations/env.py`, so both connection paths enforce it.
     """
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
@@ -38,11 +36,9 @@ def enforce_foreign_keys(
 def create_db_engine(db_path: Path | None = None) -> Engine:
     """Create a SQLAlchemy engine with foreign-key enforcement.
 
-    The URL is built rather than formatted. ``f"sqlite:///{db_path}"`` is a
-    string that then gets parsed as a URL, and a path is not a URL: a ``?``
-    anywhere in it opens the query string, so `~/a?b/db.db` was read as a
-    database called `~/a` and the application failed to open a file that was
-    sitting there. :meth:`URL.create` takes the path as the value it is.
+    The URL is built, not formatted: ``f"sqlite:///{db_path}"`` is parsed as a
+    URL, where a ``?`` anywhere in the path opens the query string and the rest
+    of the path is lost. :meth:`URL.create` takes the path as a value.
     """
     if db_path is None:
         db_path = database_file()
@@ -52,11 +48,11 @@ def create_db_engine(db_path: Path | None = None) -> Engine:
 
 
 def get_session(engine: Engine) -> Session:
-    """A session on an engine somebody else owns and will dispose of.
+    """A session on an engine the caller owns and will dispose of.
 
-    The engine is required. Defaulted, it built one nobody held a reference to
-    and nobody disposed of -- and on Windows an undisposed engine keeps the
-    SQLite file open, which is what stops `flexi init` deleting it.
+    The engine is required, not defaulted: an undisposed engine keeps the
+    SQLite file open on Windows, so the caller has to hold the reference that
+    disposes of it.
     """
     return Session(engine)
 
@@ -65,11 +61,10 @@ def get_session(engine: Engine) -> Session:
 def database_scope(db_path: Path | None = None) -> Iterator[tuple[Engine, Session]]:
     """Own one engine and session for exactly as long as a caller needs them.
 
-    Each cleanup is registered immediately after its resource is acquired. If
-    session construction fails, the engine is therefore still disposed; if
-    anything later in the caller fails, the session is closed before its engine.
-    An :class:`~contextlib.ExitStack` also lets a longer-lived owner transfer or
-    embed this scope without duplicating the cleanup operations.
+    Each cleanup is registered as soon as its resource is acquired: a failed
+    session construction still disposes the engine, and a later failure closes
+    the session before its engine. The :class:`~contextlib.ExitStack` also lets
+    a longer-lived owner take the whole scope over.
     """
     with ExitStack() as resources:
         if db_path is None:

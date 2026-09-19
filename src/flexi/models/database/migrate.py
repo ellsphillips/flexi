@@ -1,14 +1,9 @@
 """Bringing the database up to head, and getting out of the way when it is.
 
-Alembic costs a hundred and thirty milliseconds to import and knows how to
-answer one question: what does this database still need? On a database that
-needs nothing -- every run but the one after an upgrade -- that is the whole
-cost of the command. So the question is asked twice: once cheaply, against
-:data:`HEAD`, with nothing but the SQLAlchemy already loaded; and only if that
-says there is work to do, expensively, by Alembic itself.
-
-:data:`HEAD` is the duplicate that buys it, and
-`tests/models/test_migrations.py` is what stops it drifting from the real head.
+Importing Alembic is most of what a command with nothing to migrate costs, so
+the question is asked twice: cheaply first, against :data:`HEAD` with nothing
+but the SQLAlchemy already loaded, and then by Alembic itself only when that
+says there is work to do.
 """
 
 from __future__ import annotations
@@ -76,9 +71,9 @@ MAX_BACKUPS = 10
 HEAD = "0016"
 """The revision a fully migrated database is stamped with.
 
-Written down so the common case -- already at head -- can be settled without
-importing Alembic to ask. Kept honest by a test that reads the real head off
-the script directory and compares.
+Written down so the already-at-head case settles without importing Alembic.
+Enforced by tests/models/test_migrations.py, which reads the real head off the
+script directory.
 """
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,26 +82,22 @@ _LOGGER = logging.getLogger(__name__)
 class MigrationRefusedError(RuntimeError):
     """A refusal to migrate. The database is exactly as it was.
 
-    Separate from the errors a bug raises, so the command line can say the one
-    sentence in it and nothing else: every one of these is a state a person can
-    act on.
+    Separate from the errors a bug raises, so the command line can print the
+    message alone: each of these is a state the user can act on.
     """
 
 
 class RevisionState(StrEnum):
     """The safely distinguishable states of a database's migration stamp.
 
-    ``ABSENT`` means there is no file. ``EMPTY`` is an existing, valid SQLite
-    database with no application tables and is therefore just as safe to build
-    from scratch. ``UNSTAMPED`` means some schema exists but cannot be tied to
-    a migration, so upgrading it would require guessing what Alembic may
-    overwrite. ``STAMPED`` carries exactly one revision in
-    :class:`DatabaseRevision`.
+    ``ABSENT`` is no file; ``EMPTY`` is a valid SQLite database with no
+    application tables, so it is as safe to build from scratch; ``UNSTAMPED``
+    is a schema that cannot be tied to a migration, so upgrading it would mean
+    guessing what Alembic may overwrite; ``STAMPED`` carries one revision.
 
-    An unreadable, locked, corrupt, or structurally ambiguous database is not
-    a state: :func:`current_revision` raises instead. Treating that failure as
-    ``UNSTAMPED`` or ``ABSENT`` would send the database into the destructive
-    path this inspection exists to guard.
+    An unreadable, locked, corrupt or structurally ambiguous database is not a
+    state: :func:`current_revision` raises instead, because treating it as
+    ``UNSTAMPED`` or ``ABSENT`` would send it down the destructive path.
     """
 
     ABSENT = "absent"
@@ -137,16 +128,13 @@ class DatabaseRevision:
 def alembic_config(db_path: Path) -> Iterator[MigrationConfig]:
     """An Alembic config wired to an engine on ``db_path``, disposed on exit.
 
-    The engine is handed over rather than a URL, because a config value is not
-    a place to keep a path. Alembic's options go through ConfigParser, which
-    reads ``%`` as the start of an interpolation: somebody under
-    ``C:/Users/100%pure`` got ``ValueError: invalid interpolation syntax``
-    instead of an application, and every migration on that machine failed. The
-    escaping still has to be done for ``script_location``, which has nowhere
-    else to live -- Flexi's own install path can contain one too.
+    The engine is handed over through ``attributes``, not as a URL: Alembic's
+    options go through ConfigParser, which reads ``%`` as the start of an
+    interpolation. ``script_location`` has nowhere else to live, so it is
+    escaped; an install path can hold a ``%`` too.
 
-    Disposed rather than left to the collector, because an undisposed engine
-    leaves the SQLite file open, and Windows will not delete a file that is.
+    The engine is disposed here because an undisposed one leaves the SQLite
+    file open, and Windows will not delete a file that is.
     """
     from alembic.config import Config
 
@@ -164,11 +152,11 @@ def alembic_config(db_path: Path) -> Iterator[MigrationConfig]:
 def current_revision(db_path: Path) -> DatabaseRevision:
     """Inspect the database's stamp without collapsing unsafe states together.
 
-    Read straight out of ``sqlite_master`` and ``alembic_version`` rather than
-    through ``MigrationContext``, avoiding Alembic's import on the common path.
-    A missing file, a schema-empty database, an unstamped schema, and a stamped
-    schema are separate results. Database errors deliberately propagate: a
-    locked or corrupt file must never masquerade as a fresh database.
+    Read out of ``sqlite_master`` and ``alembic_version``, not through
+    ``MigrationContext``, so the common path never imports Alembic. A missing
+    file, a schema-empty database, an unstamped schema and a stamped schema are
+    separate results. Database errors propagate: a locked or corrupt file must
+    never masquerade as a fresh database.
     """
     if not db_path.exists():
         return DatabaseRevision(RevisionState.ABSENT)
@@ -211,14 +199,9 @@ def current_revision(db_path: Path) -> DatabaseRevision:
 def backup_database(db_path: Path | None = None) -> Path | None:
     """A snapshot taken before a migration, or ``None`` if there is nothing yet.
 
-    Through `backup.snapshot`, which is the module that knows how to copy a
-    database that might be open. This used `shutil.copy2` -- the exact call
-    `backup.py`'s docstring names as the thing it exists to avoid -- so the copy
-    taken immediately before a schema change was the one copy in the
-    application that could be torn.
-
-    An empty prefix, so these age out under :func:`prune_backups`. The
-    prefixed ones are the reset snapshots, which never do.
+    Taken through `backup.snapshot`, which knows how to copy a database that
+    may be open. The empty prefix ages these out under :func:`prune_backups`;
+    the prefixed reset snapshots never age out.
     """
     if db_path is None:
         db_path = database_file()
@@ -233,15 +216,10 @@ def prune_backups(directory: Path, keep: Path | None = None) -> None:
     Housekeeping runs after a backup has already been taken, so a full disk or
     a read-only directory here must not fail the migration that motivated it.
 
-    ``keep`` is that backup, and it is held whatever its age says. Modification
-    times come from the filesystem, which on a share or a restored directory
-    can put the copy taken a moment ago behind the ten already there. The one
-    file the upgrade about to run depends on is then the one deleted.
-
-    Snapshots taken before a reset are never pruned. They are the only copy of
-    records somebody chose to erase, `flexi init` calls them the one way back,
-    and ten routine migration backups would otherwise age one out inside a
-    fortnight of ordinary upgrades.
+    ``keep`` is that backup, held whatever its age says: filesystem modification
+    times on a share or a restored directory can put the copy taken a moment ago
+    behind the ten already there. Snapshots taken before a reset are never
+    pruned; they are the only copy of the records the reset erased.
     """
     try:
         backups = sorted(
@@ -261,11 +239,10 @@ def prune_backups(directory: Path, keep: Path | None = None) -> None:
 def _refuse_a_newer_database(cfg: MigrationConfig, stamp: str, db_path: Path) -> None:
     """Stop unless this build knows the revision the database is stamped with.
 
-    A stamp Alembic cannot place belongs to a Flexi that shipped migrations
-    this one has never heard of, which is what a downgrade leaves behind.
-    Alembic's own answer is to fail inside the upgrade, once the recovery copy
-    has been taken. Every command after it takes another, until the ten that
-    survive are all copies of a database this build cannot read.
+    A stamp Alembic cannot place belongs to a newer Flexi, which is what a
+    downgrade leaves behind. Checked before the recovery copy is taken: Alembic
+    fails inside the upgrade instead, and each later command would take another
+    copy until every surviving backup is unreadable to this build.
     """
     from alembic.script import ScriptDirectory
     from alembic.util.exc import CommandError
@@ -285,10 +262,7 @@ def _refuse_a_newer_database(cfg: MigrationConfig, stamp: str, db_path: Path) ->
 def run_migrations(db_path: Path | None = None) -> None:
     """Safely apply every pending migration to ``db_path``.
 
-    The already-at-head case returns before Alembic is imported at all. It used
-    to build a config, parse every script in the versions directory to work out
-    the head, and open a second connection to read the stamp -- a hundred and
-    forty milliseconds, on every command, to conclude there was nothing to do.
+    The already-at-head case returns before Alembic is imported at all.
 
     Missing and schema-empty databases are fresh and need no recovery copy.
     Existing unstamped schemas are refused, as is a stamp this build has never
@@ -316,8 +290,8 @@ def run_migrations(db_path: Path | None = None) -> None:
         if revision.state is RevisionState.UNSTAMPED:
             msg = "Database has an unstamped schema; migration refused"
             raise MigrationRefusedError(msg)
-        # Only a stamped database carries one, so this is the same question as
-        # the state, narrowed to the revision the checks below need.
+        # Only a stamped database carries one: the same question as the state,
+        # narrowed to the revision the checks below need.
         stamp = revision.revision
         if stamp == HEAD:
             return

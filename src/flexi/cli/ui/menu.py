@@ -1,10 +1,7 @@
-"""A chooser, as a value rather than a loop.
+"""A chooser held as a value.
 
-The menu is immutable: a key press returns a new menu, and drawing is a function
-of the one you hold. That makes the whole interaction testable by pressing keys
-into it and reading what comes back, with no terminal, no threads and no
-sleeping -- the same trick the splash animation uses to stay out of the suite's
-running time.
+The menu is immutable: a key press returns a new menu, and drawing is a
+function of the one in hand, so the interaction needs no terminal.
 """
 
 from dataclasses import dataclass, replace
@@ -22,7 +19,7 @@ HINT: Final = "↑↓ move · ↵ choose · esc cancel"
 
 @dataclass(frozen=True, slots=True)
 class Option[ValueT]:
-    """One row of a chooser."""
+    """A row of a chooser."""
 
     value: ValueT
     label: str
@@ -49,11 +46,7 @@ class Menu[ValueT]:
         return self.options[self.cursor]
 
     def press(self, key: Key) -> Self:
-        """The menu after a key press.
-
-        Wraps at both ends. A list this short is quicker to reach round the back
-        of than to run to the end of.
-        """
+        """The menu after a key press, with the cursor wrapping at both ends."""
         if key is Key.UP:
             return replace(self, cursor=(self.cursor - 1) % len(self.options))
         if key is Key.DOWN:
@@ -61,7 +54,7 @@ class Menu[ValueT]:
         return self
 
     def render(self) -> list[Text]:
-        """Every line of the chooser, top to bottom."""
+        """The chooser's lines, top to bottom."""
         lines = [rail.step(self.question), rail.body(tone=rail.Tone.LIVE)]
         lines.extend(
             rail.option(

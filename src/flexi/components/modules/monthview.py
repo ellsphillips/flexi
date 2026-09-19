@@ -1,10 +1,9 @@
 """Where you are in time, and how to get somewhere else.
 
-Three separate facts share this grid — today, the selected day, and the extent
-of the period — and giving each a colour makes a mess nobody can read. So each
-gets a different device: the period tints the ground, the selection reverses a
-cell, today is underlined. All three can be true of one cell and it still reads,
-which leaves colour free to carry the day type.
+Three facts share this grid: today, the selected day, and the extent of the
+period. Each gets a different device, so all three can be true of one cell and
+it still reads: the period tints the ground, the selection reverses a cell,
+today is underlined. Colour is left free to carry the day type.
 """
 
 from __future__ import annotations
@@ -109,8 +108,7 @@ class MonthView(Module):
     def rebuild(self) -> None:
         period = self.period
         # Follow the anchor when it *moves*, but leave a browsed month alone:
-        # paging ahead with `,` and `.` to see where the bank holidays fall must
-        # not be undone by the next redraw.
+        # paging with `,` and `.` must survive the next redraw.
         if period.anchor != self._last_anchor:
             self._visible = period.anchor.replace(day=1)
             self._last_anchor = period.anchor
@@ -129,11 +127,8 @@ class MonthView(Module):
             week, column = divmod(index, DAYS_IN_WEEK)
             cell = self.query_one(f"#{CELL_PREFIX}{week}-{column}", Label)
             cell.update(cell_text(when, today))
-            # Written only when they differ. `set_classes` reapplies the whole
-            # stylesheet to the tree whether or not anything changed, and the
-            # calendar has forty-two cells of which a redraw typically moves
-            # one: stepping a day was forty-two full restyles, and mounting the
-            # dashboard was forty-two more.
+            # Written only when they differ: `set_classes` reapplies the whole
+            # stylesheet to the tree whether or not anything changed.
             classes = set(
                 cell_classes(
                     when,
@@ -146,9 +141,8 @@ class MonthView(Module):
             if classes != set(cell.classes):
                 cell.set_classes(classes)
 
-        # The grid already names the month it is showing, in the row above the
-        # days. The slot under it is better spent on the span the rest of the
-        # dashboard is reporting, which is the thing the window is tinting for.
+        # The row above the days already names the month, so the slot under it
+        # carries the span the rest of the dashboard is reporting.
         self.set_subtitle(period.granularity.label)
 
     # -- interaction -------------------------------------------------------
@@ -163,9 +157,7 @@ class MonthView(Module):
     def action_month(self, offset: int) -> None:
         """Page the grid without moving the period.
 
-        Browsing ahead to see where the bank holidays fall should not change
-        what the records table is showing. The grid returns to the anchor's
-        month the next time the anchor moves.
+        The grid returns to the anchor's month the next time the anchor moves.
         """
         self._visible = add_months(self._visible, offset).replace(day=1)
         self.rebuild()
@@ -173,9 +165,9 @@ class MonthView(Module):
     def on_click(self, event: events.Click) -> None:
         """A day under the pointer is the same request an arrow key makes.
 
-        A click bubbles, so the month arrows and the headings arrive here too,
-        and none of them is a day. The date comes from the month on screen
-        rather than from the anchor, which a browsed grid has moved away from.
+        Clicks bubble, so the month arrows and the headings arrive here too, and
+        none of them is a day. The date comes from the month on screen, which a
+        browsed grid has moved away from the anchor.
         """
         widget = event.widget
         name = widget.id if isinstance(widget, Label) else None
@@ -190,9 +182,9 @@ class MonthView(Module):
 def cell_text(when: date, today: date) -> Text:
     """A day number, underlined when it is today.
 
-    Underline rather than another colour: today can coincide with a selected
-    day, a booked day and the period window, and a fourth colour on the same
-    cell would make all four unreadable.
+    Underlined, not coloured: today can coincide with a selected day, a booked
+    day and the period window, and a fourth colour on the same cell would make
+    all four unreadable.
     """
     text = Text(f"{when.day:2d}")
     if when == today:
@@ -210,19 +202,9 @@ def cell_classes(
 ) -> list[str]:
     """Everything one cell is, as classes the stylesheet can paint.
 
-    Three facts share this grid and each gets a different device, so all three
-    can be true of one cell and it still reads: the period tints the ground, the
-    selected day reverses it, today is underlined in the cell's own text. Colour
-    is left free to carry the day type.
-
-    ``in-period`` is written for every granularity. It used to be withheld from
-    a week, which was tinted a row at a time instead -- one rule at cell level
-    and another at row level for the same idea, agreeing only because a week is
-    exactly one row of the grid.
-
-    ``showing`` is the month the grid is drawn around, which is not always the
-    month the period is in: the grid can be paged ahead to see where the bank
-    holidays fall without moving the period.
+    ``in-period`` is written at cell level for every granularity. ``showing`` is
+    the month the grid is drawn around, which is not always the month the period
+    is in: the grid pages without moving the period.
     """
     classes: list[str] = []
     if when.month != showing.month:
@@ -245,10 +227,9 @@ def cell_classes(
 def month_grid(first_of_month: date, *, first_weekday: int) -> list[date]:
     """Six weeks of dates covering the month, starting on the configured day.
 
-    It always started on Monday, while the period the same widget tints came
-    from `CONFIG.defaults.first_day_of_week`. Set the week to start on Sunday
-    and one week of the period straddled two rows of the grid, so fourteen days
-    were highlighted as "this week" under headings that said Monday.
+    The first weekday is the one the period uses,
+    `CONFIG.defaults.first_day_of_week`, so a week of the period is one row of
+    the grid and the headings above it name the columns it falls in.
     """
     start = week_start(first_of_month, first_weekday=first_weekday)
     return [start + timedelta(days=offset) for offset in range(WEEKS * DAYS_IN_WEEK)]

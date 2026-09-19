@@ -5,9 +5,8 @@ on them. Config is preference: which key clocks in, which period opens.
 
 Bindings read :data:`CONFIG` at class-definition time, so this module is
 imported before any widget module and must import nothing from Flexi that could
-import it back. :mod:`flexi.locations` and :mod:`flexi.constants` are the two it
-may reach for: both are leaves that import nothing from Flexi at all, which is
-the property that matters rather than the count.
+import it back. :mod:`flexi.locations` and :mod:`flexi.constants` are leaves
+that import nothing from Flexi at all.
 """
 
 from __future__ import annotations
@@ -53,10 +52,9 @@ IGNORED = (
 )
 """What a file that was read and then dropped says for itself.
 
-A section falls back whole, so somebody who misspells one key under `defaults`
-loses the period they open on as well. Unsaid, the file sits there looking as
-though it is in force -- which is the state the fallback is most likely to be
-met in, because nothing about it is visible from either side."""
+A section falls back whole, so one misspelled key under `defaults` loses the
+period the dashboard opens on as well. Unsaid, the file sits there looking as
+though it is in force."""
 
 MAXIMUM_MINIMUM_SESSION_SECONDS = 3600
 """Largest supported threshold for deciding a newly closed session was a slip."""
@@ -72,15 +70,11 @@ _KEY_COMPONENT = re.compile(r"[A-Za-z0-9_-]+|\S")
 def normalise_hotkey(value: str) -> str:
     """Return a canonical comma-separated Textual key list.
 
-    Textual treats commas and plus signs as separators. Empty segments reach
-    ``Binding`` and raise during module import, before Flexi can draw an error
-    or fall back. Outer whitespace is harmless and removed.
-
-    A key is a Textual key name or the single character it stands for, so
-    `slash`, `/` and `ctrl+l` are all keys. A longer value is markup wherever
-    the key is drawn: the dashboard puts `period_cycle` in a border subtitle
-    and the help screen puts every key in a `Static`, and both read `[/]` as a
-    closing tag with nothing to close.
+    Textual treats commas and plus signs as separators, and an empty segment
+    reaches ``Binding`` and raises during module import, before Flexi can draw
+    an error or fall back. A key is a Textual key name or the single character
+    it stands for, so `slash`, `/` and `ctrl+l` are all keys; anything longer is
+    read as markup wherever the key is drawn.
     """
     bindings = tuple(binding.strip() for binding in value.split(","))
     malformed = any(
@@ -146,9 +140,8 @@ class Hotkeys(BaseModel):
 
         Textual gives the key to one of them and says nothing about the other,
         so the second action is unreachable and the help screen offers no clue
-        which one won. The whole section falls back, as it does for a
-        misspelled field name: a keymap with one dead binding exists in no file
-        and cannot be recovered by fixing the line that caused it.
+        which one won. The whole section falls back, as it does for a misspelled
+        field name.
         """
         counted = Counter(
             key
@@ -164,10 +157,9 @@ class Hotkeys(BaseModel):
     def book(self, kind: AbsenceType) -> str:
         """The key that books one kind of absence.
 
-        Derived from the type rather than restated beside it, so a legend or a
-        prompt cannot disagree with the binding it is describing. The field
-        names follow the display token, which is why TOIL is `book_toil` while
-        the stored value is `flexi`.
+        Derived from the type, so a legend or a prompt cannot disagree with the
+        binding it is describing. The field names follow the display token,
+        which is why TOIL is `book_toil` while the stored value is `flexi`.
         """
         return str(getattr(self, f"book_{kind.token}"))
 
@@ -181,24 +173,21 @@ class Defaults(BaseModel):
     """Which span the dashboard opens on.
 
     Typed, so a misspelling in the file is a validation error `load_config`
-    turns into the defaults. As a bare `str` it reached `Granularity(...)` in
-    the dashboard's constructor and raised there instead -- a `ValueError`
-    thrown while building the first screen, which is a preference typo taking
-    the application down."""
+    turns into the defaults, not a `ValueError` raised from `Granularity(...)`
+    while the first screen is being built."""
 
     first_day_of_week: int = Field(default=0, ge=0, le=6)
     """Monday is 0. Bounded, because nothing downstream rejects a 9: the grid
-    would rotate by `9 % 7` while the column headings, sliced rather than
-    rotated, would silently stay on Monday."""
+    would rotate by `9 % 7` while the column headings, which are sliced and not
+    rotated, would stay on Monday."""
     minimum_session_seconds: Annotated[
         int, Field(ge=0, le=MAXIMUM_MINIMUM_SESSION_SECONDS)
     ] = 60
     """A session shorter than this never happened.
 
     Clocking in and straight back out is a slip of the finger, not a minute of
-    work, and a records table full of them is a records table nobody trusts.
-    Sixty seconds is long enough to cover a double-press and short enough that
-    nobody loses a real errand to it."""
+    work. Sixty seconds is long enough to cover a double-press and short enough
+    to keep the shortest real errand."""
 
     tick_seconds: Annotated[int, Field(gt=0, le=MAXIMUM_TICK_SECONDS)] = 1
     """How often the live readout refreshes while a session is open. A minute
@@ -215,9 +204,9 @@ class Config(BaseModel):
 
 
 def load_config(path: Path | None = None) -> Config:
-    """The preferences, with anything the file got wrong quietly replaced.
+    """The preferences, with anything the file got wrong replaced by a default.
 
-    :func:`read_config` for the same answer with the reason attached.
+    :func:`read_config` gives the same answer with the reason attached.
     """
     return read_config(path)[0]
 
@@ -225,28 +214,17 @@ def load_config(path: Path | None = None) -> Config:
 def read_config(path: Path | None = None) -> tuple[Config, str]:
     """The preferences, and one line about whatever in the file was ignored.
 
-    A malformed file yields the defaults rather than refusing to start: a typo
-    in a keybinding should not lock somebody out of their own time records.
-    `CONFIG` is bound at module scope, so anything that escapes here is not a
-    TUI that will not start: it is `import flexi.config` raising, which takes
-    `flexi --version` down with it. A document nested past the interpreter's
-    recursion limit is malformed in exactly that way, and `RecursionError` is
-    no more its author's business than a syntax error is.
+    A malformed file yields the defaults. `CONFIG` is bound at module scope, so
+    anything that escapes here is `import flexi.config` raising, which takes
+    `flexi --version` down with it; a document nested past the interpreter's
+    recursion limit is malformed in that way, hence `RecursionError`.
 
-    PyYAML is handed the bytes rather than a decoded string, so a byte order
-    mark chooses the encoding: PowerShell's `>` writes UTF-16 without being
-    asked, and a file that says which encoding it is in is read in it. Bytes
-    that name no encoding are UTF-8, and bytes that decode as nothing at all
-    are malformed like any other bad input. No sniffing beyond the mark:
-    silently mis-decoding a keybinding into a character nobody can type is
-    worse than falling back to the defaults and leaving the file for its author
-    to fix.
+    PyYAML is handed the bytes, not a decoded string, so a byte order mark
+    chooses the encoding: PowerShell's `>` writes UTF-16 without being asked.
+    Bytes that name no encoding are UTF-8, and no other sniffing is done.
 
-    Section by section, though, and not wholesale. Validated as one document, a
-    single unknown key under `defaults` -- and `extra="forbid"` makes an unknown
-    key an error -- threw away the hotkeys too, silently. The documented example
-    contained two such keys, so somebody who copied it from `ARCHITECTURE.md`
-    got every default back and no way to tell why.
+    Sections are validated one at a time: `extra="forbid"` makes an unknown key
+    an error, and one under `defaults` would otherwise discard the hotkeys too.
     """
     path = path or config_file()
     try:
@@ -293,7 +271,7 @@ def section[T: BaseModel](model: type[T], raw: object) -> tuple[T, str]:
 
 
 def _first_complaint(invalid: ValidationError) -> str:
-    """The first thing pydantic objected to, as a phrase somebody can act on.
+    """The first thing pydantic objected to, as a phrase the user can act on.
 
     One, not all of them: the section falls back whole either way, and the line
     has to fit on a status bar and in a toast.
@@ -307,6 +285,5 @@ def _first_complaint(invalid: ValidationError) -> str:
 CONFIG, CONFIG_PROBLEM = read_config()
 """The loaded config. Read at class-definition time by every ``BINDINGS`` list.
 
-Bound as a pair so the reason travels with the answer. Whoever reads `CONFIG`
-is the only one placed to say that the file behind it was ignored, and a module
-that read the file twice could not promise the same answer both times."""
+Bound as a pair so the reason travels with the answer, and read once so every
+caller sees the same answer."""

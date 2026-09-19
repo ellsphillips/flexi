@@ -1,8 +1,8 @@
 """The punch strip, drawn. The bucketing is pure and lives in the domain.
 
-:func:`render_strip` takes a style lookup rather than a widget, because the
-records table paints strips into ``DataTable`` cells: mounting a widget per row
-would cost a layout pass on the one thing that redraws on a timer.
+:func:`render_strip` takes a style lookup, not a widget: the records table
+paints strips into ``DataTable`` cells, and a widget per row would cost a
+layout pass on the one thing that redraws on a timer.
 
 An absence cell takes the colour of the type booked over that half of the day,
 so a sick morning and an annual afternoon draw as two colours in one row.
@@ -69,10 +69,9 @@ StyleLookup = Callable[[str], Style]
 def absence_tokens(ledger: DayLedger, count: int, window: Window) -> list[str | None]:
     """The colour token, if any, each cell should wear.
 
-    Which booking covers which cell is the domain's rule, asked of it here
-    through the same `edges` the strip itself is cut on, so the two cannot
-    disagree about where a cell begins. A day with nothing booked answers
-    before either is computed.
+    Which booking covers which cell is the domain's rule, asked here through
+    the same `edges` the strip is cut on, so the two cannot disagree about
+    where a cell begins.
     """
     if not ledger.absences:
         return [None] * count
@@ -107,9 +106,8 @@ def render_strip(
 class PunchStrip(Widget):
     """One working day as a row of cells, owning its own rectangle.
 
-    Used where the strip is the point — the clock module, and the expanded row of
-    the records table. The table's collapsed rows call :func:`render_strip`
-    directly instead.
+    Used where the strip is the point: the clock module, and the expanded row
+    of the records table. Collapsed rows call :func:`render_strip` directly.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = set(PUNCH_CLASSES)

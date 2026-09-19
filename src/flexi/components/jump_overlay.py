@@ -1,10 +1,7 @@
 """The modal that draws the jump badges.
 
-Dismisses with the id of, or a reference to, the widget the user chose — or
-``None`` when they pressed escape, in which case the app puts focus back exactly
-where it was. That restoration is the whole reason jump mode feels safe to try:
-a mode you can leave without consequence is one people will press by accident and
-keep using on purpose.
+Dismisses with the id of, or a reference to, the widget the user chose, or with
+``None`` on escape, which leaves the app to restore the previous focus.
 """
 
 from __future__ import annotations
@@ -31,36 +28,29 @@ __all__ = (
 )
 
 SWALLOWED_KEYS: frozenset[str] = frozenset({"tab", "shift+tab"})
-"""Keys stopped rather than let through.
+"""Keys the overlay stops instead of passing on.
 
-If these reach the parent after the overlay closes, the parent handles them and
-focus shifts again — unexpectedly, and after the jump target was already
-focused, which reads as the jump having gone to the wrong place.
+Reaching the parent after the overlay closes would move focus a second time,
+off the widget the jump landed on.
 """
 
 
 BADGE_OVERHANG = 1
 """How far a badge sits outside the corner it marks, in cells.
 
-The badge is a box three rows tall rather than a chip one row tall, so it is
-hung on the corner instead of laid along the top border: its middle row lands
-on the line, and it reads as a tag attached to that panel rather than as a
-caption floating above it. One cell each way is what puts the corner behind the
-badge's own corner.
+The badge is a box three rows tall, hung on the corner so its middle row lands
+on the panel's border. One cell each way is what puts the panel's corner behind
+the badge's own.
 """
 
 
 def badge_offset(corner: Offset, shape: BadgeShape) -> Offset:
     """Where a badge is drawn for a target whose top-left is ``corner``.
 
-    A row chip is drawn exactly where it was placed: the caller computed a line
-    of a table, and moving it would put it on a different one.
-
-    A corner box is hung outward, and clamped at the screen edge. A panel flush
-    against the top or the left has nothing to overhang into, and a negative
-    offset does not move a widget outward -- it clips the border off the side
-    that left the screen, so the badge would lose the corner that makes it read
-    as a box.
+    A row chip stays where the caller placed it, on the table line it belongs
+    to. A corner box is hung outward and clamped at the screen edge: a panel
+    flush against the top or the left has nothing to overhang into, and a
+    negative offset clips the border instead of moving the widget outward.
     """
     if shape is BadgeShape.ROW:
         return corner
@@ -117,7 +107,7 @@ class JumpOverlay(ModalScreen[str | Widget | None]):
         """Redraw the badges when the layout under them moves.
 
         The first resize is the one that mounts the overlay, and recomposing
-        during it would throw away the children being mounted.
+        during it throws away the children being mounted.
         """
         self._resize_counter += 1
         if self._resize_counter == 1:

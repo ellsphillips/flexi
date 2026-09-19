@@ -55,9 +55,8 @@ def _zone() -> ZoneInfo | None:
 def _localise(naive: datetime, zone: ZoneInfo | None) -> datetime:
     if zone is None:
         return naive.astimezone()
-    # Pinned to the offset that was in force at that wall time, rather than
-    # left carrying the zone: the instant is the same either way, and a fixed
-    # offset is what the column stores.
+    # Pinned to the offset in force at that wall time: the instant is the same
+    # either way, and a fixed offset is what the column stores.
     attached = naive.replace(tzinfo=zone)
     offset = attached.utcoffset()
     if offset is None:
@@ -150,10 +149,9 @@ def _repair_auto_closes(zone: ZoneInfo | None) -> None:
 
 
 def downgrade() -> None:
-    """Wall a person's rows back to the instant.
+    """Write the rows a person punched back as UTC instants.
 
-    This is lossy for the repeated hour only when the offset column is missing,
-    which it is not.
+    The stored offset names the repeated hour at the end of summer time.
     """
     connection = op.get_bind()
     rows = connection.execute(
@@ -178,10 +176,8 @@ def downgrade() -> None:
             .where(events.c.id == row.id)
             .values(timestamp=aware.astimezone(UTC).replace(tzinfo=None))
         )
-    # clock_events is the target of two foreign keys from work_sessions, and
-    # SQLite drops a column by rebuilding the table. env.py turns foreign keys
-    # on, so the rebuild has to turn them off around itself.
-    # Dropped in place. A batch_alter_table rebuild would DROP clock_events,
-    # which two foreign keys in work_sessions point at, and SQLite refuses --
-    # PRAGMA foreign_keys cannot be changed inside alembic's transaction.
+    # Dropped in place. SQLite drops a column by rebuilding the table, and a
+    # batch_alter_table rebuild would DROP clock_events, which two foreign keys
+    # in work_sessions point at; env.py turns foreign keys on, and PRAGMA
+    # foreign_keys cannot be changed inside alembic's transaction.
     op.execute("ALTER TABLE clock_events DROP COLUMN utc_offset_minutes")

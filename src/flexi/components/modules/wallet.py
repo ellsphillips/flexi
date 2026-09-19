@@ -1,9 +1,8 @@
 """Every allowance, what is left, and whether that is on track.
 
-The gauge marks where an even spread through the leave year would have you,
-which is the difference between a figure and a judgement. How a single gauge is
-painted lives in :mod:`flexi.components.allowance`, because the leave planner
-draws the same wallet in its sidebar.
+The gauge marks where an even spread through the leave year would have you.
+Painting a single gauge lives in :mod:`flexi.components.allowance`, which the
+leave planner uses for the same wallet in its sidebar.
 """
 
 from __future__ import annotations
@@ -35,8 +34,8 @@ TRACKED: tuple[AbsenceType, ...] = (
 class BookRequested(Message):
     """A shifted key asked to book one type of absence.
 
-    The screen owns the modal, because a modal has to be pushed onto a screen and
-    because the booking needs the flexi balance, which the screen already has.
+    The screen owns the modal: a modal is pushed onto a screen, and the booking
+    needs the flexi balance the screen already holds.
     """
 
     def __init__(self, kind: AbsenceType) -> None:

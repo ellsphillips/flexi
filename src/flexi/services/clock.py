@@ -47,12 +47,8 @@ class ClockResult:
     at: datetime | None = None
     """The moment recorded, on the two returns that record one.
 
-    The status bar stamps a clock message with it -- "Clocked out at 12:04" is
-    a fact somebody can check against the wall, which is what makes a mistaken
-    keystroke visible the moment it happens. It carried the whole `ClockEvent`
-    before, so the screen reached past the `Outcome` protocol with two
-    `getattr`s and then decided *whether* to stamp by asking whether the
-    message began with the word "Clocked"."""
+    The status bar stamps a clock message with it, and its presence is what
+    says the message can be stamped."""
 
 
 class ClockService:
@@ -67,11 +63,8 @@ class ClockService:
     ) -> None:
         """Every collaborator is required, and none of them has a default.
 
-        This service used to build its own `BankHolidayService` inside
-        `clock_in`, which took the default division and ignored the configured
-        one, and to accept a default minimum that disagreed with the value the
-        registry hands every other surface. Both were invisible because both
-        had somewhere plausible to fall back to.
+        A default division or minimum session here would disagree with the
+        values the registry hands every other surface.
         """
         self._session = session
         self._settings = settings
@@ -94,19 +87,11 @@ class ClockService:
     ) -> Portion | None:
         """Which booked portion a stretch of work collides with, or ``None``.
 
-        The inverse of `DayFacts.has_work_in`, which is the rule the booking
-        side runs on, so the two cannot disagree: a morning booked off and then
-        worked is a day paid for twice, once out of the leave allowance and
-        once into the flexi balance.
-
-        Asked by both routes into a work session, which is the point: the guard
-        used to live inline in `clock_in` only, so `correct` -- the other way a
-        day gets hours on it -- walked straight past it.
-
-        `scalar_one_or_none` here raised outright on two rows, which is the one
-        arrangement `AbsenceService` documents as legal: a sick morning and an
-        annual afternoon. Booking those made the next morning's `flexi clock in`
-        a traceback.
+        The inverse of `DayFacts.has_work_in`, the rule the booking side runs
+        on, so the two cannot disagree: a morning booked off and then worked is
+        a day paid for twice. Both routes into a work session ask it, `clock_in`
+        and `correct`. One date can carry two booked portions, a sick morning
+        and an annual afternoon, so they come back as a list.
         """
         stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
         booked = list(self._session.execute(stmt).scalars().all())
@@ -122,10 +107,10 @@ class ClockService:
     def sweep(self) -> None:
         """Close work left running on an earlier day.
 
-        A minimum-session preference applies when a person clocks out and sees
-        the decision immediately. Reapplying today's preference to historical
-        rows here would silently reinterpret real work on every launch after a
-        config change, so startup deliberately performs only stale closure.
+        The minimum-session preference applies at clock-out, where the person
+        sees the decision. Reapplying today's preference to historical rows
+        would reinterpret real work on every launch after a config change, so
+        startup closes stale sessions and nothing else.
         """
         close_stale_sessions(self._session, self._settings.get_auto_close_time())
 
@@ -138,8 +123,8 @@ class ClockService:
         """Clock in. Rejects duplicate clock-in without creating audit rows."""
         self.sweep()
         with write_transaction(self._session):
-            # The refusal carries the session, so a caller does not have to go back
-            # and ask what is already in hand.
+            # The refusal carries the session, so the caller need not ask for
+            # what is already in hand.
             running = self.get_open_session()
             if running is not None:
                 return ClockResult(
@@ -149,15 +134,15 @@ class ClockService:
             moment = wallclock.local(now) if now is not None else wallclock.now()
             work_date = moment.date()
 
-            # Block clocking on bank holidays (if data available)
+            # A known bank holiday blocks clocking in; an unknown calendar
+            # answers `None` here and does not.
             if self._holidays.holiday_on(work_date) is not None:
                 return ClockResult(
                     success=False, message="Cannot clock in on a bank holiday"
                 )
 
             # The moment itself, not the rest of the day: a booked morning
-            # leaves the afternoon workable, and clocking in at one o'clock is
-            # what working it looks like.
+            # leaves the afternoon workable.
             booked = self._booked_over(work_date, moment, moment)
             if booked is Portion.FULL:
                 return ClockResult(
@@ -199,17 +184,14 @@ class ClockService:
         moment = wallclock.local(now) if now is not None else wallclock.now()
         length = moment - moment_of(open_session.clock_in_event)
 
-        # Dated after today: this machine's clock was ahead when the session was
-        # opened. Nothing else reaches such a session. `clock in` answers
-        # "Already clocked in", the sweep closes only days that have been and
-        # gone, and there is no way to delete one -- so it holds the clock shut
-        # until that date comes round. Closing it here is the way out.
+        # Dated after today: the machine's clock was ahead when the session
+        # opened. The sweep closes only days that have been and gone, so this is
+        # the only way out of a session that would hold the clock shut until
+        # that date came round.
         ahead = open_session.work_date > moment.date()
 
         # A session cannot run backwards. That is a fault in the data, not a
-        # slip of the finger, and voiding it deletes real work with no way back:
-        # a session opened at 01:30 on the morning the clocks go back used to be
-        # discarded here, for up to an hour, with a message blaming the user.
+        # slip of the finger, and voiding it would discard real work.
         if length < timedelta() and not ahead:
             return ClockResult(
                 success=False,
@@ -229,9 +211,8 @@ class ClockService:
         if not closed:
             return ClockResult(success=False, message="Not clocked in")
 
-        # The hours on a session dated in the future were read off a clock that
-        # was wrong, so they are discarded rather than counted. The events stay,
-        # and a day that was really worked goes back on the record as a
+        # Hours on a session dated in the future came off a wrong clock, so
+        # they are discarded. The events stay; the day goes back on as a
         # correction.
         if ahead:
             return ClockResult(
@@ -244,9 +225,8 @@ class ClockService:
             )
 
         # Clocking in and straight back out is a slip of the finger. The events
-        # stay — they are immutable, and the audit trail is the point — but the
-        # session is voided, so it is absent from the records table and from
-        # every figure derived from it.
+        # stay, being immutable; the session is voided and drops out of the
+        # records table and every figure derived from it.
         if short:
             return ClockResult(
                 success=True,
@@ -270,41 +250,31 @@ class ClockService:
         *,
         now: date | None = None,
     ) -> ClockResult:
-        """Record work on a day nobody clocked at the time.
+        """Record work on a day that was not clocked at the time.
 
-        A morning nobody punched in for is still a morning that was worked, and
-        the alternative to recording it is a balance that is quietly wrong.
+        Refused when it overlaps a stretch already recorded: two stretches
+        sharing an hour count it twice, and no merge rule beats a person looking
+        at both.
 
-        Refused rather than reconciled when it overlaps something already there:
-        two stretches sharing an hour is a day that counts it twice, and no rule
-        for merging them is better than a person looking at both and saying
-        which is right.
+        A portion already booked off is refused for the same reason: the day
+        would be paid for twice, once out of the leave balance and once into the
+        flexi balance. The other half of it stays correctable, as `clock_in`
+        leaves it.
 
-        A part of the day already booked off is refused for the same reason. The
-        absence spends a day of allowance and expects no work, so hours recorded
-        on top of it are pure surplus: the day is paid for twice, once out of the
-        leave balance and once into the flexi balance. The other half stays
-        correctable, exactly as `clock_in` leaves it -- a booked morning and a
-        worked afternoon is an ordinary day.
+        A stretch ending after now is a plan, and is refused.
 
-        Hours that have not happened yet are refused too. A stretch ending after
-        now is a plan, and the hours it claims are the ones somebody is about to
-        clock for real.
-
-        A bank holiday is deliberately *not* refused here, though `clock_in`
-        refuses one. Nobody can clock in on a bank holiday, so a correction is
-        the only way to record work that genuinely happened on one, and unlike
-        booked leave it spends no allowance -- the surplus it earns is real.
+        A bank holiday is *not* refused, though `clock_in` refuses one: a
+        correction is the only way to record work that happened on one, and it
+        spends no allowance.
         """
         moment = wallclock.now()
         today = now or moment.date()
         if day > today:
             return ClockResult(success=False, message=CORRECTION_FUTURE)
 
-        # Localised before they are measured. The hour the clocks skip in
-        # March holds no instants, so on that Sunday 01:00 and 02:00 name the
-        # same one and the span between them is nothing; read as wall times
-        # alone they are an hour apart.
+        # Localised before they are measured: the hour the clocks skip in March
+        # holds no instants, so on that Sunday 01:00 and 02:00 name the same
+        # instant and the span between them is nothing.
         opened_at = wallclock.local(datetime.combine(day, opened))
         closed_at = wallclock.local(datetime.combine(day, closed))
         span = wallclock.elapsed(opened_at, closed_at)
@@ -351,9 +321,8 @@ class ClockService:
     def corrections_between(self, start: date, end: date) -> list[Segment]:
         """Every corrected stretch in a span, earliest first.
 
-        Only the corrections: a review of what was typed in rather than clocked
-        is a list somebody reads to check their own work, and a punched session
-        on the same day is not what they came to look at.
+        Corrections only: a punched session on the same day is not part of a
+        review of what was typed in.
         """
         stmt = (
             select(WorkSession)
@@ -379,10 +348,9 @@ class ClockService:
         """Every stretch that can claim time on a date, whenever it opened.
 
         A session belongs to the day it started on, so one running from ten on
-        Monday night to two on Tuesday morning is dated Monday. It is still two
-        hours of Tuesday, and Tuesday's own rows do not mention it.
-        `overlapping` compares real instants, so a Monday that ended on Monday
-        cannot collide with anything here.
+        Monday night to two on Tuesday morning is dated Monday and is still two
+        hours of Tuesday. `overlapping` compares real instants, so a Monday that
+        ended on Monday cannot collide here.
         """
         return self._segments_dated(day - timedelta(days=1), day)
 
@@ -409,26 +377,19 @@ CORRECTION_FUTURE = "A day that has not happened cannot be corrected"
 CORRECTION_OVERLAP = "That overlaps work already recorded on {day}"
 """Formatted with an already-rendered date, not with the `date` itself.
 
-`%-d` is a glibc extension. On Windows `strftime` raises `ValueError: Invalid
-format string`, so the refusal explaining an overlap was itself a crash on the
-platform the classifiers claim -- and this was the only live `%-d` format spec
-left in `src/`, the other thirteen all being `stamp()` arguments or prose.
-`domain/format.py` exists for exactly this reason; `short_date` goes through it.
+`%-d` is a glibc extension: on Windows `strftime` raises `ValueError: Invalid
+format string`. `domain/format.py` exists for this, and `short_date` goes
+through it.
 """
 
 
 def overlapping(first: Segment, start: datetime, end: datetime) -> bool:
     """Whether an existing stretch shares any time with a proposed one.
 
-    An open session is worth the rest of its own day, which is the reading
-    `ledger.end_of_day` already gives it everywhere else. `first.end or
-    first.start` collapsed it to a zero-length instant instead, so a session
-    still running claimed none of the time it was in the middle of claiming and
-    a correction over those hours was waved through to be counted twice.
-
-    Not `wallclock.now()`: that would still admit a correction for later this
-    afternoon, which overlaps the moment the person clocks out. While a session
-    is running, any correction after its start on that date is refused.
+    An open session is worth the rest of its own day, the reading
+    `ledger.end_of_day` gives it everywhere else. Not `wallclock.now()`, which
+    would admit a correction for later this afternoon: while a session runs, any
+    correction after its start on that date is refused.
     """
     return bool(
         first.start < end and start < first.finish(end_of_day(first.start.date()))

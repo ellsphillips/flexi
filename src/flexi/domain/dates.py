@@ -1,25 +1,12 @@
-"""Reading, and shifting, the several ways somebody might type a date.
+"""Reading, and shifting, the several ways a date can be typed.
 
-Lives in the domain rather than beside the modal that used to own it, because a
-command line needs the same vocabulary a dialog does, and the CLI cannot import
-Textual.
+In the domain, not beside the modal that reads one, because a command line
+needs the same vocabulary a dialog does and the CLI cannot import Textual.
 
-Read relative to ``reference``, which is usually today and often is not:
-``parse_span`` reads a written end from the range's *start*, so ``28 dec to 4
-jan`` lands in the following year, and both modals read from the day on screen.
-It was called ``today``, which is what a reader assumes when a screen anchored
-on last March offers "an offset moves from today".
-
-A dialog and a command line want different defaults, though. Somebody typing
-``12`` into "go to date" while looking at June means the 12th of June, whether
-or not it has passed. Somebody typing ``flexi leave annual 12`` is booking
-leave, and leave is booked forwards. That is what :class:`Preference` chooses
-between; nothing else about the grammar changes.
-
-:func:`add_months` and :func:`days_between` are public for the same reason
-``leaveyear`` is: they are the two questions every layer asks about a span, and
-answering them privately here left four other answers scattered across the
-widgets and the services.
+Everything is read relative to ``reference``, which is often not today:
+:func:`parse_span` reads a written end from the range's *start*, and both
+modals read from the day on screen. :class:`Preference` settles what a date
+with no year, or no month, means; nothing else about the grammar changes.
 """
 
 from __future__ import annotations
@@ -97,13 +84,15 @@ DAY_NAMES: Final[tuple[str, ...]] = (
     "saturday",
     "sunday",
 )
-"""The week, in order. Written out rather than taken from `calendar.day_name`,
-which follows the locale: a working pattern is stored as the words somebody
-typed, and a machine that reads it back under a different locale must not
-decide the answer has changed."""
+"""The week, in order.
+
+Written out, not taken from `calendar.day_name`, which follows the locale: a
+working pattern is stored as words, and reading it back under another locale
+must not change the answer.
+"""
 
 SHORTEST_DAY_NAME: Final = 3
-"""Mon, Tue, Wed -- shorter than that and Tue and Thu are the same word."""
+"""Mon, Tue, Wed. One letter cannot tell Tue from Thu, or Sat from Sun."""
 
 OFFSET_UNITS: Final[Mapping[str, int]] = MappingProxyType({"d": 1, "w": 7})
 
@@ -163,15 +152,13 @@ class Preference(enum.Enum):
 def parse_date(
     raw: str, *, reference: date, prefer: Preference = Preference.CURRENT
 ) -> date:
-    """Read the several ways somebody might type a date.
+    """Read a date in any of the forms Flexi accepts.
 
     Accepts ``2026-06-12``, ``12 Jun``, ``jun 12``, ``12/06``, a bare ``12``,
     ``today``/``tomorrow``/``yesterday``, a weekday name meaning the next such
     day, ``next friday``, ``last friday``, ``next week``, and offsets like
-    ``+3d`` or ``-2w``.
-
-    Raises ``ValueError`` naming the forms it understands, because "invalid
-    date" tells nobody anything.
+    ``+3d`` or ``-2w``. Anything else raises a ``ValueError`` naming the forms
+    it understands.
 
     Examples:
         >>> parse_date("friday", reference=date(2026, 8, 10))
@@ -186,14 +173,9 @@ def parse_date(
         msg = "Type a date, a day of the month, or an offset like +3d"
         raise ValueError(msg)
 
-    # `or` rather than a table of readers: a date is always truthy, so the
-    # first that answers wins and the rest are never called -- and each reader
-    # keeps the signature it deserves instead of a uniform one that had three
-    # of them `del` an argument they never read.
-    # No `OverflowError` guard here: every reader converts its own, so one
-    # wrapped around all five could not fire. The range error a caller sees
-    # comes from the reader that computed the date, which is the one that knows
-    # what was being asked for.
+    # A date is always truthy, so the first reader to answer wins and the rest
+    # are never called. Each reader converts its own `OverflowError`, so the
+    # range error a caller sees comes from the reader that computed the date.
     found = (
         relative_to(text, reference)
         or parse_weekday(text, reference)
@@ -211,13 +193,11 @@ def parse_span(
 ) -> tuple[date, date]:
     """A date, or a pair separated by ``to``, ``until``, ``through`` or ``..``.
 
-    A written end is read *from the start* rather than from the reference, so
+    A written end is read *from the start*, not from the reference, so
     ``28 dec to 4 jan`` lands in the following year and ``monday to friday``
-    stays in one week.
-
-    A word and an offset name a day from the reference wherever the range
-    begins, because that is what they say: the end of ``last week to today`` is
-    today, and ``+1d to +3d`` is three days from now rather than four.
+    stays in one week. A word and an offset still name a day from the
+    reference: the end of ``last week to today`` is today, and ``+1d to +3d``
+    is three days from now, not four.
 
     Examples:
         >>> parse_span("monday to friday", reference=date(2026, 8, 10))
@@ -238,11 +218,9 @@ def parse_span(
                 or parse_date(tail, reference=start, prefer=Preference.FORWARD)
             )
             if end < start:
-                # Through `stamp`, not `{end:%-d %b %Y}`. `%-d` is a glibc and
-                # BSD extension: on Windows `strftime` raises `ValueError:
-                # Invalid format string`, so the message explaining a typo was
-                # itself a crash, and the one place it could happen was the
-                # line reporting somebody else's mistake.
+                # Through `stamp`, not `{end:%-d %b %Y}`: `%-d` is a glibc and
+                # BSD extension, and Windows `strftime` raises `ValueError:
+                # Invalid format string` on it.
                 msg = (
                     f"That range runs backwards: {stamp(end, '%-d %b %Y')} "
                     f"is before {stamp(start, '%-d %b %Y')}"
@@ -254,14 +232,11 @@ def parse_span(
     return only, only
 
 
-# -- the readers, tried in order --------------------------------------------
+# The readers, tried in order ------------------------------------------------
 
 
 def relative_to(text: str, reference: date) -> date | None:
     """A date named by how far it is from the reference day, in words.
-
-    A table rather than a ladder of five comparisons: the vocabulary is data,
-    and this way it can be read -- and extended -- without reading code.
 
     Examples:
         >>> relative_to("tomorrow", date(2026, 8, 10))
@@ -303,9 +278,8 @@ def weekday_index(name: str) -> int | None:
 def month_index(name: str) -> int | None:
     """An English month number, from its full name or three-letter form.
 
-    The vocabulary is data owned by Flexi rather than ``strptime`` state owned
-    by the process locale. A date saved or typed in English therefore means the
-    same thing on every machine.
+    The names are Flexi's own data, not ``strptime`` state owned by the process
+    locale, so a date typed in English means the same on every machine.
 
     Examples:
         >>> month_index("June")
@@ -436,16 +410,12 @@ def parse_day_of_month(
 ) -> date | None:
     """A bare day number: this month, or the next month that has one.
 
-    Booking forwards, the answer is the next date with that day number on it,
-    which is not always next month. This used to land the day in *today's*
-    month before consulting the preference, so `flexi leave annual 30` in
-    February was refused outright -- "February has no day 30", for a day
-    somebody was entitled to ask for -- and on the 31st of January it took the
-    30th one month forward and clamped it, booking the 28th of February for a
-    request that meant the 30th of March.
+    Booking forwards, the answer is the next date carrying that day number,
+    which is not always next month: the 30th asked for in February is the 30th
+    of March.
 
-    Raises rather than returning ``None`` for a number no month has: ``32`` is
-    a typo, and the last reader in the chain is the only one that can tell.
+    A number no month has raises instead of returning ``None``. This is the
+    last reader in the chain, so nothing after it can report the typo.
 
     Examples:
         >>> parse_day_of_month("12", date(2026, 8, 10))
@@ -479,15 +449,15 @@ def parse_day_of_month(
         raise ValueError(msg) from error
 
 
-# -- arithmetic ---------------------------------------------------------------
+# Arithmetic ------------------------------------------------------------------
 
 
 def add_months(when: date, count: int) -> date:
     """Move whole months, clamping to the end of a shorter one.
 
-    Clamping is :func:`flexi.domain.leaveyear.clamp`, which is where the reason
-    for it is written down: the 31st of a month has no counterpart in the next,
-    and neither does the 29th of February in three years out of four.
+    Clamping is :func:`flexi.domain.leaveyear.clamp`: the 31st of a month has
+    no counterpart in the next, and neither does the 29th of February in three
+    years out of four.
 
     Examples:
         >>> add_months(date(2026, 1, 31), 1)
@@ -506,11 +476,11 @@ def add_months(when: date, count: int) -> date:
 
 
 def add_days(when: date, count: int) -> date:
-    """Move a date by whole days, reporting the supported range intentionally.
+    """Move a date by whole days, or raise the supported-range refusal.
 
-    ``timedelta`` and date addition both raise ``OverflowError`` for an enormous
-    offset. User-input boundaries catch ``ValueError``; normalising here keeps
-    every public reader on that one deliberate failure contract.
+    ``timedelta`` and date addition both raise ``OverflowError`` for an
+    enormous offset. Normalising it to ``ValueError`` here keeps every public
+    reader on the one failure the input boundaries catch.
 
     Examples:
         >>> add_days(date(2026, 8, 10), 3)
@@ -525,14 +495,8 @@ def add_days(when: date, count: int) -> date:
 def week_start(when: date, *, first_weekday: int) -> date:
     """The first day of the week ``when`` falls in.
 
-    One question with one answer. It was worked out in five places, and the two
-    that assumed Monday -- the dashboard's month grid and the insights bars --
-    sat beside widgets honouring the configured first day, so a Sunday-first
-    week tinted two rows of one grid and bucketed the other a day out.
-
-    ``first_weekday`` is required, and keyword-only, for that reason: it is a
-    setting somebody chose, and a default here is a caller quietly deciding
-    they know better.
+    ``first_weekday`` is required, and keyword-only: it is a configured
+    setting, and a default here would let a caller quietly assume Monday.
 
     Examples:
         >>> week_start(date(2026, 6, 11), first_weekday=0)
@@ -548,11 +512,8 @@ def week_start(when: date, *, first_weekday: int) -> date:
 def days_between(start: date, end: date) -> list[date]:
     """Every date from ``start`` to ``end``, inclusive.
 
-    Empty when ``end`` falls before ``start``, because that is how many dates
-    there are between them. Callers refuse a backwards span before they get
-    here -- ``parse_span`` raises and the leave screen will not build one -- so
-    this is the answer to a question nobody should be asking, not a fallback
-    anybody relies on.
+    Empty when ``end`` falls before ``start``, which is how many dates there
+    are between them. Callers refuse a backwards span before reaching here.
 
     Examples:
         >>> days_between(date(2026, 6, 1), date(2026, 6, 3))[-1]
@@ -567,7 +528,7 @@ def days_between(start: date, end: date) -> list[date]:
     return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
 
 
-# -- helpers -----------------------------------------------------------------
+# Helpers --------------------------------------------------------------------
 
 
 def _supported(found: date) -> date:
@@ -575,9 +536,8 @@ def _supported(found: date) -> date:
 
     The calendar runs from year 1 to year 9999 and leave-year arithmetic reads
     a year either side of the date it is given, so the two end years are dates
-    `date` accepts and Flexi cannot hold. Refused here, at the boundary every
-    typed date crosses, because every caller of that boundary already turns a
-    ``ValueError`` into a usage error or a message under a field.
+    `date` accepts and Flexi cannot hold. This is the boundary every typed date
+    crosses, and its callers turn a ``ValueError`` into a message.
     """
     if not SUPPORTED_FIRST <= found <= SUPPORTED_LAST:
         raise ValueError(DATE_RANGE_ERROR)

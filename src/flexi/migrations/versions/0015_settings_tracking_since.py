@@ -1,34 +1,24 @@
 """Record the day Flexi started tracking.
 
-A leave year usually starts months before somebody installs Flexi. Every working
-day in between has no sessions on it, and until now each one scored a full
-contracted day of deficit: an April leave year set up in August opened on a
-balance of -762 hours, computed entirely from days the user was never asked
-about.
+Days before ``tracking_since`` expect no work, so a leave year that opened
+months before the install charges no deficit for the days in between.
 
-Backfilled to the earliest thing the database has a record of -- a clock event
-or a booked absence -- because that is the earliest day Flexi can be shown to
-have been in use. A database with neither has never recorded anything, so there
-is no deficit worth keeping and it takes the date of this migration.
+Backfilled to the earliest clock event or booked absence in the database, which
+is the earliest day Flexi can be shown to have been in use; a database with
+neither takes the date of this migration. A database carrying a balance
+adjustment is dated no later than the opening day of the leave year its earliest
+adjustment falls in: `flexi balance zero` sizes that row to absorb the deficit
+since then, and untracking any of those days would leave it absorbing a deficit
+nothing charges any more.
 
-A settled balance is the one thing that cannot be dated from its earliest
-record. `flexi balance zero` writes a single adjustment sized to absorb the
-deficit accumulated since the start of its leave year, counted under the rule
-that every day before the install counted. Untracking any of those days would
-leave that row absorbing a deficit nothing charges any more, and the balance
-reads hundreds of hours in surplus. So a database carrying an adjustment is
-dated no later than the opening day of the leave year its earliest one falls in.
+Nullable, and null means "count every day". Nothing here writes a null; the
+column stays nullable so that a row written by an older Flexi against a newer
+schema is readable instead of a constraint error.
 
-Nullable, and null means "count every day", which is what the code did before.
-Nothing here can produce a null; the column stays nullable so that a row written
-by an older Flexi against a newer schema is readable rather than a constraint
-error.
-
-The date comes from `flexi.wallclock`, which makes this the only migration that
-imports from the application. That is a deliberate exception: `wallclock` is the
-one place Flexi reads the clock, the invariant is worth more than a frozen
-revision's usual independence, and the module depends on nothing but the
-standard library, so it cannot drag a schema change into an import cycle.
+The date comes from `flexi.wallclock`, the one place Flexi reads the clock,
+which makes this the only migration that imports from the application. That
+module depends on nothing but the standard library, so it cannot drag a schema
+change into an import cycle.
 
 Revision ID: 0015
 Revises: 0014
@@ -71,8 +61,8 @@ def _clamped(year: int, month: int, day: int) -> date:
 def _opening_day(when: date, leave_year_start: str) -> date:
     """The first day of the leave year containing ``when``.
 
-    The rule `flexi.domain.leaveyear` states, restated: a frozen revision keeps
-    its own arithmetic.
+    Restates `flexi.domain.leaveyear`: a frozen revision keeps its own
+    arithmetic.
     """
     month, day = (int(part) for part in leave_year_start.split("-"))
     this_year = _clamped(when.year, month, day)

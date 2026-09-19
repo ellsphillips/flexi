@@ -1,11 +1,8 @@
-"""What the terminal sends, given a name.
+"""Key names for the byte sequences a terminal sends.
 
-A terminal delivers bytes, not key presses. An arrow arrives as three of them,
-and which three depends on whether the terminal is in application cursor mode.
-Naming them is a pure function of the sequence, so every key Flexi reads can be
-tested with nothing attached -- which matters, because the module that does hold
-a terminal has to put it in raw mode before it can read a single byte, and raw
-mode is not something to go near in a test suite.
+An arrow arrives as three bytes, and which three depends on the cursor mode.
+Naming a sequence is a pure function of it; holding a terminal, which needs
+raw mode, happens in :mod:`flexi.cli.ui.prompt`.
 """
 
 from __future__ import annotations
@@ -32,11 +29,8 @@ class Key(Enum):
     UNKNOWN = "unknown"
 
 
-# Both cursor modes are listed. A terminal left in application mode -- which is
-# where Textual leaves it, so where `flexi init` finds it after the setup form
-# has been open -- sends ESC O A for up, where the default mode sends ESC [ A.
-# Reading only one makes the arrows work everywhere except straight after the
-# application, which is the worst half to get.
+# Both cursor modes are listed. Application mode, which is where Textual leaves
+# the terminal, sends ESC O A for up; the default mode sends ESC [ A.
 KEYS: Final[Mapping[str, Key]] = MappingProxyType(
     {
         "\x1b[A": Key.UP,
@@ -70,11 +64,10 @@ def decode(sequence: str) -> Key:
 
 
 def incomplete(sequence: str) -> bool:
-    r"""Whether more bytes are needed before this can be named.
+    r"""Report whether more bytes are needed before this can be named.
 
-    A lone escape and the first byte of an arrow key are the same byte. Whether
-    anything follows is the only thing that separates them, so the reader has to
-    know when it is worth waiting to find out.
+    A lone escape and the first byte of an arrow key are the same byte, so only
+    what follows separates them.
 
     >>> incomplete("\x1b")
     True

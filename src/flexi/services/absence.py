@@ -1,17 +1,16 @@
 """Booking, changing and removing absence.
 
-Every refusal is a sentence the status bar can show unedited, which is why there
-is no modal explaining why a key did nothing.
+Every refusal is a sentence the status bar can show unedited.
 
-The rules SQLite cannot express, so this service does:
+The rules SQLite cannot express, enforced here:
 
-* A full day cannot coexist with a half. The table constraint is only
+* A full day cannot coexist with a half; the table constraint is only
   ``(date, portion)``.
-* Two halves of different types are legal -- a sick morning and an annual
-  afternoon is a real thing that happens.
+* Two halves of different types are legal: a sick morning and an annual
+  afternoon.
 * A half day may be booked over recorded work in the other half.
-* TOIL warns rather than blocks: an annual allowance is somebody else's limit,
-  a flexi balance is your own arithmetic.
+* TOIL warns and does not block: an annual allowance is a limit set elsewhere,
+  a flexi balance is the user's own arithmetic.
 """
 
 from __future__ import annotations
@@ -73,10 +72,8 @@ session is worth."""
 def covers_the_whole_day(booked: Iterable[Portion]) -> bool:
     """True when what is booked leaves no half of the day left to work.
 
-    One rule, asked from both sides. `DayFacts.has_work_in` already lets a half
-    day be booked over work in the other half; without this, the clock refused
-    the mirror image — you could book a sick morning after working it, and then not
-    work the afternoon after booking the morning.
+    The mirror of `DayFacts.has_work_in`, which lets a half day be booked over
+    work in the other half.
 
     Examples:
         >>> covers_the_whole_day([Portion.FULL])
@@ -93,10 +90,7 @@ def covers_the_whole_day(booked: Iterable[Portion]) -> bool:
 
 
 def deficit(shortfall: float) -> str:
-    """How far past zero this goes, phrased once for both places that say it.
-
-    Booking a day of TOIL and previewing a week of it are the same news, and
-    assembling the sentence twice is how one of them came to read "3 day".
+    """Phrase how far past zero a balance goes, for both places that say it.
 
     Examples:
         >>> deficit(1)
@@ -112,19 +106,9 @@ def overdraw(after: float | None, *, opening: str = "This") -> str | None:
     """The sentence for a balance this would leave under zero, or ``None``.
 
     ``after`` is what the flexi balance would read once the booking is made,
-    and ``None`` means the booking does not touch it -- annual leave does not,
-    so a balance already in deficit is not this booking's news, and saying so
-    on every annual booking teaches people to ignore the line.
-
-    One rule, asked by the single booking and by the plan. They had their own
-    arithmetic and their own sentence, so a day and a fortnight could disagree
-    about whether the same request was worth mentioning.
-
+    and ``None`` means the booking does not touch it, as annual leave does not.
     Rounded to one decimal, the resolution every other days-of-TOIL figure is
-    shown at. A balance is hours divided by a contracted day, so the raw
-    shortfall is a fraction that reads as "1.86486 days" beside a modal saying
-    "0.9 days banked". A shortfall that rounds to nothing carries no warning:
-    "0 days into deficit" says less than silence does.
+    shown at; a shortfall that rounds to zero carries no warning.
 
     Examples:
         >>> overdraw(None) is None
@@ -162,19 +146,17 @@ class AbsenceResult:
 class RangeResult:
     """The outcome of booking or clearing a span of days.
 
-    Partial by design. Booking a fortnight that crosses a bank holiday should
-    book the nine working days it can and say so, not refuse all fourteen and
-    leave somebody to find the offending one — so this records what happened
-    and what did not, with the reason each day was skipped.
+    Partial outcomes are normal: a fortnight crossing a bank holiday books the
+    nine working days it can, and records the reason each other day was
+    skipped.
     """
 
     booked: tuple[date, ...] = ()
     skipped: tuple[tuple[date, str], ...] = ()
     warning: str | None = None
     noun: str = "day"
-    """What one of these is: a whole day, or the half that was booked. Five
-    afternoons are five afternoons and two and a half days, and reporting them
-    as "5 days" contradicts the confirmation that was just accepted."""
+    """Whether one of these is a whole day or the half that was booked; five
+    afternoons are five afternoons and two and a half days."""
 
     @property
     def success(self) -> bool:
@@ -215,9 +197,7 @@ class PlannedDay:
 class Tally(NamedTuple):
     """How much of a kind of absence a span holds, counted both ways.
 
-    Two half-days are two occurrences and one day. Sickness is worth reporting
-    both ways: "five occasions" and "two and a half days" say very different
-    things about a year.
+    Two half-days are two occurrences and one day.
     """
 
     days: float
@@ -228,15 +208,8 @@ class Tally(NamedTuple):
 class DayFacts:
     """Everything deciding one date needs, and nothing that needs a database.
 
-    The rules used to read for themselves, one date at a time: a settings row,
-    two bank-holiday rows, an absence row and a session row per day. Planning a
-    year of leave was 1,417 round trips to answer a question about 365 dates,
-    where `LedgerService` -- which loads a period in three queries however long
-    it is -- had already shown what that should cost.
-
-    Plain values rather than the rows they were read from, so
-    :func:`verdict_for` is a function of its arguments and can be exercised
-    without a session.
+    Plain values, not the rows they were read from, so :func:`verdict_for` is a
+    function of its arguments and can be exercised without a session.
     """
 
     date: date
@@ -248,17 +221,16 @@ class DayFacts:
     booked: tuple[Portion, ...]
     worked: tuple[Span, ...]
     is_tracked: bool = True
-    """Whether the ledger expects anything of this date. False before Flexi was
-    watching, unless something punched the clock on it -- `LedgerService` reads
-    the same rule, and a TOIL booking's arithmetic turns on it."""
+    """Whether the ledger expects anything of this date. False before tracking
+    started, unless the clock was punched on it; `LedgerService` reads the same
+    rule, and a TOIL booking's arithmetic turns on it."""
 
     @property
     def midday(self) -> datetime:
         """The boundary between the two halves of this date.
 
-        Localised, because the spans in ``worked`` are: a manufactured wall time
-        compared against a stored one has to be given the same offset or the
-        comparison is a `TypeError` rather than an answer.
+        Localised, because the spans in ``worked`` are: comparing a naive wall
+        time against a stored aware one raises `TypeError`.
         """
         return wallclock.local(datetime.combine(self.date, time(MIDDAY_HOUR, 0)))
 
@@ -278,8 +250,7 @@ class DayFacts:
 def clash_reason(facts: DayFacts, portion: Portion) -> str | None:
     """Why this part of the day is already spoken for, or ``None``.
 
-    Ordered cheapest first, and only the first is reported: a dialog listing
-    four objections at once tells nobody what to do next.
+    Ordered cheapest first, and only the first is reported.
     """
     if Portion.FULL in facts.booked:
         return "That day is already booked in full"
@@ -295,14 +266,10 @@ def clash_reason(facts: DayFacts, portion: Portion) -> str | None:
 def _draws_on_the_balance(facts: DayFacts, today: date) -> bool:
     """True when booking TOIL on this date would move the flexi balance.
 
-    A tracked day that has been and gone already expects its contracted hours
-    and already carries the shortfall for not getting them. Booking TOIL over it
-    trades that expectation for a withdrawal of the same size, so the balance
-    reads afterwards exactly what it reads now and charging the booking against
-    it warns about a movement that does not happen.
-
-    A day still to come has not been counted yet, and an untracked day expects
-    nothing at all, so a withdrawal against either is a real one.
+    A tracked day already past expects its contracted hours and already carries
+    the shortfall for not getting them, so TOIL booked over it trades one for
+    the other and leaves the balance where it was. A future or untracked day
+    expects nothing, so a withdrawal against either is real.
     """
     return facts.date > today or not facts.is_tracked
 
@@ -315,15 +282,12 @@ def verdict_for(
     *,
     remaining_annual: float | None = None,
 ) -> PlannedDay:
-    """What booking this date would do, typed, with the sentence to show.
+    """Decide what booking this date would do, with the sentence to show.
 
     Order matters: cheapest first, and only the first objection is reported.
-
-    ``remaining_annual`` is passed in rather than read, so a plan can carry a
-    drawdown the database has not seen -- booking ten days against five left has
-    to refuse the sixth, and the rows for the first five are not written yet.
-    ``None`` means no entitlement has been recorded, which is not the same as
-    none remaining and must not refuse anything.
+    ``remaining_annual`` is passed in, so a plan can carry a drawdown the
+    database has not seen. ``None`` there means no entitlement is recorded,
+    which is not none remaining and refuses nothing.
     """
     if absence_type.requires_note and not (note or "").strip():
         return PlannedDay(
@@ -355,7 +319,7 @@ def verdict_for(
         and remaining_annual < portion.days
     ):
         # What is left, not what this day is short by: one date can be short
-        # by at most one day, whatever the size of the request around it.
+        # by at most one day, whatever the request around it asks for.
         left = max(remaining_annual, 0.0)
         remainder = f"{fmt_days(left)} {plural(left, 'day')}"
         reason = (
@@ -372,12 +336,10 @@ def still_bookable(
 ) -> bool:
     """True when a marker still sits on a day it could legally be booked on.
 
-    A working pattern that later drops Fridays leaves last year's Friday
-    bookings in place. They stop counting against the allowance rather than
-    being deleted behind the user's back.
-
-    ``holidays`` is ``None`` when there is no calendar, in which case nothing
-    can be ruled out for being one.
+    A working pattern that later drops Fridays leaves existing Friday bookings
+    in place; they stop counting against the allowance instead of being
+    deleted. ``holidays`` is ``None`` when there is no calendar, and then
+    nothing is ruled out for being one.
 
     Examples:
         >>> friday, saturday = date(2026, 6, 12), date(2026, 6, 13)
@@ -406,11 +368,10 @@ class AnnualBalance:
 
 @dataclass(frozen=True, slots=True)
 class AbsencePlan:
-    """What booking a span would do, decided without writing anything.
+    """The effect of booking a span, decided without writing anything.
 
-    Exists so a confirmation prompt can be a question rather than a receipt.
-    ``book_range`` used to call ``book`` in a loop, and ``book`` commits, so by
-    the time there was a result to show the rows were already in the database.
+    A confirmation prompt asks its question from the plan, so nothing is
+    written until the answer comes back.
     """
 
     absence_type: AbsenceType
@@ -422,8 +383,8 @@ class AbsencePlan:
     annual_balances: tuple[AnnualBalance, ...] = ()
     toil_available: float | None = None
     toil_cost: float | None = None
-    """What this plan would take off the flexi balance, which is not its `cost`:
-    a tracked day already gone by relabels a shortfall the balance has counted.
+    """What this plan takes off the flexi balance, which is not its `cost`: a
+    tracked day already past relabels a shortfall the balance has counted.
     ``None`` is a plan built without a date to measure against, where every
     bookable day counts."""
 
@@ -456,10 +417,9 @@ class AbsencePlan:
 
     @property
     def headline(self) -> str:
-        """What this plan would do, in one line.
+        """The plan's effect, in one line.
 
-        Says "of fourteen" only when the two differ, so a clean span reads as a
-        statement and a partial one reads as a question.
+        Says "of fourteen" only when the two figures differ.
         """
         booked = len(self.bookable)
         span = f" of {len(self.days)}" if booked != len(self.days) else ""
@@ -489,11 +449,10 @@ class AbsencePlan:
 
     @property
     def warning(self) -> str | None:
-        """Overdrawing the flexi balance is allowed, and worth saying out loud.
+        """The sentence for a flexi balance this plan would overdraw, or ``None``.
 
-        Only when *this* plan does the overdrawing. Annual leave does not touch
-        the balance, so a balance that was already in deficit is not news, and
-        saying so on every annual booking teaches people to ignore the line.
+        Only when this plan does the overdrawing: annual leave does not touch
+        the balance, so an existing deficit is not this booking's news.
         """
         if not self.absence_type.draws_down_balance:
             return None
@@ -513,12 +472,10 @@ class RemovalBooking:
 
 @dataclass(frozen=True, slots=True)
 class RemovalPlan:
-    """What clearing a span would take back, decided without deleting anything.
+    """The effect of clearing a span, decided without deleting anything.
 
-    The counterpart to `AbsencePlan`. Booking a fortnight says which days it
-    will take and what they cost; removing one used to say "Remove 9 bookings?"
-    — a number with no way to tell nine days of annual leave from nine sick
-    mornings, which is the whole of what somebody is being asked to approve.
+    The counterpart to `AbsencePlan`: it names each kind and portion, so nine
+    days of annual leave read differently from nine sick mornings.
     """
 
     start: date
@@ -549,7 +506,7 @@ class RemovalPlan:
 
     @property
     def summary(self) -> str:
-        """One line per kind, so nine of one is never nine of another."""
+        """One line per kind and portion."""
         return "\n".join(
             f"  {count} {plural(count, portion.noun)} of {kind.phrase}"
             for kind, portion, count in self.lots
@@ -576,9 +533,8 @@ def plan_removal(
 ) -> RemovalPlan:
     """Freeze the exact bookings a removal preview asks someone to approve.
 
-    The immutable values deliberately include more than the database key. If a
-    booking is edited in place after the preview, the wording that was approved
-    is stale just as surely as when another booking is added to the span.
+    The frozen values include more than the database key: a booking edited in
+    place after the preview makes the approved wording stale.
     """
     return RemovalPlan(
         start,
@@ -605,7 +561,7 @@ class AbsenceService:
         self._settings = settings
         self._bank_holidays = bank_holidays
 
-    # -- reading -----------------------------------------------------------
+    # --- reading ----------------------------------------------------------
 
     def for_date(self, day: date) -> list[AbsenceDay]:
         """Every absence booked on a date: none, one full day, or up to two halves."""
@@ -613,12 +569,7 @@ class AbsenceService:
         return list(self._session.execute(stmt).scalars())
 
     def by_id(self, absence_id: int) -> AbsenceDay | None:
-        """One booking, by the key a table row carries.
-
-        The records table hands a row key back as a primary key, and the screen
-        turned it into a row by fetching every booking in the visible period and
-        scanning for it -- a year of them, when the period was zoomed to a year.
-        """
+        """One booking, by the key a table row carries."""
         return self._session.get(AbsenceDay, absence_id)
 
     def in_range(self, start: date, end: date) -> list[AbsenceDay]:
@@ -630,7 +581,7 @@ class AbsenceService:
         )
         return list(self._session.execute(stmt).scalars())
 
-    # -- counting ----------------------------------------------------------
+    # --- counting ---------------------------------------------------------
 
     def count_days(
         self,
@@ -642,11 +593,10 @@ class AbsenceService:
     ) -> float:
         """How many *days* of a type were booked in a span, a half counting half.
 
-        ``valid_only`` drops markers on days Flexi no longer asks for work on
-        -- a Saturday under a changed working pattern, a Monday GOV.UK has since
+        ``valid_only`` drops markers on days Flexi no longer asks for work on:
+        a Saturday under a changed working pattern, a Monday GOV.UK has since
         declared a bank holiday. Neither the allowance nor the balance is drawn
-        against one: the ledger charges no TOIL on a day it expects nothing of.
-        The raw count is what a plan compares against, before any of that.
+        against one. A plan compares against the raw count.
         """
         stmt = select(AbsenceDay).where(
             AbsenceDay.absence_type == absence_type,
@@ -661,17 +611,9 @@ class AbsenceService:
     def tally(self, start: date, end: date) -> dict[AbsenceType, Tally]:
         """Days and occurrences of every type in a span, in one pass.
 
-        Counting only markers that still sit on a day leave could be booked on,
-        because the wallet is the only thing that asks and an allowance is what
-        it is drawing. Every type appears, including the ones with nothing
-        against them: a gauge that vanishes when it reaches zero is a gauge
-        somebody has to remember existed.
-
-        The wallet used to ask for days and occurrences separately, per type:
-        ten scans of the same rows with byte-identical arguments, each
-        re-validating every row it read with three queries of its own. A year
-        of twenty-five bookings cost 162 round trips to produce ten pairs of
-        numbers.
+        Counts only markers that still sit on a day leave could be booked on.
+        Every type appears, including the ones with nothing against them, so no
+        gauge disappears at zero.
         """
         rows = self._only_still_bookable(self.in_range(start, end))
         # `Counter` counts rows; days are halves, and a Counter is typed to
@@ -685,9 +627,8 @@ class AbsenceService:
     def _only_still_bookable(self, rows: list[AbsenceDay]) -> list[AbsenceDay]:
         """Drop markers whose date is no longer one leave could be booked on.
 
-        The two questions are asked once for the whole list rather than once per
-        row. Asked per row they were three queries each, so validating a leave
-        year cost more than reading it did.
+        The working pattern and the holiday calendar are read once for the
+        whole list, not once per row.
         """
         if not rows:
             return rows
@@ -704,8 +645,8 @@ class AbsenceService:
     def get_remaining_annual_leave(self, ref: date | None = None) -> float | None:
         """Days of annual leave left in the active leave year, or ``None``.
 
-        ``None`` means no entitlement has been recorded — which is not the same
-        as none remaining, and the interface must not draw it as zero.
+        ``None`` means no entitlement has been recorded, which is not none
+        remaining, and the interface must not draw it as zero.
         """
         when = ref or wallclock.today()
         year = self._settings.active_leave_year(when)
@@ -716,11 +657,10 @@ class AbsenceService:
     ) -> dict[int, float | None]:
         """Remaining allowances for distinct leave years, in one bounded read.
 
-        Planning a span can cross any number of allowance boundaries. Reading
-        one entitlement from its first date and carrying it through the whole
-        span lets the old year spend the new year's allowance—or refuses valid
-        dates after the boundary. This batch preserves one independent running
-        balance per leave year without turning a long plan into per-day queries.
+        A planned span can cross any number of allowance boundaries. One
+        entitlement carried across the whole span would let the old year spend
+        the new year's allowance, so each leave year keeps its own running
+        balance, and a long plan still costs no per-day queries.
         """
         requested = tuple(dict.fromkeys(years))
         if not requested:
@@ -757,7 +697,7 @@ class AbsenceService:
             for year in requested
         }
 
-    # -- writing -----------------------------------------------------------
+    # --- writing ----------------------------------------------------------
 
     def book(
         self,
@@ -812,16 +752,13 @@ class AbsenceService:
             warning=overdraw(after, opening="Booked, but this"),
         )
 
-    # -- what deciding a date needs -----------------------------------------
+    # --- what deciding a date needs ----------------------------------------
 
     def facts_between(self, start: date, end: date) -> list[DayFacts]:
         """Everything :func:`verdict_for` reads, for a whole span, in one pass.
 
-        Four reads however long the span is, against six per day: a settings
-        row, two bank-holiday rows, an absence row and a session row each. It is
-        the shape `LedgerService` uses, and for the same reason.
-
-        Not asked of `LedgerService` itself, close as the two are. It memoises
+        Four reads however long the span is, the shape `LedgerService` uses.
+        Not asked of `LedgerService` itself, close as the two are: it memoises
         until something writes, and a verdict read through a stale cache would
         book over a day that had just been taken.
         """
@@ -839,9 +776,9 @@ class AbsenceService:
         punched: set[date] = set()
         for session in self._sessions_between(start, end):
             worked[session.work_date].append(span_of(session, now=moment))
-            # Something clocked in, so Flexi was there for that day whatever the
-            # tracking stamp says. Hours typed in from memory cannot vouch for
-            # it the same way, which is the distinction `LedgerService` draws.
+            # A punch means Flexi was there that day, whatever the tracking
+            # stamp says; amended hours cannot vouch for it the same way, and
+            # `LedgerService` draws the same distinction.
             if session.clock_in_event.source is not EventSource.AMENDED:
                 punched.add(session.work_date)
 
@@ -863,8 +800,8 @@ class AbsenceService:
     def _sessions_between(self, start: date, end: date) -> list[WorkSession]:
         """Live sessions in a span, with both their clock events loaded.
 
-        Eagerly, because a span is resolved into moments the instant it is read
-        and a lazy relationship would put two queries back on every one of them.
+        Loaded eagerly: a span is resolved into moments the instant it is read,
+        and a lazy relationship would cost two queries per session.
         """
         stmt = (
             select(WorkSession)
@@ -881,7 +818,7 @@ class AbsenceService:
         )
         return list(self._session.execute(stmt).scalars())
 
-    # -- planning -----------------------------------------------------------
+    # --- planning ----------------------------------------------------------
 
     def plan(
         self,
@@ -895,9 +832,9 @@ class AbsenceService:
     ) -> AbsencePlan:
         """Decide every date in the span without writing a row.
 
-        The entitlement is drawn down across the plan rather than read fresh for
-        each day: booking ten days against five left has to refuse the sixth,
-        and the database has not seen the first five yet.
+        The entitlement is drawn down across the plan, so booking ten days
+        against five left refuses the sixth while the first five are still
+        unwritten.
         """
         span_facts = self.facts_between(start, end)
         month, day = self._settings.get_leave_year_start()
@@ -997,10 +934,8 @@ class AbsenceService:
     ) -> RangeResult:
         """Book every day in a span that will take it.
 
-        Weekends and bank holidays are passed over quietly — nobody booking a
-        fortnight means to book the Saturdays, and reporting them as refusals
-        would bury the one that matters. They are still in the plan, so a caller
-        that wants to say "and I left the two bank holidays" can.
+        Weekends and bank holidays are passed over, not reported as refusals.
+        They stay in the plan, so a caller can name them.
         """
         return self.book_plan(
             self.plan(
@@ -1020,7 +955,7 @@ class AbsenceService:
         *,
         portion: Portion | None = None,
     ) -> RemovalPlan:
-        """What clearing a span would take back, without taking any of it back."""
+        """Plan a removal of a span without deleting any of it."""
         return plan_removal(
             start,
             end,
@@ -1048,9 +983,8 @@ class AbsenceService:
                 return RangeResult(skipped=((plan.start, PLAN_CHANGED),))
 
             removed = tuple(dict.fromkeys(row.date for row in rows))
-            # One noun only when one portion was taken. A morning and an
-            # afternoon cleared off one date are one day, and calling that "1
-            # morning" would name half of what went.
+            # One noun only when one portion was taken: a morning and an
+            # afternoon cleared off one date are one day, not one morning.
             portions = {row.portion for row in rows}
             noun = next(iter(portions)).noun if len(portions) == 1 else "day"
             for row in rows:
@@ -1060,15 +994,10 @@ class AbsenceService:
     def clear_range(self, start: date, end: date) -> RangeResult:
         """Remove every booking in a span.
 
-        A day with nothing on it is not a failure — clearing a fortnight that
-        happens to be half empty should report what it removed, not five
-        complaints about the days that were already free.
-
-        Two bounded reads and one commit for the whole span: one freezes the
-        intended rows and the other revalidates them while holding SQLite's
-        writer reservation. Walking the dates and calling `remove` per date
-        made the work grow with the span and committed once per booking: 415
-        queries and 25 commits to clear a year.
+        A day with nothing on it is not a failure; a half-empty fortnight
+        reports what it removed. Two bounded reads and one commit for the whole
+        span: one freezes the intended rows, the other revalidates them while
+        holding SQLite's writer reservation.
         """
         return self.remove_plan(self.removal_plan(start, end))
 
@@ -1103,15 +1032,11 @@ class AbsenceService:
 def span_of(session: WorkSession, *, now: datetime | None = None) -> Span:
     """When a session ran, resolved.
 
-    A session still open on its own day is worth what it has run so far, which
-    is what `LedgerService` values it at and what the punch strip draws. Valued
-    to the end of that day instead, it covers an afternoon nobody has worked
-    yet and refuses a booking over it.
-
-    A session left open on an earlier day is worth the rest of that day and no
-    more. That is the window between a crash and the sweep on the next launch,
-    and a clock-out that never came must not make every evening since look
-    worked.
+    A session still open on its own day is worth what it has run so far, the
+    value `LedgerService` and the punch strip use; valued to the end of the day
+    it would cover an unworked afternoon and refuse a booking over it. One left
+    open on an earlier day is worth the rest of that day and no more, so a
+    clock-out that never came cannot make every evening since look worked.
     """
     start = moment_of(session.clock_in_event)
     if session.clock_out_event is not None:

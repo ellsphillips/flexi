@@ -1,14 +1,10 @@
 """Balance adjustments.
 
-A flexi balance is derived, never stored: it is worked minus expected,
-accumulated over the leave year. That is the right model until the day somebody
-needs to draw a line under a period they never tracked — and then there is
-nothing to edit, because there is nothing stored.
-
-An adjustment is the missing piece. A signed number of minutes, an effective
-date, and a reason. It is counted like any other term in the sum, so the balance
-stays derived, the clock events stay immutable, and drawing the line is one row
-that can be read, explained and removed.
+A flexi balance is derived, never stored: worked minus expected, accumulated
+over the leave year. An adjustment is a signed number of minutes with an
+effective date and a reason, counted as one more term in that sum. The balance
+stays derived, the clock events stay immutable, and an untracked period is
+settled by one row that can be read, explained and removed.
 
 Revision ID: 0009
 Revises: 0008

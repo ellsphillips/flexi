@@ -1,11 +1,8 @@
 """Modals, and the contract every one of them keeps.
 
-``escape`` cancels and dismisses with ``None``. ``enter`` confirms. ``tab`` moves
-between fields. A modal that breaks one of those is a bug, and
-``tests/tui/test_keyboard.py::test_every_modal_binds_escape_and_enter`` discovers
-every :class:`FlexiModal` subclass by walking the package and asserts it — so a
-new modal is covered the day it is written rather than the day somebody
-remembers to add a test.
+``escape`` cancels and dismisses with ``None``. ``enter`` confirms. ``tab``
+moves between fields. Enforced for every :class:`FlexiModal` subclass by
+tests/tui/test_keyboard.py.
 """
 
 from collections.abc import Sequence
@@ -58,13 +55,9 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     tall: ClassVar[bool] = False
     """True for a modal whose body can outgrow the screen.
 
-    A dialog is sized to its content, which is right for a question and wrong
-    for a form: `.modal` clips at 80% of the screen, so the booking modal's
-    last three rows -- the error line and both buttons -- fell off the bottom
-    of a 36-row terminal, and a rejected date looked like a key that did
-    nothing. A tall modal takes that 80% as a definite height instead, which is
-    what lets the body scroll inside it while the title, the error and the
-    buttons stay put.
+    `.modal` sizes to its content and clips at 80% of the screen; `-tall` takes
+    that 80% as a fixed height, so the body scrolls while the title, the error
+    line and the buttons stay put.
     """
 
     @property
@@ -90,21 +83,15 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
         return iter(())
 
     def compose_aside(self) -> ComposeResult:
-        """What stays on screen while the fields scroll past it.
-
-        Context rather than input: how much leave is left is what the answer is
-        being weighed against, so it is worth as much at the bottom of the form
-        as at the top.
-        """
+        """What stays on screen while the fields scroll past it."""
         return iter(())
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
         """Stand `enter` down while a button other than Confirm holds focus.
 
-        The binding is priority, so it wins over the focused widget; on a Cancel
-        button that means the key somebody pressed to back out of "Remove
-        leave?" is the key that removes it. Standing the action down lets the
-        button's own `enter` press it, and :meth:`on_button_pressed` answers.
+        The binding is priority, so it otherwise beats the focused widget and
+        confirms from a focused Cancel. Standing it down lets the button's own
+        `enter` press it, which :meth:`on_button_pressed` answers.
         """
         del parameters
         if action == "confirm":
@@ -128,8 +115,7 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
         """The value this modal was opened to collect.
 
         Raise :class:`ValueError` with a sentence the user can act on; it is
-        shown under the fields rather than replacing them, so what they typed
-        stays on screen next to what was wrong with it.
+        shown under the fields, which keep what was typed.
         """
         raise NotImplementedError
 
@@ -147,9 +133,8 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
 class PressingRadioSet(RadioSet):
     """A radio set whose arrows move the pressed dot, not only the highlight.
 
-    Textual's arrows move a highlight and leave the answer where it was, so
-    arrowing to Sickness and pressing enter booked annual leave. Here the
-    option under the highlight is the option that is read.
+    Textual's arrows move the highlight and leave the pressed button behind, so
+    the highlighted option and the answer can disagree.
     """
 
     HELP_LABEL = "Options"
@@ -203,8 +188,7 @@ class AbsenceBooking:
     portion: Portion
     note: str | None
     until: date
-    """The last day, inclusive. One day booked is one day, not ``None`` -- the
-    modal defaults it to ``when``, so nothing downstream has to."""
+    """The last day, inclusive; the modal defaults it to ``when``."""
 
 
 class AbsenceModal(FlexiModal[AbsenceBooking]):
@@ -236,8 +220,6 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         yield Label("From" if self._until else "Date", classes="overline")
         yield Input(self._when.isoformat(), id="absence-date", placeholder="YYYY-MM-DD")
         if self._until:
-            # A fortnight was selected and the modal showed one date, so `e`
-            # wrote fourteen days off the back of a field reading "24 Aug".
             yield Label("Until", classes="overline")
             yield Input(
                 self._until.isoformat(), id="absence-until", placeholder="YYYY-MM-DD"
@@ -262,7 +244,7 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         yield Static(self._allowance_hint(), classes="caption")
 
     def _allowance_hint(self) -> str:
-        """What is left, so the decision does not need another screen."""
+        """What is left of the annual allowance and of banked TOIL."""
         parts: list[str] = []
         if self._remaining is not None:
             left = self._remaining
@@ -301,9 +283,8 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
 class GoToDateModal(FlexiModal[date]):
     """Jump the period anchor to a date, typed however is quickest.
 
-    Everything typed here is read relative to the day already on screen, not to
-    today. Somebody browsing last March and typing `12` means the 12th of March,
-    and the parameter was called `today` while being handed the anchor.
+    Input is read relative to the day on screen, not to today: `12` while
+    browsing last March means the 12th of March.
     """
 
     title_text: ClassVar[str] = "Go to date"
@@ -336,7 +317,7 @@ class GoToDateModal(FlexiModal[date]):
 
 @dataclass(frozen=True, slots=True)
 class Correction:
-    """A stretch of work somebody is recording after the fact."""
+    """A stretch of work recorded after the fact."""
 
     day: date
     opened: time
@@ -344,12 +325,10 @@ class Correction:
 
 
 class CorrectionModal(FlexiModal[Correction]):
-    """Record work on a day nobody clocked at the time.
+    """Record work on a day that was not clocked at the time.
 
-    Three fields and no clever ones. The day defaults to whatever was selected,
-    because the commonest correction is for the day being looked at, and the
-    times are read with the same grammar the rest of Flexi reads a clock time
-    with -- `9`, `9:15`, `0915` and `9am` are all a quarter past nine.
+    The day defaults to the one selected. The times use the clock-time grammar
+    the rest of Flexi uses, so `9`, `9:15`, `9.15` and `9am` all read.
     """
 
     title_text: ClassVar[str] = "Record work"
@@ -385,7 +364,7 @@ class CorrectionModal(FlexiModal[Correction]):
         )
 
     def _time(self, selector: str, what: str) -> time:
-        """One field, read as a clock time, or a sentence saying why not."""
+        """One field, read as a clock time."""
         typed = self.query_one(selector, Input).value.strip()
         if not typed:
             msg = f"Give {what} time"
@@ -394,12 +373,7 @@ class CorrectionModal(FlexiModal[Correction]):
 
 
 class CorrectionsModal(FlexiModal[None]):
-    """Every correction in the period, so they can be read back as a set.
-
-    A review rather than a form: what was typed from memory is the part of the
-    record worth checking, and on a punch strip a correction is one fill among
-    several. Listed together they are a short answer to "what did I claim?".
-    """
+    """Every correction in the period, listed together for review."""
 
     HELP_LABEL = "Corrections"
 
@@ -460,9 +434,8 @@ def correction_line(segment: Segment) -> str:
 def selected_name(screen: DOMNode, selector: str, *, fallback: str) -> str:
     """The ``name`` of the pressed radio button, or a fallback.
 
-    Radio sets report the pressed *button*, and Flexi puts the enum value in its
-    ``name`` so the modal never has to map a label back to a member — a mapping
-    that silently breaks the moment a label is reworded.
+    A radio set reports the pressed *button*, so the enum value goes in its
+    ``name`` and rewording a label cannot break the mapping.
     """
     radio_set = screen.query_one(selector, RadioSet)
     pressed = radio_set.pressed_button

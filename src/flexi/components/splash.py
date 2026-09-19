@@ -1,25 +1,12 @@
 """The word `flexi`, extruded into three dimensions and flexed.
 
-The image is computed rather than drawn. The wordmark is a bitmap font seven
-rows tall; every inked cell is extruded into a cuboid, the exposed faces of
-those cuboids are sampled into a cloud of points carrying surface normals, and
-each frame the cloud is rotated, projected through a pinhole, depth-sorted into
-a z-buffer and shaded by how squarely each normal faces the light. Luminance
-picks a character out of a ramp. That is the machinery a certain spinning
-doughnut runs on, pointed at a logo instead of a torus.
-
-It turns once and stops. There was a wobble after the turn -- the word wrung
-about its own axis and ringing down -- and it undercut the thing: a mark that
-settles and then jiggles reads as a toy rather than as a title. The turn
-decelerates into stillness and stays there. The last frame is exactly the flat
-bitmap at full brightness, so the spectacle resolves into something legible
-rather than merely stopping.
-
-Everything is a pure function of elapsed seconds and none of it knows a terminal
-exists, so the animation is tested frame by frame with no clock, no screen and
-no sleeping. The point cloud is built once and cached; a frame is then a
-rotation and a projection over a few thousand points, which is what keeps
-thirty of them a second affordable on the interface thread.
+The wordmark is a bitmap font seven rows tall. Each inked cell becomes a
+cuboid, the exposed faces are sampled into a cloud of points carrying surface
+normals, and every frame that cloud is rotated, projected, depth-sorted into a
+z-buffer and shaded by how squarely each normal faces the light; luminance then
+picks a character out of a ramp. The last frame is the flat bitmap at full
+brightness. Every value is a pure function of elapsed seconds, so frames are
+tested with no clock, no screen and no sleeping.
 """
 
 from __future__ import annotations
@@ -70,13 +57,11 @@ WORD: Final = "flexi."
 STRAPLINE: Final = "Manage your time, flexibly."
 
 ROWS: Final = 7
-"""Rows in the drawn wordmark. Ascenders take all seven; `e` and `x` sit in the
-lower five, and the dot of the `i` rides on the top one."""
+"""Rows in the drawn wordmark. Ascenders take all seven, `e` and `x` five."""
 
 INK: Final = "#"
 
-# Seven rows apiece. Lowercase with real ascenders, because "flexi" in capitals
-# is a different word about a different kind of company.
+# Seven rows apiece, lower case with real ascenders.
 LETTER_GLYPHS: Final[Mapping[str, tuple[str, ...]]] = MappingProxyType(
     {
         "f": (".###", ".#..", "###.", ".#..", ".#..", ".#..", ".#.."),
@@ -92,8 +77,8 @@ TRACKING: Final = 1
 """Blank columns between letters."""
 
 RAMP: Final = " ·-:+*░▒▓█"
-"""Luminance, dimmest first. It ends in a solid block so that a face-on, fully
-lit surface resolves into exactly the flat wordmark rather than into a dither."""
+"""Luminance, dimmest first. It ends in a solid block, so a face-on, fully lit
+surface resolves into the flat wordmark instead of a dither."""
 
 DEPTH: Final = 2.6
 """How far the wordmark is extruded, in cells. Enough that the sides catch the
@@ -106,29 +91,24 @@ CANVAS_HEIGHT: Final = 15
 VIEWER: Final = 60.0
 """Distance from the eye to the middle of the word.
 
-Far enough that the perspective on the extrusion is gentle. Closer in, the near
-face of the slab is scaled enough more than the far one that a cell at the top
-or bottom of the word spans two rows instead of one, and the settled wordmark
-comes out with its first and last rows drawn twice."""
+Far enough that the perspective on the extrusion is gentle: closer in, a cell
+at the top or bottom of the word spans two rows and the settled wordmark draws
+its first and last rows twice."""
 
 SCALE: Final = 60.0
 """Projection scale. Equal to VIEWER, so a face-on cell is one cell wide."""
 
 LIGHT: Final = (-0.24, 0.33, -0.91)
 """Unit vector towards the light: mostly head on, a little above and to the
-left, so the extruded sides are lit differently from the face while it turns.
-
-Head on enough that a face-on surface reads at the top of the ramp: the settled
-wordmark has to be solid blocks, not the shade below them."""
+left, so the extruded sides are lit differently from the face while it turns
+and a face-on surface still reads at the top of the ramp."""
 
 EDGE_ON: Final = -0.15
 """How squarely a face must meet the eye to be drawn at all.
 
-Culling only what points strictly away is not enough. At rest the four sides of
-every cell are exactly edge-on -- no projected area whatsoever -- but their
-normals are perpendicular rather than turned away, so they were still being
-painted, one column to the side of the cell they belong to. That filled in the
-counters: the hole in the `e` closed up and the wordmark became a slab."""
+At rest the four sides of every cell are edge-on, with no projected area but
+normals perpendicular to the eye, so culling only what points strictly away
+paints them one column to the side and fills in the counters."""
 
 SPIN: Final = 1.70
 """Seconds the word takes to turn in and stop."""
@@ -143,31 +123,25 @@ STRAPLINE_IN: Final = 0.55
 """Seconds the strapline takes to fade up, once the word is still."""
 
 HOLD: Final = 1.10
-"""Seconds the finished wordmark simply sits there.
-
-Somebody sees this once. Snatching it away the instant it settles wastes the
-only moment the application has to introduce itself."""
+"""Seconds the finished wordmark sits there before the splash ends."""
 
 DURATION: Final = SPIN + STRAPLINE_IN + HOLD
 
 FACE_SAMPLES: Final = 6
 """Samples across a face, per axis.
 
-Taken at the middle of each sub-division rather than at its edges, so that the
-samples sit wholly inside the cell and neighbouring cells tile instead of
-overlapping. Sampling the edges put a mark half a cell beyond the glyph on every
-side, which thickened the wordmark and closed up its counters."""
+Taken at the middle of each sub-division, so they sit wholly inside the cell and
+neighbouring cells tile instead of overlapping; sampling the edges puts a mark
+half a cell beyond the glyph on every side."""
 
 DEPTH_SAMPLES: Final = 9
 """Samples through the narrow faces of the extrusion.
 
-The word is a thin slab, so for a good part of every turn the faces are culled
-and the only thing left to draw is its edge. Two samples through the depth left
-that edge as scattered speckle rather than a solid rim, which read as noise
-instead of as an object."""
+The word is a thin slab, so for much of every turn the faces are culled and only
+its edge is left to draw; too few samples leave that edge as speckle."""
 
 
-# -- the model ---------------------------------------------------------------
+# ---- the model ----
 
 
 def cells() -> list[tuple[int, int]]:
@@ -196,8 +170,8 @@ def surface() -> tuple[tuple[float, float, float, float, float, float], ...]:
     """The wordmark as a cloud of lit points: position, then surface normal.
 
     Each inked cell is a cuboid. Only faces with no neighbouring cell against
-    them are sampled -- an interior wall between two touching cells is never
-    visible, and sampling it would be most of the work for none of the picture.
+    them are sampled: an interior wall between two touching cells is never
+    visible.
     """
     inked = set(cells())
     width, height = extent()
@@ -249,7 +223,7 @@ def surface() -> tuple[tuple[float, float, float, float, float, float], ...]:
     return tuple(points)
 
 
-# -- the motion --------------------------------------------------------------
+# ---- the motion ----
 
 
 def ease_out(progress: float) -> float:
@@ -272,12 +246,7 @@ def pitch(elapsed: float) -> float:
 
 
 def strapline_fade(elapsed: float) -> float:
-    """How far the strapline has arrived, nought to one.
-
-    A fade rather than a typewriter. Letters appearing one at a time is the
-    oldest gesture a terminal has, and it changes the width of the line on every
-    frame, which is a poor thing to do underneath something being centred.
-    """
+    """How far the strapline has arrived, nought to one."""
     if elapsed < SPIN:
         return 0.0
     return min(1.0, (elapsed - SPIN) / STRAPLINE_IN)
@@ -287,7 +256,7 @@ def is_finished(elapsed: float) -> bool:
     return elapsed >= DURATION
 
 
-# -- rendering ---------------------------------------------------------------
+# ---- rendering ----
 
 
 def luminance(elapsed: float) -> list[list[int]]:
@@ -295,7 +264,7 @@ def luminance(elapsed: float) -> list[list[int]]:
 
     A z-buffer keeps the nearest surface in each cell, so the word occludes
     itself correctly while it turns. Faces pointing away from the eye are
-    dropped before they are projected, which is half the cloud on any frame.
+    dropped before they are projected.
     """
     turn, lean = yaw(elapsed), pitch(elapsed)
 
@@ -325,11 +294,9 @@ def luminance(elapsed: float) -> list[list[int]]:
             continue
 
         over = 1.0 / (z2 + VIEWER)
-        # Doubled across, because a terminal cell is about twice as tall as wide.
-        # Two columns per cell across, one row down: a terminal cell is about
-        # twice as tall as it is wide. The half added to the row is what makes a
-        # cell land wholly inside one row instead of straddling the boundary
-        # between two and drawing every glyph row twice at a different weight.
+        # Two columns across per cell, one row down: a terminal cell is about
+        # twice as tall as it is wide. The half added to the row lands a cell
+        # wholly inside one row instead of straddling two.
         column = math.floor(centre_x + SCALE * over * x2 * 2.0)
         row = math.floor(centre_y - SCALE * over * y1 + 0.5)
         if not (0 <= column < CANVAS_WIDTH and 0 <= row < CANVAS_HEIGHT):
@@ -347,9 +314,8 @@ def settled_rows() -> tuple[int, int]:
     """First and last canvas row the wordmark occupies once it has stopped.
 
     The canvas is tall enough for the word to tumble in, so the settled word
-    sits in the middle of it with several blank rows either side. Anything meant
-    to read as part of the logo has to be placed against these rather than
-    against the canvas, or it ends up stranded a hand's width below the word.
+    sits in the middle with blank rows either side. Anything that reads as part
+    of the logo is placed against these, not against the canvas.
     """
     canvas = luminance(DURATION)
     inked = [at for at, row in enumerate(canvas) if any(level >= 0 for level in row)]
@@ -360,8 +326,7 @@ def should_play(*, interactive: bool, animations: bool) -> bool:
     """Whether to run it at all.
 
     Textual does not detect a missing terminal, and ``animation_level`` gates
-    the Animator but not a timer -- so a per-frame splash keeps running in CI,
-    in a pipe and over a dumb terminal unless something asks first. This is that
-    something.
+    the Animator but not a timer, so a per-frame splash keeps running in a pipe
+    or over a dumb terminal unless something asks first.
     """
     return interactive and animations

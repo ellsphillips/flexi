@@ -1,14 +1,7 @@
 """The command line entry point.
 
-Nothing heavy is imported at module scope. `flexi --version` used to load the
-six Textual screens, alembic, SQLAlchemy and httpx -- 898 modules, most of a
-second -- before printing a string it already had. The application, the
-migration runner, the engine and the service registry are imported by the
-functions that use them, so a command pays for what it does and no more.
-
-`flexi.services.setup` is the model for this: its docstring says asking "am I
-set up" should not cost the migration module, and it was the one place that
-already knew.
+Textual, Alembic, SQLAlchemy and httpx are imported inside the commands that
+need them, so `flexi --version` and `--help` stay cheap.
 """
 
 from __future__ import annotations
@@ -83,9 +76,8 @@ __all__ = (
 
 
 @click.group(invoke_without_command=True)
-# `message=flexi.__version__` read the version at decoration time, which is to
-# say at import, on every command. Click resolves `package_name` inside the
-# flag's own callback instead, so the metadata is only read when asked for.
+# `package_name` lets Click read the version inside the flag's own callback; a
+# literal `message` would read the metadata at import, on every command.
 @click.version_option(
     None, "-v", "--version", package_name="flexi", message="%(version)s"
 )
@@ -116,16 +108,13 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
         run_demo(ctx)
         return
 
-    # Nothing is opened here. A guard in the group callback runs before click
-    # has resolved the subcommand, so it would refuse `flexi init` on the very
-    # machine that needs it, and block `flexi clock --help`. Each command opens
-    # the database itself, through @requires_setup.
+    # The group callback runs before click resolves the subcommand, so a guard
+    # here would refuse `flexi init`. Each command opens its own database.
     if ctx.invoked_subcommand is not None:
         return
 
-    # Bare `flexi` on a new machine sets itself up rather than refusing. The
-    # guard exists to stop clock, leave and balance inventing answers from
-    # defaults nobody chose -- not to make the application decline to open.
+    # Bare `flexi` on a new machine sets itself up; the setup guard is there to
+    # stop clock, leave and balance answering from unchosen defaults.
     migrate()
     if not set_up_here():
         ask_the_questions(ctx, database_file())
@@ -154,9 +143,8 @@ def needs_a_terminal(ctx: click.Context) -> None:
     """Refuse when there is no terminal for the application to draw on.
 
     Textual reads ``sys.__stdin__`` and draws on ``sys.__stderr__``, which is
-    what :func:`flexi.cli.ui.interactive` checks. Without this a cron entry
-    that runs bare ``flexi`` never returns: it sits streaming escape sequences
-    into the log and holding a lease on the database.
+    what :func:`flexi.cli.ui.interactive` checks. Left to run without one, the
+    application never returns and holds the database lease.
     """
     from flexi.cli import ui
 
@@ -166,24 +154,18 @@ def needs_a_terminal(ctx: click.Context) -> None:
 
 
 def unreadable() -> click.ClickException:
-    """The one sentence for a database Flexi cannot read.
-
-    Said in the same words wherever the file is met, because the next move is
-    the same in all of them: put this one aside, or bring a copy back from the
-    directory beside it.
-    """
+    """The one sentence for a database Flexi cannot read."""
     return click.ClickException(
         UNREADABLE.format(path=database_file(), backups=backups_directory())
     )
 
 
 def set_up_here() -> bool:
-    """Whether this machine has a Flexi, with a damaged one said out loud.
+    """Whether this machine has a Flexi, with a damaged database raising.
 
-    A missing, empty or unstamped database answers False, which offers `flexi
-    init`. A file that is not a database at all, or one whose pages are torn,
-    raises instead: its owner has records, and "not set up on this machine yet"
-    would send them to the one command that starts again.
+    A missing, empty or unstamped database answers False. A file that is not a
+    database, or one whose pages are torn, raises instead: the records are
+    still there, and `flexi init` would start again over them.
     """
     try:
         return is_initialised()
@@ -194,9 +176,8 @@ def set_up_here() -> bool:
 def run_app(ctx: click.Context, app: FlexiApplication) -> None:
     """Run the application, and carry what it exited with out to the shell.
 
-    Textual sets a return code of 1 when a screen raises, and prints the
-    traceback itself. Without this the shell is told the run went fine, so a
-    cron entry reports success and `flexi && something` carries on.
+    Textual sets a return code of 1 when a screen raises and prints the
+    traceback itself, so the code has to be forwarded to the shell.
     """
     app.run()
     if app.return_code:
@@ -206,11 +187,9 @@ def run_app(ctx: click.Context, app: FlexiApplication) -> None:
 def migrate() -> None:
     """Bring the schema to head, or say in one sentence what stopped it.
 
-    Every failure here is about the file rather than about what was asked for:
-    another Flexi holding it, a data directory that cannot be written, a file
-    that is not a database, a schema this version cannot read. Without this each
-    arrives as a traceback whose last line is the only readable part of it.
-    Anything else still raises: a traceback is the right answer to a bug.
+    The failures caught here are about the file: another Flexi holding it, an
+    unwritable data directory, a file that is not a database, a schema this
+    version cannot read. Anything else still raises.
     """
     from sqlalchemy.exc import DatabaseError
 
@@ -221,9 +200,7 @@ def migrate() -> None:
     except (sqlite3.DatabaseError, DatabaseError) as error:
         raise unreadable() from error
     except RuntimeError as error:
-        # A busy lease and a refused migration are both written for a person to
-        # read. Some of them name the file they are about; the rest are one
-        # clause long and could be about any database on the machine.
+        # These messages are already readable, but only some name the file.
         message = str(error)
         if str(database_file()) not in message:
             message = f"{message}. The database is at {database_file()}."
@@ -236,12 +213,7 @@ def migrate() -> None:
 def as_of_option[ReturnT](
     help_text: str,
 ) -> Callable[[Callable[..., ReturnT]], Callable[..., ReturnT]]:
-    """The ``--as-of`` option, declared once for the two commands that take it.
-
-    It was written out twice, differing only in the help string, and both
-    copies used `click.DateTime` -- so both had to unwrap a `.date()` and
-    declare a parameter as a `datetime` that could only ever be a date.
-    """
+    """The ``--as-of`` option, declared once for the two commands that take it."""
     return click.option(
         "--as-of", "as_of", type=TypedDate(), default=None, help=help_text
     )
@@ -252,18 +224,10 @@ def requires_setup(
 ) -> Callable[[Callable[..., int]], Callable[..., None]]:
     """Refuse before setup; migrate, open a session, and exit on what came back.
 
-    Applied per command rather than to the group, so `flexi init` and every
-    `--help` remain reachable on a machine with no database.
-
-    The decorated function takes the service registry and returns an exit code
-    -- the shape every module in `flexi.cli` already has. It used to open the
-    database and hand back nothing, so all eight commands repeated the same
-    four lines to fish the registry back out of the context and turn a code
-    into an exit, and `open_database`'s return value was dead.
-
-    ``fill`` is for the one command whose job is the fetch that opening would
-    do for it. Without it `flexi holidays refresh` asks GOV.UK twice and waits
-    twice as long to answer.
+    Applied per command, not to the group, so `flexi init` and every `--help`
+    stay reachable on a machine with no database. The decorated function takes
+    the service registry and returns an exit code. ``fill=False`` is for the
+    command whose own job is the fetch, so GOV.UK is not asked twice.
     """
 
     def decorate(command: Callable[..., int]) -> Callable[..., None]:
@@ -284,15 +248,10 @@ def requires_setup(
 def launch(*, settings: bool = False, splash: bool = False) -> FlexiApplication:
     """Every way into the application goes through here.
 
-    ``FlexiApp.__init__`` builds an engine, opens a session and reads the settings
-    row, so opening it against a database with no tables raises before a single
-    screen is drawn. Leaving each caller to migrate first meant the invariant
-    lived everywhere except where it was needed, and the reset path -- which
-    deletes the database and then asks the five questions -- duly forgot.
-
-    ``run_migrations`` returns as soon as it finds the schema already at head,
-    so calling it on every path costs one revision check and takes no extra
-    backup. That is a cheap price for the guarantee.
+    ``FlexiApp.__init__`` builds an engine, opens a session and reads the
+    settings row, so the schema has to be at head before it is built.
+    ``run_migrations`` returns as soon as it finds head, so migrating on every
+    path costs one revision check and takes no extra backup.
     """
     from flexi.app import FlexiApp
 
@@ -306,10 +265,8 @@ def launch(*, settings: bool = False, splash: bool = False) -> FlexiApplication:
 def open_database(ctx: click.Context, *, fill: bool = True) -> ServiceRegistry:
     """Migrate, connect, sweep, and hand back the service registry.
 
-    Closing is registered on the context rather than written at the end of each
-    command. `ctx.exit` raises, so every hand-written `session.close()` after a
-    failure was unreachable -- which is to say the session and the engine leaked
-    on exactly the paths where something had already gone wrong.
+    Closing is registered on the context: `ctx.exit` raises, so a
+    `session.close()` at the end of a command is unreachable after a failure.
     """
     from flexi.models.database.engine import database_scope
     from flexi.services.registry import build_services
@@ -340,15 +297,9 @@ def holidays_refresh(services: ServiceRegistry) -> int:
 def run_demo(ctx: click.Context) -> None:
     """Launch against a temporary database holding the sample data.
 
-    The same seed the screenshots and the regression tests use, so what a new
-    user is shown, what a reviewer looks at, and what CI compares against are
-    all the same working life -- anchored to today here, and to a fixed date
-    there, because a committed screenshot cannot move and a demo must.
-
-    Seeded up to today rather than up to `samples.ANCHOR`. That date is in the
-    screenshots for good reasons and none of them apply here: the demo opens on
-    the real current week, so a fixed anchor meant an empty dashboard and a
-    week's deficit for anybody who ran `flexi --demo` after it.
+    The seed is the one the screenshots use, anchored to today instead of to
+    `samples.ANCHOR`: the demo opens on the real current week, which a fixed
+    anchor would leave empty.
     """
     import tempfile
     from pathlib import Path
@@ -394,8 +345,7 @@ def already_set_up(ctx: click.Context, db_path: Path) -> None:
     from flexi.cli import ui
 
     if not ui.interactive():
-        # The whole of the headless behaviour, deliberately: report and stop.
-        # There is no flag that erases Flexi's records with nobody present.
+        # Headless is report and stop: no flag erases records without a prompt.
         click.echo(f"Flexi is set up. Its records are at {db_path}.")
         click.echo("Run `flexi init` from a terminal to change or reset them.")
         return
@@ -439,9 +389,8 @@ def ask_the_questions(
 ) -> None:
     """Open the setup form, which is a full screen and needs a terminal.
 
-    ``then_open`` is what separates the two ways in. Bare ``flexi`` carries
-    straight on into the application once the questions are answered, because
-    that is what the person asked for; ``flexi init`` stops and says so.
+    ``then_open`` carries bare ``flexi`` on into the application once the
+    questions are answered; ``flexi init`` stops and says so.
     """
     from flexi.cli import ui
 

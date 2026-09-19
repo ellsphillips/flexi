@@ -1,8 +1,8 @@
 """Lazy public facade for the dashboard's composable modules.
 
-The leaf modules remain available for precise imports. This facade gives
-extension code one discoverable namespace without making every dashboard
-module load when a caller asks for only the shared :class:`Module` contract.
+A name imported from here loads only the leaf module that defines it, so asking
+for the shared :class:`Module` contract does not load every dashboard module.
+The leaf modules stay importable directly.
 """
 
 from __future__ import annotations

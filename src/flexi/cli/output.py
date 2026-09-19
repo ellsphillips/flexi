@@ -1,9 +1,9 @@
-"""What the two output streams can take, settled before anything is printed.
+"""Stream capability, settled before anything is printed.
 
-Three questions, none of them about what Flexi has to say: whether the console
-interprets an escape sequence, whether colour is wanted at all, and whether the
-stream can encode the glyphs the figures are drawn with. Answering them once at
-the entry point is what keeps every ``click.echo`` in the package a plain call.
+Whether the console interprets an escape sequence, whether colour is wanted,
+and whether the stream can encode the glyphs the figures are drawn with are
+settled once at the entry point, so every ``click.echo`` in the package stays a
+plain call.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ PLAIN_TERMINALS = frozenset({"dumb", "unknown"})
 
 
 _VIRTUAL_TERMINAL_PROCESSING = 0x0004
-"""The console mode bit that makes an escape sequence mean something."""
+"""Console mode bit that makes a console interpret escape sequences."""
 
 _STANDARD_OUTPUT = -11
 _STANDARD_ERROR = -12
@@ -30,17 +30,12 @@ _STANDARD_ERROR = -12
 def enable_ansi() -> None:
     """Ask both console streams to interpret escape sequences.
 
-    Windows only; a POSIX terminal has read them all along. Click 8.5 dropped
-    colorama and nothing else turns the flag on, so a classic conhost window
-    prints the escape where the colour should be and stacks a fresh copy of the
-    ``flexi init`` menu under every keypress. Textual sets the flag for the
-    application and Rich only reads it, which leaves the plain commands as the
-    one surface with no path to a working escape sequence.
-
-    A handle that is a pipe or a file has no console mode. That is not a
-    failure; there is simply nothing to enable.
+    Windows only; a POSIX terminal already does. Click 8.5 dropped colorama,
+    Textual sets the flag for the application alone and Rich only reads it, so
+    the plain commands have to set it themselves. A handle that is a pipe or a
+    file has no console mode, and nothing is enabled for it.
     """
-    if sys.platform == "win32":  # pragma: no cover - exercised by the Windows job
+    if sys.platform == "win32":  # pragma: no cover - Windows only
         import ctypes
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -57,9 +52,8 @@ def monochrome() -> bool:
     """True when the environment has asked for no colour.
 
     ``NO_COLOR`` present and not empty is the rule no-color.org states, and a
-    ``dumb`` terminal has said the same thing in the older vocabulary. Rich and
-    Textual read both and Click reads neither, so the answer has to be handed
-    to Click or the prompts go monochrome while the commands do not.
+    ``dumb`` terminal says the same in the older vocabulary. Rich and Textual
+    read both and Click reads neither, so the answer is handed to Click.
     """
     return bool(os.environ.get("NO_COLOR")) or (
         os.environ.get("TERM", "").lower() in PLAIN_TERMINALS
@@ -71,10 +65,8 @@ def tolerant() -> None:
 
     A redirected stdout on Windows is the ANSI code page, so the U+2212 in
     every delta and the arrow in the leave-year line raise
-    ``UnicodeEncodeError`` the moment output is piped to a file. A lost glyph
-    is a smaller loss than the line it was in and the exit code with it.
-
-    Only streams nobody is watching. A terminal is left exactly as it is.
+    ``UnicodeEncodeError`` once output is piped to a file. Only redirected
+    streams are reconfigured; a terminal is left as it is.
     """
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper) and not stream.isatty():
@@ -84,9 +76,8 @@ def tolerant() -> None:
 def prepare(ctx: click.Context) -> None:
     """Settle what the streams can take, before anything is written to them.
 
-    ``ctx.color`` is inherited by every subcommand context, so setting it once
-    on the group is what carries the answer to the ``secho`` calls spread
-    across five modules.
+    ``ctx.color`` is inherited by every subcommand context, so setting it on
+    the group carries the answer to every ``secho`` call in the package.
     """
     enable_ansi()
     tolerant()

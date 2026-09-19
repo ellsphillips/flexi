@@ -1,9 +1,8 @@
 """Changing the four answers given at setup, and the leave for each year.
 
-The four shared questions are asked here and again on the first-run form, of the
-same four widget ids -- so parsing them lives in :func:`parse_answers` rather
-than in each screen, which is where the two wordings of the same refusal came
-from.
+The first-run form asks the same four questions of the same four widget ids, so
+parsing them lives in :func:`parse_answers` and both screens refuse in the same
+words.
 """
 
 from __future__ import annotations
@@ -44,11 +43,11 @@ NO_DIVISION = "Select a bank holiday region"
 def parse_answers(node: Widget) -> SettingsUpdate:
     """Parse the four answers shared by setup and settings forms.
 
-    No persistence happens here. Both forms can therefore validate all of
-    their other fields before opening one settings transaction.
+    Nothing is persisted here, so both forms can validate all their other
+    fields before opening one settings transaction.
 
-    A ``Select`` with nothing chosen answers its ``NULL`` sentinel rather than
-    a string, which is why the division is checked separately from the text
+    A ``Select`` with nothing chosen answers its ``NULL`` sentinel, not a
+    string, which is why the division is checked separately from the text
     fields.
     """
     leave_start = node.query_one("#input-leave-start", Input).value.strip()
@@ -75,9 +74,8 @@ _COLLAPSE_FROM = 3
 def describe_working_days(days: Sequence[int]) -> str:
     """Weekday indices as the names the same field takes back.
 
-    The form reads `Mon-Fri` and `0,1,2,3,4` alike, and a field holding the
-    numbers invites a reader to count from one: `1,2,3,4,5` is a valid answer
-    and a working week that runs Tuesday to Saturday.
+    The form reads `Mon-Fri` and `0,1,2,3,4` alike. Names are shown because
+    `1,2,3,4,5` reads as Monday to Friday and means Tuesday to Saturday.
     """
     names = [DAY_NAMES[day][:3].capitalize() for day in days]
     if len(names) >= _COLLAPSE_FROM and list(days) == list(
@@ -106,9 +104,8 @@ class SettingsScreen(Screen[bool]):
         padding: 1 2;
         background: $surface;
     }
-    /* The questions scroll and the buttons do not. A third leave year is a
-       row the dialog has no room for, and clipped rows still take focus:
-       tab moved the cursor into a field nobody could read. */
+    /* The questions scroll and the buttons do not: a clipped row still takes
+       focus, so tab can reach a field that is off screen. */
     #settings-body {
         height: 1fr;
     }
@@ -147,9 +144,8 @@ class SettingsScreen(Screen[bool]):
 
     def compose(self) -> ComposeResult:
         # Every field through the service's own accessor, which is where each
-        # one's fallback is written down. Read from the row instead, this screen
-        # carried a second copy of all four -- and one of them, the region, was
-        # a slug compared against a member that never matched.
+        # one's fallback is written down; the settings row alone does not carry
+        # them.
         month, day = self._svc.get_leave_year_start()
         leave_start = f"{month:02d}-{day:02d}"
         working = describe_working_days(self._svc.get_working_day_indices())
@@ -203,12 +199,8 @@ class SettingsScreen(Screen[bool]):
     def _add_next_year(self) -> None:
         """Add an uncommitted year to the list, and stay on the screen.
 
-        It used to dismiss, which looked like a refresh and was an exit: every
-        field typed into the form above went with it, unsaved and unmentioned,
-        and dismissing with ``True`` told the application settings had been
-        changed. It later committed the allowance immediately, so Back only
-        discarded some of the form. The row is now a draft like every other
-        field and the existing atomic Save owns all persistence.
+        The row is a draft like every other field on the form, and Save is the
+        only thing that writes.
         """
         if self.entitlement_drafts:
             latest = max(self.entitlement_drafts)
@@ -237,12 +229,10 @@ class SettingsScreen(Screen[bool]):
     def _save(self) -> None:
         """Write every field, or none of them.
 
-        The entitlements used to be parsed after `save_settings` had already
-        committed, so a year somebody could not type left the working pattern
-        and the region written to the database, the screen open, and the ledger
-        cache holding figures built against the settings that had just been
-        replaced. Nothing invalidates it on this path: the application hangs
-        that off `dismiss(True)`, and a rejection does not dismiss.
+        Every entitlement is parsed before anything is written, so a year that
+        cannot be read leaves nothing written. Nothing invalidates the ledger
+        cache on this path: the application hangs that off `dismiss(True)`, and
+        a rejection does not dismiss.
         """
         allowances: dict[int, float] = {}
         rejected: list[str] = []

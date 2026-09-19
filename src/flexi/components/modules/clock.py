@@ -1,11 +1,10 @@
 """Are you on the clock, since when, and when can you go.
 
-One key does the whole thing. The switch and the button exist so a pointer works
-and so a visible control teaches the key beside it.
+One key does the whole thing; the switch and the button are there for a pointer
+and to show the key beside them.
 
 The subtitle carries the elapsed time while a session is open and updates every
-second: a minute-grained readout jumping in sixty-second steps looks like a hung
-process.
+second, so the readout never looks stalled.
 """
 
 from __future__ import annotations
@@ -44,15 +43,15 @@ class ClockModule(Module):
             yield Pill("off the clock", id="clock-pill")
             yield Switch(value=False, id="clock-switch")
         yield PunchStrip(id="clock-strip", now=self.now)
-        # Markup off: the line can carry a bank-holiday title, which comes from
-        # GOV.UK and is drawn rather than interpreted.
+        # Markup off: the line can carry a bank-holiday title from GOV.UK, and
+        # that text is drawn, not interpreted.
         yield Static("", id="clock-detail", classes="caption", markup=False)
         yield Button("Arrive", id="clock-button", classes="-primary")
 
     def on_mount(self) -> None:
         self.rebuild()
 
-    # -- drawing -----------------------------------------------------------
+    # --- drawing ----------------------------------------------------------
 
     def rebuild(self) -> None:
         services = self.services
@@ -83,13 +82,9 @@ class ClockModule(Module):
     def tick(self) -> None:
         """Refresh only what changes second to second.
 
-        The date rides here rather than in the header, beside the one figure
-        that moves every second. It is the same fact either way, and this is
-        where somebody already looks to see how long they have been on.
-
-        Numeric and padded, because it sits next to a running clock: `27/08/2026`
-        keeps the same width all month where `Thu 27 Aug` does not, and a slot
-        that changes width every day makes the panel edge move.
+        The date is numeric and padded: `27/08/2026` keeps the same width all
+        month where `Thu 27 Aug` does not, and a slot that changes width every
+        day moves the panel edge.
         """
         today = f"{self.now.date():%d/%m/%Y}"
         if self._ledger is None or not self._ledger.is_open:
@@ -112,19 +107,18 @@ class ClockModule(Module):
             parts.append(f"go home {clock(leave_at)}")
         else:
             parts.append(f"worked {hm(ledger.worked)}")
-        # Break time is deliberately not here. The line has thirty columns and
-        # loses its last word at thirty-one; the breakdown is one `space` away
-        # in the records table, where there is room to say it properly.
+        # No break time: the line is too narrow to hold another term, and the
+        # records table has the breakdown one `space` away.
         return " · ".join(parts)
 
-    # -- interaction -------------------------------------------------------
+    # --- interaction ------------------------------------------------------
 
     class Toggle(Message):
         """The user asked to clock in or out. The screen does the work.
 
-        A message rather than a direct service call, so the pointer and the `/`
-        key arrive at exactly one place — and so the early-departure
-        confirmation lives on the screen that can push a modal.
+        A message, not a service call: the pointer and the `/` key arrive at one
+        place, and the early-departure confirmation belongs on the screen, which
+        can push a modal.
         """
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -134,9 +128,8 @@ class ClockModule(Module):
     def on_switch_changed(self, event: Switch.Changed) -> None:
         """Only act when the switch disagrees with the truth.
 
-        ``rebuild`` writes the switch back to whatever the database says, and a
-        naive handler would treat that write as a user action and clock straight
-        back out again.
+        ``rebuild`` writes the switch back to whatever the database says, and
+        that write posts ``Changed`` just as a press does.
         """
         event.stop()
         on_clock = self._ledger is not None and self._ledger.is_open

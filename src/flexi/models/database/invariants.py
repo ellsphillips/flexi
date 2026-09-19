@@ -1,10 +1,9 @@
 """Reusable database DDL for invariants SQLAlchemy cannot model directly.
 
 SQLite cannot express immutable rows or a foreign row's required value with a
-table constraint.  Triggers enforce those rules for metadata-created schemas.
-Historical migrations deliberately carry frozen copies of the DDL instead of
-importing this evolving runtime module; regression tests keep the two schema
-construction paths equivalent.
+table constraint, so triggers enforce those rules for metadata-created schemas.
+Migrations carry frozen copies of this DDL and never import this module, which
+is free to change; tests keep the two schema construction paths equivalent.
 """
 
 from __future__ import annotations
@@ -63,10 +62,9 @@ WORK_SESSION_CLOCK_OUT_ACTION_ERROR = (
 def clock_event_update_trigger_sql() -> str:
     """Return the canonical DDL that rejects updates to ``clock_events``.
 
-    Deletion is deliberately outside this trigger.  Foreign keys already stop
-    a referenced audit event being removed, while an unreferenced event can be
-    speculative (a writer that lost a race) or part of a deliberate demo-data
-    reset.  Such rows have no session history to preserve.
+    Deletion is outside this trigger: foreign keys already stop a referenced
+    audit event being removed, and an unreferenced event (a writer that lost a
+    race, a demo-data reset) has no session history to preserve.
     """
     return f"""
 CREATE TRIGGER {CLOCK_EVENT_UPDATE_TRIGGER}

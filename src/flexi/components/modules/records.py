@@ -1,11 +1,10 @@
 """The records table: one row per day, opening to the day's breakdown.
 
 A collapsed row is a whole day in one line; opening it shows the sessions and
-breaks behind the figures, so the table answers both "how was the week" and "why
-is Thursday short" without a second screen.
+breaks behind the figures.
 
-Strips are painted into cells rather than mounted: thirty-one widgets would cost
-a layout pass per redraw, on the one widget that redraws every second.
+Strips are painted into cells, not mounted: a widget per row would cost a layout
+pass per redraw, on the one widget that redraws every second.
 """
 
 from __future__ import annotations
@@ -65,7 +64,7 @@ COLUMNS: tuple[tuple[str, int] | str, ...] = (
 STRIP_WIDTH_FLOOR = 12
 FIXED_COLUMNS = 7 + 7 + 6
 CELL_PADDING = 8
-"""Two columns of padding on each of the four cells — DataTable's own default."""
+"""Two columns of padding on each of the four cells: DataTable's own default."""
 MAX_JUMP_ROWS = 9
 
 BRANCH = "├"
@@ -74,9 +73,8 @@ LAST = "└"
 BADGE_WIDTH = 3
 """A jump badge is one character with a column of padding either side.
 
-The row badges sit against the table's right edge rather than its left. A badge
-over the left edge covers the day name, which is the one thing on the row you
-need in order to choose which badge to press."""
+Row badges sit against the table's right edge: over the left edge they would
+cover the day name that tells you which badge to press."""
 
 
 class BookHere(Message):
@@ -133,9 +131,9 @@ class RecordsModule(Module):
     def on_resize(self) -> None:
         """Re-measure the strip column after the table has been laid out.
 
-        The other three columns are fixed, so the strip takes what remains —
-        which is what makes it a shared time axis across the rows rather than a
-        per-row bar. Deferred, because the module is resized before its table is.
+        The other three columns are fixed, so the strip takes what remains,
+        which is what makes it one time axis shared across the rows. Deferred,
+        because the module is resized before its table is.
         """
         self.call_after_refresh(self._remeasure)
 
@@ -144,10 +142,9 @@ class RecordsModule(Module):
         if width == self._strip_width:
             return
         self._strip_width = width
-        # Size the column to the strip it will actually hold. The bucket sizes
-        # are fixed — 15 minutes means something, 13.7 does not — so a strip
-        # rarely fills its budget exactly, and an auto-sized column would leave
-        # the remainder as a gap between the graphic and the figures beside it.
+        # Sized to the strip it will hold. Bucket sizes are fixed (15 minutes
+        # means something, 13.7 does not), so a strip rarely fills its budget
+        # and an auto-sized column would leave the remainder as a gap.
         table = self.query_one("#records-table", ExpandableTable)
         for key, column in table.columns.items():
             if str(key.value) == "strip":
@@ -164,13 +161,10 @@ class RecordsModule(Module):
     def rebuild(self) -> None:
         table = self.query_one("#records-table", ExpandableTable)
         if not table.columns:
-            # Composed, not yet mounted. `on_mount` sets the columns and
-            # rebuilds on the next line, so there is nothing to draw into and
-            # nothing lost by waiting -- but a redraw asked for from outside
-            # can land in that window, and adding rows to a table with no
-            # columns is `ValueError: More values provided than there are
-            # columns` on a worker thread, which Textual reports as the
-            # application failing.
+            # Composed, not yet mounted. A redraw from outside can land before
+            # `on_mount` sets the columns, and adding rows to a table with no
+            # columns raises `ValueError: More values provided than there are
+            # columns`.
             return
 
         period = self.period
@@ -178,11 +172,7 @@ class RecordsModule(Module):
         window = self.services.ledger.window
 
         # Accumulated once, by the domain, and handed to both places that draw
-        # it. The total row summed `worked - expected - toil` by hand, dropping
-        # the adjustment term `BalanceSummary.delta` carries -- so the figure
-        # under the table and the wallet's figure for the same span disagreed
-        # by every correction ever recorded in it. The subtitle then summed two
-        # of the same three columns a third time.
+        # it, so the total row, the subtitle and the wallet cannot disagree.
         total = accumulate(ledgers)
         groups = [self._group(ledger, window) for ledger in ledgers]
         groups.append(self._total_group(total))
@@ -214,8 +204,8 @@ class RecordsModule(Module):
     def _children(self, ledger: DayLedger) -> tuple[Row, ...]:
         """The day's breakdown: absences, sessions, breaks, and the arithmetic.
 
-        A day with nothing recorded has no children and therefore does not open,
-        which is what stops `space` feeling broken on an empty week.
+        A day with nothing recorded has no children and therefore does not
+        open.
         """
         rows: list[Row] = []
         sub = self.get_component_rich_style("record--sub")
@@ -340,16 +330,15 @@ class RecordsModule(Module):
         """What the day did to the balance, which is what the period row totals.
 
         Hours against expected is only part of it: a TOIL day spends the
-        surplus that paid for it and a correction moves the balance on its own.
+        surplus that paid for it, and a correction moves the balance on its own.
         A column without them does not add up to the figure printed under it.
         """
         if not (
             ledger.expected or ledger.worked or ledger.toil_taken or ledger.adjustment
         ):
             return Text("")
-        # From the figures the table prints rather than the exact ones, so the
-        # column adds up to the total under it. Read off the exact ones, a day
-        # carrying seconds shows `2:00` worked, `3:42` expected and `−1:41`.
+        # From the figures the table prints, not the exact ones, so the column
+        # adds up to the total under it on a day carrying seconds.
         return self._signed(accumulate((ledger,)).as_shown().delta)
 
     def _signed(self, value: timedelta) -> Text:
@@ -377,8 +366,8 @@ class RecordsModule(Module):
     def jump_row_targets(self) -> dict[Offset, JumpInfo]:
         """A number key over each of the first nine visible day rows.
 
-        A row is not a widget, so the offsets come from the table's own geometry rather
-        than from walking the DOM, and a row scrolled out of view is not offered.
+        A row is not a widget, so the offsets come from the table's own
+        geometry, and a row scrolled out of view is not offered.
         """
         table = self.table
         region = table.region
@@ -394,11 +383,8 @@ class RecordsModule(Module):
             y = region.y + header + index - scroll
             if not (region.y + header <= y < region.y + region.height):
                 continue
-            # Counted only once the row is known to be on screen. `visible_rows`
-            # means "not collapsed away", not "inside the viewport", so rows
-            # scrolled off the top used to spend the nine badges before the
-            # first row anybody could see was reached -- scroll a month of
-            # records down far enough and every badge was gone.
+            # Counted only once the row is on screen: `visible_rows` means "not
+            # collapsed away", not "inside the viewport".
             numbered += 1
             if numbered > MAX_JUMP_ROWS:
                 break
@@ -414,8 +400,7 @@ class RecordsModule(Module):
             return None
         group = self.table.group_for(key)
         # Unreachable: `cursor_key` can only name a row the table holds, and
-        # `set_groups` is the only thing that puts rows in it, so every key it
-        # returns belongs to a group.
+        # `set_groups` is the only thing that puts rows in it.
         if group is None:  # pragma: no cover
             return None
         parent = group.parent.key

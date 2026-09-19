@@ -1,11 +1,10 @@
 """Which span of dates is on screen.
 
-A period is an anchor plus a granularity rather than an offset from today: an
-offset cannot express next month, and Flexi books leave in the future.
+A period is an anchor plus a granularity, not an offset from today: an offset
+cannot express next month, and Flexi books leave in the future.
 
-Zooming keeps the anchor, so ``m`` then ``w`` returns to the week you were
-standing on rather than the week containing the first of the month. Going to
-today resets the anchor and not the granularity.
+Zooming keeps the anchor, so ``m`` then ``w`` returns to the week the cursor
+was standing on. Going to today resets the anchor and not the granularity.
 """
 
 from __future__ import annotations
@@ -32,16 +31,14 @@ __all__ = ("Period",)
 class Period:
     """A span of dates, identified by any date inside it.
 
-    Operations move or reinterpret ``anchor`` rather than a separate cursor, which
-    is what keeps zooming lossless. ``year_start`` affects only
-    :attr:`Granularity.YEAR`, ``first_weekday`` only :attr:`Granularity.WEEK`.
+    Operations move or reinterpret ``anchor``, which is what keeps zooming
+    lossless. ``year_start`` affects only :attr:`Granularity.YEAR`,
+    ``first_weekday`` only :attr:`Granularity.WEEK`.
 
-    Every ``match self.granularity`` below ends on ``case Granularity.YEAR``
-    carrying ``# pragma: no branch``. Coverage cannot see that a match over
-    every member of an enum is exhaustive, so it reports the arm that never
-    matches as a missed branch, and blames the last ``case`` for it. Adding a
-    fifth granularity without a case would be a mypy error rather than a silent
-    fall-through, which is what makes the pragma safe to write.
+    Each ``match self.granularity`` below ends on ``case Granularity.YEAR``
+    carrying ``# pragma: no branch``: coverage cannot see that a match over
+    every member of an enum is exhaustive, and a granularity added without a
+    case is a mypy error, not a silent fall-through.
     """
 
     granularity: Granularity
@@ -49,7 +46,7 @@ class Period:
     year_start: tuple[int, int] = (1, 1)
     first_weekday: int = 0
 
-    # -- construction ------------------------------------------------------
+    # --- construction -----------------------------------------------------
 
     @classmethod
     def containing(
@@ -63,7 +60,7 @@ class Period:
         """The period of the given granularity that contains ``moment``."""
         return cls(granularity, moment, year_start, first_weekday)
 
-    # -- span --------------------------------------------------------------
+    # --- span -------------------------------------------------------------
 
     @property
     def start(self) -> date:
@@ -90,13 +87,9 @@ class Period:
                 last = calendar.monthrange(self.anchor.year, self.anchor.month)[1]
                 return self.anchor.replace(day=last)
             case Granularity.YEAR:  # pragma: no branch
-                # Asked of `leaveyear`, not recomputed. Deriving the next start
-                # from *this* start clamps twice: a leave year beginning on 29
-                # February starts on the 28th in a common year, and taking the
-                # 28th forward gave 28 February rather than 29, so the year
-                # ended a day early and the 28th belonged to neither year. On
-                # screen it simply vanished, while every service — which does
-                # ask `leaveyear` — still counted it.
+                # Asked of `leaveyear`, not recomputed: deriving the next start
+                # from this one clamps twice, so a leave year beginning on 29
+                # February would end a day early in a common year.
                 return leaveyear.bounds(self.anchor, *self.year_start)[1]
 
     def _year_start(self) -> date:
@@ -114,22 +107,19 @@ class Period:
         """True when ``moment`` falls inside the span."""
         return self.start <= moment <= self.end
 
-    # -- movement ----------------------------------------------------------
+    # --- movement ---------------------------------------------------------
 
     def shift(self, count: int) -> Period:
         """The period ``count`` spans forward, or backward when negative.
 
-        The anchor keeps its position within the span where it can — the same
-        weekday in a week, the same day number in a month, clamped to the last
-        day of a shorter one, so stepping forward from 31 January lands on
-        28 February rather than raising.
+        The anchor keeps its place in the span where it can: the same weekday in
+        a week, the same day number in a month, clamped to the last day of a
+        shorter one, so stepping forward from 31 January lands on 28 February.
 
-        The calendar ends, and paging stops at the end of it. A page that would
-        leave the window a typed date is read into stays where it is, and the
-        unchanged label is what says there is no next one. That window is a
-        year short of ``date``'s own at each end because leave-year arithmetic
-        reads a year either side of the date it is given. Without this, ``y``
-        then ``]`` from a date in 9998 is a ``ValueError`` out of
+        Paging stops at the ends of the supported window, leaving the period
+        where it is. That window is a year short of ``date``'s own at each end,
+        because leave-year arithmetic reads a year either side of the date it is
+        given: ``y`` then ``]`` from a date in 9998 would raise in
         :func:`flexi.domain.leaveyear.step`.
         """
         try:
@@ -153,8 +143,8 @@ class Period:
                 return add_months(self.anchor, count)
             case Granularity.YEAR:  # pragma: no branch
                 # Asked of `leaveyear`, for the reason `end` is: twelve months
-                # from a clamped 29 February is a date inside the year it came
-                # from, so this key used to do nothing at all.
+                # from a clamped 29 February lands inside the year it started
+                # in, which would leave this key doing nothing.
                 return leaveyear.step(self.anchor, *self.year_start, count)
 
     def zoom(self, granularity: Granularity) -> Period:
@@ -169,15 +159,11 @@ class Period:
         """Use a new leave-year boundary without moving the period's anchor."""
         return replace(self, year_start=year_start)
 
-    # -- presentation ------------------------------------------------------
+    # --- presentation -----------------------------------------------------
 
     @property
     def label(self) -> str:
-        """How the period names itself in a border title.
-
-        A day inside the current year drops the year, because the year is
-        already in the header and a title that repeats it is noise.
-        """
+        """How the period names itself in a border title."""
         match self.granularity:
             case Granularity.DAY:
                 return long_date(self.anchor)

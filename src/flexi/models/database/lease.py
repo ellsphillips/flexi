@@ -64,7 +64,7 @@ def lease_path(database: Path) -> Path:
     return database.with_name(f"{database.name}.lock")
 
 
-if sys.platform == "win32":  # pragma: no cover - exercised by the Windows job
+if sys.platform == "win32":  # pragma: no cover - Windows only
     import ctypes
     import msvcrt
     from ctypes import wintypes
@@ -90,16 +90,9 @@ if sys.platform == "win32":  # pragma: no cover - exercised by the Windows job
     def _try_lock(handle: BinaryIO, mode: LeaseMode) -> bool:
         """Take a real shared or exclusive lock on the lease file's first byte.
 
-        `msvcrt.locking` was used here, with `LK_NBRLCK` for a shared lease --
-        but Microsoft documents `_LK_NBRLCK` as "same as `_LK_NBLCK`", and
-        `_locking` exposes no shared mode at all. Every lease on Windows was
-        therefore exclusive: two application lifetimes could not share a
-        database, so `flexi clock in` could not run while the TUI was open, and
-        `tests/models/database/test_lease.py` failed on all six Windows rows of
-        the matrix.
-
-        `LockFileEx` is the API that distinguishes the two. Without
-        `LOCKFILE_EXCLUSIVE_LOCK` it takes a shared lock, which is what the
+        `msvcrt.locking` has no shared mode: Microsoft documents `_LK_NBRLCK`
+        as "same as `_LK_NBLCK`". `LockFileEx` distinguishes the two, and
+        without `LOCKFILE_EXCLUSIVE_LOCK` it takes the shared lock that the
         POSIX branch below gets from `LOCK_SH`.
         """
         flags = _LOCKFILE_FAIL_IMMEDIATELY
@@ -116,8 +109,8 @@ if sys.platform == "win32":  # pragma: no cover - exercised by the Windows job
         )
         if not taken:
             code = ctypes.get_last_error()
-            # Held by somebody incompatible. Anything else is a real fault and
-            # must not be reported to the caller as mere contention.
+            # An incompatible holder. Any other code is a real fault and must
+            # not reach the caller as mere contention.
             if code in {_ERROR_LOCK_VIOLATION, _ERROR_IO_PENDING}:
                 return False
             raise ctypes.WinError(code)
@@ -155,10 +148,10 @@ def database_lease(
 ) -> Iterator[None]:
     """Hold a shared application lease or exclusive lifecycle lease.
 
-    Acquisition is polled rather than left to an unbounded operating-system
-    wait, so a reset against an open application gives a precise failure rather
-    than appearing to hang. The binary file is initialised to one byte because
-    Windows locks a byte range; POSIX locks the same stable file as a whole.
+    Acquisition is polled, not left to an unbounded operating-system wait, so a
+    reset against an open application reports a busy database instead of
+    appearing to hang. The file is initialised to one byte because Windows locks
+    a byte range; POSIX locks the same stable file as a whole.
     """
     if timeout < 0:
         msg = "A database lease timeout cannot be negative"
@@ -169,9 +162,8 @@ def database_lease(
 
     lock_file = lease_path(database)
     # Through `ensure`, like every other writer: the lease can be the first
-    # thing to create the data directory -- `flexi init` takes one before it
-    # snapshots -- and a default umask would leave it readable by every other
-    # account on the machine.
+    # thing to create the data directory, and a default umask would leave it
+    # readable by every other account on the machine.
     ensure(lock_file.parent)
     deadline = monotonic() + timeout
 

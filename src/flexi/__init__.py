@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 __all__ = ("__version__", "version")
 
 if TYPE_CHECKING:
-    # Present to static consumers while remaining absent at runtime until first
-    # access, when ``__getattr__`` resolves and installs it below.
+    # Declared for type checkers only; ``__getattr__`` below resolves and
+    # caches it on first access.
     __version__: str
 
 
@@ -17,9 +17,8 @@ if TYPE_CHECKING:
 def version() -> str:
     """Return the installed Flexi version, resolving package metadata once.
 
-    Metadata is deliberately imported and read here rather than at module scope.
-    Most commands never ask for the version, and importing :mod:`flexi` is on
-    every command's startup path.
+    The metadata import stays inside the function: importing :mod:`flexi` is on
+    every command's startup path, and most commands never ask for the version.
     """
     import importlib.metadata
 

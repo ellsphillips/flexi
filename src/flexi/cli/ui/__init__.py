@@ -1,15 +1,8 @@
-"""Flexi's own terminal prompts.
+"""Flexi's own terminal prompts: a few lines that answer the arrow keys.
 
-Click can ask a question and Textual can draw an application. Between them sits
-what ``flexi init`` actually needs: a few lines that hold their shape, answer to
-the arrow keys, and read as the same product as the screen that opens a moment
-later. Nothing on PyPI draws that in Flexi's language, so this does -- in about
-three hundred lines, with no dependency Flexi did not already have.
-
-The split is the one the splash animation uses. ``keys``, ``rail`` and ``menu``
-are pure: they turn arguments into values and renderables, and the suite drives
-them by pressing keys into a dataclass. ``prompt`` is the only part that knows a
-terminal exists, and it is the only part that cannot be tested without one.
+``keys``, ``rail`` and ``menu`` are pure: they turn arguments into values and
+renderables, and the suite drives them by pressing keys into a dataclass.
+``prompt`` is the only part that knows a terminal exists.
 
     from flexi.cli import ui
 

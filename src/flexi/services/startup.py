@@ -1,10 +1,8 @@
-"""Closing the sessions nobody closed.
+"""Closing sessions left open on an earlier work date.
 
 One half of the sweep `ClockService.sweep` runs; the other half, voiding
-sessions too short to have been real, is the clock's own. This module used to
-hold the pair, which meant importing `ClockService` for a type annotation --
-and `ClockService` importing this back, inside a method, purely to make the
-cycle importable.
+sessions too short to have been real, belongs to the clock service. Keeping
+them apart keeps the import between them one-way.
 """
 
 from __future__ import annotations
@@ -54,10 +52,9 @@ def close_stale_sessions(
         for ws in stale:
             opened = moment_of(ws.clock_in_event)
 
-            # If configured close is before clock-in, use 23:59 -- or the
-            # clock-in itself, on the half minute of the day that is later than
-            # that. A clock-out before its own clock-in is a negative segment,
-            # and the ledger does not clamp one: it subtracts it.
+            # A close before its own clock-in is a negative segment, which the
+            # ledger subtracts instead of clamping, so fall back to 23:59, or
+            # to the clock-in itself on the half minute later than that.
             effective_close = auto_close_time
             if effective_close < opened.time():
                 effective_close = max(time(23, 59), opened.time())

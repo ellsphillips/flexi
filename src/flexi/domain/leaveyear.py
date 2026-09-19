@@ -1,17 +1,8 @@
 """When a leave year starts, and which one a date falls in.
 
-Pure date arithmetic, which is the one thing this package exists for -- and it
-was implemented four times. `Period._year_start` clamped a short month;
-`AbsenceService.leave_year_bounds` had an ad-hoc guard for 29 February;
-`LedgerService.balance` recomputed the start with no guard at all; and
-`SettingsService.active_leave_year` built `date(ref.year, month, day)` directly,
-which raises for a 29 February leave year in any of the three years out of four
-that has no 29 February:
-
-    active_leave_year(2027-06-01) -> ValueError: day is out of range for month
-
-Callers then reached for whichever of the four they could get to, so the same
-question was answered by different code depending on which service was nearest.
+The single source of leave-year date arithmetic, for every service that needs
+it. An anchor of 29 February needs clamping: `date(year, 2, 29)` raises in the
+three years out of four that have no 29 February.
 """
 
 from __future__ import annotations
@@ -30,11 +21,10 @@ __all__ = (
 
 
 def clamp(year: int, month: int, day: int) -> date:
-    """That day of that month, or the month's last day if it is shorter.
+    """Return that day of that month, or the month's last day if it is shorter.
 
-    A leave year starting on the 29th of February starts on the 28th in the
-    three years out of four that do not have one. Anything else is a crash on a
-    date somebody was entitled to choose.
+    A leave year starting on 29 February starts on the 28th in the three years
+    out of four that have no 29 February.
     """
     return date(year, month, min(day, calendar.monthrange(year, month)[1]))
 
@@ -46,11 +36,10 @@ def start_of(ref: date, month: int, day: int) -> date:
 
 
 def active_year(ref: date, month: int, day: int) -> int:
-    """The calendar year the leave year containing ``ref`` is filed under.
+    """Return the calendar year the leave year containing ``ref`` is filed under.
 
-    An allowance belongs to a leave year, not a calendar year. Setting Flexi up
-    in February against an April leave year files it under the year that has
-    not started yet, and the allowance then cannot be found.
+    An allowance belongs to a leave year, not a calendar year: under an April
+    leave year, a February date files under the previous calendar year.
     """
     return start_of(ref, month, day).year
 
@@ -63,43 +52,32 @@ def bounds(ref: date, month: int, day: int) -> tuple[date, date]:
 
 
 def step(ref: date, month: int, day: int, count: int) -> date:
-    """The same distance into the leave year ``count`` years away.
+    """Return the same distance into the leave year ``count`` years away.
 
-    Not ``ref`` plus twelve months. A leave year starting on 29 February starts
-    on the 28th in a common year, and stepping the *anchor* twelve months from
-    there lands on 28 February of a leap year -- which falls before that year's
-    start and so resolves back to the year it came from. Paging forward did
-    nothing at all, and the year beginning on the 29th could not be reached:
-
-        Period(YEAR, 2031-02-28, year_start=(2, 29)).shift(1)  ->  the same year
-        Period(YEAR, 2020-02-28, year_start=(2, 29)).shift(1)  ->  2021, not 2020
-
-    So the step is taken between leave-year *starts*, which `clamp` already
-    knows how to find, and the offset within the year is carried across and
-    held inside it -- consecutive leave years differ in length by a day.
+    The step runs between leave-year *starts*, not from ``ref`` plus twelve
+    months: an anchor of 29 February clamps to the 28th, and 28 February of a
+    leap year falls before that year's start, resolving back into the year it
+    came from. The offset is then held inside the target year.
     """
     start = start_of(ref, month, day)
     first = clamp(start.year + count, month, day)
     last = bounds(first, month, day)[1]
 
-    # The same date a year on, where that date is still inside the year being
-    # moved to: `y` then a page then `m` should land on the month it left.
+    # The same date a year on, when it still falls inside the target year:
+    # `y`, a page, then `m` lands on the month it left.
     same_date = clamp(ref.year + count, ref.month, ref.day)
     if first <= same_date <= last:
         return same_date
 
-    # It is not, which happens only around a leave year that begins on 29
-    # February. Keep the distance into the year instead, held inside it --
-    # consecutive leave years differ in length by a day.
+    # Otherwise, which happens only around a 29 February leave year, keep the
+    # distance into the year, clamped: consecutive years differ by a day.
     return min(first + (ref - start), last)
 
 
 def fraction_elapsed(start: date, end: date, today: date) -> float:
-    """How far through a span today is, clamped to 0..1.
+    """Return how far through a span today is, clamped to 0..1.
 
-    Clamped rather than allowed to run past 1.0 so a pace marker can never
-    leave the track -- a marker off the end of a gauge reads as a rendering
-    fault, and the honest statement at that point is "all of it".
+    The clamp keeps a pace marker on its track.
 
     Examples:
         >>> fraction_elapsed(date(2026, 1, 1), date(2026, 12, 31), date(2026, 7, 2))

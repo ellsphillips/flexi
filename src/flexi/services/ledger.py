@@ -1,9 +1,9 @@
-"""Building day ledgers, in one pass over a period.
+"""Build day ledgers in one pass over a period.
 
-A period loads in three queries regardless of its length, and the results are
-memoised until something writes. The dashboard calls ``invalidate()`` when a
-:class:`~flexi.messages.Scope` says the rows moved; nothing else clears the
-cache, so a redraw provoked by a resize costs nothing.
+A period loads in three queries whatever its length, and the results are
+memoised. The cache clears when the session commits or rolls back, when another
+connection commits, and when a :class:`~flexi.messages.Scope` says the rows
+moved, so a redraw provoked by a resize costs nothing.
 """
 
 from __future__ import annotations
@@ -58,10 +58,9 @@ class LedgerRevision:
 def ledger_revision(session: Session) -> LedgerRevision:
     """Identify the source state against which ledger rows are cached.
 
-    ``PRAGMA data_version`` changes when another SQLite connection commits.
-    Its number is meaningful only on the connection that returned it, so the
-    connection identity travels with the value; a session checking out a
-    different pooled connection is conservatively treated as a new revision.
+    ``PRAGMA data_version`` changes when another SQLite connection commits. Its
+    number means nothing on any other connection, so the connection identity
+    travels with it and a different pooled connection counts as a new revision.
     """
     connection = session.connection()
     driver = connection.connection.dbapi_connection
@@ -92,7 +91,7 @@ class LedgerService:
         event.listen(session, "after_commit", self.invalidate_after_transaction)
         event.listen(session, "after_rollback", self.invalidate_after_transaction)
 
-    # -- cache -------------------------------------------------------------
+    # Cache.
 
     def invalidate(self) -> None:
         """Forget every ledger built so far."""
@@ -101,12 +100,8 @@ class LedgerService:
     def invalidate_after_transaction(self, completed: Session) -> None:
         """Forget derived values after the source session commits or rolls back.
 
-        Cache correctness belongs beside the cache. Requiring every screen,
-        command, and future service caller to remember ``invalidate`` after a
-        write made a stale balance the default failure mode. Rollback matters
-        too: it may release the connection whose ``data_version`` is being
-        compared, and it must also discard derivations built over flushed rows
-        that did not commit.
+        A rollback may release the connection whose ``data_version`` is being
+        compared, and it leaves derivations built over rows that never committed.
         """
         if completed is self._session:
             self.invalidate()
@@ -118,7 +113,7 @@ class LedgerService:
             self.invalidate()
         self._revision = current
 
-    # -- reading -----------------------------------------------------------
+    # Reading.
 
     @property
     def window(self) -> Window:
@@ -134,9 +129,8 @@ class LedgerService:
     ) -> list[DayLedger]:
         """Every day between two dates, inclusive, built in three queries.
 
-        A day already in the cache is reused unless it is *today* — today's
-        ledger contains any open session, whose length changes every second, so
-        caching it would freeze the live readout.
+        A cached day is reused unless it is *today*: today's ledger holds any
+        open session, whose length changes every second.
         """
         self.refresh_revision()
         moment = wallclock.local(now) if now is not None else wallclock.now()
@@ -159,23 +153,20 @@ class LedgerService:
     ) -> BalanceSummary:
         """The running flexi balance, from the start of the leave year to a date.
 
-        Accumulated rather than stored, so a corrected session or a changed
-        contract is reflected everywhere at once and there is no derived total to
-        fall out of step.
+        Accumulated on every read, never stored, so a corrected session or a
+        changed contract takes effect everywhere at once.
         """
         as_of = as_of or wallclock.today()
         month, day = self._settings.get_leave_year_start()
         return self.summary(leaveyear.start_of(as_of, month, day), as_of, now=now)
 
-    # -- building ----------------------------------------------------------
+    # Building.
 
     def _build(self, start: date, end: date, moment: datetime, today: date) -> None:
         sessions = self._sessions(start, end)
         absences = self._absences(start, end)
-        # `or {}`: "none in this span" and "no calendar at all" are the
-        # service's distinction to make and to report. The ledger cannot
-        # invent holidays it has not been told about either way, and what it
-        # must not do is read the cache table itself.
+        # `titles_between` returns None for "no calendar"; the ledger treats
+        # that as "no holidays" and leaves the distinction to the service.
         holidays = self._holidays_service.titles_between(start, end) or {}
         corrections = self._adjustments(start, end)
         settings = self._settings.resolved()
@@ -196,15 +187,8 @@ class LedgerService:
             )
             title = holidays.get(when)
             is_working = when.weekday() in working_days
-            # A punched session is proof Flexi was there for that day, whatever
-            # the stamp says: something clocked in. Letting the two disagree
-            # would draw the day as worked and then expect nothing of it, so
-            # the session read as pure surplus.
-            #
-            # A correction is proof of the opposite. The hours went unrecorded
-            # *because* nobody was clocking, so it cannot vouch for the day the
-            # way a punch can -- and reading it as one is how remembering half
-            # a morning from before setup used to take hours off the balance.
+            # A real punch tracks the day whatever `tracking_since` says; an
+            # amended one cannot, since nothing was clocking at the time.
             punched = any(not segment.amended for segment in segments)
             is_tracked = tracking_since is None or when >= tracking_since or punched
 
@@ -226,20 +210,16 @@ class LedgerService:
                     slices,
                     segments,
                     is_working=is_working,
-                    # What the day *expects* and what it *is* part company on a
-                    # corrected pre-setup day: it asks for nothing, but it is
-                    # not a day nothing is known about either.
+                    # Broader than the test `expected` uses: a corrected
+                    # pre-setup day asks for nothing but is still known about.
                     is_tracked=is_tracked or bool(segments),
                 ),
                 is_working_day=is_working,
                 contracted=contracted,
                 worked=worked,
                 expected=expected,
-                # A day before the stamp and a bank holiday both ask for
-                # nothing, and TOIL is a withdrawal against what a day asked
-                # for. Charged anyway, a back-filled day off or a Monday
-                # GOV.UK later declared a holiday takes 7:24 out of a balance
-                # that was already settled.
+                # TOIL is a withdrawal against what a day asks for, and an
+                # untracked day or a bank holiday asks for nothing.
                 toil_taken=(
                     toil_taken_for(contracted, slices)
                     if is_tracked and title is None
@@ -252,10 +232,8 @@ class LedgerService:
             )
 
     def _sessions(self, start: date, end: date) -> defaultdict[date, list[WorkSession]]:
-        # Eager-load both events. They are what a segment is made of, so a lazy
-        # relationship turns "three queries for a period" into three plus two per
-        # session — 34 round trips for a month, which is the shape this service
-        # exists to avoid.
+        # Eager-load both events: a segment is made of them, and a lazy
+        # relationship would cost two more queries per session.
         stmt = (
             select(WorkSession)
             .options(
@@ -288,19 +266,15 @@ class LedgerService:
     def _adjustments(self, start: date, end: date) -> dict[date, timedelta]:
         """Stored corrections, by the date they take effect.
 
-        Carried on the day rather than added at the end, so a period summary and
-        the running balance pick them up by the same route as every other term.
-        A correction dated before the leave year belongs to the leave year it
-        was dated in, and is not counted here — which is what makes it possible
-        to settle one year without disturbing the next.
+        Carried on the day, so a period summary and the running balance pick
+        them up by the same route as every other term. A correction dated
+        before the span belongs to its own leave year and is not counted here.
         """
         stmt = select(BalanceAdjustment.date, BalanceAdjustment.minutes).where(
             BalanceAdjustment.date >= start, BalanceAdjustment.date <= end
         )
-        # Declared as a plain mapping, though it is built as a `defaultdict`.
-        # The consumer reads it with `.get(when, timedelta())` on purpose:
-        # advertising a defaultdict would invite a caller to index it and grow
-        # the mapping silently while iterating a span.
+        # Returned as a plain mapping: indexing a defaultdict would grow it
+        # while a span is iterated, so callers use `.get(when, timedelta())`.
         totals: defaultdict[date, timedelta] = defaultdict(timedelta)
         for row in self._session.execute(stmt):
             totals[row.date] += timedelta(minutes=row.minutes)
@@ -310,10 +284,8 @@ class LedgerService:
 def end_of_day(day: date) -> datetime:
     """The last moment of a date.
 
-    A session nobody closed is worth the rest of its own day, not every hour
-    since. Startup auto-closes stale sessions, so this only catches the window
-    between a crash and the next launch -- but during it, an open Tuesday would
-    otherwise report Tuesday to now as time worked on Tuesday.
+    An unclosed session is worth the rest of its own day, not every hour since,
+    so a past day's open session stops at midnight.
     """
     return wallclock.local(datetime.combine(day, time.max))
 
@@ -326,9 +298,7 @@ def segment_of(row: WorkSession) -> Segment:
         start=start,
         end=end,
         auto_closed=row.auto_closed,
-        # Read off the clock-in, which is the event a correction is written
-        # from. Both of a correction's events carry it, and the start is the
-        # one every caller already has in hand.
+        # Both events of a correction carry AMENDED; the clock-in always exists.
         amended=row.clock_in_event.source is EventSource.AMENDED,
         note=row.note,
     )
@@ -344,16 +314,10 @@ def day_kind(
 ) -> DayKind:
     """What a date is, from what is recorded against it.
 
-    The one place the six kinds are decided, in precedence order. `UNTRACKED`
-    comes first: a day before setup is not a day somebody failed to work, so
-    labelling it a weekend or a bank holiday would answer a question nobody
-    asked. A day with any work recorded on it is never untracked -- `_build`
-    settles that before this is called, and it is a broader test than the one
-    it uses for what the day *expects*: a correction says something is known
-    about the day without saying the day was ever asked for.
-
-    `PARTIAL` is the case a one-status-per-day table gets wrong: a half-day
-    absence with work in the other half.
+    The six kinds are decided here, in precedence order. `UNTRACKED` comes
+    first, so a day before setup is never labelled a weekend or a holiday;
+    `_build` settles before this call that a day with work on it is tracked.
+    `PARTIAL` is a half-day absence with work in the other half.
     """
     if not is_tracked:
         return DayKind.UNTRACKED

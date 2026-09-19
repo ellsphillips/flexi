@@ -1,8 +1,8 @@
 """Command line surfaces that are too large to sit in __main__.
 
 Each is a plain function taking the service registry and returning an exit
-code, so it can be called and asserted on without Click's test runner and
-without a subprocess. The decorators in `__main__` are adapters over these.
+code, callable without Click and without a subprocess. The decorators in
+`__main__` are adapters over these.
 """
 
 from __future__ import annotations
@@ -154,16 +154,12 @@ __all__ = (  # noqa: RUF022
 class TypedDate(click.ParamType[date]):
     """A date option, read with the grammar the rest of Flexi understands.
 
-    Parameterised because `click.ParamType` became generic in its converted
-    type in Click 8.5; the bare form is a mypy `type-arg` error under
-    `strict`. `date` is what `convert` returns, so it is also what Click's own
-    stubs now use to type the option this is attached to.
+    Parameterised because `click.ParamType` is generic in its converted type
+    from Click 8.5; the bare form is a mypy `type-arg` error under `strict`,
+    and `date` is what Click's stubs then use for the option it is attached to.
 
-    `click.DateTime` accepts `%Y-%m-%d` and hands back a `datetime`, so every
-    option using it had to unwrap `.date()` and declare a parameter as a
-    `datetime` that was never anything but a date. It also left
-    `flexi balance show --as-of friday` a usage error while
-    `flexi leave annual friday` worked -- one command line, two date grammars.
+    `click.DateTime` is not used: it accepts only `%Y-%m-%d` and hands back a
+    `datetime`, which would give one command line two date grammars.
     """
 
     name = "date"
@@ -174,9 +170,8 @@ class TypedDate(click.ParamType[date]):
         param: click.Parameter | None,
         ctx: click.Context | None,
     ) -> date:
-        # The grammar is imported by the two options that take a date rather
-        # than by this module. It is most of what importing `flexi.cli` costs,
-        # and `flexi --version` imports it to build a decorator it never runs.
+        # Imported here, not at module scope: the date grammar is most of what
+        # importing `flexi.cli` costs, and `flexi --version` never parses one.
         from flexi.domain.dates import Preference, parse_date
 
         try:
@@ -191,9 +186,7 @@ class Utf8Text(click.ParamType[str]):
     """Free text the database can actually store.
 
     Python decodes ``argv`` with ``surrogateescape``, so a byte that is not
-    UTF-8 arrives as a lone surrogate. SQLite refuses to write one, and the
-    refusal used to arrive as a traceback after the plan had been shown and
-    agreed to.
+    UTF-8 arrives as a lone surrogate, which SQLite refuses to write.
     """
 
     name = "text"
@@ -215,13 +208,8 @@ class Utf8Text(click.ParamType[str]):
 def report(result: Outcome) -> int:
     """Say what happened, and turn it into an exit code.
 
-    Green on stdout and zero, or red on stderr and one. The same decision the
-    status bar makes in the application, so the two surfaces agree about what
-    counts as a failure -- and one decision rather than the three copies that
-    were spread across two modules, of which only one carried the reason.
-
-    A failure is not the program's output. `flexi clock out >/dev/null` has to
-    leave "Not clocked in" where the person can read it.
+    Green on stdout and zero, or red on stderr and one: a failure is not the
+    program's output, so `flexi clock out >/dev/null` still shows its refusal.
     """
     click.secho(
         result.message,

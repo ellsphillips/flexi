@@ -36,23 +36,19 @@ CACHE_MAX_AGE = timedelta(days=7)
 REQUEST_TIMEOUT = 5.0
 
 _FETCH_BUDGET = 2 * REQUEST_TIMEOUT
-"""The whole fetch, wall clock, from the calling thread's point of view.
+"""Wall-clock bound on the whole fetch, from the calling thread.
 
 ``httpx`` bounds connecting, reading, writing and pooling separately, and none
-of those bounds covers name resolution: ``getaddrinfo`` runs inside
-``socket.create_connection`` with no timeout of its own. A resolver that has
-gone away holds every command that fills an empty cache for as long as the
-operating system is willing to wait, which is around thirty seconds on macOS.
+of those covers name resolution: ``getaddrinfo`` has no timeout of its own, and
+an unreachable resolver blocks for about thirty seconds on macOS.
 """
 
 RETRY_AFTER = timedelta(hours=1)
 """How long an empty calendar waits before GOV.UK is asked for it again.
 
-Opening the database fills a calendar that is not there, and every command
-opens the database. Offline that is the whole fetch budget in front of `flexi
-clock in`, once per command, for as long as the machine stays offline. An
-explicit `flexi holidays refresh` is never held back by this: it is the command
-whose job is the asking.
+Every command opens the database, and opening it fills an absent calendar, so
+offline this is the whole fetch budget once per command. An explicit `flexi
+holidays refresh` is never held back by it.
 """
 
 type BankHolidayFetcher = Callable[[], object | None]
@@ -72,19 +68,11 @@ def parse_bank_holidays(
 ) -> tuple[ParsedBankHoliday, ...] | None:
     """Validate one division of the GOV.UK response without side effects.
 
-    ``None`` means the response cannot be trusted. Validation is deliberately
-    atomic: replacing a complete cached calendar with a partial response would
-    silently turn every omitted holiday into a working day. An empty tuple is a
-    valid, explicitly empty ``events`` list and remains distinct from failure.
-
-    A missing title is accepted as an empty label because the date is the fact
-    the ledger needs. A title that is present but is not text is malformed.
-
-    Titles are stripped of the characters a terminal obeys, here rather than at
-    each place one is drawn. A title reaches a status bar, a records row, a
-    leave plan and a tooltip, and what is cached is what every one of them
-    reads: sanitising at the sinks leaves a poisoned row in the database and
-    whichever sink is added next unprotected.
+    ``None`` means the response cannot be trusted; an empty tuple is a valid,
+    empty ``events`` list. Validation is all or nothing, because replacing a
+    complete cached calendar with a partial response turns every omitted
+    holiday into a working day. Titles are stripped of the characters a
+    terminal obeys here, so that every reader of the cache gets the same text.
     """
     if not isinstance(payload, Mapping):
         return None
@@ -123,11 +111,8 @@ def parse_bank_holidays(
 def fetch_bank_holiday_index() -> object | None:
     """Fetch the GOV.UK index, returning ``None`` for an unusable response.
 
-    This is the concrete network edge. Keeping it as a free function makes the
-    service depend on the typed :data:`BankHolidayFetcher` abstraction, and the
-    local import keeps ``httpx`` off every command that only reads the cache.
-    Payload validation remains the pure responsibility of
-    :func:`parse_bank_holidays`.
+    The local ``httpx`` import keeps it off every command that only reads the
+    cache; validating the payload belongs to :func:`parse_bank_holidays`.
     """
     import httpx
 
@@ -139,20 +124,14 @@ def fetch_bank_holiday_index() -> object | None:
                 response = client.get(GOVUK_URL)
                 response.raise_for_status()
                 fetched.append(response.json())
-        # The environment decides what `httpx.Client` raises before a request
-        # is even made: `ALL_PROXY=socks5://...` without the socks extra is an
-        # `ImportError`, a proxy URL with a bad port an `httpx.InvalidURL`, an
-        # `SSL_CERT_FILE` pointing at a removed bundle an `OSError`. Every
-        # caller here was promised `None`, and a traceback out of a
-        # fire-and-forget fetch takes the command line and the application
-        # down with it.
+        # A broken environment makes `httpx.Client` raise before any request:
+        # a socks proxy URL without the socks extra raises `ImportError`, a bad
+        # proxy port `httpx.InvalidURL`, a missing `SSL_CERT_FILE` `OSError`.
         except Exception:  # noqa: BLE001 - documented to return None for any failure
             return
 
-    # A daemon thread, so a resolver still waiting cannot hold the process open
-    # after the budget has passed. `ThreadPoolExecutor` returns on time and then
-    # joins its workers at interpreter shutdown, which moves the same wait to
-    # the moment the command appears to have finished.
+    # Daemon, so a resolver still waiting cannot hold the process open past the
+    # budget: `ThreadPoolExecutor` joins its workers at interpreter shutdown.
     worker = Thread(target=request, daemon=True)
     worker.start()
     worker.join(_FETCH_BUDGET)
@@ -168,19 +147,10 @@ class BankHolidayService:
         division: Callable[[], Division],
         fetcher: BankHolidayFetcher = fetch_bank_holiday_index,
     ) -> None:
-        """Takes a way to find the division out, rather than the division.
+        """Store the session and a callable that answers the current division.
 
-        Required either way: it once defaulted to England & Wales, and every
-        caller that forgot to pass one got the English calendar silently.
-        `ClockService` was one of them, so the bank-holiday guard was inverted
-        for Scotland and Northern Ireland: blocked on an English holiday,
-        allowed on their own.
-
-        A *question* rather than an answer because the answer changes. Held as
-        a value, it went stale the moment somebody chose a different division in
-        settings, and the application worked around that by rebuilding the whole
-        registry -- which left every screen already on screen reading the
-        registry it had replaced.
+        The division is a question, not a value: settings can change under a
+        screen that is already mounted, so it is asked afresh on every use.
         """
         self._session = session
         self._division = division
@@ -188,18 +158,13 @@ class BankHolidayService:
 
     @property
     def division(self) -> Division:
-        """Whose calendar this reads, asked afresh each time."""
+        """The division whose calendar this reads, asked afresh each time."""
         return self._division()
 
     # ---- cache freshness ----
 
     def is_fresh(self) -> bool:
-        """True when the cache was fetched recently enough to trust.
-
-        A stale cache still answers every question correctly for the year it
-        holds, so this is what keeps a GOV.UK timeout off the launch path six
-        days out of seven.
-        """
+        """True when the cache was fetched inside :data:`CACHE_MAX_AGE`."""
         fetched_at = self.last_refresh()
         if fetched_at is None:
             return False
@@ -209,10 +174,9 @@ class BankHolidayService:
     def last_refresh(self, division: Division | None = None) -> datetime | None:
         """Return the last successful complete fetch as an aware UTC moment.
 
-        A refresh is first-class state rather than inferred from event rows, so
-        a valid response with no holidays is still available and fresh.  The
-        optional explicit division lets a compound query hold one division
-        stable even if settings change concurrently.
+        A refresh has its own row and is not inferred from event rows, so a
+        valid response with no holidays is still a calendar. An explicit
+        division holds one division stable across a compound query.
         """
         selected = self.division if division is None else division
         stmt = select(BankHolidayRefresh.fetched_at).where(
@@ -228,11 +192,7 @@ class BankHolidayService:
     def fetch_and_cache(self) -> bool:
         """Fetch from GOV.UK and replace the DB cache. Returns True on success.
 
-        Fetching is injected, so this service owns validation and persistence
-        without constructing a concrete HTTP client. The default free-function
-        boundary still imports ``httpx`` only when a fetch is requested.
-
-        A fetch that comes back with nothing is written down, so that the next
+        A fetch that comes back with nothing is written down, so the next
         command to find an empty calendar can decline to wait for the same
         answer.
         """
@@ -245,12 +205,11 @@ class BankHolidayService:
     def cache_payload(self, payload: object) -> bool:
         """Validate and atomically cache a supplied bank-holiday index.
 
-        This is the persistence half of :meth:`fetch_and_cache`, exposed so a
-        host can keep the concrete network call outside its database-owning
-        execution context. In the Textual application the worker thread fetches
-        only this untrusted payload; the message loop hands it here after the
-        worker completes. ``False`` means validation failed, including a
-        fetcher returning ``None``, and leaves the existing calendar intact.
+        The persistence half of :meth:`fetch_and_cache`, exposed so a host can
+        keep the network call outside its database-owning context: in the
+        Textual application a worker thread fetches the untrusted payload and
+        the message loop hands it here. ``False`` means validation failed, a
+        ``None`` payload included, and leaves the cached calendar intact.
         """
         division = self.division
         events = parse_bank_holidays(payload, division)
@@ -289,14 +248,10 @@ class BankHolidayService:
     def fill_if_empty(self) -> bool:
         """Fetch only when there is nothing at all. True if data is available.
 
-        The difference between empty and stale matters on the command line. A
-        stale cache still answers every question correctly for the year it
-        holds, so paying a network round trip for it would put a timeout in
-        front of `flexi clock in` once a week. An empty one answers nothing.
-
-        Empty and recently asked for is the third case. GOV.UK was unreachable
-        a minute ago and nothing about this machine has changed since, so the
-        wait would buy the same silence a second time.
+        A stale cache still answers every question correctly for the year it
+        holds, so it is left alone; an empty one answers nothing. Empty and
+        asked for inside :data:`RETRY_AFTER` is the third case, where the wait
+        buys the same silence twice.
         """
         if self.is_available():
             return True
@@ -328,10 +283,10 @@ class BankHolidayService:
             )
 
     def titles_between(self, start: date, end: date) -> dict[date, str] | None:
-        """The holidays in a span, or None when there is no calendar at all.
+        """Return the holidays in a span, or None when there is no calendar.
 
-        Returning an empty mapping for both cases is what let a fresh install
-        book a full day's deficit against every bank holiday without saying so.
+        An empty mapping means the span holds no holidays; ``None`` means
+        nothing is cached for this division at all.
         """
         division = self.division
         if self.last_refresh(division) is None:
@@ -350,18 +305,10 @@ class BankHolidayService:
         return self.last_refresh() is not None
 
     def holiday_on(self, day: date) -> str | None:
-        """What this date is a bank holiday for, or ``None``.
+        """Return what this date is a bank holiday for, or ``None``.
 
-        One name where there were three for the same question at one date:
-        `is_bank_holiday` answered `bool | None`, so its one caller had to write
-        `is True`; `get_title` answered the same thing without the calendar
-        check; and `titles_between(day, day)` answered it correctly.
-
-        "No calendar" and "not a holiday" are both `None` here, deliberately.
-        The caller that needs to tell them apart is `AbsenceService`, which
-        refuses to book against an unknown calendar rather than guessing, and it
-        asks `titles_between` for a whole span and reads `has_calendar` off the
-        result -- which is the shape that keeps the distinction.
+        ``None`` covers both "no holiday" and "no calendar". A caller that must
+        tell them apart uses :meth:`titles_between`.
         """
         return (self.titles_between(day, day) or {}).get(day)
 

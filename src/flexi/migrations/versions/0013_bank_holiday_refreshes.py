@@ -4,10 +4,9 @@ Revision ID: 0013
 Revises: 0012
 Create Date: 2026-08-27
 
-The legacy cache repeated one fetch timestamp on every event.  That made a
-valid empty response impossible to distinguish from no response at all.  One
-row per division now records the complete refresh, and event rows reference it.
-Existing divisions are backfilled with their most recent legacy timestamp.
+Before: `bank_holiday_cache` carries a `fetched_at` on every event row. After:
+`bank_holiday_refreshes` holds one row per division and the event rows point at
+it. Existing divisions are backfilled with their latest cached timestamp.
 """
 
 from __future__ import annotations

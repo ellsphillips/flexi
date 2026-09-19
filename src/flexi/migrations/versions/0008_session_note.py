@@ -1,9 +1,8 @@
 """Notes and voiding on work sessions.
 
-Clock events are immutable, so correcting a session cannot edit one. A
-correction inserts a replacement pair and marks the original ``voided``, which
-keeps the audit trail intact and keeps the balance honest about what was
-actually recorded versus what was later decided.
+Clock events are immutable, so a correction cannot edit one. It inserts a
+replacement pair and marks the original ``voided``, so the audit trail holds
+both what was recorded and what was later decided.
 
 Revision ID: 0008
 Revises: 0007

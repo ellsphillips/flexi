@@ -1,8 +1,7 @@
 """Insights: how the balance and the allowances actually moved.
 
-Five questions, five forms, and each form was chosen because the data has that
-job. Nothing here is a chart for the sake of having one — the dashboard already
-answers "where am I"; this answers "how did I get here".
+The dashboard answers "where am I"; this screen answers "how did I get here",
+with a form per question chosen to suit the data behind it.
 """
 
 from __future__ import annotations
@@ -48,8 +47,8 @@ __all__ = (
 )
 
 RIBBON_DAYS = 21
-"""Three weeks of strips. Enough to see a pattern, few enough to fit above the
-fold beside three other panels."""
+"""Three weeks of strips: enough to see a pattern, few enough to fit beside
+three other panels."""
 
 
 class BalanceHistory(Module):
@@ -68,9 +67,8 @@ class BalanceHistory(Module):
 
     def rebuild(self) -> None:
         period = self.period
-        # Stop at today. Every working day after it expects hours and has none
-        # recorded, so charting the rest of a leave year draws a cliff of
-        # deficits for days nobody has lived yet.
+        # Stop at today: a working day in the future expects hours and has none
+        # recorded, so charting past it draws a cliff of deficits.
         end = min(period.end, self.now.date())
         if end < period.start:
             self.query_one("#balance-bars", DivergingBars).show([])
@@ -87,15 +85,10 @@ class BalanceHistory(Module):
 class RunningBalance(Module):
     """The flexi balance, day by day, and which side of zero it has been.
 
-    The figure on the dashboard is one number and this is where it came from.
-    A weekly total cannot show it: a contract is the promise that those barely
-    move, so charting them draws three near-identical slabs and calls it a
-    trend. The balance is the accumulation of the differences, which is the
-    thing that actually wanders.
-
-    Zero is a rule rather than a series. It is not a reading somebody took; it
-    is the line the readings are on one side of or the other, and it is what
-    turns a wandering line into "ahead" and "behind".
+    The balance accumulates the daily differences, so it moves where a weekly
+    total does not. Zero is drawn as a rule, not a series: it is the line the
+    readings sit one side of, and it turns a wandering line into "ahead" and
+    "behind".
     """
 
     WATCHES: ClassVar[Scope] = Scope.ALL
@@ -114,8 +107,8 @@ class RunningBalance(Module):
 
     def rebuild(self) -> None:
         period = self.period
-        # Stop at today. Every working day after it expects hours and has none
-        # recorded, so carrying on draws a cliff into a debt nobody has run up.
+        # Stop at today: a working day in the future expects hours and has none
+        # recorded, so carrying on draws a cliff into a debt no one has run up.
         end = min(period.end, self.now.date())
         chart = self.query_one("#balance-plot", Plot)
         if end < period.start:
@@ -130,9 +123,9 @@ class RunningBalance(Module):
             rule=0.0,
             empty_message="Nothing recorded yet",
         )
-        # The line starts at zero on the period's first day. Over the leave year
-        # that is the balance; over a month it is the drift within the month,
-        # and captioning it "on 11 Jun" made it read as the dashboard's figure.
+        # The line starts at zero on the period's first day: over the leave year
+        # that is the balance, over a month only the drift within the month, so
+        # the two are captioned differently.
         total = delta(timedelta(hours=running[-1]))
         if period.granularity is Granularity.YEAR:
             self.set_subtitle(f"{total} on {day_month(end)}")
@@ -164,8 +157,8 @@ class LeaveBurndown(Module):
             annual.remaining, annual.total or 0.0, annual.pace
         )
         start, end = data.leave_year
-        # The same span as the dashboard's Balance panel names, said the same
-        # way: a leave year that starts on the 6th is not "Apr 26".
+        # The same span the dashboard's Balance panel names, said the same way:
+        # a leave year that starts on the 6th is not "Apr 26".
         self.set_subtitle(f"{stamp(start, '%-d %b %y')}–{stamp(end, '%-d %b %y')}")
 
 
@@ -213,8 +206,7 @@ class YearAtAGlance(Module):
 
     def rebuild(self) -> None:
         # The leave year the period is in, whatever the period has been zoomed
-        # to: a panel titled "The leave year" that stays on this one while the
-        # header says 2025/26 is two panels disagreeing about which year is up.
+        # to, so the panel and the header name the same year.
         year = self.period.zoom(Granularity.YEAR)
         end = min(year.end, self.now.date())
         heatmap = self.query_one("#heatmap", YearHeatmap)
@@ -243,20 +235,18 @@ class InsightsScreen(Screen[None]):
 
     def __init__(self, period: Period, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
-        # Opens on the leave year rather than inheriting a week: a chart of one
-        # week's four bars is a worse answer than the table it came from.
+        # Opens on the leave year, not the period it inherits: one week is four
+        # bars, which the table it came from already showed better.
         self.period = period.zoom(Granularity.YEAR)
         self.now = wallclock.now()
 
     def compose(self) -> ComposeResult:
         yield AppHeader()
         with VerticalScroll(id="insights-body"):
-            # Ordered by what a reader wants first, not by size. The balance is
-            # the headline; the two beside each other are the two allowances it
-            # is spent against; the shapes underneath are the detail behind it.
-            # One island reads across the full width and the other four pair
-            # off, so no cell of the grid is left empty. A row is as tall as its
-            # tallest island, so each is placed beside one of about its height.
+            # Order is layout as well as emphasis: one island reads across the
+            # full width and the other four pair off, so no grid cell is left
+            # empty. A row is as tall as its tallest island, so each sits beside
+            # one of about its own height.
             yield RunningBalance()
             yield ShapeOfTheWeeks()
             yield BalanceHistory()
@@ -273,7 +263,7 @@ class InsightsScreen(Screen[None]):
         mark_width(self, self.size.width)
 
     def jump_targets(self) -> dict[str, str]:
-        """Every panel, including the full-width one the headline figure is."""
+        """The jump key for every panel on this screen."""
         return {
             "running-balance": "r",
             "balance-history": "b",
@@ -282,14 +272,10 @@ class InsightsScreen(Screen[None]):
             "year-heatmap": "y",
         }
 
-    # -- period ------------------------------------------------------------
+    # period ----------------------------------------------------------------
 
     def refresh_modules(self, scope: Scope) -> None:
-        """Redraw on an external change, so the app can treat every screen alike.
-
-        `LeaveScreen` said that and the app called it on neither, singling the
-        dashboard out instead; this screen did not have the method at all.
-        """
+        """Redraw on an external change, so the app can treat every screen alike."""
         if scope & Scope.SETTINGS:
             self.period = self.period.with_year_start(
                 service_app(self.app).services.settings.get_leave_year_start()
@@ -303,11 +289,9 @@ class InsightsScreen(Screen[None]):
         self.period = period
         for header in self.query(AppHeader):
             header.context = period.label
-        # No `invalidate()`: moving the view changes no rows, and the ledger
-        # cache is what stops a leave year being re-derived from scratch on
-        # every keypress. `DashboardScreen.refresh_modules` states the same rule
-        # -- `Scope.PERIOD` is "the temporal view moved" -- and this screen was
-        # dropping 371 day ledgers to redraw with the same numbers.
+        # No `invalidate()`: `Scope.PERIOD` means the temporal view moved, which
+        # changes no rows, and the ledger cache is what stops a leave year being
+        # re-derived from scratch on every keypress.
         for module in self.query(Module):
             module.rebuild_if(Scope.PERIOD)
 
@@ -321,10 +305,9 @@ class InsightsScreen(Screen[None]):
         self.set_period(self.period.zoom(self.period.granularity.next()))
 
     def action_back(self) -> None:
-        """Dismiss, rather than pop.
+        """Dismiss the screen.
 
-        `pop_screen` removes the screen without running the callback that
-        `push_screen` was given, so the nav bar would keep pointing at Insights
-        after the user had left it.
+        `pop_screen` would remove it without running the callback `push_screen`
+        was given, leaving the nav bar pointing at Insights.
         """
         self.dismiss(None)

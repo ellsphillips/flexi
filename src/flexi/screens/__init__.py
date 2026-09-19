@@ -1,8 +1,8 @@
 """Typed, lazy access to Flexi's screens and modal contracts.
 
-The facade keeps every deep path stable while making the complete screen API
-discoverable from one namespace. Resolution is lazy so importing one screen
-does not instantiate the dependencies of every other destination.
+The facade keeps every deep path stable while making the whole screen API
+discoverable from one namespace. Resolution is lazy, so importing one screen
+does not pull in the dependencies of every other destination.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from flexi.screens import (
         dashboard,
-        help,  # noqa: A004 - the supported module name is intentionally direct
+        help,  # noqa: A004 - the module is named after the screen it holds
         insights,
         leave,
         modals,

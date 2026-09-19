@@ -1,13 +1,8 @@
 """Refreshing the bank holiday calendar from the command line.
 
-Nothing in the application ever filled the cache. The only route to a populated
-one was an entry in the Textual command palette, so somebody who used Flexi
-entirely from the command line could not reach it -- and an empty cache is not
-a quiet failure. Every leave booking is refused, and every bank holiday is
-counted as a working day nobody worked.
-
-Startup fills an empty cache on its own now. This is for the other two cases:
-a calendar that has gone stale, and a year that has just been published.
+Opening the database fills an empty cache on its own. This command is for the
+other two cases: a calendar that has gone stale, and a year that has just been
+published.
 """
 
 from __future__ import annotations
@@ -22,19 +17,10 @@ __all__ = ("run",)
 def run(services: Services) -> int:
     """Fetch the calendar for the configured division. Returns an exit code.
 
-    A failed fetch is always a non-zero exit: the refresh is what was asked for,
-    a cron entry reads the code, and softening it to zero whenever some calendar
-    survives would mean a machine could go a year without a successful refresh
-    and never once say so.
-
-    What the failure *says* depends on whether anything is left to fall back on.
-    It claimed "bank holidays will be missing" either way, which is untrue of
-    the commoner case by far -- every other command fills an empty cache on the
-    way in, so by the time this runs there is usually a calendar, and a stale
-    calendar still answers correctly for the year it holds.
-
-    This one command opens without that fill. Its own fetch is the fill, and
-    doing both asks GOV.UK twice and waits twice as long to say so.
+    A failed fetch is always a non-zero exit, even when a cached calendar
+    survives, so a scheduled run can tell the refresh did not happen; what the
+    failure says depends on whether a calendar is left to fall back on. This
+    command opens with ``fill=False``, because its own fetch is that fill.
     """
     named = services.bank_holidays.division.label
 

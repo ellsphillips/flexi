@@ -1,20 +1,11 @@
-"""The one module here that owns a terminal.
+"""The one module in ``flexi.cli.ui`` that owns a terminal.
 
-Everything else in ``flexi.cli.ui`` is a pure function of its arguments. This is
-where the raw mode, the byte reads and the cursor arithmetic live, kept in one
-place so the rest can be tested by pressing keys into a value.
+Raw mode, the byte reads and the cursor arithmetic live here; everything else
+in the package is a pure function of its arguments.
 
-Two decisions worth stating, because both are load-bearing.
-
-**It draws to stderr.** A prompt is not the program's output. Writing it to
-stdout means ``flexi init > setup.log`` sends the warning and the question into
-the file while the person sits in front of a blank terminal being waited on --
-and since the check for "is somebody there" reads stderr, the check and the
-writes have to be looking at the same stream or the guard is decorative.
-
-**It never wraps.** Rewinding over what was drawn is line arithmetic, so a line
-long enough to wrap would make the redraw eat the line above it. Cropping is not
-a nicety here; it is what keeps the redraw correct on an 80-column terminal.
+Drawing goes to stderr, the stream :func:`interactive` checks, so the guard and
+the writes look at the same end. Lines are cropped, never wrapped: a rewind is
+line arithmetic, and a wrapped line makes the redraw eat the line above it.
 """
 
 from __future__ import annotations
@@ -54,8 +45,9 @@ __all__ = (
 ESCAPE_WAIT: Final = 0.05
 """Seconds to wait for the rest of an escape sequence.
 
-Long enough to cross a slow link, short enough that pressing escape on its own
-does not feel like it stuck."""
+Long enough to cross a slow link, short enough that a lone escape still
+answers at once.
+"""
 
 
 def console() -> Console:
@@ -64,29 +56,24 @@ def console() -> Console:
 
 
 def interactive() -> bool:
-    """A real terminal to ask at, and a real person to answer.
+    """True when there is a terminal to draw on and a reader to answer.
 
-    Both ends are checked. ``yes | flexi init`` has a terminal to draw on but
-    nobody reading it, and ``flexi init > log`` has somebody reading but nothing
-    to draw on.
+    Both ends are checked: stdin for the answer, stderr for the drawing.
     """
     return sys.stdin.isatty() and sys.stderr.isatty()
 
 
-# -- reading -----------------------------------------------------------------
+# Reading --------------------------------------------------------------------
 
 
 @contextmanager
 def unbuffered() -> Iterator[int]:
-    """The terminal delivering keys as they are struck.
+    """Put the terminal into cbreak, so keys arrive as they are struck.
 
-    ``cbreak`` rather than ``raw``: it leaves signal handling on, so ctrl-c
-    still interrupts even if the loop inside this block has gone wrong. Restored
-    on the way out however the block is left.
-
-    Windows arrives here already in that state. ``msvcrt.getwch`` reads a
-    character straight off the console, unbuffered and unechoed, so there is no
-    mode to set and nothing to hand back.
+    ``cbreak`` and not ``raw``: it leaves signal handling on, so ctrl-c still
+    interrupts. The saved mode is restored however the block is left. Windows
+    needs no mode at all, because ``msvcrt.getwch`` reads a character straight
+    off the console, unbuffered and unechoed.
     """
     if sys.platform == "win32":  # pragma: no cover - POSIX takes the branch below
         yield sys.stdin.fileno()
@@ -119,7 +106,7 @@ def read_posix(descriptor: int) -> Key:
 
 
 WINDOWS_PREFIXES: Final = ("\x00", "\xe0")
-"""What the Windows console sends ahead of a scan code, rather than an escape."""
+"""The bytes the Windows console sends ahead of a scan code."""
 
 WINDOWS_SCANCODES: Final[Mapping[str, Key]] = MappingProxyType(
     {"H": Key.UP, "P": Key.DOWN}
@@ -130,16 +117,10 @@ WINDOWS_SCANCODES: Final[Mapping[str, Key]] = MappingProxyType(
 def read_windows(getwch: Callable[[], str]) -> Key:
     """One key press, as the Windows console delivers it.
 
-    An arrow comes as two reads -- a prefix saying a scan code follows, then the
-    code -- rather than as an escape sequence, so there is nothing to wait for
-    and no ambiguity between escape and the start of an arrow. Everything else
-    arrives whole and is named by the same table POSIX uses.
-
-    The character source is a parameter, and that is what makes this testable
-    from a suite running anywhere. On POSIX the risk lives in the terminal mode,
-    which is why the reader there is given a real pty; here there is no mode,
-    only this two-step protocol, and a function returning characters exercises
-    it exactly as ``msvcrt`` would.
+    An arrow comes as two reads: a prefix saying a scan code follows, then the
+    code. There is no escape sequence, so nothing has to be waited for and
+    escape is never ambiguous. Everything else arrives whole and is named by
+    the same table POSIX uses.
     """
     first = getwch()
     if first in WINDOWS_PREFIXES:
@@ -156,14 +137,14 @@ def read_key(descriptor: int) -> Key:
     return read_posix(descriptor)
 
 
-# -- drawing -----------------------------------------------------------------
+# Drawing --------------------------------------------------------------------
 
 
 class Surface:
     """Lines drawn to the terminal, and the means to take them back.
 
-    Holds the count of what it last drew so it can rewind exactly that far. The
-    no-wrap rule in the module docstring is what makes the count trustworthy.
+    Holds the count of what it last drew so it can rewind exactly that far.
+    Cropping every line, never wrapping, is what keeps the count right.
     """
 
     def __init__(self, out: Console | None = None) -> None:
@@ -180,9 +161,8 @@ class Surface:
 
         A console with no virtual-terminal processing prints the escape
         sequence instead of obeying it, and this write is the one place that
-        goes past Rich's legacy renderer. There the redraw is skipped and the
-        frames stack: untidy reads better than ``[3F[0J`` between every copy
-        of the menu.
+        goes past Rich's legacy renderer, so there the rewind is skipped and
+        the frames stack.
         """
         if self._drawn and not self._console.legacy_windows:
             self._console.file.write(f"\x1b[{self._drawn}F\x1b[0J")
@@ -211,7 +191,7 @@ def write(lines: Sequence[Text], out: Console | None = None) -> None:
     Surface(out).draw(lines)
 
 
-# -- components --------------------------------------------------------------
+# Components -----------------------------------------------------------------
 
 
 def choose[ValueT](
@@ -220,11 +200,10 @@ def choose[ValueT](
     *,
     out: Console | None = None,
 ) -> Option[ValueT] | None:
-    """Ask, and return what was picked -- or ``None`` if it was not.
+    """Ask, and return the option picked, or ``None`` if nothing was.
 
-    The finished step collapses to two settled lines, so a transcript of the
-    session reads as a record of what was chosen rather than the wreckage of a
-    menu that has been arrowed through.
+    The finished step collapses to two settled lines, so what is left on the
+    terminal is a record of the choice.
     """
     surface = Surface(out)
     menu = Menu(question, tuple(options))
@@ -255,9 +234,7 @@ def choose[ValueT](
 def type_the_word(word: str, question: str, *, out: Console | None = None) -> bool:
     """Require a word to be typed out, not a key to be tapped.
 
-    A keystroke can be muscle memory. Making somebody spell the thing out is the
-    difference between agreeing and merely continuing, and it is the last gate
-    before Flexi deletes anything.
+    The comparison ignores case and surrounding space.
     """
     surface = Surface(out)
     surface.draw([rail.step(question, tone=rail.Tone.GRAVE, marker=rail.ALERT)])

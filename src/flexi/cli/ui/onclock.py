@@ -1,8 +1,6 @@
 """A running session, drawn on the rail.
 
-`flexi clock in` while already on the clock answered "Already clocked in" and
-stopped, which withholds the thing actually being asked: since when, and how am
-I doing. Pure -- returns a Rich renderable and touches no terminal.
+Pure: returns a Rich renderable and touches no terminal.
 """
 
 from __future__ import annotations
@@ -31,7 +29,7 @@ __all__ = (
 
 STRIP_CELLS = 44
 """Fixed, not measured: a pure function cannot ask the terminal its width, and
-this leaves both window labels room inside eighty columns."""
+44 cells leave both window labels room inside eighty columns."""
 
 CELL_TONES: Final[Mapping[Cell, str]] = MappingProxyType(
     {
@@ -47,15 +45,9 @@ CELL_TONES: Final[Mapping[Cell, str]] = MappingProxyType(
 )
 """Keyed by `Cell`, like `theme.CELL_GLYPHS` and `components.punch.BASE_STYLES`.
 
-It was keyed by `str` and had seven of the eight, so a day carrying a correction
-made `flexi clock in` a `KeyError: 'amended'`. Of the three tables that map the
-strip, this was the one nobody updated when `Cell.AMENDED` arrived; keying it by
-the enum is what lets `tests/test_public_values.py` assert all three are total.
-
-`Cell.AMENDED` takes the same green as `Cell.ON` deliberately -- `domain/punch`
-puts it as "same colour, since it is the same hours, and a different fill", and
-the glyph is what tells them apart. Not `c-annual`: that is the violet booked
-leave is drawn in, and corrected work is not absence.
+All three tables carry every member of `Cell`; `tests/test_public_values.py`
+asserts it. `Cell.AMENDED` takes the same green as `Cell.ON`, being the same
+hours with a different fill, and the glyph is what tells them apart.
 """
 
 
@@ -70,7 +62,8 @@ def punch_line(ledger: DayLedger, window: Window, *, now: datetime) -> Text:
 def elapsed_since(since: datetime, now: datetime) -> timedelta:
     """How long the session has run.
 
-    Clamped, so a clock corrected under it cannot read "-0:04 so far".
+    Clamped at zero, so a clock corrected under a live session cannot report a
+    negative elapsed time.
     """
     return max(timedelta(), wallclock.elapsed(since, now))
 
@@ -85,8 +78,8 @@ def on_the_clock(
 ) -> Text:
     """Since when, how long, the strip, and where it leaves the balance.
 
-    ``since`` is passed rather than taken off the ledger, which knows when the
-    day's first session opened -- a different moment once lunch has happened.
+    ``since`` is this session's start. The ledger knows only when the day's
+    first session opened, a different moment once lunch has happened.
     """
     line = colour("c-line")
     muted = colour("c-muted")

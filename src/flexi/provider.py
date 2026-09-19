@@ -1,9 +1,8 @@
-"""The command palette: everything, including what has no key.
+"""The command palette: every action, including the ones with no key.
 
-The key strip shows six or seven bindings, the help screen shows every binding,
-and this shows every *action* — including the ones that never earned a key, like
-booking a specific absence type on a specific day. It is the long tail, and it is
-why the keymap can stay small.
+The key strip shows a handful of bindings and the help screen shows all of
+them. This lists actions, bound or not, down to booking one absence type on
+one day.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ __all__ = ("Command", "CommandCallback", "FlexiCommands", "commands")
 
 
 type CommandCallback = Callable[[], object]
-"""An action whose result the command palette deliberately ignores."""
+"""An action whose result the command palette ignores."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,11 +36,10 @@ class Command:
 def commands(app: CommandApplication) -> tuple[Command, ...]:
     """Build the complete command catalogue for the application's current state.
 
-    Kept outside :class:`FlexiCommands` so extension code can inspect or adapt
-    the catalogue without constructing a Textual provider. The tuple is a
-    snapshot: commands that depend on a dashboard are included only when the
-    dashboard exists at the moment this function is called, and only when it is
-    the destination in front of the user.
+    Outside :class:`FlexiCommands` so the catalogue can be inspected or adapted
+    without constructing a Textual provider. The tuple is a snapshot: commands
+    that depend on a dashboard appear only while one exists and is the
+    destination in front of the user.
     """
     screen = app.dashboard()
     catalogue = [
@@ -54,8 +52,8 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
     ]
 
     if screen is None:
-        # Setup, where there is no dashboard. Every destination is drawn from
-        # the period it holds, so offering one here is offering a refusal.
+        # Setup has no dashboard, and every destination is drawn from the
+        # period the dashboard holds.
         return tuple(catalogue)
 
     catalogue.extend(
@@ -76,10 +74,8 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
 
     if not app.showing_dashboard():
         # The period, the date under the cursor and the day a booking lands on
-        # all belong to the dashboard. Insights and Leave hold spans of their
-        # own and sit on top of it, so offering one here is offering to move a
-        # screen nobody can see. "Go to Dashboard" is above, and they are all
-        # there.
+        # all belong to the dashboard, which Insights and Leave sit on top of
+        # with spans of their own.
         return tuple(catalogue)
 
     catalogue.extend(
@@ -116,7 +112,7 @@ class FlexiCommands(Provider):
     """Textual's adapter over Flexi's public command catalogue."""
 
     async def discover(self) -> Hits:
-        """What the palette offers before anything has been typed."""
+        """Offer every command, before anything has been typed."""
         for command in commands(command_app(self.app)):
             yield DiscoveryHit(command.title, command.run, help=command.help)
 

@@ -1,8 +1,8 @@
 """The day ledger: the one view model every widget reads.
 
-A widget asking "was Thursday a short day?" should not have to know that the
-answer involves a bank-holiday cache, a settings row, two absence rows and a
-list of clock events. It asks for a :class:`DayLedger` and reads a field.
+A widget asks for a :class:`DayLedger` and reads a field, without knowing that
+the answer involves a bank-holiday cache, a settings row, absence rows and a
+list of clock events.
 
 Everything here is frozen and computed. ``flexi.services.ledger`` builds these
 from the database; nothing in this module touches one.
@@ -28,9 +28,9 @@ class Segment:
     """One stretch of being on the clock.
 
     ``end`` is ``None`` while the session is open, which is why every duration
-    here takes a ``now``: a widget that redraws on a timer must be able to say
-    what the elapsed time is *at the moment it is drawing*, and a segment that
-    reached for the wall clock itself would make its own tests flaky.
+    here takes a ``now``: a widget that redraws on a timer needs the elapsed
+    time *at the moment it is drawing*, and nothing in ``flexi.domain`` reads
+    the clock itself.
     """
 
     session_id: int
@@ -38,7 +38,7 @@ class Segment:
     end: datetime | None = None
     auto_closed: bool = False
     amended: bool = False
-    """Recorded after the fact rather than punched at the time."""
+    """True when the stretch was typed in as a correction, not punched."""
     note: str | None = None
 
     def __post_init__(self) -> None:
@@ -61,9 +61,8 @@ class Segment:
     def duration(self, now: datetime) -> timedelta:
         """How long this segment has lasted, as at ``now``.
 
-        Not clamped at zero. A negative span means the two ends disagree, and
-        turning that into a silent nothing is what let an hour of real work
-        read as 0:00 for a full hour every October.
+        Not clamped at zero: a negative span means the two ends disagree, and
+        the caller has to see that.
         """
         return wallclock.elapsed(self.start, self.finish(now))
 
@@ -109,7 +108,7 @@ class DayLedger:
     absences: tuple[AbsenceSlice, ...] = ()
     segments: tuple[Segment, ...] = ()
 
-    # -- derived -----------------------------------------------------------
+    # Derived ---------------------------------------------------------------
 
     @property
     def delta(self) -> timedelta:
@@ -158,8 +157,8 @@ class DayLedger:
     def breaks(self) -> tuple[tuple[datetime, datetime], ...]:
         """The gaps between consecutive closed sessions.
 
-        Only gaps *between* sessions count. Time before the first clock-in and
-        after the last clock-out is not a break, it is not being at work.
+        Only gaps *between* sessions count: time before the first clock-in and
+        after the last clock-out is not a break.
         """
         ordered = sorted(
             self.segments, key=lambda segment: segment.start.astimezone(UTC)
@@ -185,8 +184,7 @@ class DayLedger:
     def leave_at(self) -> datetime | None:
         """When contracted hours will have been met, given today's breaks.
 
-        ``None`` when the day expects nothing or nobody has clocked in — there
-        is no meaningful answer to "when can I go?" before you have arrived.
+        ``None`` when the day expects nothing, and before the first clock-in.
         """
         first = self.first_in
         if first is None or self.expected <= timedelta():

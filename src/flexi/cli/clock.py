@@ -1,8 +1,7 @@
 """Clocking in and out from the command line.
 
-Plain functions taking the service registry and returning an exit code, so they
-can be called and asserted on without Click's test runner and without a
-subprocess.
+Plain functions taking the service registry and returning an exit code. The
+decorators in `__main__` are adapters over these.
 """
 
 from __future__ import annotations
@@ -34,16 +33,12 @@ def clock_out(services: Services) -> int:
 
 
 def already_on(services: Services, since: datetime) -> int:
-    """Draw the running session rather than refusing in one red line.
+    """Draw the running session on stdout, and return a non-zero exit code.
 
-    Through Rich rather than `click.echo`, which stringifies a `Text` to its
-    plain characters -- leaving the punch strip, the marker and the signed
-    balance in default ink, and the colour tables in `ui.onclock` dead on the
-    only path that uses them. Rich withholds the styles itself when stdout is
-    not a terminal, so a piped run stays plain.
-
-    Stdout, not the stderr console the prompts use. This is a drawing of what
-    is on the clock, which is the answer to the question that was asked.
+    Printed through Rich, not `click.echo`, which stringifies a `Text` to its
+    plain characters and leaves the punch strip and the signed balance in
+    default ink. Rich withholds the styles itself when stdout is not a
+    terminal, so a piped run stays plain.
     """
     now = wallclock.now()
     today = now.date()

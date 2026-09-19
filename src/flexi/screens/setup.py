@@ -1,20 +1,12 @@
 """Setting Flexi up, on the same rail the terminal prompts are drawn on.
 
-The wordmark turns in at the top of this screen and stays there; the questions
-arrive underneath it once it has stopped. One screen, one composition -- rather
-than an animation on a screen of its own, dismissed to reveal a bordered dialog
-that looked like it came from somewhere else.
+The wordmark lands at the top of this screen and the questions open out
+underneath it, in one composition. The rail is the one `flexi init` uses: a
+line down the left margin, a marker at the question being answered, no boxes.
+Its glyphs come from `flexi.theme`.
 
-The rail is the same one `flexi init` uses to ask what to do about an existing
-database: a line down the left margin, a marker at the moment being answered, no
-boxes. Its glyphs come from `flexi.theme`, so there is one design system rather
-than two that happen to agree.
-
-It is drawn as a single widget rather than a piece per question. A rail made of
-pieces has a gap wherever the rows are spaced, which is a dotted line pretending
-to be a continuous one -- and, more to the point, a marker made of pieces can
-only blink from one to the next. One widget owning the whole line means the
-marker has a position on it, and a position is a thing that can be moved.
+One widget owns the whole line, so the marker has a position on it that can be
+animated between rows.
 """
 
 from __future__ import annotations
@@ -67,13 +59,7 @@ __all__ = (
 )
 
 LEAVE_YEAR_START = "04-06"
-"""What the first question is pre-filled with.
-
-The stored default is 1 January, and the form answers 6 April, so the note
-under the entitlement worked out one year while the save filed it under the
-other: set up in February, the 25 days the form said were "for 2026" were
-written against 2025.
-"""
+"""What the first question is pre-filled with, not the stored default."""
 
 GUTTER = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
@@ -93,8 +79,8 @@ RISE = 0.45
 SLIDE = 0.16
 """Seconds the marker takes to travel between two questions.
 
-Long enough to be seen as travel rather than a jump, short enough that holding
-tab still feels like moving rather than like waiting."""
+Long enough to read as travel, short enough that holding tab still moves.
+"""
 
 RAIL_WIDTH = 5
 ASK_WIDTH = 22
@@ -103,18 +89,17 @@ NOTE_WIDTH = 36
 FORM_WIDTH = RAIL_WIDTH + ASK_WIDTH + FIELD_WIDTH + NOTE_WIDTH
 """The four columns of a question, and the width of everything on this screen.
 
-Written down rather than left to `width: auto`, because the wordmark has to be
-the same width as the questions to be centred over them. An auto-width column is
-exactly as wide as its widest child, so a narrower wordmark sat against its left
-edge -- correctly centred as a block, visibly off-centre as a logo."""
+Fixed in Python, not left to `width: auto`: the wordmark has to match the
+questions' width to centre over them, and an auto column takes the width of its
+widest child.
+"""
 
 
 def sized(css: str) -> str:
     """Fill the column widths into a stylesheet.
 
-    The widths have to be known in Python -- the wordmark is told to be as wide
-    as the questions so it can be centred over them -- and repeating them in the
-    CSS is how the two quietly stop agreeing.
+    The widths are known in Python, so the CSS takes them from there instead of
+    carrying a second copy.
     """
     for token, width in (
         ("RAIL_W", RAIL_WIDTH),
@@ -135,8 +120,7 @@ class Rail(Static):
     """)
 
     marker: Reactive[float] = reactive(0.0)
-    """Which row the marker is on. A float, because it is animated between rows
-    and Textual can only interpolate numbers."""
+    """Which row the marker is on, as a float: Textual interpolates numbers."""
 
     def __init__(self, rows: int, **kwargs: Unpack[StaticOptions]) -> None:
         super().__init__(**kwargs)
@@ -150,19 +134,11 @@ class Rail(Static):
         self._draw()
 
     def slide_to(self, row: int) -> None:
-        """Send the marker to a row, travelling rather than jumping."""
+        """Animate the marker to a row."""
         self.animate("marker", value=float(row), duration=SLIDE, easing="out_cubic")
 
     def _draw(self) -> None:
-        """The line, with the marker on it.
-
-        The marker is the only thing lit. Lighting the row beneath it as well,
-        to pick out the whole two-row segment a question occupies, made the rail
-        busier without saying anything the diamond had not already said.
-
-        The foot wears the same grey as the rest of the line. It is structure,
-        not content, and a brighter one drew the eye to the end of the form.
-        """
+        """The line, with the marker on it."""
         at = round(self.marker)
         line = Text(no_wrap=True)
         for row in range(self._rows):
@@ -234,11 +210,9 @@ class SetupScreen(Screen[bool]):
     AUTO_FOCUS: ClassVar[str] = ""
     """Nothing is focused while the splash plays.
 
-    Textual focuses the first input on mount, which is under a block at zero
-    height: a key pressed at the logo went into the leave-year field, which
-    arrived holding `x1 ` in place of its default, and did not skip the
-    animation it was meant to skip. `on_wordmark_landed` focuses the field once
-    there is something to see.
+    Textual would otherwise focus the first input on mount, inside a block at
+    zero height, and a key meant for the logo would land in it.
+    `on_wordmark_landed` focuses the field once the questions are up.
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
@@ -346,8 +320,8 @@ class SetupScreen(Screen[bool]):
         try:
             year = entitlement_year(event.value)
         except ValueError:
-            # Half a date is not an answer yet; the note keeps the last year it
-            # could work out rather than flashing at every keystroke.
+            # Half a date is not an answer yet; the note keeps the last year
+            # it could work out.
             return
         self.query_one("#ask-entitlement", Question).query_one(".note", Static).update(
             f"days for {year}, halves allowed"
@@ -356,29 +330,19 @@ class SetupScreen(Screen[bool]):
     def on_mount(self) -> None:
         """Tell the wordmark how wide to be.
 
-        It has to be exactly as wide as the questions, because it centres its
-        own content and is centred over them. Left to itself it is as wide as
-        the canvas, which is narrower, and a narrower widget sits against the
-        left edge of the column -- correctly centred as a block, and visibly off
-        to one side as a logo. The screen is the only thing that knows both
-        widths, so the screen is what says it.
+        It centres its own content and is centred over the questions, so it has
+        to match their width; the screen is what knows both.
         """
         self.query_one(Wordmark).styles.width = FORM_WIDTH
 
-    # -- arrival -----------------------------------------------------------
+    # Arrival.
 
     def on_wordmark_landed(self, _event: Wordmark.Landed) -> None:
         """The word has stopped. Open the questions out underneath it.
 
-        The height is animated rather than switched on, because the whole block
-        is centred: growing it pushes the wordmark up a row at a time, which
-        reads as the logo making room. Switching it on moved everything at once
-        and read as a redraw.
-
-        The height is counted rather than measured. Measuring means laying the
-        questions out at full height first, which is the flash this exists to
-        avoid; counting is checked against the real thing by a test, so it
-        cannot drift without saying so.
+        The height is counted with `form_rows`, never measured: measuring lays
+        the questions out at full height first, which is the flash the
+        animation exists to avoid.
         """
         questions = self.query_one("#setup-questions")
         questions.add_class("-arrived")
@@ -392,14 +356,8 @@ class SetupScreen(Screen[bool]):
     def on_key(self, event: events.Key) -> None:
         """Any key during the animation cuts to the end of it.
 
-        Somebody setting Flexi up a second time should not have to watch it
-        again, and a splash that cannot be skipped is a splash that is in the
-        way. Once the questions are up the keys belong to them.
-
-        `ctrl+q` skips the animation and then goes on to quit: the key that
-        means "not now" is not a key to swallow. `escape` is kept here, because
-        cancelling this screen ends the program, and a press meant for the logo
-        should not.
+        `ctrl+q` skips and still quits. Every other key is stopped, `escape`
+        included, since cancelling this screen ends the program.
         """
         if not self.query_one("#setup-questions").has_class("-arrived"):
             self.query_one("#setup-wordmark", Wordmark).skip()
@@ -418,7 +376,7 @@ class SetupScreen(Screen[bool]):
             if holds:
                 self.query_one(Rail).slide_to(HEADING_ROWS + index * QUESTION_ROWS)
 
-    # -- saving ------------------------------------------------------------
+    # Saving.
 
     def on_input_submitted(self, _event: Input.Submitted) -> None:
         self.action_save()
@@ -427,8 +385,7 @@ class SetupScreen(Screen[bool]):
         """Write the answers, or say which one is not an answer yet.
 
         Every answer is parsed before anything is written, then settings and
-        entitlement commit together -- the same boundary `SettingsScreen._save`
-        uses.
+        entitlement commit together, on the boundary `SettingsScreen._save` uses.
         """
         entitlement_str = self.query_one("#input-entitlement", Input).value.strip()
         if not entitlement_str:
@@ -446,9 +403,8 @@ class SetupScreen(Screen[bool]):
             self.notify(str(error), severity="error")
             return
 
-        # The leave year, not the calendar year. Setting Flexi up in February
-        # against an April leave year files the allowance under the year that
-        # has not started, and get_active_entitlement_days then finds nothing.
+        # The leave year, not the calendar year: `get_active_entitlement_days`
+        # looks an allowance up by the leave year it was filed under.
         year = leaveyear.active_year(wallclock.today(), *update.leave_year_start)
         self._settings_svc.save_settings_and_entitlements(update, {year: entitlement})
 
@@ -466,8 +422,7 @@ def entitlement_year(start: str) -> int:
 def form_rows(questions: int) -> int:
     """How tall the form is, in rows.
 
-    The rail has to be exactly this tall for its foot to land under the last
-    question, and the reveal animates the block open to exactly this height, so
-    it is worked out once and asked for twice.
+    The rail's height and the reveal's target height are both this, so the foot
+    lands under the last question.
     """
     return HEADING_ROWS + questions * QUESTION_ROWS + TAIL_ROWS

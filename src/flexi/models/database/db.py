@@ -45,11 +45,10 @@ __all__ = (
 )
 
 DEFAULT_CONTRACTED_MINUTES = 444
-"""7h24 — the standard day these figures are all measured against.
+"""7h24, the standard day these figures are all measured against.
 
-Minutes rather than hours because 7.4 is not representable in binary floating
-point, and a leave year of rounding it produces a balance that disagrees with
-the sum of its own rows.
+Minutes, because 7.4 hours is not representable in binary floating point and a
+leave year of rounding it gives a balance that disagrees with its own rows.
 """
 
 DEFAULT_WINDOW_START = "07:00"
@@ -57,9 +56,8 @@ DEFAULT_WINDOW_END = "19:00"
 SETTINGS_SINGLETON_KEY = 1
 """The single value accepted by :class:`Settings.singleton_key`.
 
-A constrained constant key turns the application's one-row settings convention
-into a database invariant.  The unique constraint limits the table to one row;
-the check constraint prevents a second row from choosing a different key.
+The unique constraint limits the table to one row; the check constraint stops a
+second row from choosing a different key.
 """
 
 
@@ -70,7 +68,7 @@ class Base(DeclarativeBase):
 class Settings(Base):
     """Application settings (single-row table).
 
-    Settings are what the balance *depends on* — how long a day is, when the
+    Settings are what the balance *depends on*: how long a day is, when the
     leave year turns over, which bank holidays apply. They live in the database
     beside the records they explain. Preferences (keybindings, default period)
     live in ``~/.config/flexi/config.yaml`` instead; see ``flexi/config.py``.
@@ -114,9 +112,7 @@ class Settings(Base):
     save: changing the leave year start moves which days are in the year, not
     which of them Flexi was there for.
 
-    Nullable because a database migrated from before this column may have no
-    honest answer -- see ``0011``. ``None`` means every day counts, which is
-    what Flexi did before.
+    ``None`` on databases migrated from before ``0011``; every day then counts.
     """
 
 
@@ -133,10 +129,10 @@ class LeaveEntitlement(Base):
 class BankHolidayRefresh(Base):
     """A complete cached division calendar, including an empty one.
 
-    Freshness belongs to the response as a whole, not to each event in it.  A
-    row therefore records that one division was fetched successfully even when
-    GOV.UK returned no events.  The division is the natural key because only
-    the latest complete response is retained.
+    Freshness belongs to the response as a whole, not to each event in it, so a
+    row records that one division was fetched successfully even when GOV.UK
+    returned no events. The division is the natural key, because only the latest
+    complete response is retained.
     """
 
     __tablename__ = "bank_holiday_refreshes"
@@ -153,11 +149,9 @@ class BankHolidayRefresh(Base):
 class BankHolidayAttempt(Base):
     """When a division was last asked for and answered with nothing usable.
 
-    Its own table rather than a column on :class:`BankHolidayRefresh`, which
-    records a complete calendar. A failed fetch is not one, and a row in that
-    table claiming otherwise would turn an install with no calendar at all into
-    one whose year happens to hold no holidays -- every bank holiday a working
-    day, quietly.
+    Its own table: :class:`BankHolidayRefresh` records a complete calendar, and
+    a failed fetch written there would read as a year holding no holidays, with
+    every bank holiday a working day.
     """
 
     __tablename__ = "bank_holiday_attempts"
@@ -188,15 +182,15 @@ class BankHolidayCache(Base):
 class ClockEvent(Base):
     """An immutable clock-in or clock-out event.
 
-    Two columns, one reading. ``timestamp`` is the time on the wall as the
-    person read it, naive by design -- SQLite has no timestamp type, so
-    ``DateTime(timezone=True)`` was decoration that stored whatever field values
-    it was handed and dropped the offset. ``utc_offset_minutes`` is how far that
-    wall reading was from UTC, so the instant is the one minus the other.
+    Two columns, one reading. ``timestamp`` is the time on the wall as the user
+    read it, and it is naive: SQLite has no timestamp type, so
+    ``DateTime(timezone=True)`` stores the field values it is handed and drops
+    the offset. ``utc_offset_minutes`` is how far that wall reading was from
+    UTC, so the instant is the one minus the other.
 
-    Both halves are needed. The wall half is the punch strip, the work date and
-    the midday split. The offset half is why 22:00 on 24 October to 06:00 on
-    25 October is nine hours and not eight.
+    Both halves are needed: the wall half gives the punch strip, the work date
+    and the midday split; the offset half is why 22:00 on 24 October to 06:00
+    on 25 October is nine hours and not eight.
     """
 
     __tablename__ = "clock_events"
@@ -206,7 +200,7 @@ class ClockEvent(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime())
     utc_offset_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
     """Minutes east of UTC when the clock was read; the instant is ``timestamp``
-    minus this. ``None`` only on rows Flexi wrote before it recorded one."""
+    minus this. ``None`` on rows written before the column existed."""
     source: Mapped[EventSource] = mapped_column(
         Enum(
             EventSource,
@@ -220,11 +214,10 @@ class ClockEvent(Base):
     )
     """Whether a person punched this or the auto-close sweep did.
 
-    Stored as its value rather than its name, and without a CHECK constraint,
-    because migration 0004 wrote a plain `VARCHAR(20)` and 0010 reads the
-    column back to decide whose timestamps it may rewrite. `create_constraint`
-    is already False by default; it is written down because the default is what
-    keeps `create_all` from building a schema the migrations never did."""
+    Stored as its value, in a plain `VARCHAR(20)` with no CHECK constraint,
+    which is the column migration 0004 wrote and `create_all` has to match.
+    Migration 0010 reads the value back to decide whose timestamps it may
+    rewrite."""
 
 
 _register_clock_event_immutability(ClockEvent.__table__)
@@ -234,8 +227,8 @@ class WorkSession(Base):
     """A work session linking a clock-in to an optional clock-out.
 
     ``work_date`` is the *local* date of the clock-in, so a session that runs
-    past midnight belongs to the day it started — which is how a person thinks
-    about a late finish, and how a weekly total has to add up.
+    past midnight belongs to the day it started, which is how a late finish
+    reads and how a weekly total adds up.
     """
 
     __tablename__ = "work_sessions"
@@ -262,7 +255,7 @@ class WorkSession(Base):
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     voided: Mapped[bool] = mapped_column(Boolean(), default=False, server_default="0")
     """A corrected session. Clock events are immutable, so a correction inserts
-    a replacement pair and marks the original voided rather than editing it."""
+    a replacement pair and marks the original voided instead of editing it."""
 
     clock_in_event: Mapped[ClockEvent] = relationship(foreign_keys=[clock_in_id])
     clock_out_event: Mapped[ClockEvent | None] = relationship(
@@ -276,7 +269,7 @@ _register_work_session_action_invariants(WorkSession.__table__)
 class AbsenceDay(Base):
     """An absence covering a whole day, or one half of one.
 
-    Two half-days of *different* types may share a date — a sick morning and an
+    Two half-days of *different* types may share a date: a sick morning and an
     annual afternoon is a real thing that happens. Two partial unique indexes
     treat ``FULL`` as conflicting once with ``AM`` and once with ``PM``. This
     admits the useful ``AM + PM`` pair while making every full/half collision a

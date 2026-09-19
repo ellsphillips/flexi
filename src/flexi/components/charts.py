@@ -1,8 +1,8 @@
 """Charts, drawn as characters.
 
-Series colour comes from the three validated slots only -- TOIL, annual, sick --
-and a fourth series folds into a neutral. Every chart writes its figure beside
-the mark, so none of them is the only way to read its own numbers.
+Series colour comes from the three validated slots (TOIL, annual, sick); a
+fourth series folds into the neutral. Every chart writes its figure beside the
+mark, so colour is never the only encoding.
 """
 
 from __future__ import annotations
@@ -46,28 +46,16 @@ __all__ = (
 )
 
 BLOCK: Final = "█"
-"""The bar cell. Whole cells only, both arms.
-
-An earlier draft drew eighths, which reads beautifully upward — `▁▂▃▄▅▆▇` are
-everywhere — and needs U+1FB0x Symbols for Legacy Computing to do the same
-downward. Those are missing from most terminal fonts, so half the chart rendered
-as tofu on the machines it was drawn for. Whole cells cost a quarter of a bar's
-precision and the exact figure is printed underneath anyway."""
+"""The bar cell. Whole cells only: most terminal fonts lack the downward eighths."""
 BASELINE: Final = "─"
 FULL: Final = "█"
 HEAT: Final = "■"
 AMENDED_HEAT: Final = "▒"
-"""A day whose work was written down after the fact rather than punched.
-
-The same fill the strips use for the same reason: the reading is the reading,
-but it came from somebody's memory, and a year of them in one picture is worth
-being able to see.
-"""
+"""The fill, shared with the punch strips, for work written down after the fact."""
 EMPTY: Final = "·"
 
 DIVERGING_STEPS: Final = 4
-"""Steps per arm of the heatmap ramp. Four is as many as a reader can rank by
-eye without a legend they have to keep consulting."""
+"""Steps per arm of the heatmap ramp; four is as many as the eye can rank."""
 
 
 SECONDS_PER_HOUR: Final = 3600
@@ -75,7 +63,7 @@ SECONDS_PER_HOUR: Final = 3600
 
 @dataclass(frozen=True, slots=True)
 class Column:
-    """One bar: a label, a signed value, and the figure to write beside it."""
+    """A bar: a label, a signed value, and the figure written beside it."""
 
     label: str
     value: float
@@ -83,13 +71,7 @@ class Column:
 
 
 class DivergingBars(Widget):
-    """A signed series around a zero line.
-
-    Two hues and a neutral baseline, which is the whole grammar of a diverging
-    chart: a bar above the line means one thing and a bar below means its
-    opposite, and the reader never has to look up which colour is which because
-    the side of the line already said it.
-    """
+    """A signed series around a zero line: two hues about a neutral baseline."""
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
         "chart--surplus",
@@ -131,11 +113,9 @@ class DivergingBars(Widget):
         return Text("\n").join(lines)
 
     def _arms(self, shown: tuple[Column, ...]) -> tuple[int, int]:
-        """How many rows each side of the baseline gets.
+        """Rows each side of the baseline, split in proportion to the data.
 
-        Split in proportion to the data, not down the middle. A series with no
-        deficit weeks does not need four rows of empty negative axis, and a
-        series that is all deficit should not be squashed into two.
+        A series with no deficit weeks does not get rows of empty negative axis.
         """
         rows = max(2, self.rows - 1)
         high, low = self._high(shown), self._low(shown)
@@ -149,27 +129,22 @@ class DivergingBars(Widget):
 
     @staticmethod
     def _high(shown: tuple[Column, ...]) -> float:
-        """How far the surplus reaches above the baseline. Never below it.
+        """Distance above the baseline to the largest surplus, clamped at zero.
 
-        Clamped at zero, because it is a distance from the baseline rather than
-        the largest value. Without the clamp a week of nothing but deficit gave
-        a *negative* height for the surplus arm, and `_arms` divided by
-        `high + low` — which for a single column is `value + -value`, exactly
-        zero. Opening Insights on a first install, where there is one week and
-        it is behind, was a ZeroDivisionError.
+        A distance, not a value: `_arms` divides by `high + low`, and without
+        the clamp a lone negative column makes that sum zero.
         """
         return max(0.0, max((column.value for column in shown), default=0.0))
 
     @staticmethod
     def _low(shown: tuple[Column, ...]) -> float:
-        """How far the deficit reaches below the baseline. Never above it."""
+        """Distance below the baseline to the largest deficit, clamped at zero."""
         return max(0.0, -min((column.value for column in shown), default=0.0))
 
     def _fit(self) -> tuple[tuple[Column, ...], int]:
-        """The bars that fit, most recent first, and whether they get a gap.
+        """The most recent bars that fit, and whether they get a gap.
 
-        Trimmed from the *left*: a year of weeks will not fit a half-width panel,
-        and the weeks worth dropping are the oldest.
+        Trimmed from the left, so the weeks dropped are the oldest.
         """
         width = max(1, self.content_size.width)
         if len(self.columns) * 2 <= width:
@@ -187,7 +162,7 @@ class DivergingBars(Widget):
         *,
         above: bool,
     ) -> Text:
-        """One row of the chart, at a fixed distance from the baseline."""
+        """Draw one row of the chart, at a fixed distance from the baseline."""
         text = Text(no_wrap=True, end="")
         span = extent or 1.0
         for column in shown:
@@ -202,11 +177,7 @@ class DivergingBars(Widget):
         return Text(BASELINE * (len(shown) * (1 + gap)), style=style, no_wrap=True)
 
     def _caption(self, shown: tuple[Column, ...]) -> Text:
-        """The extremes, named. A bar chart nobody can read a value off is a mood.
-
-        Direct-labelling every bar would be unreadable at 52 weeks, so the two
-        that matter are labelled and the rest are shape.
-        """
+        """Name the best and worst bars; labelling all of them is unreadable."""
         label = self.get_component_rich_style("chart--label")
         if not shown:
             return Text("", style=label)
@@ -221,12 +192,7 @@ class DivergingBars(Widget):
 
 
 class Burndown(Widget):
-    """One series against a reference line.
-
-    A single series needs no legend — the title names it — and the reference is
-    drawn as a rule rather than a second series, because "where you should be"
-    is not a thing that happened.
-    """
+    """A single series against a reference rule."""
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
         "chart--series",
@@ -291,12 +257,7 @@ class Burndown(Widget):
 
 
 class WeekRibbon(Widget):
-    """Punch strips stacked on one time axis, a week to a row.
-
-    The signature element scaled up. A table of weekly totals says how much; this
-    says *when*, and the shape of a month of mornings is not something a column
-    of numbers can show.
-    """
+    """Punch strips stacked on one time axis, a week to a row."""
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {*PUNCH_CLASSES, "chart--label"}
 
@@ -349,13 +310,10 @@ class WeekRibbon(Widget):
 
 
 class YearHeatmap(Widget):
-    """A calendar grid coloured by how each day went.
+    """A calendar grid coloured by how each day went, weekday down, week across.
 
-    Weekday down, week across — the shape every contribution graph uses, because
-    it puts "my Fridays are short" and "March was heavy" in the same picture.
-
-    Colour carries magnitude on a diverging ramp; the *glyph* carries day type,
-    so the two encodings never fight over the same cell.
+    Colour carries magnitude on a diverging ramp and the glyph carries day type,
+    so the two encodings never fight over a cell.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -370,8 +328,7 @@ class YearHeatmap(Widget):
         self.ledgers: dict[date, DayLedger] = {}
         self.scale = timedelta(hours=2)
         self.first_weekday = 0
-        """Which day the rows start on. Set by `show`; initialised because
-        `render` can run before the first one."""
+        """Which day the rows start on; `render` can run before the first `show`."""
 
     def show(self, ledgers: list[DayLedger], *, first_weekday: int) -> None:
         self.ledgers = {item.date: item for item in ledgers}
@@ -379,8 +336,8 @@ class YearHeatmap(Widget):
         worst = max(
             (abs(item.balance_effect) for item in ledgers), default=timedelta(hours=2)
         )
-        # A floor on the scale: without one, a fortnight of near-perfect days
-        # would be drawn as violently as a fortnight of disasters.
+        # A floor on the scale, so a fortnight of near-perfect days is not
+        # drawn as violently as a fortnight of disasters.
         self.scale = max(worst, timedelta(hours=2))
         self.refresh()
 
@@ -389,11 +346,8 @@ class YearHeatmap(Widget):
         if not self.ledgers:
             return Text("Nothing recorded yet", style=label)
 
-        # Both the grid and its row labels take the configured first day. They
-        # were a hardcoded Monday and a hardcoded "MTWTFSS" while the bars
-        # above them, on the same screen, honoured the setting -- so a
-        # Sunday-first week put the two charts a day out of step with each
-        # other and with the calendar on the leave screen.
+        # Grid and row labels both take the configured first day, so they line
+        # up with the bars above and with the calendar on the leave screen.
         start = week_start(min(self.ledgers), first_weekday=self.first_weekday)
         end = max(self.ledgers)
         weeks = ((end - start).days // 7) + 1
@@ -428,11 +382,9 @@ class YearHeatmap(Widget):
         return glyph, self.get_component_rich_style(f"chart--{arm}-{step}")
 
     def _legend(self) -> Text:
-        """Never colour alone: the ramp is drawn with its two ends named.
+        """Draw the ramp with both ends named, so colour is never alone.
 
-        The second fill is named only on a year that has one in it. A key to a
-        glyph nobody can find on the chart is a reader hunting for something
-        that is not there.
+        The corrected fill is named only on a year that contains one.
         """
         label = self.get_component_rich_style("chart--label")
         text = Text(f"{MINUS}{hm(self.scale)} ", style=label)
@@ -454,13 +406,8 @@ class YearHeatmap(Widget):
 def running_balance(ledgers: Sequence[DayLedger]) -> tuple[float, ...]:
     """The flexi balance in hours after each day, in order.
 
-    The accumulation of what every day contributed, which is what the figure on
-    the dashboard is. Weekly totals cannot show this: a contract is the promise
-    that those barely move, and the balance is the drift they leave behind.
-
-    A day off contributes what it withdrew rather than the hours nobody worked,
-    so a week of leave is flat rather than a cliff -- `balance_effect` is the
-    one place that rule lives.
+    A day off contributes what it withdrew, so a week of leave is flat;
+    `balance_effect` is the one place that rule lives.
     """
     return tuple(
         accumulate(
@@ -473,10 +420,8 @@ def running_balance(ledgers: Sequence[DayLedger]) -> tuple[float, ...]:
 def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column]:
     """Group a run of days into one bar per week, for :class:`DivergingBars`.
 
-    ``first_weekday`` because these bars sit on the same screen as a calendar
-    drawn from it. Taking the default, they bucketed on Mondays and labelled
-    each bar with a Monday's date while everything else on the configuration
-    started the week on Sunday.
+    ``first_weekday`` buckets and labels the bars, keeping them in step with the
+    calendar drawn from the same setting.
     """
     buckets: defaultdict[date, timedelta] = defaultdict(timedelta)
     for ledger in ledgers:

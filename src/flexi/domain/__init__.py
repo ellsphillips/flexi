@@ -1,11 +1,11 @@
 """Pure domain values and transformations.
 
-This is the stable, dependency-free facade for Flexi's functional core. The
-leaf modules remain public when a narrower namespace reads better, while the
-most useful values are also available directly from :mod:`flexi.domain`.
+The dependency-free facade for Flexi's functional core. Leaf modules stay
+public where a narrower namespace reads better, and the most useful values are
+re-exported here.
 
 Nothing in this package may import Textual, SQLAlchemy, or a Flexi service.
-That rule is enforced by ``tests/test_layering.py``.
+Enforced by ``tests/test_layering.py``.
 """
 
 from __future__ import annotations

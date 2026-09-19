@@ -1,20 +1,12 @@
-"""Setting Flexi up, and starting again when that is really what is meant.
+"""Set Flexi up, and start again when that is what is meant.
 
-``flexi init`` on a clean machine creates the database and asks the five
-questions. On a machine that already has records it shows what is there and
-offers what can be done about it -- including erasing the lot, which is the one
-thing in Flexi that loses data.
+``flexi init`` creates the database and asks the five questions; where there
+are already records it shows what is there first.
 
-That option is not a flag. ``--reset`` sat in the help text of a command most
-people run once, where the only two ways to meet it were to go looking or to
-find it by accident, and neither is how somebody should arrive at deleting a
-year of records. It is a line on a menu that appears only when there is
-something to erase, it is drawn in the deficit red, it says how many records it
-would take, and it asks for a word rather than a keystroke.
-
-Without a terminal there is no menu and no erasing: the command reports what is
-there and stops. There is deliberately no way to erase Flexi's records without a
-person present to type the word.
+Erasing is a line on the menu, not a flag. It appears only when there is
+something to erase, says how many records it would take, and asks for a typed
+word. Without a terminal there is no menu and no erasing: the command reports
+what is there and stops.
 """
 
 from __future__ import annotations
@@ -51,16 +43,15 @@ __all__ = (
     "reset",
     "settled",
 )
-"""The module's complete setup and reset vocabulary."""
 
 CONFIRM_WORD = "reset"
 
 READ_TIMEOUT = 1.0
 """Seconds to wait for a locked database.
 
-The application holds a write lock while it commits. Waiting the SQLite default
-of five seconds per table turns "what is in here?" into a half-minute stall with
-nothing on screen, and the answer to a database that is busy is to say so."""
+The application holds a write lock while it commits, and SQLite's default of
+five seconds applies per table, so the five reads below would stall for half a
+minute before saying anything."""
 
 COUNTED: tuple[tuple[str, str], ...] = (
     ("clock events", "clock_events"),
@@ -72,7 +63,7 @@ COUNTED: tuple[tuple[str, str], ...] = (
 
 
 class Choice(StrEnum):
-    """What somebody can do about a Flexi that is already set up."""
+    """What can be done about a Flexi that is already set up."""
 
     OPEN = "open"
     SETTINGS = "settings"
@@ -83,9 +74,8 @@ class Choice(StrEnum):
 class Contents:
     """What a database holds, for a prompt that has to be specific.
 
-    ``unreadable`` is not the same as empty, and conflating them is how a
-    confirmation ends up reassuring somebody that there is nothing to lose while
-    a locked or damaged file sits there full of records.
+    ``unreadable`` is not empty: a locked or damaged file may still hold every
+    record.
     """
 
     counts: tuple[tuple[str, int], ...] = ()
@@ -103,24 +93,20 @@ class Contents:
 def describe(db_path: Path) -> Contents:
     """Count the rows a reset would take, in reading order."""
     if not db_path.is_file():
-        # Absent is not the same as unreadable. There is genuinely nothing to
-        # lose here, and saying so is the truthful answer rather than a hedge.
+        # A file that is not there holds nothing; unreadable is a different
+        # answer.
         return Contents()
 
     counts: list[tuple[str, int]] = []
     try:
-        # `closing`, not the bare connection: `with sqlite3.connect(...)` is a
-        # transaction and leaves the handle open, and this runs immediately
-        # before the reset that deletes the file. Windows refuses to delete a
-        # file anything still has open.
+        # `closing`, not the bare connection: `with sqlite3.connect(...)` opens
+        # a transaction and leaves the handle open, and Windows refuses to
+        # delete a file anything still has open.
         with closing(read_only(db_path, timeout=READ_TIMEOUT)) as connection:
-            # Ask whether the file is a database at all before asking what is
-            # in it. "not a database" and "no such table" both arrive as
-            # DatabaseError, and the loop below has to forgive the second --
-            # COUNTED is maintained by hand, so a table renamed by a later
-            # migration must not blank the count. Without this probe that
-            # forgiveness swallows the first too, and a corrupt file holding a
-            # year of records is described to its owner as empty.
+            # Probe first: "not a database" and "no such table" both arrive as
+            # DatabaseError, and the loop below forgives the second because
+            # COUNTED is maintained by hand. Without the probe a corrupt file
+            # would be described as empty.
             connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
 
             for label, table in COUNTED:
@@ -162,9 +148,8 @@ def overview(db_path: Path, contents: Contents) -> list[Text]:
 def options(contents: Contents) -> list[ui.Option[Choice]]:
     """The three things to do about a Flexi that is already here.
 
-    An unreadable database counts at nothing, so the grave line has to say so
-    in words: "erase 0 records" beside an overview saying the file may still
-    hold them is the one place unknown must not be rounded to zero.
+    An unreadable database counts at nothing, so the grave line names what it
+    would take in words: "erase 0 records" rounds unknown to zero.
     """
     total = contents.total
     if contents.unreadable:
@@ -228,18 +213,12 @@ def settled(message: str) -> None:
 
 
 def reset(db_path: Path) -> Path | None:
-    """Snapshot, verify, then remove the database and nothing else.
+    """Snapshot, verify, then remove the database file and nothing else.
 
-    Only the file. The backups directory lives inside the data directory, so
-    deleting the directory would take every snapshot ever made -- including the
-    one taken a moment earlier, which is the whole safety net.
-
-    A link is refused rather than followed. ``is_file`` and ``sqlite3.connect``
-    resolve one and ``Path.unlink`` does not, so acting on a database kept in a
-    synced folder would report "Erased" while every record survives at the far
-    end and only the link has gone. Deleting through the link instead
-    propagates the deletion to every machine the folder is on, which is a
-    larger thing than "start again on this one".
+    The backups directory sits inside the data directory, so removing the
+    directory would take every snapshot with it. A symlink is refused:
+    ``is_file`` and ``sqlite3.connect`` resolve one where ``Path.unlink`` does
+    not, so erasing through a link would remove the link and keep the records.
     """
     if db_path.is_symlink():
         msg = (

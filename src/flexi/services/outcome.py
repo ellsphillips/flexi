@@ -1,20 +1,13 @@
 """What a service result tells the interface.
 
-Four dataclasses flow out of the services and three of them end up on the status
-bar, which is the single decision about whether it goes green or red. That
-decision was made with `getattr(result, "success", False)` against a parameter
-typed `object`, because the four shapes did not agree -- so the one place it
-mattered was the one place `--strict` could not check, and a renamed field would
-have reported failure rather than failing to compile.
+The status bar goes green or red on ``success`` alone, so the results that
+reach it share one protocol and `--strict` checks the shape.
 
-Declared as read-only properties, not as variables: every implementer is a
-frozen dataclass, and a protocol asking for a settable attribute is not
-satisfied by one that cannot be set.
-
-`RangeResult` is deliberately not one of these. It is partial by design -- a
-fortnight that books nine days and says which five it skipped -- and its
-message takes the verb that describes what was attempted, which is a different
-shape for a different job. It never reaches the status bar.
+Read-only properties, not variables: every implementer is a frozen dataclass,
+and a protocol asking for a settable attribute is not satisfied by one that
+cannot be set. `RangeResult` is not an implementer; it is partial by design, a
+fortnight that books nine days and says which five it skipped, and it never
+reaches the status bar.
 """
 
 from __future__ import annotations
@@ -26,7 +19,7 @@ __all__ = ("Outcome",)
 
 @runtime_checkable
 class Outcome(Protocol):
-    """Something that happened, and what to tell somebody about it."""
+    """Something that happened, and what to tell the user about it."""
 
     @property
     def success(self) -> bool:
@@ -42,7 +35,7 @@ class Outcome(Protocol):
     def warning(self) -> str | None:
         """Said instead of the message when it succeeded with a caveat.
 
-        Carried by every implementer rather than by some, so the interface does
-        not have to ask whether asking is allowed.
+        Every implementer carries one, so no caller has to ask whether this
+        attribute is there.
         """
         ...

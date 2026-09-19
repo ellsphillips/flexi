@@ -1,8 +1,8 @@
 """Database records, lifecycle helpers, and migration operations.
 
-This is the stable persistence facade. The leaf modules remain available for a
-narrower import, while wildcard imports expose only the names deliberately
-listed here rather than SQLAlchemy, Alembic, or standard-library dependencies.
+The persistence facade: a wildcard import gets the names in ``__all__``, so
+SQLAlchemy, Alembic and the standard-library imports are not among them. The
+leaf modules stay importable directly.
 """
 
 from __future__ import annotations

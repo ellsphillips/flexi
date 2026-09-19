@@ -1,10 +1,9 @@
-"""Every binding, grouped, including the ones the key strip had to drop.
+"""Every binding, including the ones the key strip has no room for.
 
-Built from the *live* bindings of the screen underneath rather than from a
-hand-written table, so a key that exists is listed and a key that was renamed
-cannot go stale here. The grouping is by the widget that owns the binding, which
-is also the answer to "why did that key do nothing" — a binding on the records
-table is only live when the records table has focus.
+Built from the live bindings of the screen underneath, not from a hand-written
+table, so the page lists the keys that exist. The grouping is by the widget that
+owns the binding: a binding on the records table is live only while the records
+table has focus.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ __all__ = ("HelpScreen", "collect_bindings", "declared_by_flexi", "label_for")
 
 
 class HelpScreen(ModalScreen[None]):
-    """The keyboard, written down."""
+    """The whole keyboard, grouped by the widget each key belongs to."""
 
     HELP_LABEL = "Help"
 
@@ -59,13 +58,9 @@ class HelpScreen(ModalScreen[None]):
 def collect_bindings(screen: Screen[object]) -> dict[str, list[tuple[str, str]]]:
     """Group a screen's active bindings by the widget that declared them.
 
-    Flexi's own only. Textual gives every scrollable container eight bindings of its
-    own, and listing Scroll Up and Page Left turns a keyboard reference into a list
-    of things nobody came here to learn.
-
-    One row per action, carrying every key that runs it: `left,h` is one Binding
-    in the source and two in `active_bindings`, and keeping the first of them
-    left the vim keys off the only page that lists the keyboard.
+    Flexi's own bindings only: Textual gives every scrollable container eight
+    bindings of its own. One row per action, carrying every key that runs it,
+    because `left,h` is one Binding in the source and two in `active_bindings`.
     """
     groups: dict[str, list[tuple[str, str]]] = {}
     rows: dict[tuple[str, str], int] = {}
@@ -86,12 +81,11 @@ def collect_bindings(screen: Screen[object]) -> dict[str, list[tuple[str, str]]]
 
 
 def declared_by_flexi(node: object, binding: Binding) -> bool:
-    """True when this key was declared by Flexi rather than inherited from Textual.
+    """True when Flexi declared this key, not Textual.
 
-    Asked of the binding rather than of the widget holding it. A Flexi table is
-    still a `DataTable`, so a filter on the widget's own module let Cursor Left
-    and Page Right through on the strength of the subclass they were inherited
-    into.
+    Asked of the binding, not of the widget holding it: a Flexi table is still a
+    `DataTable`, so a filter on the widget's own module admits Cursor Left and
+    Page Right on the strength of the subclass they are inherited into.
     """
     for cls in type(node).__mro__:
         own = cls.__dict__.get("BINDINGS")
@@ -106,12 +100,9 @@ def declared_by_flexi(node: object, binding: Binding) -> bool:
 def label_for(node: object) -> str:
     """The heading a binding is filed under.
 
-    Read off the class rather than looked up in a table here. The table had no
-    entry for the leave screen or its calendar, so the help modal filed their
-    eleven keys under `LeaveScreen` and `YearCalendar` -- and nothing said so,
-    because a missing entry falls back to the class name and a class name is a
-    string like any other.
-    `tests/test_layering.py::test_every_class_with_keys_says_what_to_call_it`
-    refuses a Flexi class that declares bindings and no `HELP_LABEL`.
+    Read off the class, not looked up in a table, where a missing entry falls
+    back to the class name with nothing to say it did. Enforced by
+    `tests/test_layering.py`, which refuses a Flexi class that declares bindings
+    and no `HELP_LABEL`.
     """
     return str(getattr(type(node), "HELP_LABEL", type(node).__name__))

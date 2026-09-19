@@ -1,13 +1,8 @@
-"""Remember a GOV.UK fetch that came back with nothing.
+"""Add `bank_holiday_attempts`: when a division was last fetched in vain.
 
-Every command opens the database, and opening it fills a calendar that is not
-there. Offline, or behind a proxy that refuses, that is the whole fetch budget
-in front of `flexi clock in`, once per command, all day.
-
-A separate table from `bank_holiday_refreshes` because an attempt that failed is
-not a calendar. A row in that one says a division was fetched in full, and
-writing a failure into it would make an install with no holidays at all read as
-one whose year happens to have none.
+Separate from `bank_holiday_refreshes`, where a row says a division was fetched
+in full. A failure recorded there would make an install with no holidays at all
+read as one whose year happens to have none.
 
 Revision ID: 0016
 Revises: 0015

@@ -1,8 +1,7 @@
-"""Assembling the wallet from the database.
+"""Assemble the wallet from the database.
 
-The values it assembles -- `Allowance` and `WalletData`, and the judgement about
-whether an allowance is running ahead -- live in `flexi.domain.wallet`, where
-they can be read and tested without a session.
+`Allowance`, `WalletData` and the judgement about whether an allowance is
+running ahead live in `flexi.domain.wallet`, which needs no session.
 """
 
 from __future__ import annotations
@@ -29,14 +28,6 @@ class WalletService:
         absence: AbsenceService,
         ledger: LedgerService,
     ) -> None:
-        """A second, divergent copy of the wiring diagram used to live here.
-
-        The `or` fallbacks had exactly one caller, which passed all three, so
-        they were never taken -- but they built a `BankHolidayService` with the
-        default division unconditionally and threw it away, and the ledger
-        fallback would have created a second memo cache that
-        :func:`~flexi.services.registry.invalidate_services` does not clear.
-        """
         self._settings = settings
         self._absence = absence
         self._ledger = ledger
@@ -75,10 +66,7 @@ class WalletService:
         balance_days: float,
     ) -> tuple[Allowance, ...]:
         entitlement = self._settings.get_active_entitlement_days(year_start)
-        # One pass over the year's rows. It used to ask for days and occurrences
-        # separately, per type -- ten scans of the same rows with byte-identical
-        # arguments, each re-validating every row it read with three queries of
-        # its own, so a year of twenty-five bookings cost 162 round trips.
+        # One pass over the year's rows for every type's days and occurrences.
         counted = self._absence.tally(year_start, year_end)
 
         def allowance(kind: AbsenceType) -> Allowance:
@@ -94,21 +82,14 @@ class WalletService:
 
         return tuple(allowance(kind) for kind in AbsenceType)
 
-    # -- convenience for the absence modal ---------------------------------
+    # Convenience for the absence modal.
 
     def available_toil_days(self, today: date | None = None) -> float:
-        """How many days of TOIL could still be taken without going into deficit.
+        """Return the days of TOIL still takeable without going into deficit.
 
-        The running balance only accumulates up to *today*, so TOIL already
-        booked for next month is invisible to it. Subtracting those bookings is
-        what stops the interface cheerfully accepting an unlimited number of
-        future TOIL days and only mentioning the deficit once they arrive.
-
-        ``valid_only``, because the ledger asks nothing of a day Flexi never
-        asked for work on: a Monday GOV.UK has since declared a bank holiday
-        costs the balance nothing when it arrives, so counting it as committed
-        here would hold back a day of TOIL nobody is ever charged for. It is
-        the filter the wallet's own TOIL figure already uses.
+        The running balance accumulates only up to *today*, so TOIL booked for
+        later has to be subtracted. ``valid_only`` drops days the ledger never
+        charges for, such as one GOV.UK has since declared a bank holiday.
         """
         today = today or wallclock.today()
         contracted = self._settings.get_contracted()

@@ -31,33 +31,19 @@ __all__ = (
 class EventSource(StrEnum):
     """Who punched the clock.
 
-    Two values, written out as bare strings in six places and typed `str` on
-    the two service methods that take one -- the same closed vocabulary
-    `Division` is an enum for, and for the same reason: migration 0010 tells
-    the two apart to decide whose timestamps it may rewrite, so a typo here is
-    a silent data conversion rather than an error.
+    Migration 0010 tells these values apart to decide whose timestamps it may
+    rewrite, so a wrong one is a silent data conversion, not an error.
     """
 
     USER = "user"
-    """Somebody pressed a key."""
+    """The user pressed a key."""
 
     SYSTEM = "system"
-    """Flexi closed a session nobody closed."""
+    """Flexi closed a session the user left open."""
 
     AMENDED = "amended"
-    """Somebody recorded work after the fact.
-
-    A morning nobody clocked in for is still a morning that was worked, and the
-    alternative to recording it is a balance that is quietly wrong. It counts
-    for everything a punched session counts for and is drawn apart from one,
-    because a figure somebody typed from memory and a figure the clock took are
-    not the same kind of fact.
-
-    The column takes it without a migration: it is a plain `VARCHAR` with no
-    check on it, deliberately, and nothing keys on the value except migration
-    0010 -- which decides whose timestamps it may rewrite, and had run before
-    this existed.
-    """
+    """The user recorded work after the fact. It counts for everything a
+    punched session counts for, and is drawn apart from one."""
 
 
 class Granularity(StrEnum):
@@ -80,14 +66,7 @@ class Granularity(StrEnum):
 
 
 class Division(StrEnum):
-    """A GOV.UK bank holiday division.
-
-    The three are a closed vocabulary and every other closed vocabulary in this
-    module is an enum, but this one was a bare string in nine places across six
-    files -- including a default argument that silently gave two of the three
-    regions the wrong calendar. A `StrEnum` keeps the stored value a string, so
-    nothing about the database or the GOV.UK payload changes.
-    """
+    """A GOV.UK bank holiday division, as the GOV.UK index keys it."""
 
     ENGLAND_AND_WALES = "england-and-wales"
     SCOTLAND = "scotland"
@@ -113,8 +92,7 @@ _DIVISION_LABELS: Final[Mapping[Division, str]] = MappingProxyType(
 )
 
 DEFAULT_DIVISION = Division.ENGLAND_AND_WALES
-"""What to assume before anybody has chosen. Named, so the assumption is
-visible wherever it is made rather than spelled out as a literal."""
+"""The division assumed until the user chooses one."""
 
 
 class ClockAction(enum.Enum):
@@ -127,9 +105,8 @@ class ClockAction(enum.Enum):
 class AbsenceType(enum.Enum):
     """A reason a working day was not worked.
 
-    A bank holiday is deliberately absent: it is a property of the date rather
-    than something a person books, it comes from GOV.UK, and it cannot be
-    created or removed from the interface.
+    A bank holiday is not one of these: it is a property of the date, it comes
+    from GOV.UK, and it cannot be created or removed from the interface.
     """
 
     ANNUAL = "annual"
@@ -147,26 +124,22 @@ class AbsenceType(enum.Enum):
     def phrase(self) -> str:
         """The name as it reads inside a sentence, e.g. "Book annual leave?".
 
-        Not ``label.lower()``: that is how "Book TOIL?" became "Book toil?" in
-        six places at once. An acronym is lower case in no sentence.
+        Not ``label.lower()``: an acronym such as TOIL stays upper case in a
+        sentence.
         """
         return _DETAILS[self].phrase
 
     @property
     def short(self) -> str:
-        """A one-word name, for a gauge label in a narrow sidebar.
-
-        "Sickness" truncated to fit is "Sicknes", which reads as a typo rather
-        than as an abbreviation.
-        """
+        """A one-word name, for a gauge label in a narrow sidebar."""
         return _DETAILS[self].short
 
     @property
     def token(self) -> str:
         """The stem of this type's CSS colour tokens, e.g. ``annual``.
 
-        `flexi` is stored and `toil` is displayed: the database value is
-        historical, and the colour token reads better beside the other four.
+        ``flexi`` is the value stored in the database and ``toil`` is its
+        token.
         """
         return _DETAILS[self].token
 
@@ -190,11 +163,9 @@ CANCEL_WORD = "cancel"
 
 
 def absence_from_word(word: str) -> AbsenceType | None:
-    """The type a spoken word names, or ``None``.
+    """Return the type a spoken word names, or ``None``.
 
-    ``toil`` is the spoken name for the stored ``flexi`` value. The enum spells
-    it ``flexi`` because that is what the balance is called, but
-    ``flexi leave flexi tomorrow`` reads as a typo of the program name.
+    ``toil`` is the spoken name for the stored ``flexi`` value.
     """
     return _SPOKEN.get(word.strip().lower())
 
@@ -222,34 +193,19 @@ _DETAILS: Final[Mapping[AbsenceType, _Details]] = MappingProxyType(
         AbsenceType.OTHER: _Details("Other", "other leave", "OTHER", "other"),
     }
 )
-"""One table rather than three parallel ones.
+"""One table keyed by member, behind the `AbsenceType` properties.
 
-Private, and the only kind of name in this codebase that stays so on purpose:
-it is what `AbsenceType.label` and its neighbours are made of. Publishing it
-offers a second way to ask a question the property already answers, which is
-the coupling the property exists to prevent.
-
-The label, the short name and the colour token were three dicts keyed by member,
-with a fourth derived from one of them. Adding a type and forgetting one was a
-KeyError on the booking path with mypy clean and the suite green: four places to
-remember and nothing to remind you.
-
-Carrying the data on the members themselves, through `__new__`, would be
-stronger still -- but it makes `AbsenceType("annual")` look like a four-argument
-constructor to a type checker, and reading a stored value back out of the
-database is the single commonest thing this enum does. One table, and the test
-that reads it against the members, buys the same guarantee without spending
-that.
+Carrying the same data on the members through `__new__` makes
+`AbsenceType("annual")`, the way a stored value is read back, look like a
+four-argument constructor to a type checker.
 """
 
 
 class Verdict(enum.Enum):
-    """What planning a booking decided about one date.
+    """The outcome of planning a booking for one date.
 
-    Typed, because the old code told a bank holiday apart from a real refusal by
-    looking for the words "bank holiday" in a sentence written for a status bar.
-    That matched "That day is already a bank holiday" and missed "Bank holiday
-    data unavailable; cannot book absence" on the capital B alone.
+    Typed, so no caller has to tell a skip from a refusal by reading the words
+    in a message written for a status bar.
     """
 
     BOOK = "book"
@@ -264,14 +220,14 @@ class Verdict(enum.Enum):
     def is_refusal(self) -> bool:
         """True when the day was asked for and could not be had.
 
-        A weekend is not a refusal. Nobody booking a fortnight meant the
-        Saturdays, and counting them as failures makes every fortnight partial.
+        A weekend or a bank holiday is a skip, not a refusal: counting them as
+        failures would make every fortnight partial.
         """
         return self not in {Verdict.BOOK, Verdict.NON_WORKING, Verdict.BANK_HOLIDAY}
 
     @property
     def is_skip(self) -> bool:
-        """True when the date was passed over rather than refused."""
+        """True when the date was passed over, not refused."""
         return self in {Verdict.NON_WORKING, Verdict.BANK_HOLIDAY}
 
 
@@ -305,11 +261,7 @@ class Portion(enum.Enum):
 
     @property
     def noun(self) -> str:
-        """What one of these is called when it is being counted.
-
-        "2 mornings of TOIL" rather than "2 Mornings", and "5 days" rather than
-        "5 full days", which is only worth saying beside a half.
-        """
+        """The lower-case name this portion takes when counted, e.g. "morning"."""
         return _PORTION_LABELS[self].noun
 
 
@@ -331,9 +283,8 @@ _PORTION_LABELS: Final[Mapping[Portion, _PortionNames]] = MappingProxyType(
 class DayKind(StrEnum):
     """What a date is, at a glance.
 
-    ``PARTIAL`` is the case a one-status-per-day table gets wrong: a half-day
-    absence with work in the other half. It is why the records table has
-    expandable rows.
+    ``PARTIAL`` is a half-day absence with work in the other half, which one
+    status per day cannot express: the records table expands such a row.
     """
 
     WORKING = "working"
@@ -342,9 +293,8 @@ class DayKind(StrEnum):
     ABSENT = "absent"
     PARTIAL = "partial"
     UNTRACKED = "untracked"
-    """Before Flexi was set up, so it asked nothing of the day.
+    """A date before Flexi was set up, so nothing is expected of it.
 
-    A leave year usually starts months before somebody installs Flexi, and every
-    working day in between has no sessions on it. Counted as ordinary days they
-    read as a deficit of a full contracted day each -- 762 hours for an April
-    leave year set up in August, which is the balance the first user saw."""
+    A leave year usually starts months before Flexi is installed; counted as
+    ordinary days, each untracked working day reads as a full day of deficit.
+    """

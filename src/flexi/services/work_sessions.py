@@ -30,18 +30,11 @@ def stage_clock_in(
 ) -> WorkSession | None:
     """Stage a clock-in unless another writer already opened a session.
 
-    SQLite's partial unique index is the final authority. ``ON CONFLICT`` turns
-    the expected losing writer into ``None`` rather than leaking an
-    ``IntegrityError`` through the result-oriented service API. Its speculative
-    IN event is deleted in the same transaction, preserving the immutable audit
-    trail without an orphan.
-
-    The row is found by its clock-in, which is unique, rather than by a
-    ``RETURNING`` clause: SQLite gained one in 3.35, later than the libsqlite3
-    the distribution Pythons of RHEL 9, Debian 11 and Ubuntu 20.04 link
-    against, where an explicit clause is a syntax error on the first clock-in
-    of a fresh install. Whether the row is there is the same question
-    ``RETURNING`` answers.
+    SQLite's partial unique index is the authority: ``ON CONFLICT`` turns the
+    losing writer into ``None`` instead of an ``IntegrityError``, and its
+    speculative IN event is deleted in the same transaction. The row is found
+    by its unique clock-in, ``RETURNING`` arriving only in SQLite 3.35, which
+    is newer than the libsqlite3 several supported distributions ship.
     """
     event = punched(ClockAction.IN, opened_at, source=source)
     session.add(event)
@@ -72,15 +65,12 @@ def stage_clock_out(
 ) -> bool:
     """Stage a clock-out only if ``work_session_id`` is still open.
 
-    The caller owns the surrounding transaction.  ``False`` means another
-    writer closed the session first; the losing candidate event is then staged
-    for deletion so committing the transaction cannot leave an orphaned audit
-    row.  A conditional SQL update, rather than an ORM assignment, makes the
-    check and link one database operation even on SQLite, which has no row lock
-    suitable for the preceding read. Which writer won is read back off the
-    unique clock-out column rather than from a ``RETURNING`` clause: SQLite
-    gained one in 3.35, and the libsqlite3 several supported distributions ship
-    is older.
+    The caller owns the surrounding transaction. ``False`` means another writer
+    closed the session first, and the losing event is staged for deletion so
+    the commit leaves no orphaned audit row. The conditional SQL update makes
+    the check and the link one database operation, SQLite having no row lock
+    for the preceding read; the winner is read back off the unique clock-out
+    column, ``RETURNING`` arriving only in SQLite 3.35.
     """
     event = punched(ClockAction.OUT, closed_at, source=source)
     session.add(event)
@@ -117,11 +107,9 @@ def stage_correction(
 ) -> WorkSession:
     """Stage a whole session that was never punched, open and closed at once.
 
-    Not `stage_clock_in` followed by `stage_clock_out`: those two are the live
-    path and are conditional on there being no open session, which a correction
-    for last Tuesday has nothing to do with. The partial unique index admits any
-    number of *closed* sessions on a date, which is what makes a morning and an
-    afternoon two corrections rather than one.
+    Not `stage_clock_in` then `stage_clock_out`: those are conditional on there
+    being no open session. The partial unique index admits any number of closed
+    sessions on one date, so a morning and an afternoon are two corrections.
 
     The caller owns the transaction and the validation. This writes.
     """

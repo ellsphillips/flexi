@@ -1,10 +1,10 @@
 """Jump mode: one keystroke puts a badge on every jumpable region.
 
-Nothing needs a per-widget hook -- the overlay is a modal screen that reads the
-live compositor geometry underneath it.
+The overlay is a modal screen reading the live compositor geometry underneath
+it, so no widget carries a hook of its own.
 
-Targets are asked of the current screen rather than held in an application-wide
-dict, so a target can only ever name something that is mounted.
+Targets come from the current screen, not an application-wide dict, so a target
+can only name a mounted widget.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class JumpScreen(Protocol):
 
 @runtime_checkable
 class Jumpable(Protocol):
-    """A widget that names its own jump key rather than being registered."""
+    """A widget that carries its own jump key."""
 
     jump_key: str
 
@@ -63,25 +63,23 @@ class HasJumpTargets(Protocol):
 
 @runtime_checkable
 class HasJumpOverlays(Protocol):
-    """A screen with targets that are not widgets -- table rows, say."""
+    """A screen with targets that are not widgets, such as table rows."""
 
     def jump_overlays(self) -> dict[Offset, JumpInfo]: ...
 
 
 @runtime_checkable
 class HasFocusTarget(Protocol):
-    """A widget that would rather the jump landed somewhere inside it.
+    """A widget that redirects a jump to a descendant.
 
-    A module whose content is a table wants the table: landing on the panel and
-    needing a second key to get into the rows is the friction jump mode exists
-    to remove.
+    A module whose content is a table takes focus on the table, not the panel.
     """
 
     def focus_target(self) -> Widget: ...
 
 
 class BadgeShape(StrEnum):
-    """How a target's badge is drawn, which is decided by what it marks."""
+    """How a target's badge is drawn, according to what it marks."""
 
     CORNER = "corner"
     """A panel: the badge is a box hung on its top-left corner."""
@@ -89,8 +87,7 @@ class BadgeShape(StrEnum):
     ROW = "row"
     """A line of a table: the badge is a chip one row tall.
 
-    Rows are a single cell apart, so a box would stand on its neighbours and
-    only the last one drawn would keep all four of its corners.
+    Rows sit a single cell apart, so a box would overlap its neighbours.
     """
 
 
@@ -104,7 +101,7 @@ class JumpInfo(NamedTuple):
     """Either the id of the target or a direct reference to it."""
 
     shape: BadgeShape = BadgeShape.CORNER
-    """How to draw the badge. Panels are the common case, so they are default."""
+    """How to draw the badge."""
 
 
 class Jumper:
@@ -121,18 +118,15 @@ class Jumper:
         self.extra = extra
         """Targets that are not widgets.
 
-        A table row has no id and no rectangle of its own, so it cannot be found
-        by walking the DOM. A screen that wants rows to be jumpable computes
-        their screen offsets itself and hands them over here."""
+        A table row has no id and no rectangle, so walking the DOM cannot reach
+        it; a screen supplies the offsets itself.
+        """
 
     def get_overlays(self) -> dict[Offset, JumpInfo]:
-        """Every visible target, keyed by where its badge belongs.
+        """Return every visible target, keyed by where its badge belongs.
 
-        Keyed by offset rather than by id because two targets cannot occupy the
-        same cell, and because the overlay needs the position anyway. A widget
-        the layout is currently hiding raises ``NoWidget`` and is skipped, which
-        is how a collapsed or off-screen panel drops out of the map without the
-        caller having to know it might.
+        Offsets are unique because two targets cannot occupy one cell. A widget
+        the layout is hiding raises ``NoWidget`` and drops out of the map.
         """
         overlays: dict[Offset, JumpInfo] = {}
         for child in self.screen.walk_children(Widget):

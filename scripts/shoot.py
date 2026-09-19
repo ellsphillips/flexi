@@ -1,8 +1,7 @@
 """Drive the real application headlessly and export SVG screenshots.
 
-Snapshots (``tests/snapshot/``) are for regression; this is for "show me what it
-looks like". Same seed either way, so a reviewer and a failing test are looking
-at the same six weeks.
+Uses the same demo seed and frozen clock as the regression snapshots in
+``tests/snapshot/``.
 
     uv run python scripts/shoot.py
 """
@@ -24,11 +23,9 @@ from textual.pilot import Pilot
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-# Before `flexi.config` is imported, because it resolves CONFIG at import and
-# every BINDINGS list reads it at class-definition time. For the same reason
-# the timezone is pinned below: the command that fixes a failing snapshot
-# cannot be the command that causes one, and a developer's own hotkeys or
-# opening period would be baked into the committed shots.
+# Set before `flexi.config` is imported: CONFIG resolves at import and every
+# BINDINGS list reads it at class-definition time, so a local hotkey or opening
+# period would be baked into the committed shots.
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="flexi-config-")
 
 from flexi import wallclock  # noqa: E402
@@ -37,18 +34,16 @@ from flexi.models.database.db import Base  # noqa: E402
 from flexi.models.database.engine import create_db_engine, get_session  # noqa: E402
 from flexi.services.samples import NOW, TIMEZONE, seed_demo  # noqa: E402
 
-# The same pin the snapshot suite applies in `tests/conftest.py`, through the
-# same seam. Without it the shots carry the developer's own timezone, an hour
-# of British Summer Time that the suite then rejects under UTC.
+# Pinned to the demo timezone, through the same seam the snapshot suite uses.
+# Unpinned, a capture carries the local offset.
 PINNED = wallclock.pinned(ZoneInfo(TIMEZONE))
 
 
 def refuse_the_network() -> None:
-    """No GOV.UK, no PyPI, as in the snapshot suite.
+    """Block outbound HTTP so a shot never depends on the network.
 
-    The application fills an empty bank holiday cache at mount and asks PyPI
-    for a newer version, both in worker threads. Left alone, the shots carry
-    whatever GOV.UK returned on the day.
+    At mount the application fills an empty bank holiday cache from GOV.UK and
+    asks PyPI for a newer version, both in worker threads.
     """
 
     def refused(*_args: object, **_kwargs: object) -> None:
@@ -66,8 +61,7 @@ WIDE = (120, 36)
 NARROW = (84, 28)
 TINY = (63, 22)  # one column under TINY_COLUMNS, so the -tiny rules apply
 
-# The shots the README points at. Wider and taller than the regression set, so
-# each one has room to show the whole feature rather than a corner of it.
+# The shots the README points at, sized to hold a whole feature.
 SHOWCASE = (128, 40)
 SHOWCASE_TALL = (128, 46)
 
@@ -104,10 +98,8 @@ def build_database(path: Path) -> Session:
 
 async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> None:
     app = FlexiApp(db_path=db)
-    # A capture that lands mid-tween is a capture nobody can reproduce, and
-    # these are what the snapshot tests compare against. Per-instance, because
-    # textual reads TEXTUAL_ANIMATIONS at import time and pytest has already
-    # imported it by the time any conftest runs.
+    # Set per instance: textual reads TEXTUAL_ANIMATIONS at import time. A
+    # capture landing mid-tween cannot be reproduced.
     app.animation_level = "none"
     async with app.run_test(size=size) as pilot:
         await settled(pilot, app)
@@ -116,10 +108,8 @@ async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> 
             await pilot.pause()
         await settled(pilot, app)
         app.save_screenshot(str(SHOTS / f"{name}.svg"))
-        # A plain-text twin. An SVG has to be rendered before it can be read,
-        # and a font without box-drawing coverage turns every strip into a row
-        # of tofu — which looks like a Flexi bug and is not one. The text dump
-        # is what alignment is actually checked against.
+        # A plain-text twin: alignment is checked against this, and reading an
+        # SVG needs a renderer with box-drawing coverage.
         (SHOTS / f"{name}.txt").write_text(screen_text(app), encoding="utf-8")
 
     print(f"  {name}.svg  {size[0]}x{size[1]}")
@@ -133,10 +123,7 @@ async def settled(pilot: Pilot[None], app: FlexiApp) -> None:
     """Pump until two passes running render the same thing.
 
     A module that measures itself after its first layout redraws when that
-    measurement lands, so a capture taken after a single `pause` is a capture of
-    whichever frame the machine happened to have reached. `tests/snapshot/`
-    asserts on these files, so a shot taken mid-draw is committed as the truth
-    and the suite starts failing on a screen that is drawn correctly.
+    measurement lands, so a single `pause` can capture an intermediate frame.
     """
     previous = ""
     for _ in range(SETTLE_PASSES):
@@ -148,7 +135,7 @@ async def settled(pilot: Pilot[None], app: FlexiApp) -> None:
 
 
 def screen_text(app: FlexiApp) -> str:
-    """Whatever the compositor would put on the terminal, as characters."""
+    """Return what the compositor would put on the terminal, as characters."""
     strips = app.screen._compositor.render_strips()  # noqa: SLF001
     return "\n".join(
         "".join(segment.text for segment in strip).rstrip() for strip in strips
@@ -160,10 +147,8 @@ async def main() -> None:
     db = ROOT / ".demo.db"
     db.unlink(missing_ok=True)
 
-    # Seeded under the frozen clock as well as captured under it, as
-    # `tests/snapshot/test_screens.py` does. The two have to match.
-    #
-    # `finally`, so a failing shot does not leave `.demo.db` in the repo root.
+    # Seeded under the frozen clock as well as captured under it; the two have
+    # to match.
     try:
         with PINNED, time_machine.travel(NOW, tick=False):
             build_database(db).close()

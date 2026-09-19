@@ -1,12 +1,10 @@
 """The leave screen: a scrolling leave year you book directly on.
 
 The screen owns the selection and the writes; the calendar owns the surface and
-the cursor. That split is what keeps booking to one keystroke — `A` reads the
-selection, calls the service, and reports what happened, with no modal in
-between.
-
-The modal is still there for the odd case (`e`), because "annual leave, but with
-a note explaining it" is a real case and does not deserve a key of its own.
+the cursor. That split keeps booking to one keystroke: `A` reads the selection,
+calls the service and reports what happened, with no modal in between. The
+modal (`e`) covers what a keystroke cannot say, such as annual leave with a
+note.
 """
 
 from __future__ import annotations
@@ -66,18 +64,16 @@ SIDEBAR: tuple[AbsenceType, ...] = (
 )
 """The allowances the planner has room for beside a year calendar.
 
-Three of the five the dashboard's wallet shows -- the ones a booking decision
-turns on. Named apart from that module's ``TRACKED`` because two tuples of
-different length under one name is a drift waiting to happen.
+Three of the five the dashboard's wallet shows: the ones a booking decision
+turns on. Named apart from that module's ``TRACKED``, which is a longer tuple.
 """
 
 PORTION_CYCLE: tuple[Portion, ...] = (Portion.FULL, Portion.AM, Portion.PM)
 
 REMOVE_THRESHOLD = 3
-"""Clearing more than this many days asks first.
+"""Clearing more than this many bookings asks for confirmation first.
 
-One key that can wipe a fortnight without a word is a key nobody presses twice.
-Below the threshold it is faster to undo than to confirm.
+At or below the threshold, rebooking is faster than confirming.
 """
 
 
@@ -120,7 +116,7 @@ class LeaveScreen(Screen[None]):
             first_weekday=CONFIG.defaults.first_day_of_week,
         )
 
-    # -- composition -------------------------------------------------------
+    # --- composition ------------------------------------------------------
 
     def compose(self) -> ComposeResult:
         yield AppHeader()
@@ -150,20 +146,19 @@ class LeaveScreen(Screen[None]):
         self.rebuild()
         calendar = self.query_one(YearCalendar)
         if not self.period.contains(calendar.selection.head):
-            # Opened from a dashboard browsing another leave year: the cursor
-            # starts on today, which is not a day on this grid, and every
-            # booking key acts on the cursor.
+            # The cursor starts on today, which is off this grid when the
+            # dashboard was browsing another leave year, and booking keys act
+            # on the cursor.
             calendar.go_to(self.period.anchor)
         calendar.focus()
-        # Deferred: the calendar has no size until the first layout, so a scroll
-        # asked for now is clamped to the top and the cursor stays below the fold.
+        # The calendar has no size until the first layout, so a scroll asked
+        # for now clamps to the top.
         self.call_after_refresh(calendar.scroll_to_day, calendar.selection.head)
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)
-        # The selection line reads differently narrow — one line carrying what
-        # three panels carry at width — and the class is only set here, after
-        # the first draw.
+        # The `-narrow` class is set here, after the first draw, and the
+        # selection line is drawn differently under it.
         if self.is_mounted:
             self._draw_selection()
 
@@ -175,7 +170,7 @@ class LeaveScreen(Screen[None]):
             "leave-legend": "b",
         }
 
-    # -- drawing -----------------------------------------------------------
+    # --- drawing ----------------------------------------------------------
 
     @property
     def calendar(self) -> YearCalendar:
@@ -240,9 +235,8 @@ class LeaveScreen(Screen[None]):
 
     def _draw_selection(self) -> None:
         selection = self.selection
-        # The pattern once, not once per selected day: `is_working_day` reads
-        # the settings row, so extending the selection to a month cost 31
-        # queries on every cursor move and every resize.
+        # Once for the whole selection: `is_working_day` reads the settings
+        # row, and a selection can span a month.
         pattern = set(self._services.settings.get_working_day_indices())
         ledgers = self.calendar.ledgers
         working = sum(
@@ -274,8 +268,8 @@ class LeaveScreen(Screen[None]):
             )
         narrow = self.has_class("-narrow")
         if narrow:
-            # One line instead of three: on a narrow terminal every row the rail
-            # keeps is a row of calendar somebody cannot see.
+            # One line instead of three: on a narrow terminal every row the
+            # rail keeps costs a row of calendar.
             body = f"{selection.label()} · {count}{portion} · {body}"
         self.query_one("#leave-selection-booked", Static).update(body)
 
@@ -290,13 +284,13 @@ class LeaveScreen(Screen[None]):
             return
         self._draw_selection()
 
-    # -- booking -----------------------------------------------------------
+    # --- booking ----------------------------------------------------------
 
     def action_cycle_portion(self) -> None:
         """Full, morning, afternoon.
 
-        Cycled *before* booking rather than corrected after: half days are rare,
-        and one keystroke on the rare path beats a modal on the common one.
+        Cycled before booking, so a half day costs one keystroke and the common
+        full day costs none.
         """
         index = (PORTION_CYCLE.index(self.portion) + 1) % len(PORTION_CYCLE)
         self.portion = PORTION_CYCLE[index]
@@ -306,15 +300,9 @@ class LeaveScreen(Screen[None]):
     def action_book(self, kind: str) -> None:
         """Book the selection, asking first when there is something to ask about.
 
-        The plan layer is what makes the confirmation a question rather than a
-        receipt: every span on this screen is planned, previewed and then
-        committed, so the twelfth day being refused is something said before
-        the other eleven are written.
-
-        One day still books on the keystroke. It is one row, `x` removes it, and
-        a dialog in front of every single-day booking would cost more than it
-        saves. A span is a different commitment -- finding out afterwards which
-        of fourteen days did not take means unpicking it by hand.
+        Every span is planned, previewed and then committed, so a refused
+        twelfth day is said before the other eleven are written. A single day
+        books on the keystroke: it is one row, and `x` removes it.
         """
         absence_type = AbsenceType(kind)
         if absence_type.requires_note:
@@ -366,9 +354,8 @@ class LeaveScreen(Screen[None]):
     def action_remove(self) -> None:
         """Clear the selection, asking first when there is a lot of it.
 
-        The question says what would go rather than how much: "9 bookings" is a
-        number somebody has to take on trust, and nine days of annual leave and
-        nine sick mornings are not the same thing to agree to.
+        The question names what would go, not how much: nine days of annual
+        leave and nine sick mornings are different things to agree to.
         """
         selection = self.selection
         plan = self._services.absence.removal_plan(selection.start, selection.end)
@@ -400,8 +387,7 @@ class LeaveScreen(Screen[None]):
         """The modal, for the cases a single keystroke cannot express.
 
         Opened on the type that was pressed and the portion that was cycled, so
-        `O` asks for a note about other absence rather than about a day of
-        annual leave.
+        `O` asks for a note about other absence, not about annual leave.
         """
         selection = self.selection
 
@@ -442,7 +428,7 @@ class LeaveScreen(Screen[None]):
             warning or message, Tone.WARN if warning else (Tone.OK if ok else Tone.ERR)
         )
 
-    # -- moving ------------------------------------------------------------
+    # --- moving -----------------------------------------------------------
 
     def action_today(self) -> None:
         self.calendar.go_to(wallclock.today())
@@ -461,7 +447,7 @@ class LeaveScreen(Screen[None]):
     def action_back(self) -> None:
         self.dismiss(None)
 
-    # -- reporting ---------------------------------------------------------
+    # --- reporting --------------------------------------------------------
 
     def status(self, message: str, tone: Tone = Tone.NEUTRAL) -> None:
         for footer in self.query(AppFooter):
@@ -477,18 +463,16 @@ class LeaveScreen(Screen[None]):
 
 
 def preview(plan: AbsencePlan) -> str:
-    """The plan as a few lines somebody can read before agreeing to it.
+    """The plan as a few lines to read before agreeing to it.
 
-    A summary rather than the day-by-day listing the command line prints: a
-    modal is a glance, and ninety lines in one is not a preview of anything.
-    Every figure comes off the plan, so this cannot disagree with what is about
-    to be written.
+    A summary, not the day-by-day listing the command line prints. Every figure
+    comes off the plan, so this cannot disagree with what is about to be
+    written.
     """
     lines = [plan.headline]
     lines.extend(f"  — {reason}" for reason in plan.reasons)
-    # Weekends and bank holidays are both passed over, and they are not the
-    # same news: one is the shape of the week and the other is a day off that
-    # somebody would otherwise have spent leave on.
+    # Weekends and bank holidays are both passed over, and counted apart: a
+    # bank holiday is a day off leave would otherwise have been spent on.
     passed_over = Counter(day.verdict for day in plan.skipped)
     weekends = passed_over[Verdict.NON_WORKING]
     holidays = passed_over[Verdict.BANK_HOLIDAY]
@@ -524,7 +508,7 @@ def working_day(
 
     The drawn year knows about bank holidays; the weekday pattern answers for a
     date outside it, which a selection reaches by being dragged past the end of
-    the year on screen.
+    the drawn year.
     """
     day = ledgers.get(when)
     if day is None:

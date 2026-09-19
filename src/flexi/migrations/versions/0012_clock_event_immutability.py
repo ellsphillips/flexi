@@ -4,12 +4,11 @@ Revision ID: 0012
 Revises: 0011
 Create Date: 2026-08-27
 
-Clock events are the append-only facts behind work sessions.  Corrections add
-replacement events and void the old session; mutating a punch in place would
-silently rewrite the audit trail.  Referenced rows are already protected from
-deletion by foreign keys.  Unreferenced rows remain deletable because a losing
-concurrent writer may need to discard a speculative event, and demo-data reset
-deliberately clears them.
+Clock events are the append-only facts behind work sessions: a correction adds
+replacement events and voids the old session. Referenced rows are already
+protected from deletion by foreign keys. Unreferenced rows stay deletable, for
+a losing concurrent writer discarding a speculative event and for demo-data
+reset.
 """
 
 from __future__ import annotations
@@ -23,8 +22,7 @@ down_revision: str | None = "0011"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# Migration DDL is intentionally frozen here.  Importing a live model helper
-# would let a future runtime refactor silently rewrite this historical step.
+# The DDL is copied, not imported: a migration must not change when the model does.
 CLOCK_EVENT_UPDATE_TRIGGER_SQL = (
     "CREATE TRIGGER trg_clock_events_immutable_update\n"
     "BEFORE UPDATE ON clock_events\n"

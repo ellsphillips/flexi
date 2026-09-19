@@ -1,9 +1,8 @@
 """Typed keyword contracts for composing Flexi widgets with Textual.
 
-Textual's constructors are deliberately explicit, but a small wrapper often
-needs to forward those options while adding one piece of Flexi data.  These
-contracts preserve the framework's public keyword API without turning that
-forwarding boundary into ``Any``.
+A wrapper that forwards Textual's constructor options while adding one piece of
+Flexi data keeps the framework's public keyword API typed here, so the
+forwarding boundary never becomes ``Any``.
 """
 
 from __future__ import annotations

@@ -4,15 +4,14 @@ Revision ID: 0011
 Revises: 0010
 Create Date: 2026-08-27
 
-The service layer already intends these rules, but a second session, an
-integration, or a manual repair can bypass it. SQLite partial unique indexes
-make the work-session and absence rules atomic at the write boundary. Settings
-uses a checked constant key: uniqueness admits one row and the check prevents a
-second row from selecting another key.
+The service layer intends these rules, but a second session or a manual repair
+can bypass it. SQLite partial unique indexes make the work-session and absence
+rules atomic at the write boundary; settings takes a checked constant key, where
+uniqueness admits one row and the check stops a second row choosing another key.
 
-Legacy conflicts are not repairable without choosing which user record wins.
-The migration therefore validates every rule before changing the schema and
-fails with all conflicts listed. Valid legacy rows are copied unchanged.
+Conflicting rows cannot be resolved without choosing which one wins, so every
+rule is validated before the schema changes and all conflicts are listed. Valid
+rows are copied unchanged.
 """
 
 from collections.abc import Sequence

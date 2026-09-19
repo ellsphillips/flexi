@@ -1,9 +1,9 @@
 """A table whose rows open to show what is inside them.
 
-Row keys are typed by prefix -- ``d-`` a day, ``s-`` a session, ``a-`` an
-absence, ``t-`` a total -- so a key says what it is and no parallel bookkeeping
-can fall out of step with the table. The cursor is restored by key rather than
-by index, because expanding a row above it would otherwise move it.
+Row keys are typed by prefix (``d-`` a day, ``s-`` a session, ``a-`` an absence,
+``t-`` a total), so a key says what it is and no parallel bookkeeping can fall
+out of step with the table. The cursor is restored by key, not by index:
+expanding a row above it moves its index.
 """
 
 from __future__ import annotations
@@ -33,15 +33,7 @@ __all__ = (
 
 
 class RowKind(StrEnum):
-    """What a row is, carried in its own key.
-
-    A key says what it is, so no parallel bookkeeping can fall out of step with
-    the table. The four prefixes were four bare strings, one of which had a
-    constructor and three of which were f-strung at their call sites, while
-    three other modules each half-wrote the splitter -- `int(key[len(ABSENCE):])`
-    in one, `key[len(DAY):] if key.startswith(DAY)` in another,
-    `target.startswith(DAY)` in a third.
-    """
+    """What a row is, carried in its own key."""
 
     DAY = "d-"
     SESSION = "s-"
@@ -50,7 +42,7 @@ class RowKind(StrEnum):
 
 
 def row_key(kind: RowKind, ident: object) -> str:
-    """A row key: what the row is, and which one -- `d-2026-06-11`, `a-7`."""
+    """A row key: what the row is, and which one (`d-2026-06-11`, `a-7`)."""
     return f"{kind.value}{ident}"
 
 
@@ -118,15 +110,14 @@ class ExpandableTable(DataTable[RenderableType]):
         self._expanded: set[str] = set()
         self._groups: tuple[RowGroup, ...] = ()
 
-    # -- content -----------------------------------------------------------
+    # --- content ----------------------------------------------------------
 
     def set_columns(self, *specs: str | tuple[str, int]) -> None:
         """Replace the header. Clears the body, which the caller then refills.
 
-        A spec may carry a width. Letting ``DataTable`` size every column to its
-        content makes the widest cell win, and in a records table the widest cell
-        is the punch strip — which then pushes the figures off the right edge on
-        exactly the terminals where they matter most.
+        A spec may carry a width. ``DataTable`` sizes an unwidthed column to its
+        widest cell, which in a records table is the punch strip, and the figures
+        go off the right edge.
         """
         self.clear(columns=True)
         for spec in specs:
@@ -143,12 +134,10 @@ class ExpandableTable(DataTable[RenderableType]):
     def set_groups(self, groups: Iterable[RowGroup]) -> None:
         """Replace every row, keeping the cursor on whatever it was on.
 
-        Expansions are kept for the rows that survived and dropped for the rest.
-        Keeping all of them meant `expanded` answered "has any row ever been
-        open" rather than "is any row open": the widget outlives its rows -- the
-        records table is rebuilt on every redraw -- so one expansion in June
-        left `expand_all` closing an already-closed July for the rest of the
-        session.
+        Expansions are kept for the rows that survive and dropped for the rest.
+        The widget outlives its rows: the records table is rebuilt on every
+        redraw, so `expanded` must answer "is any row open" and not "has any
+        row ever been open".
         """
         self._groups = tuple(groups)
         self._expanded &= {group.parent.key for group in self._groups}
@@ -161,13 +150,7 @@ class ExpandableTable(DataTable[RenderableType]):
 
     @property
     def expanded(self) -> frozenset[str]:
-        """The keys of the rows currently open.
-
-        Read-only, like `groups` beside it. It was a public `set` that `toggle`
-        mutated in place and `expand_all` rebound in one branch and mutated in
-        the other -- three treatments of one attribute inside one class, and a
-        caller could have opened a row the table did not hold.
-        """
+        """The keys of the rows currently open. Read-only, like `groups`."""
         return frozenset(self._expanded)
 
     def visible_rows(self) -> list[Row]:
@@ -181,9 +164,8 @@ class ExpandableTable(DataTable[RenderableType]):
 
     def _redraw(self) -> None:
         remembered = self.cursor_key
-        # Read before `clear()`, not after: `DataTable.clear` resets
-        # `cursor_coordinate` to (0, 0), so a fallback that asked afterwards was
-        # always asking about row zero.
+        # Read before `clear()`: `DataTable.clear` resets `cursor_coordinate`
+        # to (0, 0).
         was_at = self.cursor_row
         self.clear()
         for row in self.visible_rows():
@@ -193,15 +175,9 @@ class ExpandableTable(DataTable[RenderableType]):
     def _restore_cursor(self, key: str | None, was_at: int = 0) -> None:
         """Put the cursor back on the row it was on, by key.
 
-        Falls back to where it was, or the last row, when the remembered row has
-        gone: a row usually disappears because it was deleted, and the eye is
-        already at the bottom of what is left.
-
-        ``was_at`` is passed in rather than read from ``self`` because by the
-        time this runs the table has been cleared, and clearing moves the cursor
-        home. Reading it here made the fallback `min(0, row_count - 1)` — always
-        zero — so deleting a session late in a month threw the cursor to the top
-        of it.
+        When the remembered row has gone, falls back to ``was_at`` and then to
+        the last row. ``was_at`` is passed in because the table has been cleared
+        by the time this runs, and clearing moves the cursor home.
         """
         if key is None:
             return
@@ -211,7 +187,7 @@ class ExpandableTable(DataTable[RenderableType]):
             if self.row_count:
                 self.move_cursor(row=min(was_at, self.row_count - 1))
 
-    # -- cursor ------------------------------------------------------------
+    # --- cursor -----------------------------------------------------------
 
     @property
     def cursor_key(self) -> str | None:
@@ -231,7 +207,7 @@ class ExpandableTable(DataTable[RenderableType]):
         except RowDoesNotExist:
             return
 
-    # -- expansion ---------------------------------------------------------
+    # --- expansion --------------------------------------------------------
 
     def group_for(self, key: str) -> RowGroup | None:
         """The group a key belongs to, whether the key is a parent or a child."""
@@ -246,16 +222,14 @@ class ExpandableTable(DataTable[RenderableType]):
         """Open or close a row. Returns whether it ended up open.
 
         A key naming a child toggles that child's parent, so pressing space
-        anywhere inside an open day closes it — which is what the hand expects
-        and saves a scroll back up to the header.
+        anywhere inside an open day closes it.
         """
         group = self.group_for(key) if key is not None else self._group_at_cursor()
         if group is None or not group.expandable:
             return False
         parent = group.parent.key
-        # Was the cursor inside the group being toggled? Only then should it move
-        # to the parent — collapsing a group the cursor is in has nowhere else to
-        # put it, but toggling some *other* row must leave the cursor alone.
+        # Collapsing a group the cursor is in leaves it nowhere to sit, so the
+        # cursor moves to the parent. Toggling any other row leaves it alone.
         cursor_inside = self._group_at_cursor() is group
         expanded = parent not in self._expanded
         self._expanded.symmetric_difference_update({parent})
@@ -268,9 +242,8 @@ class ExpandableTable(DataTable[RenderableType]):
     def expand_all(self, *, expanded: bool | None = None) -> None:
         """Open or close every expandable row.
 
-        With no argument it inverts the majority: if anything is open, close
-        everything; otherwise open everything. One key that always does the
-        visible thing beats two keys nobody remembers.
+        With no argument: if anything is open, close everything; otherwise open
+        everything.
         """
         if expanded is None:
             expanded = not self._expanded
@@ -286,7 +259,7 @@ class ExpandableTable(DataTable[RenderableType]):
         key = self.cursor_key
         return None if key is None else self.group_for(key)
 
-    # -- actions -----------------------------------------------------------
+    # --- actions ----------------------------------------------------------
 
     def action_toggle_row(self) -> None:
         self.toggle()
@@ -297,8 +270,8 @@ class ExpandableTable(DataTable[RenderableType]):
     def action_open_row(self) -> None:
         """Open the day under the cursor and drop into it.
 
-        Never a second toggle -- space is the toggle. Pressed on a row inside
-        an open day it moves to the top of that day rather than closing it.
+        Never a second toggle: space is the toggle. On a row inside an open day
+        this moves to the top of that day.
         """
         group = self._group_at_cursor()
         if group is None or not group.expandable:

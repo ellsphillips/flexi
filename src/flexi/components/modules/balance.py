@@ -1,11 +1,9 @@
-"""The one number the application exists to show.
+"""The flexi balance, drawn as the dashboard headline.
 
-The only place in Flexi where type gets bigger. A terminal has one font at one
-size, so scale has to be drawn, and spending Textual's ``Digits`` on exactly one
-figure is what makes it read as the headline.
+The only Textual ``Digits`` in the application: a terminal has one font at one
+size, so scale has to be drawn.
 
-Zero is drawn unsigned and muted, because ``+0:00`` reads as a small surplus and
-the point of the figure is that there is not one.
+Zero is drawn unsigned and muted, because ``+0:00`` reads as a small surplus.
 """
 
 from __future__ import annotations
@@ -53,8 +51,7 @@ class BalanceModule(Module):
     def rebuild(self) -> None:
         services = self.services
         today = self.now.date()
-        # In the whole minutes it is drawn in, so the digits here and the
-        # figure `flexi balance show` prints are the same number.
+        # Whole minutes, so these digits and `flexi balance show` agree.
         summary = services.ledger.balance(today, now=self.now).as_shown()
         contracted = services.settings.get_contracted()
 
@@ -70,12 +67,7 @@ class BalanceModule(Module):
         self.set_subtitle(f"{stamp(start, '%-d %b %y')}–{stamp(end, '%-d %b %y')}")
 
     def _detail(self, value: timedelta, contracted: timedelta) -> str:
-        """The caption: the same figure said a second way.
-
-        Hours are what the balance is measured in; days are what it is spent in.
-        Showing both removes the arithmetic a reader would otherwise do in their
-        head before deciding whether they can take Friday off.
-        """
+        """Return the caption: the balance in hours and again in days."""
         if is_level(value):
             return "Level with contracted hours"
         if not contracted:
@@ -83,18 +75,17 @@ class BalanceModule(Module):
         days = round(value / contracted, 1)
         word = "banked" if value > timedelta() else "owed"
         if not days:
-            # Under a tenth of a day. "0 days" under a figure that is not zero
-            # reads as a contradiction rather than as a rounding.
+            # Under a tenth of a day: "0 days" beside a non-zero figure
+            # reads as a contradiction.
             return f"{hm(value)} {word}"
         return f"{hm(value)} {word} · {signed_days(days)} {plural(abs(days), 'day')}"
 
 
 def lean_class(value: timedelta) -> str:
-    """Which way the figure beside it leans, by the same rule that draws it.
+    """Return the state class for ``value``, by the rule that draws the digits.
 
-    Through `is_level` rather than against zero, so the colour cannot claim a
-    direction the digits do not show: forty seconds of deficit drew `0:00` in
-    red before the two agreed on what counts as level.
+    The test is `is_level`, not a comparison against zero, so the colour cannot
+    claim a direction the digits do not show.
     """
     if is_level(value):
         return "muted"

@@ -1,4 +1,4 @@
-"""What every dashboard module has in common.
+"""Shared behaviour for every dashboard module.
 
 A module is a titled, focusable panel that knows how to redraw itself and which
 kinds of change are worth redrawing for. It never calls another module's
@@ -25,8 +25,8 @@ class Module(Static):
     """A titled panel on the dashboard.
 
     Subclasses set :attr:`WATCHES` to the scopes they care about and implement
-    :meth:`rebuild`. Everything else — the border title, the focus behaviour, the
-    route to the services — is here so five modules do not each invent it.
+    :meth:`rebuild`. The border title, the focus behaviour and the route to the
+    services are here.
     """
 
     WATCHES: ClassVar[Scope] = Scope.ALL
@@ -34,10 +34,8 @@ class Module(Static):
     BENTO: ClassVar[str] = ""
     """Extra classes saying how much of a grid this island needs.
 
-    Declared by the island rather than by the screen laying it out. How wide a
-    punch strip has to be to be readable is a fact about punch strips, and a
-    screen that decided it would be deciding it again for every screen the
-    module ever appears on.
+    Declared by the module, not by the screen laying it out: how wide it has to
+    be to read is a fact about the module.
     """
 
     can_focus = True
@@ -56,7 +54,7 @@ class Module(Static):
         super().__setattr__("border_title", title)
         super().__setattr__("border_subtitle", subtitle)
 
-    # -- context -----------------------------------------------------------
+    # context ---------------------------------------------------------------
 
     @property
     def services(self) -> ServiceRegistry:
@@ -70,10 +68,10 @@ class Module(Static):
 
     @property
     def now(self) -> datetime:
-        """The moment this redraw is drawing, in one place so tests can fix it."""
+        """The moment this redraw is drawing."""
         return module_host(self.screen).now
 
-    # -- redrawing ---------------------------------------------------------
+    # redrawing -------------------------------------------------------------
 
     def rebuild(self) -> None:
         """Redraw from the current data. Overridden by every module."""
@@ -87,12 +85,11 @@ class Module(Static):
     def focus_target(self) -> Widget:
         """The widget a jump to this module should focus.
 
-        Usually the module itself. A module whose content is a table wants the
-        table — landing on the panel and then needing a second key to get into
-        the rows is exactly the friction jump mode exists to remove.
+        Usually the module itself; a module whose content is a table overrides
+        this to return the table, so a jump lands in the rows.
         """
         return self
 
     def set_subtitle(self, text: str) -> None:
-        """Write into the border subtitle — the module's live data slot."""
+        """Write into the border subtitle, the module's live data slot."""
         self.border_subtitle = text

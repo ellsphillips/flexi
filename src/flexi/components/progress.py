@@ -1,8 +1,7 @@
 """How far through the day, and the period, you are.
 
-Progress is worked against expected rather than wall-clock against the working
-day: someone who started at seven is further through than someone who started at
-ten, and the clock on the wall does not know that.
+Progress is worked against expected, not wall-clock against the working day: a
+seven o'clock start is further through the day than a ten o'clock start.
 """
 
 from __future__ import annotations
@@ -27,9 +26,8 @@ MIN_RAIL: Final = 8
 class ProgressRail(Widget):
     """One labelled bar: a share of something done, and the figures behind it.
 
-    Overshoot is drawn, not clipped. A ten-hour day against a seven-hour contract
-    is the single most interesting thing a flexitime tracker can tell you, and a
-    bar that stopped at full would say it was an ordinary day.
+    Overshoot is drawn, not clipped: a bar that stopped at full would draw a
+    ten-hour day against a seven-hour contract as an ordinary one.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -57,10 +55,8 @@ class ProgressRail(Widget):
     ) -> None:
         """Draw a reading, and relabel the rail if this one is named differently.
 
-        `label` here rather than assigned from outside: it is a plain attribute,
-        so `rail.label = x` changes nothing until something else calls
-        `refresh()`. `TimeProgress` did exactly that, and it only worked because
-        the `show()` on the next line redrew.
+        `label` belongs here because it is a plain attribute: `rail.label = x`
+        changes nothing until something calls `refresh()`.
         """
         self.done, self.total, self.compact = done, total, compact
         if label is not None:
@@ -98,8 +94,8 @@ class ProgressRail(Widget):
     def _bar(self, width: int) -> Text:
         """The track, filled to the share, with anything past full called out.
 
-        The last cell becomes the overshoot mark rather than the bar growing:
-        a rail longer than its own track would push the figures about.
+        The last cell becomes the overshoot mark: a rail longer than its own
+        track would push the figures about.
         """
         share = self.share
         return styled_track(

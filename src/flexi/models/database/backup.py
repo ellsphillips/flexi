@@ -1,18 +1,14 @@
 """Taking a copy of the database that is safe to rely on.
 
-``shutil.copy2`` copies a live file. If the application is open in another
-terminal mid-write, the copy can be torn -- and a torn copy is worse than no
-copy, because it is the artefact somebody is told they can fall back on.
-``sqlite3.Connection.backup`` takes a consistent snapshot through the database
-engine instead, and it works while the source is in use.
+``shutil.copy2`` copies a live file, so the copy can be torn if the application
+is mid-write in another terminal. ``sqlite3.Connection.backup`` takes a
+consistent snapshot through the database engine, and works while the source is
+in use.
 
 Every connection here is wrapped in :func:`contextlib.closing`. ``with
 sqlite3.connect(...)`` alone is a transaction, not a handle: it commits on the
-way out and leaves the connection open. POSIX lets you delete a file somebody
-still has open, so nothing ever showed -- and then ``flexi init`` on Windows
-took the snapshot, verified it, and raised ``PermissionError: the process
-cannot access the file because it is being used by another process`` on the
-line that removes the database.
+way out and leaves the connection open. Windows refuses to remove a file that
+is still open, where POSIX allows it.
 """
 
 from __future__ import annotations
@@ -32,18 +28,15 @@ PROTECTED_PREFIX = "pre-init_"
 ROUTINE_PREFIX = ""
 """A snapshot taken before a migration. Aged out once there are `MAX_BACKUPS`.
 
-Unprefixed on purpose, and therefore the one prefix that must never be handed
-to `startswith`: every filename begins with the empty string, so the test that
-looks as though it selects the routine backups would select the protected ones
-with them."""
+The empty string, so never pass it to `startswith`: every filename begins with
+it, and the protected backups would be selected too."""
 
 
 def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
     """A consistent copy of the database, in the backups directory.
 
-    Suffixed rather than overwritten. The migration backups use one-second
-    granularity, and two things happening in the same second is exactly what a
-    reset does.
+    A numeric suffix is added when the timestamped name already exists; stamps
+    have one-second granularity and a reset takes two snapshots in one second.
     """
     directory = ensure(backups_directory())
     stamp = wallclock.utc_now().strftime("%Y%m%dT%H%M%SZ")
@@ -61,9 +54,8 @@ def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
         ):
             origin.backup(copy)
     except BaseException:
-        # Outside the handles, which Windows will not let go of a file it still
-        # holds. What is left otherwise is a truncated file named like a
-        # backup, in the directory the recovery copies live in.
+        # Outside the handles: Windows will not unlink a file it still holds
+        # open, and a truncated file named like a backup would be left behind.
         target.unlink(missing_ok=True)
         raise
     return target
@@ -72,20 +64,17 @@ def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
 def read_only(database: Path, *, timeout: float = 5.0) -> sqlite3.Connection:
     """A connection to an existing database that cannot write to it.
 
-    Opened by path rather than through a ``file:...?mode=ro`` URI.
-    :meth:`Path.as_uri` renders a Windows UNC path as
-    ``file://server/share/...`` and SQLite accepts no authority but an empty
-    one, so a data directory on a network share is refused as an invalid URI
-    before it is ever looked for.
+    Opened by path, not through a ``file:...?mode=ro`` URI: :meth:`Path.as_uri`
+    renders a Windows UNC path as ``file://server/share/...``, and SQLite
+    accepts no authority but an empty one, so a data directory on a network
+    share would be refused as an invalid URI.
 
     The file has to be there: ``sqlite3.connect`` creates an empty database
-    where ``mode=ro`` returns an error, and the question being asked of it is
-    usually whether the database exists at all.
+    where ``mode=ro`` returns an error.
 
-    ``timeout`` is how long a query waits on a database somebody else is
-    writing to, and defaults to SQLite's own five seconds. A reader with
-    somebody in front of it wants a shorter one: five seconds per table with
-    nothing on screen reads as a hang.
+    ``timeout`` is how long a query waits on a database another process is
+    writing to, and defaults to SQLite's own five seconds. A reader with a user
+    waiting on it wants less.
     """
     if not database.is_file():
         msg = f"No database at {database}"

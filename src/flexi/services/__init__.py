@@ -1,10 +1,10 @@
 """Typed, lazy access to Flexi's service layer.
 
-Importing this package resolves no service implementation. That distinction is
-important for :mod:`flexi.services.setup`, whose lightweight SQLite probe sits
-on every CLI command's startup path and deliberately imports neither SQLAlchemy
-nor the full service graph. A service module or symbol is imported only when a
-caller asks for that attribute, then cached on this module.
+Importing this package resolves no service implementation: a module or symbol
+arrives only when a caller asks for that attribute, and is then cached on this
+module. That keeps the SQLite probe in :mod:`flexi.services.setup`, which sits
+on every CLI command's startup path, clear of SQLAlchemy and of the full
+service graph.
 """
 
 from __future__ import annotations
@@ -184,8 +184,8 @@ _SUBMODULES: Final = (
     "work_sessions",
 )
 
-# Every public name has exactly one source. A future collision must be resolved
-# with a semantic name at its defining module rather than by import order here.
+# Every public name has exactly one source. A collision is resolved by renaming
+# at the defining module, never by import order here.
 _EXPORTS: Final = MappingProxyType(
     {
         "AbsencePlan": ("absence", "AbsencePlan"),

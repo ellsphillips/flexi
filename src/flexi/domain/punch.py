@@ -2,37 +2,15 @@
 
     ─────────────████████████·············█████████────
 
-Two behaviours look like bugs and are not. The strip shows presence, not
-proportion: a cell lights if any part of a session falls inside it, so a short
-session is overstated rather than lost. And it coarsens rather than truncating,
-falling back to three cells below :data:`MIN_CELLS` rather than claiming a
-precision it cannot draw.
+A cell lights if any part of a session falls inside it, so the strip shows
+presence, not proportion. Only the window it is handed is drawn: an evening
+session under the default 07:00 to 19:00 draws an empty rail beside a row
+reporting the hours.
 
-The third is a limit, not a rule. The strip draws the window it is handed and
-nothing outside it, so an evening session under the default 07:00 to 19:00 draws
-an empty rail beside a row reporting the hours. The window is
-``settings.day_window``, and a working day outside it needs that setting moved.
-
-Everything is a function of ``(ledger, width, window, now)`` and the zone
-`flexi.wallclock` is pinned to, which is what lets one implementation draw a
-table cell, an expanded row and a week ribbon.
-
-The zone is the fifth input and the docstring used to say there were four.
-`edges` resolves each cell boundary through `wallclock`, because the grid has
-to be a *wall* grid: on the October Sunday, 02:00 is an hour further from
-midnight than 01:00 was, and a strip drawn on a fixed offset would put an hour
-of that day in the wrong cell. It is the only outward import in `flexi.domain`,
-and it is deliberate.
-
-`edges` asks the zone twice and generates the interior arithmetically whenever
-the two ends of the window agree on their offset, which is every window on all
-but two days a year. The per-boundary walk is still there for the two that
-disagree, and it is what the paragraph above is describing.
-
-Three shapes of name, so a reader can tell what a call does before reading it:
-a noun phrase returns a value (``edges``, ``cell_count``, ``cell_holding``,
-``covering_slices``), ``paint_*`` writes into the list of cells it is handed,
-and a bare verb asks a question (``overlaps``).
+Every result is a function of ``(ledger, width, window, now)`` and of the zone
+`flexi.wallclock` is pinned to, which is the only outward import in
+`flexi.domain`. A noun-phrase name returns a value, ``paint_*`` writes into the
+cells it is handed, and a bare verb asks a question.
 """
 
 from __future__ import annotations
@@ -87,7 +65,7 @@ class Cell(StrEnum):
     """Inside the window, and not at work."""
 
     BREAK = "break"
-    """Between two sessions — away, but having arrived and not yet left."""
+    """Between two sessions: away, but having arrived and not yet left."""
 
     TARGET = "target"
     """Where contracted hours will have been met, given today's breaks."""
@@ -99,17 +77,16 @@ class Cell(StrEnum):
     """A bank holiday. Covers the whole strip."""
 
     AMENDED = "amended"
-    """On the clock, by a correction rather than a punch.
+    """On the clock, by a correction and not a punch.
 
-    Above an absence and below a live session: work is work, and a stretch
-    somebody typed in should still lose to the one they are on right now.
+    Ranks above an absence and below a live session.
     """
 
     ON = "on"
     """On the clock."""
 
     LIVE = "live"
-    """On the clock right now — the leading edge of an open session."""
+    """On the clock right now: the leading edge of an open session."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,24 +139,18 @@ def edges(day: date, count: int, window: Window) -> list[datetime]:
     """The ``count + 1`` moments that bound the strip's cells.
 
     Public because the widget needs the same boundaries to decide which absence
-    colours which cell, and two implementations of the same bucketing would
-    drift the first time either changed.
+    colours which cell.
     """
     span = window.minutes / count
     midnight = datetime.combine(day, time.min)
     first = wallclock.local(window.moment(midnight, 0.0))
     last = wallclock.local(window.moment(midnight, count * span))
     if first.utcoffset() == last.utcoffset():
-        # No transition inside the window, which is every window on all but two
-        # days a year. The interior bounds all carry the offset the two ends
-        # share, so adding to a fixed-offset reading gives the identical wall
-        # grid without asking the zone `count` more times. Drawing the year
-        # calendar is 365 of these, and localising every bound was half its cost.
+        # No transition inside the window: every bound carries the offset the
+        # two ends share, so fixed-offset arithmetic gives the same wall grid.
         return [first + timedelta(minutes=index * span) for index in range(count + 1)]
-    # A transition inside the window. Each bound is localised on its own, so the
-    # grid stays a *wall* grid: on the October Sunday 02:00 is an hour further
-    # from midnight than 01:00 was. Load-bearing rather than defensive -- the
-    # path above is only equivalent while the offset holds still.
+    # A transition inside the window: each bound is localised on its own, so
+    # 02:00 on the October Sunday stays an hour further from midnight than 01:00.
     return [
         wallclock.local(window.moment(midnight, index * span))
         for index in range(count + 1)
@@ -195,16 +166,9 @@ def strip(
 ) -> tuple[Cell, ...]:
     """Draw one day as a row of cells, never wider than ``width``.
 
-    ``now`` is required, and that is the point. It defaulted to ``None``, which
-    the body read as midnight at the *start* of the ledger's date -- and an
-    open session ends at ``now``, so every one of its cells failed the overlap
-    test and a day somebody was still working drew as an empty rail. The week
-    ribbon took that default and the records table did not, so the same open
-    day was drawn two different ways on two screens.
-
-    There is no honest default. A closed day could take its own last
-    clock-out, but that is `DayLedger.last_out`, which needs ``now`` itself for
-    exactly the case that goes wrong.
+    ``now`` is required. An open session ends at ``now``, so the caller has to
+    say when the drawing is happening; `DayLedger.last_out` needs the same
+    value for the same reason.
     """
     window = window or Window()
     count = cell_count(window, max(1, width))
@@ -216,8 +180,8 @@ def strip(
     cells = [Cell.OFF] * count
     bounds = edges(ledger.date, count, window)
 
-    # Layers, painted in order. Each may overwrite the one before it, which is
-    # what puts a session on top of an absence and the live cell on top of both.
+    # Layers in precedence order: each may overwrite the one before, which puts
+    # a session on top of an absence and the live cell on top of both.
     paint_absences(cells, ledger, bounds)
     paint_sessions(cells, ledger, bounds, moment)
     paint_breaks(cells, ledger, bounds)
@@ -236,9 +200,7 @@ def overlaps(
 def cell_holding(moment: datetime, bounds: list[datetime]) -> int | None:
     """The index of the cell a moment falls in, or ``None`` if it is outside.
 
-    ``bounds`` is sorted by construction, so this is a bisection rather than
-    the walk it was written as twice -- once to place the go-home tick and once
-    to find the live cell.
+    ``bounds`` is sorted by construction, so this bisects.
     """
     index = bisect_right(bounds, moment) - 1
     return index if 0 <= index < len(bounds) - 1 else None
@@ -247,15 +209,10 @@ def cell_holding(moment: datetime, bounds: list[datetime]) -> int | None:
 def covering_slices(
     ledger: DayLedger, bounds: list[datetime]
 ) -> list[AbsenceSlice | None]:
-    """Which booking, if any, covers each cell -- by the cell's midpoint.
+    """Which booking, if any, covers each cell, by the cell's midpoint.
 
-    One rule, in one place. The widget that colours the strip had a
-    byte-identical copy of this walk, so "a cell is absent when its midpoint
-    falls inside a booked portion" was two statements that had to agree.
-
-    The midpoints are worked out once for the row rather than once per booking:
-    they depend only on the grid, and a day with a booked morning and a booked
-    afternoon computed all of them twice.
+    The midpoints depend only on the grid, so they are worked out once for the
+    row and reused for every booking.
     """
     found: list[AbsenceSlice | None] = [None] * (len(bounds) - 1)
     if not ledger.absences:
@@ -282,9 +239,8 @@ def paint_sessions(
 ) -> None:
     """A cell is on the clock when a session touches it.
 
-    A corrected stretch is drawn apart from a punched one -- same colour, since
-    it is the same hours, and a different fill, since one was read off a clock
-    and the other typed from memory.
+    A corrected stretch takes the same colour as a punched one and a different
+    fill.
     """
     for segment in ledger.segments:
         finish = segment.finish(moment)
@@ -297,8 +253,7 @@ def paint_sessions(
 def paint_breaks(cells: list[Cell], ledger: DayLedger, bounds: list[datetime]) -> None:
     """A break is only a break *between* two sessions.
 
-    Time before arriving and after leaving is not being away, it is not being
-    at work, so it stays off rather than reading as a three-hour lunch.
+    Time before the first clock-in and after the last clock-out stays ``OFF``.
     """
     for start, end in ledger.breaks:
         for index, cell in enumerate(cells):

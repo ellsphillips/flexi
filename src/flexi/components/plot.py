@@ -1,13 +1,11 @@
 """The plot: lines, bars and stacked bars on one set of axes.
 
-The geometry is in :mod:`flexi.domain.plot` and none of it is here. This module
-turns a grid of :class:`~flexi.domain.plot.Glyph` into a styled ``Text``, hangs
-an axis down the left of it and a legend under it, and works out how much room
-is left for the drawing after both.
+The geometry is in :mod:`flexi.domain.plot`. This module turns its grid of
+:class:`~flexi.domain.plot.Glyph` into a styled ``Text``, hangs an axis down the
+left and a legend underneath, and measures what room is left for the drawing.
 
-A tone is a name until it reaches this file. `Series("annual", ..., tone="annual")`
-asks for the annual leave colour and gets whatever `plot--annual` is defined as,
-so the domain stays free of the palette and the palette stays in one place.
+A tone is a name until it reaches this file: `tone="annual"` gets whatever
+`plot--annual` is defined as, so the palette stays in one place.
 """
 
 from __future__ import annotations
@@ -35,8 +33,8 @@ __all__ = (
 PLOT_TONES: Final[frozenset[str]] = frozenset(
     {"series", "compare", "target", "annual", "sick", "toil", "unpaid", "other"}
 )
-"""Every tone a series may ask for. A name the stylesheet has never heard of is
-a silent black-on-black series, so the set is closed and checked."""
+"""Every tone a series may ask for. A name the stylesheet does not define is a
+black-on-black series, so the set is closed and checked."""
 
 AXIS_WIDTH: Final = 6
 """Room for an axis label: five characters and the space after it."""
@@ -55,10 +53,8 @@ LEGEND_MARKS: Final[dict[Mark, str]] = {Mark.LINE: "──", Mark.BAR: "██"}
 class Plot(Widget):
     """One set of axes carrying any number of series.
 
-    Bars and lines share it. A line is a reading traced through time; bars are
-    quantities standing side by side, and stacked bars are the same quantities
-    shown as parts of their total. Which one a series is drawn as is the
-    series' own business, so a chart can carry both without knowing it does.
+    Which mark a series is drawn with is the series' own business, so one set of
+    axes can carry lines and bars together.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -85,9 +81,9 @@ class Plot(Widget):
     ) -> None:
         """Draw these series, replacing whatever was there.
 
-        Unknown tones are refused here rather than rendered: a tone the
-        stylesheet has never heard of resolves to the widget's own style, which
-        on this ground is a series drawn in the background colour.
+        An unknown tone is refused here, not rendered: it resolves to the
+        widget's own style, which on this ground is a series drawn in the
+        background colour.
         """
         unknown = {one.tone for one in series} - PLOT_TONES
         if unknown:
@@ -126,11 +122,7 @@ class Plot(Widget):
         return min(span.low, self.rule), max(span.high, self.rule)
 
     def _axis_label(self, row: int, height: int) -> Text:
-        """A figure against the top and bottom rows, and nothing between them.
-
-        Two labels rather than a tick per row: the rows between them are worth
-        more as drawing than as a scale nobody reads off a terminal.
-        """
+        """A figure against the top and bottom rows, and nothing between them."""
         style = self._style("plot--axis")
         if row == 0:
             return Text(f"{hm_hours(self.bounds()[1]):>5} ", style=style)
@@ -141,12 +133,9 @@ class Plot(Widget):
     def legend(self) -> Text:
         """Every series, in the mark it is drawn with. Empty for a single one.
 
-        One series needs no legend -- the panel title names it -- and a legend
-        under a single line is a row of the chart spent saying nothing.
-
-        Named while the names fit, and marks alone when they do not. A legend
-        wider than the panel is truncated by the terminal, which drops whichever
-        series was listed last and says nothing about having done it.
+        Named while the names fit, marks alone when they do not: a legend wider
+        than the panel is truncated by the terminal, which drops whichever
+        series is listed last and says nothing about having done it.
         """
         if len(self.series) < LEGEND_MIN_SERIES:
             return Text()

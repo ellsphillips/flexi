@@ -1,17 +1,13 @@
 """What is left in each allowance, and whether that is comfortable.
 
-These are values, not services: an allowance knows what it holds and what that
-means, and nothing here can reach a database. They lived in
-``flexi.services.wallet``, which meant a dashboard widget importing one dragged
-a hundred and twenty SQLAlchemy modules behind it -- and satisfied the layering
-rule while defeating it, because the rule named ``sqlalchemy`` and the widget
-imported ``flexi.services``.
+Values, not services: an allowance knows what it holds and what that means, and
+nothing here reaches a database, so a dashboard widget can import one without
+pulling SQLAlchemy in behind it.
 
-Every allowance carries a pace -- where the figure would be if it were being
-spent evenly -- because "18.5 days" is comfortable or alarming depending
-entirely on how much of the leave year is left. Whether it is comfortable is
-decided here rather than in the widget that colours it, so the rule is testable
-and there is one of it.
+Every allowance carries a pace, where the figure would be if it were spent
+evenly, because "18.5 days" is comfortable or alarming depending on how much of
+the leave year is left. Comfort is decided here, not in the widget that draws
+it, so there is one rule and it is testable.
 """
 
 from __future__ import annotations
@@ -28,9 +24,8 @@ __all__ = ("PACE_TOLERANCE", "Allowance", "Pace", "WalletData")
 PACE_TOLERANCE = 0.15
 """How far ahead of an even spread an allowance may run before it is flagged.
 
-Fifteen per cent of a year's entitlement is roughly a long weekend on twenty-five
-days -- close enough to the noise of when school holidays fall that flagging
-anything tighter would cry wolf every April.
+Fifteen per cent of a year's entitlement is about a long weekend on twenty-five
+days, which is the noise of where school holidays fall.
 """
 
 
@@ -47,19 +42,19 @@ class Pace(Enum):
 
 @dataclass(frozen=True, slots=True)
 class Allowance:
-    """One line of the wallet."""
+    """A line of the wallet."""
 
     type: AbsenceType
     used: float
     """Days spent, counting a half as a half."""
     occurrences: int
-    """How many separate bookings — two half-days are two occasions, one day."""
+    """How many separate bookings: two half-days are two occasions, one day."""
     total: float | None = None
     """The entitlement, where there is one. ``None`` means uncapped."""
     pace: float | None = None
     """Where ``used`` would be if the allowance were spent evenly over the year."""
     balance_days: float | None = None
-    """For TOIL: days of flexi balance available rather than an entitlement."""
+    """For TOIL: days of flexi balance available, in place of an entitlement."""
 
     @property
     def label(self) -> str:
@@ -93,10 +88,8 @@ class Allowance:
     def pace_state(self) -> Pace:
         """Whether this allowance is running ahead of an even spread.
 
-        Measured against the entitlement rather than against the pace, so the
-        tolerance means the same thing on twenty-five days as on five: a day and
-        a half either way, not a proportion of however far through the year it
-        happens to be.
+        Measured against the entitlement, not against the pace, so the tolerance
+        means the same on twenty-five days as on five.
         """
         if self.pace is None or self.total is None or not self.total:
             return Pace.UNKNOWN
@@ -124,5 +117,5 @@ class WalletData:
         return self.balance.delta / self.contracted
 
     def allowance(self, kind: AbsenceType) -> Allowance:
-        """One allowance by type."""
+        """The allowance of one type."""
         return next(item for item in self.allowances if item.type is kind)

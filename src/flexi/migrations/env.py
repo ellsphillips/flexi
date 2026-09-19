@@ -20,12 +20,10 @@ target_metadata = Base.metadata
 
 
 def requested_database() -> Path:
-    """The database named on the command line, for a run Flexi did not start.
+    """Return the database named by `-x db=` on the command line.
 
-    `alembic.ini` names none. The application hands its own engine over below,
-    and a URL in the file is a second answer to where the database is. The
-    answer it gave was `flexi.db` in the working directory, so `alembic upgrade
-    head` in a checkout migrated a database into the checkout.
+    `alembic.ini` carries no URL, so a command-line run has no default and must
+    name the file. The application injects its own engine instead.
     """
     given = context.get_x_argument(as_dictionary=True).get("db")
     if not given:
@@ -54,12 +52,10 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations with a live database connection.
 
-    `flexi.models.database.migrate` hands its own engine over in
-    `config.attributes`, already carrying the pragma, because a path is not
-    safe to round-trip through a config value: ConfigParser reads `%` as an
-    interpolation and SQLAlchemy's URL parser reads `?` as a query string.
-    Running `alembic` from the command line passes no engine and names its
-    database with `-x db=`.
+    `flexi.models.database.migrate` injects its engine, pragma and all, through
+    `config.attributes`: a path cannot round-trip through a config value, since
+    ConfigParser reads `%` as an interpolation and SQLAlchemy's URL parser reads
+    `?` as a query string. A command-line run passes no engine and uses `-x db=`.
     """
     provided_engine = config.attributes.get("engine")
     if provided_engine is not None:

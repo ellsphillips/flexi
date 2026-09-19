@@ -3,10 +3,8 @@
 Which service depends on which is written down here and nowhere else, so a
 widget never constructs its own and never reaches for the session behind it.
 
-Built *once*, and that matters. Nothing here caches a settings value, so there
-is never a reason to build a second one -- and the moment there were two, a
-screen pushed before the rebuild went on reading the registry the rebuild had
-replaced, while the modules inside that same screen read the new one.
+Built once. Nothing here caches a settings value, so a second registry buys
+nothing, and a screen mounted before it would go on reading the first.
 """
 
 from __future__ import annotations
@@ -49,9 +47,8 @@ __all__ = (
 class Services:
     """The application services, wired together around one persistence scope.
 
-    The SQLAlchemy session is an implementation detail of those services, not
-    part of this public bundle. Construction is the free :func:`build_services`
-    function because building a value is not behaviour of the value itself.
+    The SQLAlchemy session is an implementation detail of those services and no
+    part of this bundle. :func:`build_services` assembles one.
     """
 
     settings: SettingsService
@@ -88,22 +85,19 @@ def invalidate_services(services: Services) -> None:
 
 
 def available_toil_days(services: Services, today: date | None = None) -> float:
-    """The flexi balance in days — what a TOIL booking would draw against."""
+    """The flexi balance in days: what a TOIL booking draws against."""
     return services.wallet.available_toil_days(today)
 
 
 def settlement_date(as_of: date | None = None) -> date:
-    """The date a settlement draws its line under.
+    """Return the date a settlement draws its line under.
 
-    *Yesterday*, not today, when the caller does not say. Today is not over:
-    absorbing its contracted hours before they have been worked would leave the
-    evening looking like unearned overtime, and tomorrow's balance wrong by a
-    day. Settling to the end of yesterday leaves today behaving exactly as any
-    other day does.
+    Yesterday, not today, when the caller does not say. Today is not over, and
+    absorbing its contracted hours before they are worked leaves the evening
+    looking like unearned overtime and tomorrow's balance wrong by a day.
 
-    Public, because the command line has to name the date in the question it
-    asks before it settles, and both the question and the write must resolve the
-    default by the same rule.
+    Public, because the command line names the date in the question it asks
+    before it settles, and question and write resolve the default alike.
     """
     return as_of or wallclock.today() - timedelta(days=1)
 
@@ -116,23 +110,19 @@ def zero_balance(
 ) -> AdjustmentResult:
     """Settle the balance so that it reads zero as at the end of ``as_of``.
 
-    A date that has not finished is refused. `settlement_date` explains why the
-    default is yesterday, and the same reasoning is what makes a *future* line
-    worse rather than merely useless: the balance is derived from a projection
-    in which every day between now and then was worked zero hours, so the
-    correction is sized to absorb hours nobody has worked yet. The row is then
-    invisible -- `LedgerService._adjustments` filters on `date <= end` -- until
-    its date arrives, at which point the week's real hours read as pure surplus.
+    A date that has not finished is refused. The balance is derived from a
+    projection in which every day between now and then was worked zero hours,
+    so the correction absorbs hours not yet worked, and the row stays invisible
+    (`LedgerService._adjustments` filters on `date <= end`) until its date
+    arrives, when the week's real hours read as pure surplus.
 
     A date earlier than a line already drawn in the same leave year is refused
-    too. The correction is sized from the balance up to ``as_of``, which cannot
-    see the later row, so the two overlap and the period they share is absorbed
-    twice. A previous leave year is fair game: each one accumulates from its own
-    start, so a line in one is not part of the sum in the other.
+    too: the correction is sized from the balance up to ``as_of``, which cannot
+    see the later row, so the period they share is absorbed twice. A previous
+    leave year is fair game, since each accumulates from its own start.
 
-    Here rather than in `flexi/cli/balance.py` so that the TUI and any embedder
-    hold the same line, the way `ClockService.correct` refuses a future day for
-    every caller rather than only the one that happened to be noticed.
+    Here, not in `flexi/cli/balance.py`, so the TUI and any embedder hold the
+    same line.
     """
     as_of = settlement_date(as_of)
     if as_of >= wallclock.today():
@@ -163,7 +153,7 @@ def zero_balance(
 def minimum_session() -> timedelta:
     """How long a session has to last to count.
 
-    A preference, so it comes from the config file rather than the database.
+    A preference, so it comes from the config file, not the database.
     """
     from flexi.config import CONFIG
 

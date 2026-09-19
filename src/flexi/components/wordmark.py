@@ -1,14 +1,8 @@
 """The animated wordmark, as a widget that something else can sit under.
 
-It was a screen of its own, pushed over the setup form and dismissed when the
-animation finished. That is one screen too many. Dismissing pops the top of the
-stack rather than the screen doing the dismissing, so a splash pushed at the
-wrong moment deleted the form underneath it -- and the only thing the splash
-ever preceded was that form. Making it a widget removes the second screen, and
-with it a whole class of mistake: there is nothing left to pop.
-
-It also buys the arrangement the animation wanted all along. The word turns in,
-lands, and stays exactly where it is while the questions arrive underneath it.
+A widget and not a screen, because `Screen.dismiss` pops the top of the stack
+and not the screen that calls it. The word turns in, lands, and stays where it
+is while the setup questions arrive underneath.
 """
 
 from __future__ import annotations
@@ -36,14 +30,10 @@ __all__ = (
 )
 
 FRAME_SECONDS: Final = 1 / 30
-"""Thirty frames a second. Sixty buys nothing over a terminal and costs a lot
-over SSH."""
+"""Thirty frames a second; sixty buys nothing in a terminal and costs over SSH."""
 
 BACKGROUND: Final = colour("c-ink")
-"""The ground the strapline fades up out of. A fade needs both ends.
-
-Read rather than restated: this file already takes two other colours through
-`colour`, and the third was the same hex as `$c-ink` typed out again."""
+"""The ground the strapline fades up out of; a fade needs both ends."""
 
 
 def blend(start: str, end: str, amount: float) -> str:
@@ -58,11 +48,7 @@ def blend(start: str, end: str, amount: float) -> str:
 
 
 def shade(level: int) -> str:
-    """The colour of one step of the luminance ramp.
-
-    Out of the background, through the accent, up to its lift -- so the lighting
-    and the colour say the same thing about the same surface.
-    """
+    """The colour of one step of the luminance ramp."""
     half = (len(splash.RAMP) - 1) / 2
     if level <= half:
         return blend(BACKGROUND, colour("c-accent"), level / half)
@@ -87,9 +73,7 @@ class Wordmark(Static):
     STRAPLINE_GAP: Final = 2
     """Rows between the foot of the settled word and the strapline.
 
-    Measured from the word, not from the canvas. The canvas is tall enough for
-    the word to turn in, so measuring from its bottom edge left the strapline
-    five rows adrift of a logo it is supposed to belong to."""
+    Measured from the word: the canvas is taller, to make room for the turn."""
 
     class Landed(Message):
         """The word has stopped moving. Whatever waits beneath it may arrive."""
@@ -104,11 +88,9 @@ class Wordmark(Static):
         self._landed = False
 
     def on_mount(self) -> None:
-        # Height from the canvas rather than measured off the content: leaving
-        # it to `height: auto` inside a vertical alongside other things resolved
-        # it to a single row, and the animation played, correctly, one row tall.
-        # The width is left to the stylesheet, so the wordmark can be told to
-        # fill whatever it is centred over.
+        # Height from the canvas: `height: auto` inside a vertical resolves to
+        # a single row. The width is left to the stylesheet, so the wordmark can
+        # be told to fill whatever it is centred over.
         self.styles.height = splash.CANVAS_HEIGHT
         self._draw()
         if not self._plays:
@@ -119,8 +101,8 @@ class Wordmark(Static):
     def on_resize(self) -> None:
         """Redraw at the new width, so the centring follows the widget.
 
-        Without this a wordmark that is not animating is drawn once, before
-        layout has given it a width, and stays centred on the fallback.
+        A wordmark that is not animating draws once, before layout has given it
+        a width, and would otherwise stay centred on the fallback.
         """
         self._draw()
 
@@ -131,16 +113,16 @@ class Wordmark(Static):
             self._land()
 
     def skip(self) -> None:
-        """Cut to the end. Somebody setting up twice need not watch it twice."""
+        """Cut to the end of the animation."""
         self._elapsed = splash.DURATION
         self._draw()
         self._land()
 
     def _land(self) -> None:
-        """Announce the landing once, and stop the clock that would announce it again.
+        """Announce the landing once, and stop the timer that would repeat it.
 
-        The timer is not stopped by anything else, and a message posted on every
-        subsequent frame would reveal the questions thirty times a second.
+        Nothing else stops the timer, so without the guard the message goes out
+        on every frame after the word settles.
         """
         if self._landed:
             return
@@ -150,14 +132,11 @@ class Wordmark(Static):
         self.post_message(self.Landed())
 
     def _draw(self) -> None:
-        """The canvas, coloured by how lit each character is.
+        """Draw the canvas, coloured by how lit each character is.
 
-        Colour follows luminance rather than position: the shading already
-        carries the form, so a gradient by row would be a second, unrelated
-        story told over the top of it.
-
-        Runs of equal brightness are appended together. A style per character
-        would be nine hundred spans a frame, thirty times a second.
+        Colour follows luminance, not position: the shading already carries the
+        form. Runs of equal brightness are appended as one span, so a row costs
+        a handful of styled appends and not one per cell.
         """
         levels = splash.luminance(self._elapsed)
         # Centred on the widget, not on the canvas: the widget is as wide as
@@ -165,9 +144,9 @@ class Wordmark(Static):
         width = max(splash.CANVAS_WIDTH, len(splash.STRAPLINE), self.size.width)
         margin = " " * ((width - splash.CANVAS_WIDTH) // 2)
 
-        # The strapline takes over one row of the canvas rather than following
-        # it. By the time it is visible the word has settled and that row is
-        # empty; the rows left under it are the gap before whatever comes next.
+        # The strapline takes over one row of the canvas: by the time it is
+        # visible the word has settled and that row is empty. The rows left
+        # under it are the gap before whatever comes next.
         strapline_row = splash.settled_rows()[1] + self.STRAPLINE_GAP
         faded = blend(
             BACKGROUND, colour("c-muted"), splash.strapline_fade(self._elapsed)
@@ -180,8 +159,6 @@ class Wordmark(Static):
                 art.append("\n")
                 continue
             art.append(margin)
-            # One span per run of equal levels, so a row of a thousand cells is
-            # a handful of styled appends rather than a thousand.
             for level, run in groupby(row):
                 length = len(list(run))
                 if level < 0:

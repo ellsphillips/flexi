@@ -2,9 +2,9 @@
 
     balance = Σ worked − Σ expected − Σ TOIL taken + Σ adjustments
 
-TOIL is subtracted separately rather than folded into ``expected``: it is a
-withdrawal from the account the surplus accrues into, not a day nobody expected
-you to work, and folding it in would stop the balance ever going down.
+TOIL is subtracted separately, not folded into ``expected``: it is a withdrawal
+from the account the surplus accrues into, and folding it in would stop the
+balance ever going down.
 
 Everything is a :class:`~datetime.timedelta`. Hours exist only at the formatting
 boundary, because 7.4 is not representable in binary floating point and a leave
@@ -36,9 +36,9 @@ ZERO = timedelta()
 def worked_from(segments: Iterable[Segment], now: datetime) -> timedelta:
     """Time on the clock, counting an open session up to ``now``.
 
-    ``now`` must be a local moment carrying its offset -- see
-    :mod:`flexi.wallclock`. A naive one raises rather than quietly returning the
-    wall difference, which is the failure this signature is shaped to force.
+    ``now`` must be a local moment carrying its offset (see
+    :mod:`flexi.wallclock`); a naive one raises instead of returning the wall
+    difference.
     """
     return sum((segment.duration(now) for segment in segments), start=ZERO)
 
@@ -57,9 +57,8 @@ def expected_for(
     or a full day of absence of any type. Half the contract for one half-day;
     zero for two, even of different types.
 
-    ``is_tracked`` is required rather than defaulting to true. The default would
-    be the behaviour this argument exists to correct, which is the one value a
-    caller must not be able to arrive at by forgetting.
+    ``is_tracked`` has no default: true is the behaviour this argument exists
+    to correct, and a caller must not reach it by forgetting.
     """
     if not is_tracked or not is_working_day or is_holiday:
         return ZERO
@@ -91,7 +90,7 @@ class BalanceSummary:
     expected: timedelta = ZERO
     toil_taken: timedelta = ZERO
     adjustment: timedelta = ZERO
-    """The only term stored rather than derived from clock events."""
+    """The only term stored, not derived from clock events."""
 
     @property
     def delta(self) -> timedelta:
@@ -109,9 +108,9 @@ class BalanceSummary:
     def as_shown(self) -> BalanceSummary:
         """The same summary in the whole minutes every surface prints.
 
-        Each term floored before the subtraction, so the balance a reader sees
-        is the one they get by doing the arithmetic on the lines above it. Left
-        to the exact figures the two disagree by a minute whenever the sessions
+        Each term is floored before the subtraction, so the balance a reader
+        sees is the one they get by doing the arithmetic on the lines above it.
+        On the exact figures the two disagree by a minute whenever the sessions
         carry seconds: 2:00:09 worked against 3:42 expected shows ``2:00``,
         ``3:42`` and ``−1:41``.
         """

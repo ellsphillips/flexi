@@ -1,9 +1,8 @@
 """Small widgets every screen needs, so no screen invents its own.
 
-Each is a thin wrapper whose job is to carry a class from ``theme/flexi.tcss``,
-so a screen picks up a palette change without being edited. :class:`Tone` is the
-shared vocabulary, so nothing writes ``"pill--ok"`` as a string and gets it
-wrong.
+Each is a thin wrapper carrying a class from ``theme/flexi.tcss``, so a screen
+picks up a palette change without being edited. :class:`Tone` is the shared
+vocabulary, so nothing writes ``"pill--ok"`` as a string.
 """
 
 from __future__ import annotations
@@ -65,16 +64,9 @@ def styled_track(
 ) -> Text:
     """A bar: a track, a fill from the left, and one cell picked out.
 
-    Glyphs first, then spans. `Text(plain, spans=...)` drops the *base* style of
-    the text it was rebuilt from, so styling first and swapping a character in
-    afterwards silently left the whole track in the default foreground -- a
-    bright line across a dark panel. That was written twice, in near-identical
-    prose, above two copies of these seven lines.
-
-    How many cells `filled` is remains the caller's arithmetic. A gauge
-    positions a cell so a marker can sit on it; a rail counts cells so an
-    overshoot can take the last one. Those are different questions, and folding
-    them together would move pixels for no reason.
+    Glyphs first, then spans: `Text(plain, spans=...)` drops the *base* style of
+    the text it was rebuilt from, so a character swapped in after styling leaves
+    the whole track in the default foreground.
     """
     glyphs = [TRACK] * width
     if mark is not None:
@@ -93,8 +85,8 @@ def mark_width(node: DOMNode, width: int) -> None:
 
     Terminal CSS has no media query, so the class is the query: a screen calls
     this from ``on_resize`` and its stylesheet says what narrow means for it.
-    Driven by the terminal's width in every case, never by the widget's own,
-    which is what keeps a fold from changing the measurement that caused it.
+    ``width`` is the terminal's width, never the widget's, so a fold cannot
+    change the measurement that caused it.
     """
     node.set_class(width < NARROW_COLUMNS, "-narrow")
     node.set_class(width < TINY_COLUMNS, "-tiny")
@@ -103,9 +95,9 @@ def mark_width(node: DOMNode, width: int) -> None:
 class Tone(StrEnum):
     """What a piece of state means, independent of how it is drawn.
 
-    Teal is the accent and is never a state: ``ACCENT`` is for "this is the thing
-    you came here for", not "this is wrong". Failure is ``ERR``, which the
-    stylesheet draws in the deficit red the balance already uses.
+    Teal is the accent and is never a state: ``ACCENT`` marks what was being
+    looked for, not what is wrong. Failure is ``ERR``, which the stylesheet
+    draws in the deficit red the balance uses.
     """
 
     NEUTRAL = "neutral"
@@ -115,8 +107,8 @@ class Tone(StrEnum):
     ACCENT = "accent"
 
 
-# Kept as a table rather than an f-string so the class names are greppable from
-# the stylesheet, which is where somebody debugging a colour will start.
+# A table, not an f-string, so the class names are greppable from the
+# stylesheet.
 TONE_CLASSES: Final[Mapping[Tone, str]] = MappingProxyType(
     {
         Tone.NEUTRAL: "",
@@ -145,9 +137,9 @@ GAUGE_TONE_STYLES: Final[Mapping[Tone, str]] = MappingProxyType(
 class Pill(Static):
     """One or two words of state: "on the clock", "3 left", "no data".
 
-    Reports, never acts — a pill is not clickable, and anything that wants to be
-    pressed should be a ``Button``. Label and tone are reactive so a validating
-    input can update it on every keystroke without touching the DOM.
+    Reports, never acts: a pill is not clickable, and anything that wants to be
+    pressed is a ``Button``. Label and tone are reactive, so a validating input
+    can update it on every keystroke without touching the DOM.
     """
 
     DEFAULT_CLASSES: ClassVar[str] = "pill"
@@ -170,7 +162,7 @@ class Pill(Static):
         self._apply_visibility()
 
     def set_state(self, label: str, tone: Tone = Tone.NEUTRAL) -> None:
-        """Set both at once — the pair is what a caller actually has."""
+        """Set label and tone together."""
         self.label = label
         self.tone = tone
 
@@ -179,11 +171,10 @@ class Pill(Static):
         self._apply_visibility()
 
     def _apply_visibility(self) -> None:
-        """A pill with nothing to say is not drawn.
+        """Hide a pill with nothing to say.
 
-        ``.pill`` carries a ground and a ``min-width``, so an empty one is not
-        invisible — it is a six-column block with no text in it. Reporting
-        nothing has to render as nothing.
+        ``.pill`` carries a ground and a ``min-width``, so an empty one draws as
+        a six-column block, not as nothing.
         """
         self.display = bool(self.label.strip())
 
@@ -191,11 +182,7 @@ class Pill(Static):
         self._apply_tone()
 
     def _apply_tone(self) -> None:
-        """Apply the tone, having cleared the others.
-
-        They are mutually exclusive, so removing all of them first is cheaper to
-        reason about than tracking which one is on.
-        """
+        """Apply the tone, clearing the other tone classes first."""
         self.remove_class(*ALL_TONE_CLASSES)
         if applied := TONE_CLASSES[self.tone]:
             self.add_class(applied)
@@ -204,8 +191,8 @@ class Pill(Static):
 class StatCard(Vertical):
     """One measurement: a label above it, an optional note below.
 
-    Three ``Static``s rather than one rendered block, because the three lines
-    have different colours and different weights, and CSS is where that belongs.
+    Three ``Static``s, not one rendered block: the three lines have different
+    colours and weights, which is CSS's job.
     """
 
     DEFAULT_CLASSES: ClassVar[str] = "stat"
@@ -231,8 +218,8 @@ class StatCard(Vertical):
         yield Static(self.note, classes="stat-note")
 
     def watch_value(self, value: str) -> None:
-        # Reactives fire before the first compose, and querying a child that has
-        # not been mounted yet raises rather than returning nothing.
+        # Reactives fire before the first compose, and querying a child that is
+        # not mounted yet raises.
         if self.is_mounted:
             self.query_one(".stat-value", Static).update(value)
 
@@ -244,9 +231,8 @@ class StatCard(Vertical):
 class KeyHint(Horizontal):
     """A key and what it does, in place.
 
-    The footer already lists every binding, so this is for the few a screen wants
-    to teach where the action is — "space to expand", next to the table it
-    expands — rather than a second copy of the footer.
+    The footer lists every binding, so this is for the few a screen shows
+    where the action is: "space to expand", next to the table it expands.
     """
 
     def __init__(self, key: str, action: str, **kwargs: Unpack[WidgetOptions]) -> None:
@@ -260,11 +246,10 @@ class KeyHint(Horizontal):
 
 
 class Rule(Static):
-    """A hairline, optionally labelled — how Flexi separates sections.
+    """A hairline, optionally labelled: how Flexi separates sections.
 
     Distinct from ``textual.widgets.Rule``, which draws a line and nothing else.
-    This one carries the section's name above the line, which is the editorial
-    form of a heading and the reason there are no boxes inside a module.
+    This one carries the section's name above the line.
     """
 
     DEFAULT_CLASSES: ClassVar[str] = "rule"
@@ -282,10 +267,10 @@ class Rule(Static):
 
 
 class EmptyIndicator(Static):
-    """A region with nothing in it, drawn as an invitation rather than a blank.
+    """A region with nothing in it, drawn as an invitation.
 
-    Hatched, so it reads as an empty region rather than as a widget that failed
-    to render — the failure an unstyled gap is most often mistaken for.
+    Hatched, so it reads as an empty region and not as a widget that failed to
+    render.
     """
 
     DEFAULT_CLASSES: ClassVar[str] = "empty-indicator"
@@ -300,9 +285,8 @@ class Gauge(Widget):
     """A measurement against a total, with an optional marker where it should be.
 
     The marker is the pace line: 18.5 days left reads as comfortable or alarming
-    depending entirely on how much of the leave year remains. The caller passes the
-    :class:`Tone`, because whether that is good news is a question about leave
-    policy rather than about bars.
+    depending on how much of the leave year remains. The caller passes the
+    :class:`Tone`, since whether that is good news is a leave-policy question.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -320,13 +304,7 @@ class Gauge(Widget):
         super().__init__(**kwargs)
         self.label = label
         self.total = 0.0
-        """What the reading is measured against. Set by `show`, and zero until
-        there is one -- which draws an empty track, the same answer a gauge
-        gives when nobody has been given any leave.
-
-        Not a constructor argument. It was one, and no production caller passed
-        it, so the total lived in two places and `show` needed a sentinel to
-        decide which of them won."""
+        """What the reading is measured against. Zero draws an empty track."""
 
         self.value: float | None = None
         self.target: float | None = None
@@ -344,17 +322,14 @@ class Gauge(Widget):
         tone: Tone = Tone.NEUTRAL,
         compact: bool = False,
     ) -> None:
-        """Draw a reading. ``None`` leaves the track empty rather than at zero.
+        """Draw a reading. ``None`` leaves the track empty, not at zero.
 
         An unmeasured allowance and one measured at zero are not the same thing.
-        ``compact`` drops the bar and keeps the line, because an empty track is a row of
-        hyphens costing a line of a sidebar with four other things to say.
+        ``compact`` drops the bar and keeps the line, so an empty track does not
+        cost a row of a sidebar with four other things to say.
 
-        ``total`` is required, so ``None`` means one thing in this signature.
-        It was optional, meaning "keep whatever total was set before" while the
-        `None` beside it on `value` meant "no reading" and the one on `target`
-        meant "no marker" -- three meanings in one line, of which every
-        production caller only ever used one.
+        ``total`` is required: a gauge does not remember the last one it was
+        given.
         """
         self.value = value
         self.readout = readout
@@ -374,8 +349,7 @@ class Gauge(Widget):
     def _headline(self, width: int) -> Text:
         """Label left, figure right, and the label gives way first.
 
-        `no_wrap` matters: a wrapped headline costs the row the bar was going to
-        be drawn in, so a narrow wallet loses its gauges rather than its words.
+        `no_wrap` matters: a wrapped headline costs the row the bar is drawn in.
         """
         readout = self.readout or ("—" if self.value is None else f"{self.value:g}")
         label = self.label[: max(0, width - len(readout) - 1)]

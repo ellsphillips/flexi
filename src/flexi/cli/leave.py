@@ -1,18 +1,14 @@
-"""Booking leave in one line, and showing it back before it is written.
+"""Book leave in one line, showing the plan back before it is written.
 
     flexi leave annual friday
     flexi leave annual monday to friday
     flexi leave sick today pm
     flexi leave cancel 12 jun
 
-The first word is what kind, the rest is when. That order is the one people say
-out loud, and it is the one that stays unambiguous: the type comes from a closed
-vocabulary, so everything after it is a date and nothing has to be guessed.
-
-Nothing is written until the plan has been shown and agreed. That is only
-possible because :meth:`~flexi.services.absence.AbsenceService.plan` decides
-without committing -- booking used to write day by day, so a prompt built from
-the result was a receipt.
+The head word names the kind of leave and comes from a closed vocabulary, so
+everything after it is a date. Nothing is written until the plan has been shown
+and agreed, which :meth:`~flexi.services.absence.AbsenceService.plan` allows by
+deciding without committing.
 """
 
 from __future__ import annotations
@@ -57,10 +53,8 @@ PORTION_WORDS: Final[Mapping[str, Portion]] = MappingProxyType(
 )
 """The words that name half a day.
 
-``half`` is not one of them. A word that has to guess which half belongs in
-the usage error an unrecognised date already lands in, not in a mapping where
-it quietly means the morning and leaves ``cancel friday half`` reporting
-nothing booked on a booked afternoon.
+``half`` is not one of them: it does not say which half, so it falls through to
+the usage error an unrecognised date lands in.
 """
 
 VERDICT_NOTE: Final[Mapping[Verdict, str]] = MappingProxyType(
@@ -82,23 +76,21 @@ def _booking_line(booking: RemovalBooking) -> str:
 class Request(NamedTuple):
     """``annual monday to friday pm``, split into what it asks for.
 
-    ``kind`` is ``None`` for a cancellation, which is the one word that names
-    no kind of leave. It was a bare head word, so `run` looked the type up a
-    second time and carried a branch for a failure `parse_request` had already
-    refused -- unreachable, and marked as such.
+    ``kind`` is ``None`` for a cancellation, the one head word that names no
+    kind of leave.
     """
 
     kind: AbsenceType | None
     portion: Portion | None
-    """The explicitly requested portion, or ``None`` when none was written."""
+    """The requested portion, or ``None`` when none was written."""
     when: str
 
 
 def parse_request(words: tuple[str, ...]) -> Request:
     """Split ``annual monday to friday pm`` into what it asks for.
 
-    The portion is taken off the end rather than looked for anywhere, so a note
-    or a month name cannot be mistaken for one.
+    The portion is read from the last word only, so a note or a month name
+    cannot be mistaken for one.
     """
     if not words:
         msg = "Say what kind of leave: annual, sick, toil, unpaid, other, or cancel"
@@ -122,7 +114,7 @@ def parse_request(words: tuple[str, ...]) -> Request:
 
 
 def render(plan: AbsencePlan) -> str:
-    """The plan as a block somebody can check before agreeing to it."""
+    """Return the plan as a block to check before agreeing to it."""
     verb = f"Booking {plan.absence_type.phrase}"
     portion = "" if plan.portion is Portion.FULL else f" ({plan.portion.label.lower()})"
     lines = [f"{verb}{portion}"]
@@ -243,10 +235,8 @@ def cancel(
             else f"{short_date(start)} to {long_date(end)}"
         )
         if portion is not None:
-            # Asked for one half and found none does not mean the day is
-            # empty: a full booking, or the other half, matches neither
-            # filter. Saying nothing is booked there sends somebody away
-            # believing a booking they made was never written.
+            # A half-day filter matches neither a full booking nor the other
+            # half, so an empty result here does not mean the day is free.
             whole = services.absence.removal_plan(start, end)
             if not whole.is_empty:
                 click.echo(

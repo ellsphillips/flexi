@@ -1,16 +1,12 @@
 """Typed structural boundaries for objects owned by the Textual runtime.
 
 Widgets and command providers receive Textual's broad ``App`` and ``Screen``
-types even though they rely on much smaller Flexi-specific capabilities. The
-protocols in this module name those capabilities without importing
-``flexi.app`` back through the presentation graph, and the adapter functions
-validate them once at the edge.
+types while relying on much smaller Flexi-specific capabilities. These
+protocols name those capabilities without importing ``flexi.app`` back through
+the presentation graph, and the adapter functions validate them at the edge.
 
-The service and command contracts are deliberately separate. A dashboard
-module needs the service registry but none of the application's navigation
-actions; the command palette needs those actions but never reaches into the
-registry. Keeping those interfaces narrow lets either concern be hosted and
-tested independently.
+Service and command contracts stay separate: a dashboard module needs the
+service registry but no navigation action, and the command palette the reverse.
 """
 
 from __future__ import annotations
@@ -32,10 +28,9 @@ else:
     class ServiceRegistry(Protocol):
         """Runtime name for the statically concrete service registry.
 
-        Presentation modules need their return annotation to resolve without
-        importing SQLAlchemy into the UI layer. Type checkers see the concrete
-        :class:`~flexi.services.registry.Services` alias above; runtime
-        introspection sees this lightweight structural marker.
+        Return annotations must resolve without importing SQLAlchemy into the
+        UI layer. Type checkers see the concrete ``Services`` alias above;
+        runtime introspection sees this structural marker.
         """
 
 
@@ -85,7 +80,7 @@ class CommandApplication(Protocol):
         ...
 
     def showing_dashboard(self) -> bool:
-        """Whether the dashboard is the destination in front of the user."""
+        """Return whether the dashboard is the visible screen."""
         ...
 
     def action_clock_toggle(self) -> None:

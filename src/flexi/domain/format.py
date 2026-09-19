@@ -42,9 +42,9 @@ MINUTES_PER_HOUR = 60
 LEVEL = timedelta(minutes=1)
 """Below this, a balance is neither a surplus nor a deficit.
 
-Every figure here is drawn in whole minutes, so anything smaller has no digit
-to appear in -- and a sign on a figure that reads `0:00` claims a direction the
-number does not show."""
+Every figure here is drawn in whole minutes, so anything smaller has no digit to
+appear in, and a sign on a figure reading `0:00` claims a direction the number
+does not show."""
 
 
 def is_level(value: timedelta) -> bool:
@@ -65,11 +65,8 @@ def whole_minutes(value: timedelta) -> timedelta:
     """A duration floored to the minute every figure here is drawn in.
 
     Every reading is printed by :func:`hm`, which shows whole minutes, and a
-    total is the sum of the readings. Formatting the exact figures instead
-    leaves the lines disagreeing by a minute whenever the sessions carry
-    seconds: 2:00:09 worked against 3:42 expected prints ``2:00``, ``3:42`` and
-    a balance of ``−1:41``. Flooring each term first is what makes the sum of
-    what is shown equal the total that is shown.
+    total is the sum of the readings. Flooring each term first is what makes the
+    sum of what is shown equal the total that is shown.
 
     Examples:
         >>> whole_minutes(timedelta(minutes=2, seconds=9))
@@ -94,11 +91,10 @@ def hm(value: timedelta) -> str:
 
 
 def hm_hours(hours: float) -> str:
-    """A signed count of hours as ``h:mm``, for an axis rather than a reading.
+    """A signed count of hours as ``h:mm``, for an axis and not a reading.
 
-    A plot works in floats -- it is scaling and interpolating -- and asks for a
-    label at the end of it. Converting back to a `timedelta` to reach `hm` would
-    round twice, once into the duration and once out of it.
+    A plot works in floats, so converting back to a `timedelta` to reach `hm`
+    would round twice, once into the duration and once out of it.
 
     Examples:
         >>> hm_hours(7.4)
@@ -127,10 +123,9 @@ def hms(value: timedelta) -> str:
 def delta(value: timedelta) -> str:
     """A signed duration. Level carries no sign, because it is not a small surplus.
 
-    Anything under a minute counts as level. It used to be tested for exact
-    zero and rendered through `hm`, which truncates, so forty seconds of
-    deficit drew as `−0:00` -- a minus sign in front of a figure showing
-    nothing, and a red one, since the colour is chosen from the same value.
+    Anything under a minute counts as level. `hm` truncates, so without that
+    floor forty seconds of deficit would draw as `−0:00`: a sign, and the colour
+    that goes with it, on a figure showing nothing.
 
     Examples:
         >>> delta(timedelta(minutes=48))
@@ -164,17 +159,16 @@ def digits(value: timedelta) -> str:
 
 
 _CONTROL_CATEGORIES = frozenset({"Cc", "Cf"})
-"""Unicode categories a terminal reads as instructions rather than as text."""
+"""Unicode categories a terminal reads as instructions, not as text."""
 
 
 def printable(text: str) -> str:
     """A label with the characters a terminal would obey taken out of it.
 
-    Bank holiday titles come from GOV.UK and absence notes come from whatever
-    was pasted into a field, and both are drawn straight at a screen. An ESC, a
-    BEL or a carriage return in one recolours the terminal, retitles the window
-    or fakes a line of output, and Click strips only the CSI form. Letters,
-    punctuation and spaces survive intact.
+    Bank holiday titles come from GOV.UK and absence notes from whatever was
+    pasted into a field, and both are drawn straight at a screen, where an ESC,
+    a BEL or a carriage return recolours the terminal, retitles the window or
+    fakes a line of output. Click strips only the CSI form.
 
     Examples:
         >>> printable("Boxing Day" + chr(27) + "[31m" + chr(13))
@@ -190,8 +184,8 @@ def printable(text: str) -> str:
 def stamp(when: date, pattern: str) -> str:
     """``strftime`` with an unpadded day, on every platform.
 
-    ``%-d`` is a glibc and BSD extension; on Windows it raises rather than
-    dropping the zero, so the day is substituted before ``strftime`` sees it.
+    ``%-d`` is a glibc and BSD extension and raises on Windows, so the day is
+    substituted before ``strftime`` sees it.
 
     Examples:
         >>> stamp(date(2026, 6, 5), "%-d %b")
@@ -233,11 +227,6 @@ def day_month(when: date) -> str:
 def month_title(year: int, month: int) -> str:
     """A month named in full, with its year.
 
-    Through ``strftime`` like every other date here, rather than off a tuple of
-    the twelve names -- which was declared in two domain modules and indexed in
-    three, so a heading, a block title and a period label were the same sentence
-    assembled three times.
-
     Examples:
         >>> month_title(2026, 6)
         'June 2026'
@@ -256,10 +245,10 @@ def clock(moment: datetime) -> str:
 
 
 def spoken(span: timedelta) -> str:
-    """A short duration as somebody would say it out loud.
+    """A short duration as it is said out loud.
 
     Whole minutes where it divides, seconds otherwise, so a threshold reads as
-    "a minute" rather than as "60 seconds".
+    "a minute" and not as "60 seconds".
 
     Examples:
         >>> spoken(timedelta(minutes=1))

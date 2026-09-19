@@ -1,10 +1,9 @@
 """The frame every screen sits in: header, navigation, status line, key strip.
 
 :data:`NAV_ITEMS` is the one table naming which screens exist, which key reaches
-them and what they are called. Bindings, the nav bar and the command palette are
-all built from it, so adding a screen is a line here rather than four edits in
-three files. It lives in this module rather than in ``app.py`` because the
-widgets need it and the app imports the widgets.
+them and what they are called; the bindings, the nav bar and the command palette
+are all built from it. It lives here and not in ``app.py`` because the widgets
+need it and the app imports the widgets.
 """
 
 from __future__ import annotations
@@ -51,19 +50,17 @@ __all__ = (
 
 
 def stamped(version: str) -> str:
-    """A release number as people write it down, with the `v` on the front.
+    """A release number with the display `v` on the front.
 
-    The packaging metadata has no `v` and should not: `importlib.metadata` and
-    every comparison against it want the bare number. The prefix is a display
-    convention, so it is added at the point of display.
+    The packaging metadata carries no `v`: `importlib.metadata` and every
+    comparison against it want the bare number.
     """
     return f"v{version}"
 
 
 OVERFLOW_TEMPLATE: Final = "+{count} more"
-"""Written as a template so the strip can price the marker before it knows the
-number: the worst case is every entry hidden, and reserving for that keeps the
-reservation from being one column short of the thing it reserved for."""
+"""A template, so the strip can price the marker at its widest, every entry
+hidden, before it knows the number."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,10 +88,8 @@ NAV_BY_SCREEN: Final[Mapping[str, NavItem]] = MappingProxyType(
 class Lockup(Horizontal):
     """`flexi` plus a teal full stop. The only fixed point in the interface.
 
-    Not `Wordmark`, which is what `components/wordmark.py` calls the ray-traced
-    animation on the setup screen. Two classes with one name in one package,
-    sharing nothing but the word, is one import line away from a screen drawing
-    the other one.
+    Not `Wordmark`: that name belongs to the ray-traced animation on the setup
+    screen, in `components/wordmark.py`.
     """
 
     def compose(self) -> ComposeResult:
@@ -105,8 +100,8 @@ class Lockup(Horizontal):
 class NavItemLabel(Static):
     """One clickable destination in the nav bar.
 
-    A widget rather than a line of markup so it can hover, and so the click lands
-    on the item rather than on the bar and has to be resolved by column.
+    A widget, not a line of markup, so it can hover and so a click lands on the
+    item and need not be resolved to one by column.
     """
 
     def __init__(self, item: NavItem, *, active: bool = False) -> None:
@@ -132,10 +127,9 @@ class NavBar(Horizontal):
     active: reactive[str] = reactive("dashboard", init=False)
 
     def compose(self) -> ComposeResult:
-        # Read at compose rather than on mount. A widget's `on_mount` runs before
-        # its own children are usable, so anything that reaches for them there
-        # quietly does nothing; deciding here means the first frame is already
-        # correct and `watch_active` only has to handle changes.
+        # Read at compose: a widget's `on_mount` runs before its own children
+        # are usable, so the first frame is already correct here and
+        # `watch_active` only has to handle later changes.
         self.set_reactive(NavBar.active, str(getattr(self.app, "nav", self.active)))
         for item in NAV_ITEMS:
             yield NavItemLabel(item, active=item.screen == self.active)
@@ -148,12 +142,8 @@ class NavBar(Horizontal):
 class VersionTag(Static):
     """The installed version, and whether a newer one has been published.
 
-    Ambient rather than announced. A toast says it once and is gone; the tag is
-    there whenever somebody looks up, which is what makes it possible to notice
-    an upgrade without being interrupted by one.
-
-    The check is the application's to run -- it costs a request -- so the tag is
-    told rather than asking. Told nothing, it says what is installed and stops.
+    The tag is told about a newer version; running the check costs a request and
+    belongs to the application. Told nothing, it says what is installed.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -175,9 +165,8 @@ class VersionTag(Static):
         return installed
 
     def watch_latest(self, latest: str) -> None:
-        # Imported here rather than at module scope: `flexi.versioning` costs
-        # httpx, and every screen sits inside this module's chrome. Nothing
-        # reaches this line without the update check having paid for it.
+        # Imported here, not at module scope: `flexi.versioning` costs httpx,
+        # and every screen sits inside this module's chrome.
         from flexi.versioning import UPGRADE_HINT
 
         self.set_class(bool(latest), "-outdated")
@@ -185,18 +174,15 @@ class VersionTag(Static):
             f"Version {latest} is available. {UPGRADE_HINT}" if latest else None
         )
         # With layout: the tag grows by the width of an arrow and a version, and
-        # a plain refresh redraws it inside the width it had before.
+        # a plain refresh would redraw it inside the width it had before.
         self.refresh(layout=True)
 
 
 class AppHeader(Horizontal):
     """Wordmark, navigation, and the date and period in play.
 
-    The context is pushed to it. It used to try to *ask* as well, on mount,
-    through `getattr(self.app, "context_label", "")` -- and no such attribute
-    has ever existed on the application, so the fallback was the only answer
-    that branch ever gave. Every screen that has a context writes it in its own
-    `on_mount` or `rebuild`, which is the half that works.
+    The context is pushed to it: every screen that has one writes it in its own
+    `on_mount` or `rebuild`.
     """
 
     context: reactive[str] = reactive("", init=False)
@@ -233,17 +219,16 @@ STATUS_WORDS: Final[Mapping[Tone, str]] = MappingProxyType(
 """What a status pill says when its caller names no word of its own.
 
 The message line is drawn in one colour whatever happened on it, so the tone
-reaches the reader through the pill or nowhere — and a pill with no label is
-not drawn at all.
+reaches the reader through the pill or nowhere, and a pill with no label is not
+drawn at all.
 """
 
 
 class StatusBar(Horizontal):
     """A transient line: what just happened, and one pill of state.
 
-    Distinct from the footer's key hints, which say what you *can* do. This says
-    what Flexi *did* — "Clocked in at 09:12", "Annual leave booked for Wed 10" —
-    and is where every service result surfaces.
+    Where every service result surfaces, as against the key hints below it,
+    which say what you *can* do.
     """
 
     def compose(self) -> ComposeResult:
@@ -262,10 +247,8 @@ class StatusBar(Horizontal):
 def footer_key_cost(key_display: str, description: str) -> int:
     """Columns one compact footer entry occupies, including its right margin.
 
-    A compact :class:`BindingHint` drops the key's padding and puts a single
-    space before the description, and the strip gives every entry one column of
-    right margin. So an entry is its two strings plus two columns — a formula the
-    tests check against measured regions rather than trust.
+    A compact :class:`BindingHint` puts one space before the description and
+    the strip adds one column of right margin: two strings plus two columns.
     """
     return len(key_display) + len(description) + 2
 
@@ -274,10 +257,8 @@ def keys_that_fit(costs: Sequence[int], budget: int, marker: int) -> int:
     """How many entries fit in ``budget``, leaving room to say what did not.
 
     The last entry on the strip does not need its right margin, hence the -1 in
-    both branches. When everything fits there is nothing to announce and the
-    marker costs nothing; when it does not, room for the marker is reserved
-    before the first entry is admitted, because a strip that overflowed *and* hid
-    its overflow notice is the failure this function exists to prevent.
+    both branches. When everything fits the marker costs nothing; when it does
+    not, room for it is reserved before the first entry is admitted.
     """
     if sum(costs) - 1 <= budget:
         return len(costs)
@@ -286,10 +267,8 @@ def keys_that_fit(costs: Sequence[int], budget: int, marker: int) -> int:
         if used + cost + marker - 1 > budget:
             return count
         used += cost
-    # Unreachable for any non-negative marker: getting here needs
-    # `sum(costs) + marker - 1 <= budget` while the guard above already
-    # established `sum(costs) - 1 > budget`, which together require
-    # `marker < 0`. Kept because the loop has to end in a return.
+    # Unreachable for a non-negative marker: reaching it needs
+    # `sum(costs) + marker - 1 <= budget`, which the guard above rules out.
     return len(costs)  # pragma: no cover
 
 
@@ -312,9 +291,8 @@ class StripEntry:
 def strip_entries(screen: Screen[object]) -> list[StripEntry]:
     """The shown bindings of a screen, one entry per action, in declared order.
 
-    One per *action* rather than one per binding, which is what Textual's own
-    footer does and what stops the dashboard advertising ``/ Clock`` and
-    ``space Clock`` as two separate things you could press.
+    One per *action*, not one per binding as Textual's own footer does, so one
+    action bound to two keys is advertised once.
     """
     seen: dict[str, StripEntry] = {}
     for _node, binding, enabled, tooltip in screen.active_bindings.values():
@@ -333,10 +311,8 @@ def strip_entries(screen: Screen[object]) -> list[StripEntry]:
 class BindingHint(Widget):
     """One clickable key binding in the footer.
 
-    Textual deliberately exposes :class:`~textual.widgets.Footer` without
-    exposing the private widget it uses for each binding.  Keeping this small
-    public widget in Flexi preserves the footer's rendering and pointer
-    behaviour without tying the package to Textual's private module layout.
+    Textual keeps the widget it draws each binding with private, so this one
+    reproduces the footer's rendering and pointer behaviour.
     """
 
     ALLOW_SELECT: ClassVar[bool] = False
@@ -451,8 +427,8 @@ class OverflowLabel(Label):
 class KeyStrip(Footer):
     """Textual's footer, trimmed to the keys the terminal can actually show.
 
-    The stock footer lets the terminal edge cut whatever does not fit, and what it
-    cuts is the last bindings declared -- here, the navigation. This measures
+    The stock footer lets the terminal edge cut whatever does not fit, taking
+    the last bindings declared, which here are the navigation. This measures
     first, keeps whole entries, and spends its last columns saying how many it
     dropped.
     """
@@ -470,8 +446,8 @@ class KeyStrip(Footer):
         if not self.bindings_ready:
             return
         entries = strip_entries(self.screen)
-        # `self.size` is zero until the first layout; the strip is full width, so
-        # the app's own width is the same number one refresh earlier.
+        # `self.size` is zero until the first layout; the strip is full width,
+        # so the app's own width is the same number one refresh earlier.
         budget = self.size.width or self.app.size.width
         marker = footer_key_cost("", OVERFLOW_TEMPLATE.format(count=len(entries)))
         shown = keys_that_fit([entry.cost for entry in entries], budget, marker)
@@ -490,9 +466,8 @@ class KeyStrip(Footer):
     def on_resize(self) -> None:
         """A narrower terminal shows fewer keys, so the trim is re-measured.
 
-        Textual recomposes the footer when the *bindings* change, which is the
-        only thing the stock widget's output depends on. Ours also depends on the
-        width.
+        Textual recomposes the footer when the *bindings* change, which is all
+        the stock widget's output depends on. This one also depends on the width.
         """
         self.call_after_refresh(self.recompose)
 
@@ -508,9 +483,8 @@ class KeyStrip(Footer):
 class AppFooter(Vertical):
     """The status line and the key strip, docked as one unit.
 
-    The status line sits above the keys because a message about what just
-    happened is more urgent than a list of what could, and the eye reads upwards
-    from the bottom of a terminal.
+    The status line sits above the keys, so it is the first thing the eye meets
+    reading up from the bottom of a terminal.
     """
 
     DEFAULT_CLASSES: ClassVar[str] = "app-footer"

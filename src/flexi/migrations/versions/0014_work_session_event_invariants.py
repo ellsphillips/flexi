@@ -4,14 +4,14 @@ Revision ID: 0014
 Revises: 0013
 Create Date: 2026-08-27
 
-A clock event is an immutable fact.  Reusing one fact in multiple sessions or
-using an OUT event as a start (and vice versa) gives that fact contradictory
-meanings.  Unique constraints make ownership atomic; SQLite triggers enforce
-the action stored in the referenced row.
+A clock event is an immutable fact. Reusing one fact in several sessions, or
+using an OUT event as a start, gives that fact contradictory meanings. Unique
+constraints make ownership atomic; SQLite triggers enforce the action stored in
+the referenced row.
 
-Legacy conflicts cannot be repaired without inventing user history.  Every
-conflict is therefore detected before the first schema change, and the
-migration names the rows a person must resolve.
+Conflicts in existing data cannot be repaired without inventing history, so
+every conflict is detected before the first schema change and the migration
+names the rows a person must resolve.
 """
 
 from __future__ import annotations
@@ -39,9 +39,8 @@ CLOCK_EVENTS = sa.table(
     sa.column("action", sa.String),
 )
 
-# These statements are deliberately frozen in the migration rather than
-# imported from the runtime invariant module.  Historical migrations must keep
-# the exact behaviour released with their revision.
+# Frozen here, not imported from the runtime invariant module: a migration
+# keeps the behaviour released with its revision.
 WORK_SESSION_ACTION_INSERT_TRIGGER_SQL = """
 CREATE TRIGGER trg_work_sessions_clock_actions_insert
 BEFORE INSERT ON work_sessions
