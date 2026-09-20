@@ -23,6 +23,7 @@ OTHER_SHA = "b" * 40
 REPOSITORY = "example/flexi"
 GITHUB = f"https://api.github.com/repos/{REPOSITORY}"
 PYPI = f"https://pypi.org/pypi/flexi/{VERSION}/json"
+TESTPYPI = f"https://test.pypi.org/pypi/flexi/{VERSION}/json"
 TEST_CREDENTIAL = "invalid-test-credential"
 
 
@@ -58,9 +59,11 @@ class Remote:
             path.name: hashlib.sha256(path.read_bytes()).hexdigest()
             for path in artifacts.iterdir()
         }
+        self.test_files = dict(self.files)
         self.tag: str | None = None
         self.release = False
         self.writes: list[str] = []
+        self.reads: list[str] = []
         self.race: str | None = None
 
     def request(
@@ -71,12 +74,15 @@ class Remote:
         payload: dict[str, object] | None = None,
         missing_ok: bool = False,
     ) -> object:
-        if url == PYPI:
+        if payload is None:
+            self.reads.append(url)
+        if url in {PYPI, TESTPYPI}:
             assert token == "", "GitHub credentials must never reach PyPI"
+            files = self.files if url == PYPI else self.test_files
             return {
                 "urls": [
                     {"filename": name, "digests": {"sha256": digest}}
-                    for name, digest in self.files.items()
+                    for name, digest in files.items()
                 ]
             }
         assert url.startswith(f"{GITHUB}/")
@@ -407,3 +413,303 @@ def test_cli_failure_does_not_print_credentials(
     assert output.out == ""
     assert "stable X.Y.Z" in output.err
     assert "do-not-print-this-secret" not in output.err
+
+
+@pytest.mark.parametrize("registry", ["pypi", "testpypi"])
+@pytest.mark.parametrize("file_count", [0, 1, 2])
+@pytest.mark.parametrize("complete", [False, True])
+def test_verification_uses_only_the_selected_registry(
+    release_script: ModuleType,
+    remote: Remote,
+    artifacts: Path,
+    registry: str,
+    file_count: int,
+    complete: bool,
+) -> None:
+    selected = remote.files if registry == "pypi" else remote.test_files
+    unselected = remote.test_files if registry == "pypi" else remote.files
+    for name in list(selected)[file_count:]:
+        del selected[name]
+    for name in unselected:
+        unselected[name] = "0" * 64
+    target = release_script.Registry(registry)
+
+    if complete and file_count < 2:
+        with pytest.raises(
+            release_script.ReleaseError, match=rf"{target.label}.*both distributions"
+        ):
+            release_script.verify_artifacts(
+                artifacts, VERSION, registry=target, complete=complete
+            )
+    else:
+        release_script.verify_artifacts(
+            artifacts, VERSION, registry=target, complete=complete
+        )
+
+    assert remote.reads == [PYPI if registry == "pypi" else TESTPYPI]
+    assert remote.writes == []
+
+
+@pytest.mark.parametrize("registry", ["pypi", "testpypi"])
+@pytest.mark.parametrize("complete", [False, True])
+def test_hash_mismatch_in_either_registry_is_refused(
+    release_script: ModuleType,
+    remote: Remote,
+    artifacts: Path,
+    registry: str,
+    complete: bool,
+) -> None:
+    selected = remote.files if registry == "pypi" else remote.test_files
+    selected[next(iter(selected))] = "0" * 64
+    with pytest.raises(release_script.ReleaseError, match="differs from the tested"):
+        release_script.verify_artifacts(
+            artifacts,
+            VERSION,
+            registry=release_script.Registry(registry),
+            complete=complete,
+        )
+    assert remote.writes == []
+
+
+def test_testpypi_cannot_complete_a_production_release(
+    release_script: ModuleType, remote: Remote, artifacts: Path, github: Any
+) -> None:
+    remote.files.clear()
+    remote.tag = SHA
+    remote.release = True
+
+    assert release_script.needs_publication(VERSION, SHA, github)
+    with pytest.raises(release_script.ReleaseError, match=r"PyPI.*both distributions"):
+        release_script.finalize(artifacts, VERSION, SHA, github)
+    assert TESTPYPI not in remote.reads
+    assert remote.writes == []
+
+
+@pytest.mark.parametrize("registry", ["pypi", "testpypi"])
+@pytest.mark.parametrize("complete", [False, True])
+def test_verify_cli_honors_registry_and_completeness(
+    release_script: ModuleType,
+    remote: Remote,
+    artifacts: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    registry: str,
+    complete: bool,
+) -> None:
+    selected = remote.files if registry == "pypi" else remote.test_files
+    selected.pop(next(iter(selected)))
+    arguments = [
+        str(SCRIPT),
+        "verify",
+        "--version",
+        VERSION,
+        "--dist",
+        str(artifacts),
+        "--registry",
+        registry,
+    ]
+    if complete:
+        arguments.append("--complete")
+    monkeypatch.setattr(sys, "argv", arguments)
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("GITHUB_SHA", SHA)
+    monkeypatch.setenv("GH_TOKEN", TEST_CREDENTIAL)
+
+    assert release_script.main() == int(complete)
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert ("both distributions" in output.err) is complete
+    assert remote.reads[-1] == (PYPI if registry == "pypi" else TESTPYPI)
+    assert remote.writes == []
+
+
+@pytest.mark.parametrize(
+    "registry", ["https://evil.example", "pypi/../evil", "TESTPYPI", "testpypi\n"]
+)
+def test_registry_must_be_a_fixed_known_selection(
+    release_script: ModuleType,
+    remote: Remote,
+    monkeypatch: pytest.MonkeyPatch,
+    registry: str,
+) -> None:
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "verify", "--registry", registry])
+    with pytest.raises(SystemExit, match="2"):
+        release_script.main()
+    assert remote.reads == []
+    assert remote.writes == []
+
+
+@pytest.mark.parametrize("command", ["guard", "finalize"])
+@pytest.mark.parametrize("options", [("--registry", "testpypi"), ("--complete",)])
+def test_registry_and_completeness_options_cannot_change_production_commands(
+    release_script: ModuleType,
+    remote: Remote,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    options: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), command, *options])
+    with pytest.raises(SystemExit, match="2"):
+        release_script.main()
+    assert remote.reads == []
+    assert remote.writes == []
+
+
+class PublicationClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+@pytest.fixture
+def publication_clock(
+    release_script: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> PublicationClock:
+    clock = PublicationClock()
+    monkeypatch.setattr(release_script, "monotonic", clock.monotonic)
+    monkeypatch.setattr(release_script, "sleep", clock.sleep)
+    return clock
+
+
+def test_complete_cli_waits_for_registry_propagation(
+    release_script: ModuleType,
+    remote: Remote,
+    artifacts: Path,
+    publication_clock: PublicationClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    complete_files = dict(remote.test_files)
+    remote.test_files.clear()
+
+    def publish(seconds: float) -> None:
+        publication_clock.sleep(seconds)
+        remote.test_files.update(complete_files)
+
+    monkeypatch.setattr(release_script, "sleep", publish)
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("GITHUB_SHA", SHA)
+    monkeypatch.setenv("GH_TOKEN", TEST_CREDENTIAL)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "verify",
+            "--version",
+            VERSION,
+            "--dist",
+            str(artifacts),
+            "--registry",
+            "testpypi",
+            "--complete",
+            "--wait",
+            "120",
+        ],
+    )
+
+    assert release_script.main() == 0
+    assert publication_clock.sleeps == [5.0]
+    assert remote.reads.count(TESTPYPI) == 2
+    assert remote.writes == []
+
+
+@pytest.mark.parametrize(
+    ("seconds", "sleeps", "requests"), [(0, [], 1), (3, [3.0], 1), (7, [5.0, 2.0], 2)]
+)
+def test_missing_publication_stops_at_the_deadline(
+    release_script: ModuleType,
+    remote: Remote,
+    artifacts: Path,
+    publication_clock: PublicationClock,
+    seconds: int,
+    sleeps: list[float],
+    requests: int,
+) -> None:
+    remote.test_files.clear()
+
+    with pytest.raises(release_script.PublicationPendingError):
+        release_script.wait_for_publication(
+            artifacts,
+            VERSION,
+            registry=release_script.Registry.TESTPYPI,
+            seconds=seconds,
+        )
+
+    assert publication_clock.sleeps == sleeps
+    assert publication_clock.now == seconds
+    assert remote.reads == [TESTPYPI] * requests
+
+
+@pytest.mark.parametrize("registry", ["pypi", "testpypi"])
+def test_partial_upload_with_conflicting_bytes_is_never_retried(
+    release_script: ModuleType,
+    remote: Remote,
+    artifacts: Path,
+    publication_clock: PublicationClock,
+    registry: str,
+) -> None:
+    selected = remote.files if registry == "pypi" else remote.test_files
+    selected.pop(next(iter(selected)))
+    selected[next(iter(selected))] = "0" * 64
+
+    with pytest.raises(release_script.ReleaseError, match="differs from the tested"):
+        release_script.wait_for_publication(
+            artifacts, VERSION, registry=release_script.Registry(registry), seconds=120
+        )
+
+    assert publication_clock.sleeps == []
+    assert remote.reads == [PYPI if registry == "pypi" else TESTPYPI]
+
+
+def test_registry_errors_are_never_retried(
+    release_script: ModuleType,
+    artifacts: Path,
+    publication_clock: PublicationClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[str] = []
+
+    def unavailable(url: str, **_kwargs: object) -> None:
+        requests.append(url)
+        raise release_script.RemoteError(503)
+
+    monkeypatch.setattr(release_script, "request_json", unavailable)
+    with pytest.raises(release_script.RemoteError, match="HTTP 503"):
+        release_script.wait_for_publication(
+            artifacts, VERSION, registry=release_script.Registry.TESTPYPI, seconds=120
+        )
+
+    assert requests == [TESTPYPI]
+    assert publication_clock.sleeps == []
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("verify", "--complete", "--wait", "-1"),
+        ("verify", "--complete", "--wait", "121"),
+        ("verify", "--complete", "--wait", "inf"),
+        ("verify", "--wait", "120"),
+        ("verify", "--wait", "0"),
+        ("guard", "--wait", "0"),
+        ("finalize", "--wait", "120"),
+    ],
+)
+def test_invalid_wait_options_are_rejected_before_network_access(
+    release_script: ModuleType,
+    remote: Remote,
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), *arguments])
+    with pytest.raises(SystemExit, match="2"):
+        release_script.main()
+    assert remote.reads == []
+    assert remote.writes == []

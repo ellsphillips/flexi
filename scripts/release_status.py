@@ -9,9 +9,11 @@ import os
 import re
 import sys
 import tomllib
+from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path
 from threading import Thread
+from time import monotonic, sleep
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -25,10 +27,32 @@ REQUEST_BUDGET = 30.0
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_RELEASE_PAGES = 10
 RELEASES_PER_PAGE = 100
+MAX_PUBLICATION_WAIT = 120
+PUBLICATION_POLL_INTERVAL = 5.0
+
+
+class Registry(StrEnum):
+    PYPI = "pypi"
+    TESTPYPI = "testpypi"
+
+    @property
+    def root(self) -> str:
+        return {
+            Registry.PYPI: "https://pypi.org",
+            Registry.TESTPYPI: "https://test.pypi.org",
+        }[self]
+
+    @property
+    def label(self) -> str:
+        return "PyPI" if self is Registry.PYPI else "TestPyPI"
 
 
 class ReleaseError(Exception):
     """A release cannot proceed safely; the caller must leave remote state alone."""
+
+
+class PublicationPendingError(ReleaseError):
+    """The registry has not exposed both verified distribution files yet."""
 
 
 class RemoteError(ReleaseError):
@@ -129,28 +153,33 @@ def filenames(version: str) -> set[str]:
     return {f"{PACKAGE}-{version}-py3-none-any.whl", f"{PACKAGE}-{version}.tar.gz"}
 
 
-def published_files(version: str) -> dict[str, str]:
+def published_files(version: str, registry: Registry = Registry.PYPI) -> dict[str, str]:
     payload = request_json(
-        f"https://pypi.org/pypi/{PACKAGE}/{version}/json", missing_ok=True
+        f"{registry.root}/pypi/{PACKAGE}/{version}/json", missing_ok=True
     )
     if payload is None:
         return {}
     if not isinstance(payload, dict) or not isinstance(payload.get("urls"), list):
-        message = "PyPI returned invalid release metadata"
+        message = f"{registry.label} returned invalid release metadata"
         raise ReleaseError(message)
     found: dict[str, str] = {}
     for item in payload["urls"]:
         name = item.get("filename") if isinstance(item, dict) else None
         if not isinstance(name, str) or name not in filenames(version):
-            message = "PyPI has unexpected distribution files; refusing this release"
+            message = (
+                f"{registry.label} has unexpected distribution files; "
+                "refusing this release"
+            )
             raise ReleaseError(message)
         digests = item.get("digests")
         digest = digests.get("sha256") if isinstance(digests, dict) else None
         if not isinstance(digest, str) or SHA256.fullmatch(digest) is None:
-            message = "PyPI did not provide a valid SHA256 for a published file"
+            message = (
+                f"{registry.label} did not provide a valid SHA256 for a published file"
+            )
             raise ReleaseError(message)
         if name in found:
-            message = "PyPI returned duplicate distribution filenames"
+            message = f"{registry.label} returned duplicate distribution filenames"
             raise ReleaseError(message)
         found[name] = digest
     return found
@@ -243,7 +272,13 @@ def needs_publication(version: str, sha: str, github: GitHub) -> bool:
     return True
 
 
-def verify_artifacts(directory: Path, version: str, *, complete: bool = False) -> None:
+def verify_artifacts(
+    directory: Path,
+    version: str,
+    *,
+    registry: Registry = Registry.PYPI,
+    complete: bool = False,
+) -> None:
     expected = filenames(version)
     if {path.name for path in directory.iterdir()} != expected or any(
         not (directory / name).is_file() or (directory / name).is_symlink()
@@ -251,19 +286,42 @@ def verify_artifacts(directory: Path, version: str, *, complete: bool = False) -
     ):
         message = "The artifact must contain exactly this version's wheel and sdist"
         raise ReleaseError(message)
-    remote = published_files(version)
-    if complete and remote.keys() != expected:
-        message = "PyPI does not yet have both distributions; retry the upload job"
-        raise ReleaseError(message)
+    remote = published_files(version, registry)
     for name, digest in remote.items():
         with (directory / name).open("rb") as source:
             local = hashlib.file_digest(source, "sha256").hexdigest()
         if local != digest:
             message = (
-                f"Published {name} differs from the tested artifact. "
+                f"Published {name} on {registry.label} "
+                "differs from the tested artifact. "
                 "Use the original run's artifact or release a new version."
             )
             raise ReleaseError(message)
+    if complete and remote.keys() != expected:
+        message = (
+            f"{registry.label} does not yet have both distributions; "
+            "retry the upload job"
+        )
+        raise PublicationPendingError(message)
+
+
+def wait_for_publication(
+    directory: Path, version: str, *, registry: Registry, seconds: int
+) -> None:
+    """Retry only registry propagation delays, never conflicting published bytes."""
+    deadline = monotonic() + seconds
+    while True:
+        try:
+            verify_artifacts(directory, version, registry=registry, complete=True)
+        except PublicationPendingError:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise
+            sleep(min(PUBLICATION_POLL_INTERVAL, remaining))
+            if monotonic() >= deadline:
+                raise
+        else:
+            return
 
 
 def finalize(directory: Path, version: str, sha: str, github: GitHub) -> None:
@@ -310,7 +368,26 @@ def main() -> int:
     parser.add_argument("--project", type=Path, default=Path("pyproject.toml"))
     parser.add_argument("--version")
     parser.add_argument("--dist", type=Path, default=Path("dist"))
+    parser.add_argument(
+        "--registry", type=Registry, choices=Registry, default=Registry.PYPI
+    )
+    parser.add_argument("--complete", action="store_true")
+    parser.add_argument(
+        "--wait",
+        type=int,
+        metavar="SECONDS",
+        help="Wait for complete publication for up to 120 seconds (default: 0)",
+    )
     args = parser.parse_args()
+    if args.command != "verify" and (
+        args.registry is not Registry.PYPI or args.complete
+    ):
+        parser.error("--registry testpypi and --complete apply only to verify")
+    if args.wait is not None:
+        if not 0 <= args.wait <= MAX_PUBLICATION_WAIT:
+            parser.error("--wait must be between 0 and 120 seconds")
+        if args.command != "verify" or not args.complete:
+            parser.error("--wait requires verify --complete")
     try:
         version = (
             project_version(args.project)
@@ -327,7 +404,12 @@ def main() -> int:
             print(f"publish={str(publish).lower()}")
         elif args.command == "verify":
             github.require_tag(version, sha)
-            verify_artifacts(args.dist, version)
+            if args.complete:
+                wait_for_publication(
+                    args.dist, version, registry=args.registry, seconds=args.wait or 0
+                )
+            else:
+                verify_artifacts(args.dist, version, registry=args.registry)
         else:
             finalize(args.dist, version, sha, github)
     except (ReleaseError, OSError, ValueError, KeyError) as error:
