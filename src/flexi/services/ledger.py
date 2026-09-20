@@ -129,15 +129,19 @@ class LedgerService:
     ) -> list[DayLedger]:
         """Every day between two dates, inclusive, built in three queries.
 
-        A cached day is reused unless it is *today*: today's ledger holds any
-        open session, whose length changes every second.
+        Today's ledger and any day holding an open session are rebuilt. An open
+        session valued yesterday must reach its day-end cutoff after midnight.
         """
         self.refresh_revision()
         moment = wallclock.local(now) if now is not None else wallclock.now()
         today = moment.date()
 
         wanted = days_between(start, end)
-        missing = [day for day in wanted if day not in self._cache or day == today]
+        missing = [
+            day
+            for day in wanted
+            if day not in self._cache or day == today or self._cache[day].is_open
+        ]
         if missing:
             self._build(min(missing), max(missing), moment, today)
         return [self._cache[day] for day in wanted]
@@ -236,6 +240,7 @@ class LedgerService:
         # relationship would cost two more queries per session.
         stmt = (
             select(WorkSession)
+            .execution_options(populate_existing=True)
             .options(
                 selectinload(WorkSession.clock_in_event),
                 selectinload(WorkSession.clock_out_event),
@@ -255,6 +260,7 @@ class LedgerService:
     def _absences(self, start: date, end: date) -> defaultdict[date, list[AbsenceDay]]:
         stmt = (
             select(AbsenceDay)
+            .execution_options(populate_existing=True)
             .where(AbsenceDay.date >= start, AbsenceDay.date <= end)
             .order_by(AbsenceDay.date, AbsenceDay.id)
         )

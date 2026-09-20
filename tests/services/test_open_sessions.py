@@ -67,3 +67,17 @@ def test_open_session_today_still_runs_live(
     tuesday = services.ledger.day(TUESDAY, now=watching)
 
     assert tuesday.worked == timedelta(hours=2, minutes=30)
+
+
+def test_a_cached_open_session_reaches_its_cutoff_after_midnight(
+    services: Services, session: Session
+) -> None:
+    _leave_open(session, TUESDAY_NINE)
+    watching = TUESDAY_NINE.replace(hour=23)
+    before_midnight = services.ledger.day(TUESDAY, now=watching)
+    assert before_midnight.worked == timedelta(hours=14)
+
+    after_midnight = services.ledger.day(TUESDAY, now=watching + timedelta(hours=2))
+
+    assert after_midnight.worked == timedelta(hours=15, microseconds=-1)
+    assert after_midnight is not before_midnight

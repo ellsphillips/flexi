@@ -221,7 +221,8 @@ class SettingsService:
     # ---- settings row ----
 
     def get_settings(self) -> Settings | None:
-        return self._session.execute(select(Settings)).scalar_one_or_none()
+        stmt = select(Settings).execution_options(populate_existing=True)
+        return self._session.execute(stmt).scalar_one_or_none()
 
     def is_setup_complete(self) -> bool:
         """Whether this database has everything Flexi needs to open on it.
