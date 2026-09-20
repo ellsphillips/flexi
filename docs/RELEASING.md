@@ -2,7 +2,8 @@
 
 Work lands on `dev`, the default branch. A release pull request from `dev` into
 `main` names the next version; automation prepares the release on `dev` for
-review. Merging that pull request starts publishing.
+review. Merging starts the release checks; publishing waits for the owner's
+approval in GitHub Actions.
 
 ## Publish a release
 
@@ -23,8 +24,10 @@ review. Merging that pull request starts publishing.
    commit. New commits need fresh passing checks.
 5. Use **Create a merge commit** to merge into `main`. Keep `dev`; regular merges
    preserve the ancestry between the development and release branches.
-6. Approve the `pypi` deployment in GitHub Actions. The release workflow verifies
-   the merge commit and uploads its checked wheel and source distribution.
+6. As `ellsphillips`, open the release run in GitHub Actions and click **Review
+   deployments**. Select the **pypi** checkbox, then **Approve and deploy**. The
+   workflow uploads the checked wheel and source distribution only after this
+   approval.
 7. After publication, review and publish the draft GitHub release.
 
 Preparation promotes `## Unreleased` when the requested version has no changelog
@@ -88,11 +91,13 @@ credentials and stops until they are configured.
 
 Create an environment named `pypi` under **Settings → Environments**:
 
-- Add a required reviewer.
+- Set `ellsphillips` as the only required reviewer.
+- Allow self-review so the owner can approve a release triggered by their merge.
+- Disable administrator bypass.
 - Restrict deployment branches to `main`.
 
-The reviewer rule provides the approval gate. Merely naming the environment
-in a workflow does not require approval.
+The reviewer rule provides the manual approval gate immediately before upload.
+Merely naming the environment in a workflow does not require approval.
 
 ### PyPI trusted publisher
 

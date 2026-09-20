@@ -1,7 +1,7 @@
 name: Release
 
-# A reviewed merge to main authorizes release; the environment may additionally
-# require approval. Incomplete publication may be resumed, but already-published
+# A reviewed merge to main starts release checks; the pypi environment requires
+# owner approval before upload. Incomplete publication may resume, but published
 # files must match the newly tested artifacts.
 # Completed versions are harmless no-ops on later documentation commits.
 
@@ -105,7 +105,7 @@ jobs:
       # cannot mint one.
       id-token: write
     # The environment binds the trusted publisher and restricts deployments
-    # to main. Any configured environment reviewer remains an additional gate.
+    # to main. Its sole reviewer, ellsphillips, approves the upload manually.
     environment:
       name: pypi
       url: https://pypi.org/project/flexi/${{ needs.guard.outputs.version }}
