@@ -9,14 +9,16 @@ uv run pre-commit install
 uv run pytest -q
 ```
 
-`dev` is the working branch: branch off it, and open pull requests into it.
-`main` is what has been released, and merging into it starts the release
-pipeline — see [`docs/RELEASING.md`](docs/RELEASING.md).
+`dev` is the default and working branch: branch off it, and open pull requests
+into it. Release pull requests go from `dev` into `main`, with a title such as
+`chore(release): 0.2.0`. Automation prepares the version, release notes, and
+screenshots on `dev` before review and merge. See
+[`docs/RELEASING.md`](docs/RELEASING.md) for the checks and publishing procedure.
 
-The hooks are CI's static job — ruff, the formatter, mypy and `uv lock --check` —
-run through the same locked environment, so lint and types cannot fail on the
-server having passed on your machine. They do not run the suite. Run `pytest`
-yourself before you push.
+The hooks run CI's static checks — ruff, the formatter, mypy and
+`uv lock --check` — through the locked environment. They do not run the suite.
+Run `pytest` yourself before you push; CI also checks the supported operating
+systems and interpreters.
 
 ## The layout
 
@@ -58,13 +60,20 @@ Durations are `timedelta`, never float hours: 7.4 is not representable in binary
 floating point, and a leave year of rounding it gives a balance that disagrees
 with the sum of its own rows.
 
-Anything that changes the interface should regenerate the screenshots, and a
-version bump counts as one — the version is drawn in the header, so the snapshot
-twins in `docs/shots/` carry it:
+Add a short user-facing note under `## Unreleased` in `CHANGELOG.md` for changes
+that belong in release notes. Release preparation promotes that section to the
+version named in the release pull request.
+
+Anything that changes the interface should regenerate the screenshots and their
+text twins in `docs/shots/`:
 
 ```
 uv run python scripts/shoot.py
 ```
+
+The release preparer also regenerates them after updating the version drawn in
+the header. Version bumps belong to the release pull request, not each feature
+or fix.
 
 ## Style
 
