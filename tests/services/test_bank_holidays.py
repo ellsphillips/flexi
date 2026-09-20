@@ -90,14 +90,16 @@ if "httpx" in introduced:
 def _answering(payload: object, status: int = 200) -> Callable[..., httpx.Response]:
     """A stand-in for GOV.UK, shaped like the real index.
 
-    A real `httpx.Response`, because the code under test calls
-    `raise_for_status()` as well as `json()`.
+    A real `httpx.Response`, so status checks and streamed bytes use HTTPX's
+    response handling.
     """
 
-    def get(_self: httpx.Client, url: str, **_kwargs: Any) -> httpx.Response:
-        return httpx.Response(status, json=payload, request=httpx.Request("GET", url))
+    def send(
+        _self: httpx.Client, request: httpx.Request, **_kwargs: Any
+    ) -> httpx.Response:
+        return httpx.Response(status, json=payload, request=request)
 
-    return get
+    return send
 
 
 def _seed_cache(session: Session, division: str = "england-and-wales") -> None:
@@ -214,7 +216,7 @@ class TestFetchFailure:
         """
         _seed_cache(session)
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        monkeypatch.setattr(httpx.Client, "get", _answering("", status=503))
+        monkeypatch.setattr(httpx.Client, "send", _answering("", status=503))
 
         assert svc.fetch_and_cache() is False
         assert svc.holiday_on(date(2026, 12, 25)) is not None
@@ -225,12 +227,12 @@ class TestFetchFailure:
         """A captive portal answers 200 with a login page, not a calendar."""
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
 
-        def html(_self: httpx.Client, url: str, **_kwargs: Any) -> httpx.Response:
-            return httpx.Response(
-                200, text="<html>sign in</html>", request=httpx.Request("GET", url)
-            )
+        def html(
+            _self: httpx.Client, request: httpx.Request, **_kwargs: Any
+        ) -> httpx.Response:
+            return httpx.Response(200, text="<html>sign in</html>", request=request)
 
-        monkeypatch.setattr(httpx.Client, "get", html)
+        monkeypatch.setattr(httpx.Client, "send", html)
 
         assert svc.fetch_and_cache() is False
         assert svc.is_available() is False
@@ -258,7 +260,7 @@ class TestFetchingTheIndex:
         )
         session.commit()
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        monkeypatch.setattr(httpx.Client, "send", _answering(SAMPLE_RESPONSE))
 
         assert svc.fetch_and_cache() is True
         assert svc.get_dates() == {
@@ -272,7 +274,7 @@ class TestFetchingTheIndex:
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The index carries all three; St Andrew's Day is not an English holiday."""
-        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        monkeypatch.setattr(httpx.Client, "send", _answering(SAMPLE_RESPONSE))
 
         BankHolidayService(session, reading(Division.SCOTLAND)).fetch_and_cache()
 
@@ -336,7 +338,7 @@ class TestFetchingTheIndex:
         """A partial new calendar is less trustworthy than the complete old one."""
         _seed_cache(session)
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        monkeypatch.setattr(httpx.Client, "get", _answering(payload))
+        monkeypatch.setattr(httpx.Client, "send", _answering(payload))
 
         assert svc.fetch_and_cache() is False
         assert svc.get_dates() == {
@@ -351,7 +353,7 @@ class TestFetchingTheIndex:
         """The date is what the arithmetic needs; the name is decoration."""
         payload = {"england-and-wales": {"events": [{"date": "2026-01-01"}]}}
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        monkeypatch.setattr(httpx.Client, "get", _answering(payload))
+        monkeypatch.setattr(httpx.Client, "send", _answering(payload))
 
         assert svc.fetch_and_cache() is True
         assert svc.holiday_on(date(2026, 1, 1)) is not None
@@ -414,7 +416,7 @@ class TestFetchingTheIndex:
     def test_default_fetch_boundary_is_public(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        monkeypatch.setattr(httpx.Client, "send", _answering(SAMPLE_RESPONSE))
         assert fetch_bank_holiday_index() == SAMPLE_RESPONSE
 
     def test_fetch_past_its_budget_is_unusable(
@@ -428,15 +430,13 @@ class TestFetchingTheIndex:
         still_waiting = threading.Event()
 
         def answers_eventually(
-            _self: httpx.Client, url: str, **_kwargs: Any
+            _self: httpx.Client, request: httpx.Request, **_kwargs: Any
         ) -> httpx.Response:
             still_waiting.wait(timeout=10)
-            return httpx.Response(
-                200, json=SAMPLE_RESPONSE, request=httpx.Request("GET", url)
-            )
+            return httpx.Response(200, json=SAMPLE_RESPONSE, request=request)
 
         monkeypatch.setattr(bank_holidays, "_FETCH_BUDGET", 0.05)
-        monkeypatch.setattr(httpx.Client, "get", answers_eventually)
+        monkeypatch.setattr(httpx.Client, "send", answers_eventually)
 
         try:
             assert fetch_bank_holiday_index() is None
@@ -512,7 +512,7 @@ class TestFetchingTheIndex:
     ) -> None:
         """The first run online: nothing cached, so it fetches and now answers."""
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        monkeypatch.setattr(httpx.Client, "send", _answering(SAMPLE_RESPONSE))
 
         assert svc.fill_if_empty() is True
         assert svc.holiday_on(date(2026, 4, 3)) is not None
@@ -533,7 +533,7 @@ class TestRefreshingOnlyWhenItIsStale:
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
         assert svc.is_fresh() is False
 
-        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        monkeypatch.setattr(httpx.Client, "send", _answering(SAMPLE_RESPONSE))
         assert svc.fetch_and_cache() is True
         assert svc.holiday_on(date(2026, 1, 1)) is not None
 
@@ -544,13 +544,13 @@ class TestRefreshingOnlyWhenItIsStale:
         _seed_cache(session)
         asked: list[str] = []
 
-        def counted(_self: httpx.Client, url: str, **_kwargs: Any) -> httpx.Response:
-            asked.append(url)
-            return httpx.Response(
-                200, json=SAMPLE_RESPONSE, request=httpx.Request("GET", url)
-            )
+        def counted(
+            _self: httpx.Client, request: httpx.Request, **_kwargs: Any
+        ) -> httpx.Response:
+            asked.append(str(request.url))
+            return httpx.Response(200, json=SAMPLE_RESPONSE, request=request)
 
-        monkeypatch.setattr(httpx.Client, "get", counted)
+        monkeypatch.setattr(httpx.Client, "send", counted)
 
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
 
@@ -576,7 +576,7 @@ class TestRefreshingOnlyWhenItIsStale:
         )
         session.commit()
         svc = BankHolidayService(session, reading(Division.ENGLAND_AND_WALES))
-        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        monkeypatch.setattr(httpx.Client, "send", _answering(SAMPLE_RESPONSE))
 
         assert svc.is_fresh() is False
         assert svc.fetch_and_cache() is True
@@ -748,7 +748,7 @@ class TestNotAskingTwiceForTheSameSilence:
         assert svc.fill_if_empty() is False, "the suite refuses outbound requests"
         assert svc.asked_recently() is True
 
-        monkeypatch.setattr(httpx.Client, "get", _answering(SAMPLE_RESPONSE))
+        monkeypatch.setattr(httpx.Client, "send", _answering(SAMPLE_RESPONSE))
         assert svc.fetch_and_cache() is True
 
         assert svc.asked_recently() is False

@@ -14,26 +14,17 @@ from flexi.__main__ import cli
 from flexi.versioning import PYPI_URL, available_update, get_pypi_version
 
 
-class _Response:
-    """Just enough of httpx.Response for the two calls versioning makes."""
-
-    def __init__(self, payload: Any) -> None:
-        self._payload = payload
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def json(self) -> Any:
-        return self._payload
+def _response(payload: object) -> httpx.Response:
+    return httpx.Response(200, json=payload, request=httpx.Request("GET", PYPI_URL))
 
 
-def _publishing(version: str) -> _Response:
-    return _Response({"info": {"version": version}})
+def _publishing(version: str) -> httpx.Response:
+    return _response({"info": {"version": version}})
 
 
 def test_cli_never_reaches_the_network() -> None:
     """--version is answered from the installed metadata, not from PyPI."""
-    with patch("httpx.Client.get", side_effect=AssertionError("reached the network")):
+    with patch("httpx.Client.send", side_effect=AssertionError("reached the network")):
         result = click.testing.CliRunner().invoke(cli, ["--version"])
     assert result.exit_code == 0
     assert flexi.__version__ in result.output
@@ -48,7 +39,7 @@ def test_cli_never_reaches_the_network() -> None:
     ],
 )
 def test_unreachable_index_is_not_an_error(failure: Exception) -> None:
-    with patch("httpx.Client.get", side_effect=failure):
+    with patch("httpx.Client.send", side_effect=failure):
         assert get_pypi_version() is None
         assert available_update() is None
 
@@ -75,43 +66,46 @@ def test_broken_client_is_not_an_error(failure: Exception) -> None:
         assert available_update() is None
 
 
-@pytest.mark.parametrize("payload", [{}, {"info": {}}, {"info": None}, []])
+@pytest.mark.parametrize(
+    "payload", [{}, {"info": {}}, {"info": None}, [], {"info": {"version": 99}}]
+)
 def test_malformed_answer_is_not_an_error(payload: Any) -> None:
     """PyPI is a third party; its response shape is not a guarantee."""
-    with patch("httpx.Client.get", return_value=_Response(payload)):
+    with patch("httpx.Client.send", return_value=_response(payload)):
         assert get_pypi_version() is None
 
 
 def test_unparseable_version_is_not_an_error() -> None:
-    with patch("httpx.Client.get", return_value=_publishing("not-a-version")):
+    with patch("httpx.Client.send", return_value=_publishing("not-a-version")):
         assert available_update() is None
 
 
 def test_newer_release_is_reported_by_name() -> None:
     """The caller needs the number to show it."""
-    with patch("httpx.Client.get", return_value=_publishing("99.0.0")):
+    with patch("httpx.Client.send", return_value=_publishing("99.0.0")):
         assert available_update() == "99.0.0"
 
 
 def test_reported_version_is_normalised() -> None:
     """PEP 440 admits surrounding whitespace; the header stamps what it is given."""
-    with patch("httpx.Client.get", return_value=_publishing("\n 99.0.0 \t")):
+    with patch("httpx.Client.send", return_value=_publishing("\n 99.0.0 \t")):
         assert available_update() == "99.0.0"
 
 
 def test_running_version_is_not_an_update() -> None:
     """The boundary: an update is offered on `>`, so the running version is not."""
-    with patch("httpx.Client.get", return_value=_publishing(flexi.__version__)):
+    with patch("httpx.Client.send", return_value=_publishing(flexi.__version__)):
         assert available_update() is None
 
 
 def test_older_release_is_not_an_update() -> None:
-    with patch("httpx.Client.get", return_value=_publishing("0.0.1")):
+    with patch("httpx.Client.send", return_value=_publishing("0.0.1")):
         assert available_update() is None
 
 
 def test_index_is_asked_once_per_check() -> None:
-    with patch("httpx.Client.get", return_value=_publishing("99.0.0")) as fetch:
+    with patch("httpx.Client.send", return_value=_publishing("99.0.0")) as fetch:
         available_update()
     assert fetch.call_count == 1
-    assert fetch.call_args.args[0] == PYPI_URL
+    assert str(fetch.call_args.args[0].url) == PYPI_URL
+    assert fetch.call_args.kwargs["stream"] is True

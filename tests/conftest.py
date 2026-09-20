@@ -193,7 +193,7 @@ def _never_the_internet(monkeypatch: pytest.MonkeyPatch) -> None:
         msg = "the test suite does not make network requests"
         raise httpx.ConnectError(msg)
 
-    monkeypatch.setattr(httpx.Client, "get", refused)
+    monkeypatch.setattr(httpx.Client, "send", refused)
 
 
 @pytest.fixture(scope="session", autouse=True)

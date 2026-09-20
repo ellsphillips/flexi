@@ -243,7 +243,9 @@ async def test_stale_calendar_refetches_off_loop_and_redraws(
         session.execute(update(BankHolidayRefresh).values(fetched_at=stale))
         session.commit()
 
-    def answered(_self: object, url: str, **_kwargs: object) -> httpx.Response:
+    def answered(
+        _self: object, request: httpx.Request, **_kwargs: object
+    ) -> httpx.Response:
         return httpx.Response(
             200,
             json={
@@ -254,10 +256,10 @@ async def test_stale_calendar_refetches_off_loop_and_redraws(
                     "events": [{"title": "A new holiday", "date": "2026-06-12"}],
                 }
             },
-            request=httpx.Request("GET", url),
+            request=request,
         )
 
-    monkeypatch.setattr(httpx.Client, "get", answered)
+    monkeypatch.setattr(httpx.Client, "send", answered)
 
     freshness_threads: list[int] = []
     persistence_threads: list[int] = []

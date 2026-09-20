@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from threading import Thread
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert
@@ -17,6 +16,7 @@ from flexi.models.database.db import (
     BankHolidayCache,
     BankHolidayRefresh,
 )
+from flexi.network import fetch_json
 from flexi.services.transactions import atomic
 
 __all__ = (
@@ -111,31 +111,10 @@ def parse_bank_holidays(
 def fetch_bank_holiday_index() -> object | None:
     """Fetch the GOV.UK index, returning ``None`` for an unusable response.
 
-    The local ``httpx`` import keeps it off every command that only reads the
-    cache; validating the payload belongs to :func:`parse_bank_holidays`.
+    The HTTP client is loaded only when fetching; cache reads keep it off their
+    startup path. Payload validation belongs to :func:`parse_bank_holidays`.
     """
-    import httpx
-
-    fetched: list[object] = []
-
-    def request() -> None:
-        try:
-            with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-                response = client.get(GOVUK_URL)
-                response.raise_for_status()
-                fetched.append(response.json())
-        # A broken environment makes `httpx.Client` raise before any request:
-        # a socks proxy URL without the socks extra raises `ImportError`, a bad
-        # proxy port `httpx.InvalidURL`, a missing `SSL_CERT_FILE` `OSError`.
-        except Exception:  # noqa: BLE001 - documented to return None for any failure
-            return
-
-    # Daemon, so a resolver still waiting cannot hold the process open past the
-    # budget: `ThreadPoolExecutor` joins its workers at interpreter shutdown.
-    worker = Thread(target=request, daemon=True)
-    worker.start()
-    worker.join(_FETCH_BUDGET)
-    return fetched[0] if fetched else None
+    return fetch_json(GOVUK_URL, timeout=REQUEST_TIMEOUT, budget=_FETCH_BUDGET)
 
 
 class BankHolidayService:

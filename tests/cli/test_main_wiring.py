@@ -588,7 +588,7 @@ def test_refreshing_the_calendar_asks_gov_uk_once(
         msg = "the test suite does not make network requests"
         raise httpx.ConnectError(msg)
 
-    monkeypatch.setattr(httpx.Client, "get", counted)
+    monkeypatch.setattr(httpx.Client, "send", counted)
 
     CliRunner().invoke(cli, ["holidays", "refresh"])
 
@@ -613,7 +613,7 @@ def test_empty_calendar_is_fetched_once(
         msg = "the test suite does not make network requests"
         raise httpx.ConnectError(msg)
 
-    monkeypatch.setattr(httpx.Client, "get", counted)
+    monkeypatch.setattr(httpx.Client, "send", counted)
 
     CliRunner().invoke(cli, ["balance", "show"])
     CliRunner().invoke(cli, ["balance", "show"])

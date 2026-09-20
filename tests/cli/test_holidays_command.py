@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from flexi.cli import holidays as holidays_cli
 from flexi.constants import DEFAULT_DIVISION
+from flexi.services.bank_holidays import GOVUK_URL
 from flexi.services.registry import Services, build_services
 from flexi.services.settings import parse_settings
 
@@ -29,24 +30,14 @@ PAYLOAD: dict[str, Any] = {
 """The shape GOV.UK publishes: two English dates and an empty Scottish list."""
 
 
-class _Answered:
-    """Stand-in for the response `httpx.Client.get` returns."""
-
-    def __init__(self, payload: dict[str, Any]) -> None:
-        self._payload = payload
-
-    def raise_for_status(self) -> None:
-        return None
-
-    def json(self) -> dict[str, Any]:
-        return self._payload
-
-
 @pytest.fixture
 def answering(monkeypatch: pytest.MonkeyPatch) -> None:
     """Allow a GOV.UK reply, over the suite-wide block on outbound requests."""
     monkeypatch.setattr(
-        "httpx.Client.get", lambda *_args, **_kwargs: _Answered(PAYLOAD)
+        "httpx.Client.send",
+        lambda *_args, **_kwargs: httpx.Response(
+            200, json=PAYLOAD, request=httpx.Request("GET", GOVUK_URL)
+        ),
     )
 
 
@@ -120,7 +111,7 @@ def test_failed_refresh_keeps_the_cached_calendar(
         raise httpx.ConnectError(msg)
 
     with pytest.MonkeyPatch.context() as offline:
-        offline.setattr("httpx.Client.get", refused)
+        offline.setattr("httpx.Client.send", refused)
         assert holidays_cli.run(services) == 1, "a cron entry reads this"
 
     reported = capsys.readouterr().err
