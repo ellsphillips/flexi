@@ -23,6 +23,7 @@ from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen, describe_working_days
 from flexi.services.settings import parse_working_days
+from tests.conftest import settled
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
 
@@ -452,10 +453,14 @@ async def test_every_entitlement_year_can_be_reached(app_factory: AppFactory) ->
         await open_settings(pilot)
         assert "2026" in screen_text(app)
 
-        showing(app, SettingsScreen).query_one("#ent-2028", Input).focus()
+        field = showing(app, SettingsScreen).query_one("#ent-2028", Input)
+        field.focus()
+        await pilot.pause()
+        await settled(pilot)
         await pilot.wait_for_scheduled_animations()
         await pilot.pause()
 
+        assert field.has_focus
         assert "2028" in screen_text(app), "the field holding focus is drawn"
 
 
@@ -478,10 +483,14 @@ async def test_short_terminal_can_reach_the_whole_form(
         assert "Save" in shown
         assert "Back" in shown
 
-        showing(app, SettingsScreen).query_one("#ent-2026", Input).focus()
+        field = showing(app, SettingsScreen).query_one("#ent-2026", Input)
+        field.focus()
+        await pilot.pause()
+        await settled(pilot)
         await pilot.wait_for_scheduled_animations()
         await pilot.pause()
 
+        assert field.has_focus
         assert "2026" in screen_text(app), "the field holding focus is drawn"
 
 
@@ -496,6 +505,7 @@ async def test_added_year_is_shown_not_only_announced(
         await open_settings(pilot)
         await pilot.click("#btn-add-year")
         await pilot.pause()
+        await settled(pilot)
         await pilot.wait_for_scheduled_animations()
         await pilot.pause()
 
