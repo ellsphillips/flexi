@@ -153,16 +153,68 @@ def test_release_guard_uses_the_tested_state_machine() -> None:
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
-def test_publishing_never_executes_repository_code_with_oidc() -> None:
-    publish = _workflow("release.yaml")["jobs"]["publish"]
+@pytest.mark.parametrize(
+    ("job", "environment"), [("publish", "pypi"), ("test-publish", "testpypi")]
+)
+def test_publishing_never_executes_repository_code_with_oidc(
+    job: str, environment: str
+) -> None:
+    publish = _workflow("release.yaml")["jobs"][job]
     assert publish["permissions"] == {"contents": "read", "id-token": "write"}
-    assert publish["environment"]["name"] == "pypi"
+    assert publish["environment"]["name"] == environment
     for step in publish["steps"]:
         assert not step.get("uses", "").startswith("actions/checkout@")
         if "run" in step:
             assert (
                 step["run"].strip().startswith("uv publish --trusted-publishing always")
             )
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_production_waits_for_verified_testpypi_publication() -> None:
+    jobs = _workflow("release.yaml")["jobs"]
+    assert {"guard", "artefact"} <= _needs(jobs["test-publish"])
+    assert {"guard", "test-publish"} <= _needs(jobs["test-verify"])
+    assert "test-verify" in _needs(jobs["publish"])
+    for name in ("test-publish", "test-verify", "publish"):
+        assert "if" not in jobs[name], "a failed stage must stop every later stage"
+    assert "id-token" not in jobs["test-verify"].get("permissions", {})
+    verification = "\n".join(
+        step.get("run", "") for step in jobs["test-verify"]["steps"]
+    )
+    assert "--registry testpypi --complete" in verification
+    preflight = "\n".join(step.get("run", "") for step in jobs["artefact"]["steps"])
+    assert '--version "$VERSION" --registry testpypi' in preflight
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+@pytest.mark.parametrize(
+    ("job", "upload", "index"),
+    [
+        (
+            "test-publish",
+            "https://test.pypi.org/legacy/",
+            "https://test.pypi.org/simple/",
+        ),
+        ("publish", "https://upload.pypi.org/legacy/", "https://pypi.org/simple/"),
+    ],
+)
+def test_both_registries_receive_the_same_artifacts_with_correct_retry_urls(
+    job: str, upload: str, index: str
+) -> None:
+    steps = _workflow("release.yaml")["jobs"][job]["steps"]
+    downloads = [
+        step
+        for step in steps
+        if step.get("uses", "").startswith("actions/download-artifact@")
+    ]
+    assert len(downloads) == 1
+    assert downloads[0]["with"] == {"name": "dist", "path": "dist"}
+    commands = [step["run"] for step in steps if "run" in step]
+    assert len(commands) == 1
+    assert f'--publish-url "{upload}"' in commands[0]
+    assert f'--check-url "{index}" dist/*' in commands[0]
+    assert "uv build" not in commands[0]
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")

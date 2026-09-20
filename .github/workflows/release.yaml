@@ -1,7 +1,7 @@
 name: Release
 
-# A reviewed merge to main starts release checks; the pypi environment requires
-# owner approval before upload. Incomplete publication may resume, but published
+# A reviewed merge to main tests and stages the release on TestPyPI. The pypi
+# environment requires owner approval for production. Publication may resume, but
 # files must match the newly tested artifacts.
 # Completed versions are harmless no-ops on later documentation commits.
 
@@ -17,9 +17,6 @@ concurrency:
 
 permissions:
   contents: read
-
-env:
-  PACKAGE: flexi
 
 jobs:
   guard:
@@ -83,17 +80,71 @@ jobs:
           name: dist
           path: dist
 
-      # Existing files from a partial upload must have exactly these hashes.
+      # Existing files on either registry must have exactly these hashes.
       # This read-only job runs repository code; the OIDC publish job does not.
       - name: Verify filenames and any already-published distributions
         env:
           VERSION: ${{ needs.guard.outputs.version }}
           GH_TOKEN: ${{ github.token }}
-        run: python scripts/release_status.py verify --version "$VERSION"
+        run: |
+          python scripts/release_status.py verify --version "$VERSION"
+          python scripts/release_status.py verify --version "$VERSION" --registry testpypi
+
+  test-publish:
+    name: Publish to TestPyPI
+    needs: [guard, artefact]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    # This separate environment allows main without requiring approval. Its
+    # trusted publisher belongs to TestPyPI, not the production registry.
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/flexi/${{ needs.guard.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.26"
+
+      - name: Upload the tested distributions
+        run: |
+          uv publish --trusted-publishing always \
+            --publish-url "https://test.pypi.org/legacy/" \
+            --check-url "https://test.pypi.org/simple/" dist/*
+
+  test-verify:
+    name: Verify the TestPyPI release
+    needs: [guard, test-publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - name: Confirm both uploaded files match the tested artifacts
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/release_status.py verify --version "$VERSION"
+          --registry testpypi --complete --wait 120
 
   publish:
     name: Publish to PyPI
-    needs: [guard, artefact]
+    needs: [guard, artefact, test-verify]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -128,7 +179,8 @@ jobs:
         # than a 400 from PyPI.
         run: |
           uv publish --trusted-publishing always \
-            --check-url "https://pypi.org/simple/${PACKAGE}/" dist/*
+            --publish-url "https://upload.pypi.org/legacy/" \
+            --check-url "https://pypi.org/simple/" dist/*
 
   tag:
     name: Tag the release

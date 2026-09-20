@@ -2,8 +2,9 @@
 
 Work lands on `dev`, the default branch. A release pull request from `dev` into
 `main` names the next version; automation prepares the release on `dev` for
-review. Merging starts the release checks; publishing waits for the owner's
-approval in GitHub Actions.
+review. Merging runs the full checks, builds the release artifacts, and
+automatically publishes that version to TestPyPI. After verification, publishing
+the same files to PyPI waits for the owner's approval in GitHub Actions.
 
 ## Publish a release
 
@@ -24,20 +25,26 @@ approval in GitHub Actions.
    commit. New commits need fresh passing checks.
 5. Use **Create a merge commit** to merge into `main`. Keep `dev`; regular merges
    preserve the ancestry between the development and release branches.
-6. As `ellsphillips`, open the release run in GitHub Actions and click **Review
+6. Wait for the full release checks, package build, automatic TestPyPI upload,
+   and TestPyPI verification. Verification waits up to two minutes for the
+   uploaded files to appear and requires both distribution filenames and SHA256
+   digests to match the tested artifacts. Any failure stops the release before
+   production.
+7. As `ellsphillips`, open the release run in GitHub Actions and click **Review
    deployments**. Select the **pypi** checkbox, then **Approve and deploy**. The
-   workflow uploads the checked wheel and source distribution only after this
-   approval.
-7. After publication, review and publish the draft GitHub release.
+   workflow uploads the same wheel and source distribution to PyPI without
+   rebuilding or changing their version.
+8. After publication, the workflow creates the version tag and draft GitHub
+   release. Review and publish the draft.
 
 Preparation promotes `## Unreleased` when the requested version has no changelog
 section yet. An existing version section is preserved; update its notes directly.
 Screenshots run in an isolated job with read-only repository permissions;
 running application code does not require repository write credentials.
 
-The publishing workflow accepts only `main` and fails if PyPI cannot confirm
-whether the version exists. The artifacts that pass the package checks are the
-ones uploaded to PyPI.
+The publishing workflow accepts only `main` and stops if either package index
+cannot confirm its release state. The artifacts that pass the package checks
+are the ones uploaded to both indexes.
 
 ## Rerun preparation
 
@@ -87,7 +94,11 @@ separately without that token. A preparation run that finds no changes does not
 need App credentials; a run that needs to commit changes reports missing
 credentials and stops until they are configured.
 
-### GitHub environment
+### GitHub environments
+
+Create an environment named `testpypi` under **Settings → Environments**.
+Restrict deployment branches to `main` and leave required reviewers unset so
+TestPyPI publishing runs automatically.
 
 Create an environment named `pypi` under **Settings → Environments**:
 
@@ -96,22 +107,37 @@ Create an environment named `pypi` under **Settings → Environments**:
 - Disable administrator bypass.
 - Restrict deployment branches to `main`.
 
-The reviewer rule provides the manual approval gate immediately before upload.
-Merely naming the environment in a workflow does not require approval.
+The reviewer rule provides the manual approval gate after TestPyPI verification
+and immediately before the production upload. Merely naming the environment in
+a workflow does not require approval.
 
-### PyPI trusted publisher
+### TestPyPI and PyPI trusted publishers
 
-In the project's PyPI settings, add a GitHub trusted publisher:
+[TestPyPI has separate accounts and project ownership from PyPI](https://packaging.python.org/en/latest/guides/using-testpypi/).
+Register or sign in at [test.pypi.org](https://test.pypi.org/account/register/)
+and sign in separately at [pypi.org](https://pypi.org/).
 
-| Field | Value |
-|---|---|
-| Owner | `ellsphillips` |
-| Repository | `flexi` |
-| Workflow | `release.yaml` |
-| Environment | `pypi` |
+On **each index**, configure a GitHub trusted publisher for `flexi`:
 
-[Trusted publishing](https://docs.pypi.org/trusted-publishers/) uses short-lived
-credentials. The workflow does not need a stored PyPI API token.
+1. If `flexi` already exists, its owner must add the publisher under
+   **Manage project → Publishing**. Owning the PyPI project does not grant
+   ownership of the TestPyPI project. See
+   [adding a publisher to an existing project](https://docs.pypi.org/trusted-publishers/adding-a-publisher/).
+2. If the name is available, add a
+   [pending publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
+   under **Your account → Publishing**, using project name `flexi`. This creates
+   the project on first upload; it does not reserve the name beforehand.
+
+| Field | TestPyPI | PyPI |
+|---|---|---|
+| GitHub owner | `ellsphillips` | `ellsphillips` |
+| Repository | `flexi` | `flexi` |
+| Workflow filename | `release.yaml` | `release.yaml` |
+| Environment | `testpypi` | `pypi` |
+
+[Trusted publishing supports both indexes](https://docs.pypi.org/trusted-publishers/using-a-publisher/#publishing-to-indices-other-than-pypi)
+with short-lived credentials. Do not store a PyPI or TestPyPI API token in
+GitHub; configure both publishers before merging the release.
 
 ### Branch protection
 
@@ -146,16 +172,10 @@ git diff
 Neither command commits, pushes, or publishes. Screenshot generation is a
 separate step, also run by the preparation workflow.
 
-See [TESTING.md](TESTING.md) for the full local checks. To rehearse an upload, use
-[TestPyPI](https://packaging.python.org/en/latest/guides/using-testpypi/) with
-its own account and credentials:
-
-```bash
-uv build
-UV_PUBLISH_URL=https://test.pypi.org/legacy/ uv publish dist/*
-```
-
-The GitHub release workflow itself always targets PyPI.
+See [TESTING.md](TESTING.md) for the full local checks. After merging, the release
+workflow automatically rehearses publication on TestPyPI using the exact
+production version and artifacts. Production remains paused until the owner
+approves the `pypi` deployment.
 
 ## Maintaining the preparer
 
@@ -179,18 +199,26 @@ uv run pytest tests/test_release_pr.py tests/test_prepare_release.py tests/test_
 - **A transient check or upload failed:** use **Re-run failed jobs** on the
   original release run. This retains its release commit and tested artifacts.
   If a code change is needed, take it through a new release pull request.
+- **TestPyPI setup or verification failed:** fix the account, publisher, or
+  reported verification problem, then retry the original run. Production stays
+  blocked until TestPyPI verification passes.
 - **Only part of the upload succeeded, or the tag or draft release is missing:**
-  retry the original run. Existing PyPI files must have the same SHA256 digests
-  as the tested artifacts. Matching files are skipped during upload; missing
-  files can be uploaded. An existing tag must point to the same commit, and an
-  existing GitHub release is reused without replacing it.
-- **A new run sees a completed version:** when both distributions, the tag, and
-  a draft or published GitHub release exist, it does nothing. Later documentation
-  commits therefore do not republish that version. A new run can resume an
-  incomplete release only when its artifacts and any existing tag still match;
-  use the original run for recovery, not a later `main` commit.
+  retry the original run. On either index, existing files must have the same
+  SHA256 digests as the tested artifacts. Matching files are skipped during
+  upload; missing files can be uploaded. An existing tag must point to the same
+  commit, and an existing GitHub release is reused without replacing it.
+- **A new run sees a completed version:** when both distributions exist on
+  PyPI alongside the tag and a draft or published GitHub release, it does
+  nothing. Later documentation commits therefore do not republish that version.
+  A new run can resume an incomplete release only when its artifacts and any
+  existing tag still match; use the original run for recovery, not a later
+  `main` commit.
 - **The original artifacts are unavailable or their digests differ:** do not
-  replace published files or move the release tag. Release a new version.
+  replace published files or move the release tag. Release a new version,
+  including when only TestPyPI contains the conflicting files. Both
+  [TestPyPI](https://test.pypi.org/help/#file-name-reuse) and
+  [PyPI](https://pypi.org/help/#file-name-reuse) reject reuse of distribution
+  filenames, even after deletion. A collision must not bypass the TestPyPI gate.
 - **A published version is broken:** yank it in PyPI, bump the version, and
   release a fix. PyPI versions cannot be overwritten; deleting a release can
   disrupt existing installations.
