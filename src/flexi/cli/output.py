@@ -35,11 +35,21 @@ def enable_ansi() -> None:
     the plain commands have to set it themselves. A handle that is a pipe or a
     file has no console mode, and nothing is enabled for it.
     """
-    if sys.platform == "win32":  # pragma: no cover - Windows only
+    if sys.platform == "win32":
         import ctypes
+        from ctypes import wintypes
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        mode = ctypes.c_uint32()
+        kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+        kernel32.GetStdHandle.restype = wintypes.HANDLE
+        kernel32.GetConsoleMode.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.GetConsoleMode.restype = wintypes.BOOL
+        kernel32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.SetConsoleMode.restype = wintypes.BOOL
+        mode = wintypes.DWORD()
         for standard in (_STANDARD_OUTPUT, _STANDARD_ERROR):
             handle = kernel32.GetStdHandle(standard)
             if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):

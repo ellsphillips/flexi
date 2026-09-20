@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import sys
+from unittest.mock import Mock
 
 import click
 import pytest
@@ -76,6 +77,46 @@ def test_posix_terminal_needs_no_ansi_flag(
     output.enable_ansi()
 
     assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("console", [True, False], ids=["console", "redirected"])
+def test_windows_console_uses_pointer_sized_handles(
+    monkeypatch: pytest.MonkeyPatch, console: bool
+) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    handle = 0x123456789
+    original_mode = 0x0001
+
+    def read_mode(received: int, pointer: ctypes.c_void_p) -> bool:
+        assert received == handle
+        ctypes.cast(pointer, ctypes.POINTER(wintypes.DWORD))[0] = original_mode
+        return console
+
+    kernel = Mock()
+    kernel.GetStdHandle.return_value = handle
+    kernel.GetConsoleMode.side_effect = read_mode
+    monkeypatch.setattr(ctypes, "WinDLL", Mock(return_value=kernel), raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    output.enable_ansi()
+
+    assert kernel.GetStdHandle.restype is wintypes.HANDLE
+    assert kernel.GetStdHandle.argtypes == [wintypes.DWORD]
+    assert kernel.GetConsoleMode.argtypes == [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    assert kernel.GetConsoleMode.restype is wintypes.BOOL
+    assert kernel.SetConsoleMode.argtypes == [wintypes.HANDLE, wintypes.DWORD]
+    assert kernel.SetConsoleMode.restype is wintypes.BOOL
+    assert kernel.GetStdHandle.call_count == 2
+    if console:
+        assert kernel.SetConsoleMode.call_count == 2
+        kernel.SetConsoleMode.assert_called_with(handle, original_mode | 0x0004)
+    else:
+        kernel.SetConsoleMode.assert_not_called()
 
 
 @pytest.mark.parametrize(

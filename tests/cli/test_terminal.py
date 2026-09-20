@@ -90,6 +90,19 @@ def test_undecodable_byte_reads_as_unknown(
         assert prompt.read_key(descriptor) is Key.UNKNOWN
 
 
+@pytest.mark.parametrize("pending", [b"", b"\x1b", b"\x1b["])
+def test_end_of_input_aborts_including_an_unfinished_escape(pending: bytes) -> None:
+    reader, writer = os.pipe()
+    try:
+        os.write(writer, pending)
+    finally:
+        os.close(writer)
+    try:
+        assert prompt.read_posix(reader) is Key.ABORT
+    finally:
+        os.close(reader)
+
+
 def test_cbreak_is_set_inside_the_block(
     pty_pair: tuple[int, int],
 ) -> None:

@@ -99,9 +99,15 @@ def more_coming(descriptor: int) -> bool:
 
 
 def read_posix(descriptor: int) -> Key:
-    sequence = os.read(descriptor, 1).decode("utf-8", errors="ignore")
+    first = os.read(descriptor, 1)
+    if not first:
+        return Key.ABORT
+    sequence = first.decode("utf-8", errors="ignore")
     while incomplete(sequence) and more_coming(descriptor):
-        sequence += os.read(descriptor, 1).decode("utf-8", errors="ignore")
+        following = os.read(descriptor, 1)
+        if not following:
+            return Key.ABORT
+        sequence += following.decode("utf-8", errors="ignore")
     return decode(sequence)
 
 
