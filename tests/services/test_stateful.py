@@ -152,15 +152,14 @@ class TimesheetModel(RuleBasedStateMachine):
         """Whether an absence booked on a date is spoken for at this moment.
 
         A booked morning leaves the afternoon workable, so only a moment inside
-        the half that is booked is refused. Noon exactly is in neither half,
-        which is where the booking side puts the boundary too.
+        the half that is booked is refused. Noon starts the afternoon.
         """
         booked = self.observed_absences.get(moment.date(), {})
         if covers_the_whole_day(booked):
             return True
         if Portion.AM in booked and moment.time() < time(12, 0):
             return True
-        return Portion.PM in booked and moment.time() > time(12, 0)
+        return Portion.PM in booked and moment.time() >= time(12, 0)
 
     @rule()
     def clock_in(self) -> None:

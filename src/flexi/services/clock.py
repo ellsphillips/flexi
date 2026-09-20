@@ -100,7 +100,7 @@ class ClockService:
         midday = wallclock.local(datetime.combine(work_date, time(MIDDAY_HOUR, 0)))
         if Portion.AM in booked and opened_at < midday:
             return Portion.AM
-        if Portion.PM in booked and closed_at > midday:
+        if Portion.PM in booked and (opened_at >= midday or closed_at > midday):
             return Portion.PM
         return None
 

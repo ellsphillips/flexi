@@ -331,6 +331,20 @@ def test_clocking_into_a_booked_half_is_refused(ready: Services) -> None:
     assert ready.clock.get_open_session() is None
 
 
+@pytest.mark.parametrize(
+    ("portion", "accepted"), [(Portion.AM, True), (Portion.PM, False)]
+)
+def test_noon_belongs_to_the_afternoon(
+    ready: Services, portion: Portion, accepted: bool
+) -> None:
+    assert ready.absence.book(TUESDAY, AbsenceType.SICK, portion).success
+
+    result = ready.clock.clock_in(now=datetime(2026, 8, 25, 12, 0))
+
+    assert result.success is accepted
+    assert ready.clock.is_clocked_in() is accepted
+
+
 # ---------- losing a race to another writer ----------
 
 
