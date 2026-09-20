@@ -141,18 +141,71 @@ def test_third_party_actions_are_pinned_to_reviewable_commits() -> None:
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
-def test_pypi_guard_fails_closed_with_bounded_waits() -> None:
-    """Only an authoritative 404 is evidence that a version is unpublished."""
+def test_release_guard_uses_the_tested_state_machine() -> None:
     guard: dict[str, Any] = _workflow("release.yaml")["jobs"]["guard"]
-    published = next(step for step in guard["steps"] if step.get("id") == "published")
-    script = published["run"]
+    assert '"$GITHUB_REF" != "refs/heads/main"' in guard["steps"][0]["run"]
+    status = next(step for step in guard["steps"] if step.get("id") == "status")
+    assert 'scripts/release_status.py guard >> "$GITHUB_OUTPUT"' in status["run"]
+    assert guard["outputs"] == {
+        "version": "${{ steps.status.outputs.version }}",
+        "publish": "${{ steps.status.outputs.publish }}",
+    }
 
-    assert "--connect-timeout" in script
-    assert "--max-time" in script
-    assert "--retry" in script
-    assert "404)" in script
-    assert "*)" in script
-    assert "exit 1" in script
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_publishing_never_executes_repository_code_with_oidc() -> None:
+    publish = _workflow("release.yaml")["jobs"]["publish"]
+    assert publish["permissions"] == {"contents": "read", "id-token": "write"}
+    assert publish["environment"]["name"] == "pypi"
+    for step in publish["steps"]:
+        assert not step.get("uses", "").startswith("actions/checkout@")
+        if "run" in step:
+            assert (
+                step["run"].strip().startswith("uv publish --trusted-publishing always")
+            )
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_release_preparation_separates_code_execution_from_write_credentials() -> None:
+    workflow = _workflow("release-prepare.yaml")
+    assert workflow["permissions"] == {"contents": "read", "pull-requests": "read"}
+    jobs = workflow["jobs"]
+    assert jobs["prepare"]["permissions"] == {"contents": "read"}
+    for step in jobs["prepare"]["steps"]:
+        assert "secrets." not in str(step)
+        assert "id-token" not in str(step)
+        if step.get("uses", "").startswith("actions/checkout@"):
+            assert step["with"]["persist-credentials"] is False
+    for step in jobs["commit"]["steps"]:
+        if step.get("uses", "").startswith("actions/checkout@"):
+            assert step["with"]["ref"] == "${{ github.sha }}"
+            assert step["with"]["persist-credentials"] is False
+        if step.get("uses", "").startswith("actions/create-github-app-token@"):
+            assert step["if"] == "steps.review.outputs.changed == 'true'"
+            assert step["with"]["permission-contents"] == "write"
+            assert step["with"]["permission-pull-requests"] == "read"
+            assert step["with"]["repositories"] == "${{ github.event.repository.name }}"
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_title_edits_revalidate_and_reprepare_the_release() -> None:
+    check = _workflow("release-check.yaml")
+    prepare = _workflow("release-prepare.yaml")
+    for workflow, event in ((check, "pull_request"), (prepare, "pull_request_target")):
+        trigger = workflow[ON][event]
+        assert trigger["branches"] == ["main"]
+        assert {"opened", "edited", "synchronize", "reopened"} <= set(trigger["types"])
+    assert check["jobs"]["prepared"]["name"] == "Release prepared"
+    assert check["permissions"] == {"contents": "read", "pull-requests": "read"}
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_preparer_limits_automatic_and_bootstrap_sources() -> None:
+    jobs = _workflow("release-prepare.yaml")["jobs"]
+    assert "github.ref == 'refs/heads/dev'" in jobs["plan"]["if"]
+    assert "head.repo.full_name == github.repository" in jobs["plan"]["if"]
+    assert "head.ref == 'dev'" in jobs["plan"]["if"]
+    assert set(jobs["commit"]["needs"]) == {"plan", "prepare"}
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")

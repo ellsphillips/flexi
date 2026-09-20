@@ -1,0 +1,151 @@
+name: Prepare release
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: "Number of the dev → main release PR"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-preparation
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Read the release request
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') ||
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'dev')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      head: ${{ steps.plan.outputs.head }}
+      title: ${{ steps.plan.outputs.title }}
+      number: ${{ steps.plan.outputs.number }}
+    steps:
+      # Trusted workflow revision: main for PR events, dev for the first-release
+      # manual bootstrap. Candidate code is never used in a credentialed job.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request }}
+        run: python scripts/release_pr.py plan --pr "$PR_NUMBER"
+
+  prepare:
+    name: Generate the release files
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.head }}
+          path: candidate
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.26"
+          python-version: "3.13"
+          enable-cache: false
+      - name: Update version and release notes
+        env:
+          RELEASE_TITLE: ${{ needs.plan.outputs.title }}
+        run: python trusted/scripts/prepare_release.py prepare --root candidate --title "$RELEASE_TITLE"
+      # This job has no App key, write token, or PyPI identity. Generation can
+      # execute application code; the next job only consumes validated files.
+      - name: Refresh versioned screenshots
+        working-directory: candidate
+        run: |
+          uv sync --locked --dev
+          uv run --frozen python scripts/shoot.py
+      - name: Bundle the prepared files
+        env:
+          RELEASE_TITLE: ${{ needs.plan.outputs.title }}
+        run: |
+          python trusted/scripts/prepare_release.py check --root candidate --title "$RELEASE_TITLE" --check-snapshots
+          python trusted/scripts/release_pr.py bundle --root candidate --output prepared.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-preparation
+          path: prepared.json
+          if-no-files-found: error
+          retention-days: 3
+
+  commit:
+    name: Commit the prepared release
+    needs: [plan, prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-preparation
+          path: prepared
+      - name: Validate the generated changes
+        id: review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.plan.outputs.number }}
+          RELEASE_HEAD: ${{ needs.plan.outputs.head }}
+          RELEASE_TITLE: ${{ needs.plan.outputs.title }}
+        run: >-
+          python scripts/release_pr.py review --pr "$PR_NUMBER"
+          --head "$RELEASE_HEAD" --title "$RELEASE_TITLE"
+          --bundle prepared/prepared.json
+      - name: Check release bot configuration
+        if: steps.review.outputs.changed == 'true'
+        env:
+          APP_ID: ${{ vars.RELEASE_APP_ID }}
+          APP_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APP_ID" ] || [ -z "$APP_KEY" ]; then
+            echo '::error::Configure RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY as described in docs/RELEASING.md, or prepare and commit the release files locally.'
+            exit 1
+          fi
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: app
+        if: steps.review.outputs.changed == 'true'
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: read
+      - name: Update dev without overwriting concurrent work
+        if: steps.review.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR_NUMBER: ${{ needs.plan.outputs.number }}
+          RELEASE_HEAD: ${{ needs.plan.outputs.head }}
+          RELEASE_TITLE: ${{ needs.plan.outputs.title }}
+        run: >-
+          python scripts/release_pr.py commit --pr "$PR_NUMBER"
+          --head "$RELEASE_HEAD" --title "$RELEASE_TITLE"
+          --bundle prepared/prepared.json

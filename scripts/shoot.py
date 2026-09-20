@@ -27,6 +27,8 @@ sys.path.insert(0, str(ROOT / "src"))
 # BINDINGS list reads it at class-definition time, so a local hotkey or opening
 # period would be baked into the committed shots.
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="flexi-config-")
+# Documentation captures show the product palette even in a monochrome shell.
+os.environ.pop("NO_COLOR", None)
 
 from flexi import wallclock  # noqa: E402
 from flexi.app import FlexiApp  # noqa: E402
@@ -50,7 +52,7 @@ def refuse_the_network() -> None:
         msg = "the shots do not make network requests"
         raise httpx.ConnectError(msg)
 
-    httpx.Client.get = refused  # type: ignore[method-assign]
+    httpx.Client.send = refused  # type: ignore[method-assign]
 
 
 refuse_the_network()
