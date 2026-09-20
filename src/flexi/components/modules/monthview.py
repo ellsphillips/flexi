@@ -25,7 +25,13 @@ from flexi.components.modules.base import Module
 from flexi.components.options import ModuleOptions
 from flexi.config import CONFIG
 from flexi.constants import DayKind
-from flexi.domain.dates import DAYS_IN_WEEK, add_months, week_start
+from flexi.domain.dates import (
+    DAYS_IN_WEEK,
+    SUPPORTED_FIRST,
+    SUPPORTED_LAST,
+    add_months,
+    week_start,
+)
 from flexi.domain.format import month_title
 from flexi.domain.ledger import DayLedger
 from flexi.domain.period import Period
@@ -152,14 +158,21 @@ class MonthView(Module):
         self.action_month(-1 if event.button.id == "calendar-prev" else 1)
 
     def action_move(self, offset: int) -> None:
-        self.post_message(DateSelected(self.period.anchor + timedelta(days=offset)))
+        self._select(self.period.anchor + timedelta(days=offset))
+
+    def _select(self, when: date) -> None:
+        if SUPPORTED_FIRST <= when <= SUPPORTED_LAST:
+            self.post_message(DateSelected(when))
 
     def action_month(self, offset: int) -> None:
         """Page the grid without moving the period.
 
         The grid returns to the anchor's month the next time the anchor moves.
         """
-        self._visible = add_months(self._visible, offset).replace(day=1)
+        target = add_months(self._visible, offset).replace(day=1)
+        if not SUPPORTED_FIRST <= target <= SUPPORTED_LAST:
+            return
+        self._visible = target
         self.rebuild()
 
     def on_click(self, event: events.Click) -> None:
@@ -176,7 +189,7 @@ class MonthView(Module):
         event.stop()
         week, column = (int(part) for part in name.removeprefix(CELL_PREFIX).split("-"))
         grid = month_grid(self._visible, first_weekday=self.period.first_weekday)
-        self.post_message(DateSelected(grid[week * DAYS_IN_WEEK + column]))
+        self._select(grid[week * DAYS_IN_WEEK + column])
 
 
 def cell_text(when: date, today: date) -> Text:

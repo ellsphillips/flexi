@@ -363,7 +363,9 @@ class DashboardScreen(Screen[None]):
         if absence is not None:
             self._delete_absence(int(absence))
         elif event.key.startswith((RowKind.DAY, RowKind.SESSION)):
-            self.status("Deleting sessions is not implemented yet", Tone.WARN)
+            self.status(
+                "Select an absence booking to remove; work records are kept", Tone.WARN
+            )
 
     def _delete_absence(self, absence_id: int) -> None:
         found = self._services.absence.by_id(absence_id)

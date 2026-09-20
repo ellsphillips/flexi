@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from rich.text import Text
@@ -36,9 +36,9 @@ from flexi.components.modules.records import (
 )
 from flexi.components.punch import PunchStrip
 from flexi.constants import AbsenceType, DayKind, Granularity, Portion
-from flexi.domain.dates import DAYS_IN_WEEK
+from flexi.domain.dates import DAYS_IN_WEEK, SUPPORTED_FIRST, SUPPORTED_LAST
 from flexi.domain.format import MINUS, digits
-from flexi.domain.ledger import AbsenceSlice, DayLedger
+from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.period import Period
 from flexi.domain.punch import Window
 from flexi.domain.wallet import Allowance
@@ -422,6 +422,37 @@ async def test_arrow_key_asks_for_the_neighbouring_day(flexi: Services) -> None:
         assert only(panel, DateSelected).date == THURSDAY + timedelta(days=1)
 
 
+@pytest.mark.parametrize(
+    ("edge", "direction"), [(SUPPORTED_FIRST, -1), (SUPPORTED_LAST, 1)]
+)
+async def test_month_navigation_stays_in_the_supported_date_range(
+    flexi: Services, edge: date, direction: int
+) -> None:
+    module = MonthView()
+    async with showing(module, flexi, anchor=edge) as (pilot, panel):
+        visible = module._visible
+
+        module.action_move(direction)
+        module.action_month(direction)
+        await pilot.pause()
+
+        assert panel.posted == []
+        assert module._visible == visible
+
+
+async def test_clicking_the_grid_margin_cannot_select_an_unsupported_year(
+    flexi: Services,
+) -> None:
+    module = MonthView()
+    async with showing(module, flexi, anchor=SUPPORTED_FIRST) as (pilot, panel):
+        assert month_grid(SUPPORTED_FIRST, first_weekday=0)[0] < SUPPORTED_FIRST
+
+        await pilot.click("#calendar-cell-0-0")
+        await pilot.pause()
+
+        assert panel.posted == []
+
+
 async def test_headings_start_where_the_period_starts(
     flexi: Services,
 ) -> None:
@@ -472,6 +503,39 @@ async def test_clicking_furniture_asks_for_no_day(
 
 
 # ---------- the records ----------
+
+
+async def test_record_notes_cannot_emit_terminal_controls(flexi: Services) -> None:
+    note = "review\x1b]0;forged\x07\nFAKE ROW\u202e"
+    ledger = DayLedger(
+        date=MONDAY,
+        kind=DayKind.PARTIAL,
+        is_working_day=True,
+        contracted=timedelta(hours=8),
+        worked=timedelta(hours=1),
+        expected=timedelta(hours=4),
+        absences=(AbsenceSlice(1, AbsenceType.OTHER, Portion.PM, note),),
+        segments=(
+            Segment(
+                1,
+                datetime(2026, 6, 8, 9, tzinfo=UTC),
+                datetime(2026, 6, 8, 10, tzinfo=UTC),
+                note=note,
+            ),
+        ),
+    )
+    module = RecordsModule()
+    async with showing(module, flexi):
+        rows = module._children(ledger)
+
+        for row in rows[:2]:
+            displayed = cell(row.cells[1]).plain
+            assert "review" in displayed
+            assert not any(
+                character in displayed for character in ("\x1b", "\x07", "\n", "\u202e")
+            )
+        assert ledger.absences[0].note == note
+        assert ledger.segments[0].note == note
 
 
 async def test_day_that_met_its_hours_is_drawn_muted(

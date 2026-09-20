@@ -12,7 +12,7 @@ import click
 
 from flexi import wallclock
 from flexi.cli import report
-from flexi.domain.format import delta, hm, long_date, stamp
+from flexi.domain.format import delta, hm, long_date, printable, stamp
 from flexi.services.adjustments import OPENING_BALANCE
 from flexi.services.registry import Services, settlement_date, zero_balance
 
@@ -114,7 +114,7 @@ def log(services: Services) -> int:
     for row in rows:
         click.echo(
             f"{row.id:>4}  {row.date:%Y-%m-%d}  "
-            f"{delta(timedelta(minutes=row.minutes)):>9}  {row.reason}"
+            f"{delta(timedelta(minutes=row.minutes)):>9}  {printable(row.reason)}"
         )
     return 0
 

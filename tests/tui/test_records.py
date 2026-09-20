@@ -391,7 +391,7 @@ async def test_booking_changed_under_the_modal_is_kept(
         assert status_text(app) == PLAN_CHANGED
 
 
-async def test_x_on_a_worked_day_says_not_implemented(
+async def test_x_on_a_worked_day_explains_that_work_records_are_kept(
     app_factory: AppFactory,
 ) -> None:
     """The key is offered on every row, so every row owes it an answer."""
@@ -406,7 +406,9 @@ async def test_x_on_a_worked_day_says_not_implemented(
         await pilot.press("x")
         await pilot.pause()
 
-        assert status_text(app) == "Deleting sessions is not implemented yet"
+        assert status_text(app) == (
+            "Select an absence booking to remove; work records are kept"
+        )
         assert sessions_on(app._session, date(2026, 6, 10))
 
 

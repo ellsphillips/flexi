@@ -28,7 +28,7 @@ from textual.strip import Strip
 from flexi import wallclock
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Portion
-from flexi.domain.dates import DAYS_IN_WEEK, add_months
+from flexi.domain.dates import DAYS_IN_WEEK, SUPPORTED_FIRST, SUPPORTED_LAST, add_months
 from flexi.domain.ledger import DayLedger
 from flexi.domain.stitch import (
     MonthBlock,
@@ -233,6 +233,8 @@ class YearCalendar(ScrollView, can_focus=True):
 
     def set_selection(self, selection: Selection) -> None:
         """Move the cursor, keep it on screen, and say so."""
+        if not SUPPORTED_FIRST <= selection.head <= SUPPORTED_LAST:
+            return
         self.selection = selection
         self.scroll_to_day(selection.head)
         self.refresh()
@@ -466,8 +468,12 @@ def legend() -> Text:
     booking = [(CONFIG.hotkeys.book(kind), kind.token) for kind in AbsenceType]
     for row in (
         booking[:3],
-        [*booking[3:], ("x", "remove")],
-        [("␣", "half"), ("e", "edit"), ("g", "go to")],
+        [*booking[3:], (CONFIG.hotkeys.delete, "remove")],
+        [
+            ("␣", "half"),
+            (CONFIG.hotkeys.edit, "edit"),
+            (CONFIG.hotkeys.go_to_date, "go to"),
+        ],
     ):
         for index, (key, what) in enumerate(row):
             if index:

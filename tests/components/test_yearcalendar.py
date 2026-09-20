@@ -41,7 +41,7 @@ from flexi.components.yearcalendar import (
 )
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, DayKind, Portion
-from flexi.domain.dates import DAYS_IN_WEEK
+from flexi.domain.dates import DAYS_IN_WEEK, SUPPORTED_FIRST, SUPPORTED_LAST
 from flexi.domain.ledger import AbsenceSlice, DayLedger
 from flexi.domain.stitch import Selection
 from flexi.theme import THEME_NAME, THEME_PATH, flexi_theme
@@ -751,6 +751,44 @@ def test_the_legend_explains_the_glyphs_the_grid_draws() -> None:
     text = legend().plain
     assert f"{MORNING}{AFTERNOON}" in text
     assert SPLIT in text
+
+
+def test_the_legend_uses_rebound_edit_remove_and_date_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rebound = CONFIG.model_copy(
+        update={
+            "hotkeys": CONFIG.hotkeys.model_copy(
+                update={"delete": "z", "edit": "i", "go_to_date": "f5"}
+            )
+        }
+    )
+    monkeypatch.setattr(yearcalendar, "CONFIG", rebound)
+
+    text = legend().plain
+
+    assert "z remove" in text
+    assert "i edit" in text
+    assert "f5 go to" in text
+
+
+@pytest.mark.parametrize(
+    ("edge", "direction"), [(SUPPORTED_FIRST, -1), (SUPPORTED_LAST, 1)]
+)
+@pytest.mark.parametrize("action", ["move", "extend", "month"])
+async def test_calendar_navigation_stays_in_the_supported_date_range(
+    edge: date, direction: int, action: str
+) -> None:
+    calendar = YearCalendar()
+    async with mounted(calendar) as pilot:
+        calendar.go_to(edge)
+        await pilot.pause()
+        before = calendar.selection
+
+        getattr(calendar, f"action_{action}")(direction)
+        await pilot.pause()
+
+        assert calendar.selection == before
 
 
 # The heading stands over the dates

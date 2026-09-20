@@ -35,7 +35,7 @@ from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.config import CONFIG
 from flexi.constants import DayKind, Granularity
 from flexi.domain.balance import BalanceSummary, accumulate
-from flexi.domain.format import clock, delta, hm, whole_minutes
+from flexi.domain.format import clock, delta, hm, printable, whole_minutes
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window, cell_count
 from flexi.messages import Scope
@@ -86,7 +86,7 @@ class BookHere(Message):
 
 
 class DeleteHere(Message):
-    """Delete whatever the cursor is on — an absence, or a session."""
+    """Ask to remove the absence booking under the cursor."""
 
     def __init__(self, key: str | None) -> None:
         super().__init__()
@@ -113,7 +113,7 @@ class RecordsModule(Module):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.book_absence, "book_here", "Book absence", show=True),
-        Binding(CONFIG.hotkeys.delete, "delete_here", "Delete", show=False),
+        Binding(CONFIG.hotkeys.delete, "delete_here", "Remove booking", show=False),
     ]
 
     def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
@@ -217,7 +217,7 @@ class RecordsModule(Module):
                     key=row_key(RowKind.ABSENCE, slice_.absence_id),
                     cells=(
                         Text("", style=sub),
-                        Text(f"  {BRANCH} {detail}", style=sub),
+                        Text(f"  {BRANCH} {printable(detail)}", style=sub),
                         Text("—", style=sub, justify="right"),
                         Text("", style=sub),
                     ),
@@ -234,7 +234,8 @@ class RecordsModule(Module):
                     cells=(
                         Text("", style=sub),
                         Text(
-                            f"  {BRANCH} {clock(segment.start)} → {finish}  {note}",
+                            f"  {BRANCH} {clock(segment.start)} → {finish}  "
+                            f"{printable(note)}",
                             style=sub,
                         ),
                         Text(

@@ -141,6 +141,22 @@ def test_an_empty_log_says_so(
     assert capsys.readouterr().out.strip() == "No adjustments."
 
 
+def test_adjustment_log_cannot_emit_terminal_controls_or_forged_rows(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reason = "review\x1b]0;forged\x07\nFAKE ROW\u202e"
+    recorded = services.adjustments.record(NOON, timedelta(hours=1), reason)
+    assert recorded.success
+
+    assert balance_cli.log(services) == 0
+
+    output = capsys.readouterr().out
+    assert len(output.splitlines()) == 1
+    assert not any(character in output for character in ("\x1b", "\x07", "\u202e"))
+    assert "review" in output
+    assert services.adjustments.all()[0].reason == reason
+
+
 def test_settling_and_taking_it_back(services: Services) -> None:
     with time_machine.travel(NOON, tick=False):
         clock_cli.clock_in(services)
