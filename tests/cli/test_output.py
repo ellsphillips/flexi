@@ -7,6 +7,7 @@ on all three.
 from __future__ import annotations
 
 import io
+import os
 import sys
 from unittest.mock import Mock
 
@@ -21,10 +22,12 @@ from flexi.cli import output
 class _Stream(io.TextIOWrapper):
     """A cp1252 text stream that answers ``isatty`` as told."""
 
-    def __init__(self, *, tty: bool) -> None:
+    def __init__(self, *, tty: bool, newline: str | None = None) -> None:
         self.bytes = io.BytesIO()
         self._tty = tty
-        super().__init__(self.bytes, encoding="cp1252", errors="strict")
+        super().__init__(
+            self.bytes, encoding="cp1252", errors="strict", newline=newline
+        )
 
     def isatty(self) -> bool:
         return self._tty
@@ -36,15 +39,21 @@ def _both(monkeypatch: pytest.MonkeyPatch, stream: object) -> None:
 
 
 @pytest.mark.parametrize("requested_encoding", [None, ""])
+@pytest.mark.parametrize(
+    ("newline", "ending"), [(None, os.linesep), ("\n", "\n"), ("\r\n", "\r\n")]
+)
 def test_piped_stream_preserves_deficits_and_unicode_notes(
-    monkeypatch: pytest.MonkeyPatch, requested_encoding: str | None
+    monkeypatch: pytest.MonkeyPatch,
+    requested_encoding: str | None,
+    newline: str | None,
+    ending: str,
 ) -> None:
     """A locale default must not erase a deficit's sign or a user's note."""
     if requested_encoding is None:
         monkeypatch.delenv("PYTHONIOENCODING", raising=False)
     else:
         monkeypatch.setenv("PYTHONIOENCODING", requested_encoding)
-    stdout, stderr = _Stream(tty=False), _Stream(tty=False)
+    stdout, stderr = (_Stream(tty=False, newline=newline) for _ in range(2))
     message = "balance −4:14; note: café 日本語"
     with pytest.MonkeyPatch.context() as patched:
         patched.setattr(sys, "stdout", stdout)
@@ -55,7 +64,7 @@ def test_piped_stream_preserves_deficits_and_unicode_notes(
 
     for stream in (stdout, stderr):
         assert stream.encoding == "utf-8"
-        assert stream.bytes.getvalue().decode("utf-8") == message + "\n"
+        assert stream.bytes.getvalue().decode("utf-8") == message + ending
 
 
 def test_piped_stream_respects_explicit_encoding_with_tolerant_errors(

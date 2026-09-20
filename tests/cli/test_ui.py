@@ -194,9 +194,13 @@ def paper(width: int = 60, *, terminal: bool = False) -> tuple[Console, io.Strin
 
     `force_terminal` is on only for the cursor hide and show sequences Rich
     withholds from a plain file; off, the text carries no colour.
+    Virtual-terminal behaviour is explicit; the legacy-console test covers
+    consoles that cannot interpret cursor escapes.
     """
     stream = io.StringIO()
-    return Console(file=stream, width=width, force_terminal=terminal), stream
+    return Console(
+        file=stream, width=width, force_terminal=terminal, legacy_windows=False
+    ), stream
 
 
 def visible(stream: io.StringIO) -> str:
