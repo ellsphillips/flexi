@@ -79,6 +79,7 @@ def normalise_hotkey(value: str) -> str:
     bindings = tuple(binding.strip() for binding in value.split(","))
     malformed = any(
         not binding
+        or not binding.isprintable()
         or any(
             _KEY_COMPONENT.fullmatch(component) is None
             for component in binding.split("+")
@@ -143,10 +144,14 @@ class Hotkeys(BaseModel):
         which one won. The whole section falls back, as it does for a misspelled
         field name.
         """
+        from textual.binding import Binding
+
         counted = Counter(
-            key
+            binding.key
             for name in type(self).model_fields
-            for key in str(getattr(self, name)).split(",")
+            for binding in Binding.make_bindings(
+                [Binding(str(getattr(self, name)), name)]
+            )
         )
         shared = sorted(key for key, count in counted.items() if count > 1)
         if shared:
@@ -232,7 +237,7 @@ def read_config(path: Path | None = None) -> tuple[Config, str]:
     except FileNotFoundError:
         # No file at all is no preference, and the commonest run of all.
         return Config(), ""
-    except (OSError, yaml.YAMLError, RecursionError):
+    except (OSError, yaml.YAMLError, RecursionError, ValueError):
         return Config(), UNUSABLE.format(path=path)
     if raw is None:
         # An empty file, which says nothing and gets nothing wrong.
@@ -243,6 +248,9 @@ def read_config(path: Path | None = None) -> tuple[Config, str]:
     hotkeys, hotkeys_why = section(Hotkeys, raw.get("hotkeys"))
     defaults, defaults_why = section(Defaults, raw.get("defaults"))
     dropped = {"hotkeys": hotkeys_why, "defaults": defaults_why}
+    unknown = [ascii(name) for name in raw if name not in Config.model_fields]
+    if unknown:
+        dropped["unknown sections"] = f"Unrecognised sections: {', '.join(unknown)}."
     named = [name for name, why in dropped.items() if why]
     problem = (
         IGNORED.format(
@@ -262,8 +270,10 @@ def section[T: BaseModel](model: type[T], raw: object) -> tuple[T, str]:
     The reason is empty when the section was taken as written, and when the
     file does not mention it.
     """
-    if not isinstance(raw, dict):
+    if raw is None:
         return model(), ""
+    if not isinstance(raw, dict):
+        return model(), "Expected a mapping of preference names to values."
     try:
         return model.model_validate(raw), ""
     except ValidationError as invalid:

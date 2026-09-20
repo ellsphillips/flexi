@@ -69,10 +69,26 @@ def test_markup_shaped_hotkey_is_rejected(value: str) -> None:
         Hotkeys(period_cycle=value)
 
 
-@pytest.mark.parametrize("value", ["/", "[", "]", "!", "f1", "ctrl+l", "ctrl+shift+b"])
+@pytest.mark.parametrize("value", ["/", "!", "f1", "ctrl+l", "ctrl+shift+b"])
 def test_key_textual_understands_is_accepted(value: str) -> None:
     """Textual maps a single character to its key name, and the docs use `/`."""
     assert Hotkeys(clock_toggle=value).clock_toggle == value
+
+
+def test_punctuation_can_replace_its_own_named_key() -> None:
+    assert Hotkeys(period_prev="[", period_next="]").period_prev == "["
+
+
+@pytest.mark.parametrize("value", ["[", "]", "?", "/"])
+def test_equivalent_key_spellings_cannot_hide_a_collision(value: str) -> None:
+    with pytest.raises(ValidationError, match="bound twice"):
+        Hotkeys(today=value)
+
+
+@pytest.mark.parametrize("value", ["\x00", "\x1b", "\x7f", "\u200b"])
+def test_nonprinting_hotkeys_are_rejected(value: str) -> None:
+    with pytest.raises(ValidationError, match="complete key names"):
+        Hotkeys(clock_toggle=value)
 
 
 def test_key_bound_twice_is_rejected() -> None:
@@ -120,6 +136,18 @@ def test_deeply_nested_file_gets_the_defaults(tmp_path: Path) -> None:
         yaml.safe_load(deep.read_bytes())
 
     assert load_config(deep) == Config()
+
+
+@pytest.mark.parametrize("value", ["2026-13-01", "9" * 5000])
+def test_invalid_yaml_scalar_gets_defaults_and_an_explanation(
+    tmp_path: Path, value: str
+) -> None:
+    path = written(tmp_path / "config.yaml", f"defaults: {value}\n")
+
+    config, problem = read_config(path)
+
+    assert config == Config()
+    assert "could not read" in problem
 
 
 @pytest.mark.parametrize(
@@ -363,6 +391,34 @@ def test_non_mapping_file_is_reported(tmp_path: Path) -> None:
 
     _config, problem = read_config(path)
 
+    assert str(path) in problem
+
+
+@pytest.mark.parametrize("value", ["soon", "[]", "false", "42"])
+def test_non_mapping_section_is_reported_without_losing_valid_preferences(
+    tmp_path: Path, value: str
+) -> None:
+    path = written(tmp_path / "config.yaml", f"{CLOCK_TOGGLE_C}defaults: {value}\n")
+
+    config, problem = read_config(path)
+
+    assert config.hotkeys.clock_toggle == "c"
+    assert config.defaults == Defaults()
+    assert "defaults" in problem
+    assert "mapping" in problem
+
+
+def test_unknown_root_key_is_reported_without_losing_valid_preferences(
+    tmp_path: Path,
+) -> None:
+    path = written(
+        tmp_path / "config.yaml", f"{CLOCK_TOGGLE_C}defualts:\n  period: month\n"
+    )
+
+    config, problem = read_config(path)
+
+    assert config.hotkeys.clock_toggle == "c"
+    assert "defualts" in problem
     assert str(path) in problem
 
 
