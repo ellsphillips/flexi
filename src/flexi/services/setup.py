@@ -79,14 +79,9 @@ def clear_initialisation_cache() -> None:
 def stamped_and_configured(path: Path) -> bool:
     """The database carries a migration stamp and a complete settings row.
 
-    Opened by path with ``query_only`` set, not through a ``file:...?mode=ro``
-    URI: :meth:`Path.as_uri` renders a Windows UNC path as
-    ``file://server/share/...`` and SQLite accepts no authority but an empty
-    one, so a data directory on a network share would be refused as an invalid
-    URI. The file must already exist, since connecting to a missing path
-    creates a zero-byte database. :func:`flexi.models.database.backup.read_only`
-    opens a connection the same way; importing it would cost the SQLAlchemy and
-    Alembic this module avoids.
+    This lightweight probe opens an existing path with sqlite3 and enables
+    ``query_only``. It avoids importing the persistence package so CLI startup
+    does not load SQLAlchemy or Alembic before it needs them.
 
     Raises:
         sqlite3.DatabaseError: The file is not a database, or is damaged. That

@@ -309,9 +309,8 @@ The workflow files themselves are checked by the linter that knows about them:
 uvx --from actionlint-py actionlint .github/workflows/*.yaml
 ```
 
-For byte-for-byte fidelity — the runner image, not just the commands — `act`
-can run Linux jobs in Docker. It does not reproduce the hosted macOS or Windows
-matrix rows:
+`act` can run Linux jobs in Docker. Its images may differ from GitHub's hosted
+runners, and it does not reproduce the macOS or Windows matrix rows:
 
 ```
 act push -W .github/workflows/ci.yaml

@@ -35,6 +35,7 @@ src/flexi/
   messages.py            Scope, DateSelected, BankHolidayRefreshCompleted
   provider.py            FlexiCommands — the command palette catalogue
   versioning.py          PyPI update check
+  network.py             Bounded JSON downloads for holidays and version metadata
   wallclock.py           The only module that reads the system clock
 
   theme/

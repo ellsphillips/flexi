@@ -5,8 +5,8 @@ What changed, for the person using Flexi. Versions follow
 
 ## 0.2.0
 
-The terminal application's release, and a rewrite of everything above the database. If
-you have used Flexi before, your records open unchanged: the schema is migrated
+The terminal application's release, and a rewrite of everything above the
+database. Existing SQLite records from development versions are migrated
 forward on launch, with a backup taken first.
 
 ### The dashboard
@@ -118,9 +118,3 @@ A contract other than 37 hours cannot be set yet; there is no export, no import,
 and no `doctor` command. The flexi balance does not carry between leave years:
 it is the sum for the current one, so in April it starts again from nought. See
 [`docs/README.md`](docs/README.md) for the rest of the list.
-
----
-
-The [legacy 0.1.0 release](https://pypi.org/project/flexi/0.1.0/) was published
-by Elliott Phillips in August 2022. It does not contain this terminal application
-or its `flexi` command. This changelog covers the application from 0.2.0 onward.

@@ -165,7 +165,7 @@ Every modal, without exception:
 
 | Key | Action |
 |---|---|
-| `escape` | Cancel, dismissing with `None`. |
+| `escape` | Cancel without saving. |
 | `enter` | Confirm. |
 | `tab` `shift+tab` | Next / previous field. |
 
@@ -250,20 +250,19 @@ hotkeys:
   clock_toggle: "/"
   period_prev: "comma"
   period_next: "full_stop"
-  today: "j,down"
+  today: "t,ctrl+t"
 defaults:
   period: month
   first_day_of_week: 6
 ```
 
-A value is a Textual key name or the single character it stands for, so `slash`,
-`/` and `ctrl+l` are all keys. Anything longer is markup wherever the key is
-drawn — the help screen and the border subtitles read `[/]` as a closing tag — so
-it is refused.
+A value is a Textual key name, a single printable character, or a modifier
+combination: `slash`, `/` and `ctrl+l` are all valid. Malformed markup-shaped
+values such as `[/]` and nonprinting characters are refused.
 
-**A comma separates two keys**, as in `"j,down"` above. It cannot therefore be
-the key itself: write `comma` and `full_stop` for `,` and `.`, not `","` and
-`"."`.
+**A comma separates two keys**, as in `"t,ctrl+t"` above. For the comma key
+itself, write `comma`. A period can be written as `.` or `full_stop`.
+Avoid remapping screen actions to navigation keys consumed by focused widgets.
 
 Two more rules: a hotkey must be one or more complete key names, and no key may
 be bound to two actions — Textual gives the key to one of them and says nothing
@@ -298,6 +297,8 @@ warning notification.
 | `book_unpaid` | `U` | dashboard, leave |
 | `book_other` | `O` | dashboard, leave |
 | `book_absence` | `a` | records table |
+| `expand` | `space` | records table |
+| `expand_all` | `shift+space` | records table |
 
 The leave screen's portion cycle is the one key this file does not reach. It is
 `space` there, fixed, because `expand` already claims `space` on the records
@@ -314,7 +315,9 @@ table and one key may only answer to one action across the whole file.
 
 Application *settings* — contracted minutes, leave year, working days, bank
 holiday division, auto-close time — are not here. They live in the database,
-because the balance depends on them, and they are edited on `f4`.
+because the balance depends on them. `f4` edits the leave year, working days,
+bank-holiday division, auto-close time, and annual entitlements. Contracted
+minutes are currently fixed at 444 per working day in the interface.
 
 ---
 

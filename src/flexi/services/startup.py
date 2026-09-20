@@ -31,9 +31,9 @@ def close_stale_sessions(
 ) -> list[WorkSession]:
     """Auto-close open sessions from previous work dates.
 
-    If auto_close_time is before the session's clock-in time,
-    close at 23:59 instead. Creates system-sourced ClockEvents
-    and marks sessions auto_closed.
+    If auto_close_time precedes clock-in, use the day's final minute without
+    moving before clock-in. Booked leave caps the inferred interval and adds
+    a note. The resulting ClockEvents are system-sourced.
     """
     if today is None:
         today = wallclock.today()

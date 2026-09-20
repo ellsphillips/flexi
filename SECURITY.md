@@ -6,8 +6,7 @@ Include the Flexi version, operating system, reproduction steps, and likely
 impact. Use a temporary database with invented records; do not send your
 timesheet or credentials. Please avoid public issues for unpatched vulnerabilities.
 
-Security fixes target the current 0.2 release series. The legacy 0.1 release
-is not supported.
+Security fixes target the latest release.
 
 ## Data and network access
 

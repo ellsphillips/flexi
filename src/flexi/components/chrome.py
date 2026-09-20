@@ -165,8 +165,6 @@ class VersionTag(Static):
         return installed
 
     def watch_latest(self, latest: str) -> None:
-        # Imported here, not at module scope: `flexi.versioning` costs httpx,
-        # and every screen sits inside this module's chrome.
         from flexi.versioning import UPGRADE_HINT
 
         self.set_class(bool(latest), "-outdated")
