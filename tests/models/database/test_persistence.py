@@ -8,9 +8,11 @@ behind when it fails as well as when it succeeds.
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
-from datetime import date, timedelta
-from pathlib import Path
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path, PureWindowsPath
+from threading import Barrier
 from typing import Any
 from unittest.mock import patch
 
@@ -18,7 +20,7 @@ import pytest
 from sqlalchemy import Engine, text
 
 from flexi.locations import backups_directory, database_file
-from flexi.models.database.backup import read_only, snapshot, verify
+from flexi.models.database.backup import _read_only_uri, read_only, snapshot, verify
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import (
     DatabaseRevision,
@@ -116,6 +118,53 @@ class Halting(sqlite3.Connection):
 
 
 class TestBackupCreation:
+    def test_missing_source_is_not_created(self, db_path: Path) -> None:
+        with pytest.raises(FileNotFoundError, match="No database"):
+            snapshot(db_path)
+
+        assert not db_path.exists()
+        assert list(backups_directory().glob("*.bak")) == []
+
+    def test_simultaneous_snapshots_reserve_distinct_files(
+        self, db_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        run_migrations(db_path)
+        workers = 4
+        ready = Barrier(workers, timeout=10)
+        real = sqlite3.connect
+        monkeypatch.setattr(
+            "flexi.models.database.backup.wallclock.utc_now",
+            lambda: datetime(2026, 9, 20, tzinfo=UTC),
+        )
+
+        def connect(database: Any, **kwargs: Any) -> sqlite3.Connection:
+            # Hold all workers after choosing a destination. Without exclusive
+            # creation every worker selects the same as-yet missing filename.
+            if database == db_path or "mode=ro" in str(database):
+                ready.wait()
+            connection: sqlite3.Connection = real(database, **kwargs)
+            return connection
+
+        with monkeypatch.context() as patching:
+            patching.setattr(sqlite3, "connect", connect)
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                copies = list(pool.map(snapshot, [db_path] * workers))
+
+        assert len(set(copies)) == workers
+        assert all(verify(copy) for copy in copies)
+
+    def test_external_writer_cannot_hold_a_backup_indefinitely(
+        self, db_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        run_migrations(db_path)
+        monkeypatch.setattr("flexi.models.database.backup._BACKUP_TIMEOUT", 0.05)
+        with closing(sqlite3.connect(db_path)) as writer:
+            writer.execute("BEGIN EXCLUSIVE")
+            with pytest.raises(sqlite3.OperationalError, match="backup timed out"):
+                snapshot(db_path)
+
+        assert list(backups_directory().glob("*.bak")) == []
+
     def test_nonexistent_db_returns_none(self, tmp_path: Path) -> None:
         assert backup_database(tmp_path / "nope.db") is None
 
@@ -197,24 +246,47 @@ class TestOpeningWithoutWriting:
         ):
             connection.execute("DELETE FROM alembic_version")
 
-    def test_the_database_reaches_sqlite_as_a_path(
+    def test_disabling_query_only_does_not_make_the_connection_writable(
+        self, db_path: Path
+    ) -> None:
+        run_migrations(db_path)
+        with closing(read_only(db_path)) as connection:
+            connection.execute("PRAGMA query_only = 0")
+            with pytest.raises(sqlite3.OperationalError, match="readonly"):
+                connection.execute("DELETE FROM alembic_version")
+
+    def test_a_source_removed_during_opening_is_not_recreated(
         self, db_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`Path.as_uri` gives a UNC path an authority SQLite rejects."""
         run_migrations(db_path)
-        seen: list[tuple[Any, dict[str, Any]]] = []
         real = sqlite3.connect
 
-        def spy(database: Any, **kwargs: Any) -> sqlite3.Connection:
-            seen.append((database, kwargs))
+        def connect(database: Any, **kwargs: Any) -> sqlite3.Connection:
+            db_path.unlink()
             connection: sqlite3.Connection = real(database, **kwargs)
             return connection
 
-        monkeypatch.setattr(sqlite3, "connect", spy)
-        with closing(read_only(db_path)):
-            pass
+        monkeypatch.setattr(sqlite3, "connect", connect)
+        with pytest.raises(sqlite3.OperationalError, match="unable to open"):
+            read_only(db_path)
 
-        assert [database for database, _ in seen] == [db_path]
+        assert not db_path.exists()
+
+    def test_uri_characters_remain_part_of_the_filename(self, tmp_path: Path) -> None:
+        # All of these are legal on Windows as well as POSIX.
+        database = tmp_path / "saved 100% #1.db"
+        run_migrations(database)
+        assert verify(database)
+
+    @pytest.mark.parametrize(
+        ("path", "uri"),
+        [
+            ("C:/data/db.db", "file:///C:/data/db.db?mode=ro"),
+            ("//server/share/db.db", "file:////server/share/db.db?mode=ro"),
+        ],
+    )
+    def test_windows_uri_uses_an_empty_authority(self, path: str, uri: str) -> None:
+        assert _read_only_uri(PureWindowsPath(path)) == uri
 
 
 # ---------- backup failure ----------
@@ -305,6 +377,20 @@ def tear(path: Path) -> Path:
 
 
 class TestVerifyingACopy:
+    @pytest.mark.parametrize("revisions", [(None,), ("",), (" ",), ("0001", "0002")])
+    def test_invalid_stamps_are_refused(
+        self, db_path: Path, revisions: tuple[str | None, ...]
+    ) -> None:
+        with closing(sqlite3.connect(db_path)) as connection:
+            connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+            connection.executemany(
+                "INSERT INTO alembic_version VALUES (?)",
+                [(revision,) for revision in revisions],
+            )
+            connection.commit()
+
+        assert not verify(db_path)
+
     """A backup that cannot be restored has to be refused.
 
     A copy taken mid-write opens perfectly and is still wrong, and it is the
