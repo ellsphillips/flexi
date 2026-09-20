@@ -71,16 +71,17 @@ def monochrome() -> bool:
 
 
 def tolerant() -> None:
-    """Let a stream that cannot encode a glyph print a replacement for it.
+    """Preserve Unicode in redirected output unless an encoding was requested.
 
-    A redirected stdout on Windows is the ANSI code page, so the U+2212 in
-    every delta and the arrow in the leave-year line raise
-    ``UnicodeEncodeError`` once output is piped to a file. Only redirected
-    streams are reconfigured; a terminal is left as it is.
+    Windows pipes otherwise use the ANSI code page, which cannot represent
+    balance deficits or many notes. UTF-8 preserves those characters by
+    default. Explicit ``PYTHONIOENCODING`` is respected, with replacement for
+    unsupported characters. Terminal streams are left as they are.
     """
+    encoding = None if os.environ.get("PYTHONIOENCODING") else "utf-8"
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper) and not stream.isatty():
-            stream.reconfigure(errors="replace")
+            stream.reconfigure(encoding=encoding, errors="replace")
 
 
 def prepare(ctx: click.Context) -> None:

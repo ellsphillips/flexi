@@ -35,18 +35,44 @@ def _both(monkeypatch: pytest.MonkeyPatch, stream: object) -> None:
     monkeypatch.setattr(sys, "stderr", stream)
 
 
-def test_piped_stream_replaces_unencodable_glyphs() -> None:
-    """Every delta carries U+2212, which strict cp1252 cannot encode."""
+@pytest.mark.parametrize("requested_encoding", [None, ""])
+def test_piped_stream_preserves_deficits_and_unicode_notes(
+    monkeypatch: pytest.MonkeyPatch, requested_encoding: str | None
+) -> None:
+    """A locale default must not erase a deficit's sign or a user's note."""
+    if requested_encoding is None:
+        monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+    else:
+        monkeypatch.setenv("PYTHONIOENCODING", requested_encoding)
+    stdout, stderr = _Stream(tty=False), _Stream(tty=False)
+    message = "balance −4:14; note: café 日本語"
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(sys, "stdout", stdout)
+        patched.setattr(sys, "stderr", stderr)
+        output.tolerant()
+        click.echo(message)
+        click.echo(message, err=True)
+
+    for stream in (stdout, stderr):
+        assert stream.encoding == "utf-8"
+        assert stream.bytes.getvalue().decode("utf-8") == message + "\n"
+
+
+def test_piped_stream_respects_explicit_encoding_with_tolerant_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252:strict")
     stream = _Stream(tty=False)
     with pytest.MonkeyPatch.context() as patched:
         _both(patched, stream)
         output.tolerant()
 
-    stream.write("balance −4:14")
+    stream.write("balance −4:14; note: café 日本語")
     stream.flush()
 
+    assert stream.encoding == "cp1252"
     assert stream.errors == "replace"
-    assert b"balance ?4:14" in stream.bytes.getvalue()
+    assert stream.bytes.getvalue() == b"balance ?4:14; note: caf\xe9 ???"
 
 
 def test_terminal_is_left_strict() -> None:
@@ -56,6 +82,7 @@ def test_terminal_is_left_strict() -> None:
         output.tolerant()
 
     assert stream.errors == "strict"
+    assert stream.encoding == "cp1252"
 
 
 def test_stream_without_reconfigure_is_skipped(
