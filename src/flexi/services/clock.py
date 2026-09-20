@@ -17,8 +17,10 @@ from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.ledger import end_of_day, segment_of
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
-from flexi.services.transactions import atomic, write_transaction
+from flexi.services.transactions import write_transaction
 from flexi.services.work_sessions import (
+    first_absence_overlap,
+    sessions_touching,
     stage_clock_in,
     stage_clock_out,
     stage_correction,
@@ -177,30 +179,41 @@ class ClockService:
         source: EventSource = EventSource.USER,
     ) -> ClockResult:
         """Clock out. Rejects clock-out without an open session."""
-        open_session = self.get_open_session()
-        if open_session is None:
-            return ClockResult(success=False, message="Not clocked in")
+        with write_transaction(self._session):
+            open_session = self.get_open_session()
+            if open_session is None:
+                return ClockResult(success=False, message="Not clocked in")
 
-        moment = wallclock.local(now) if now is not None else wallclock.now()
-        length = moment - moment_of(open_session.clock_in_event)
+            moment = wallclock.local(now) if now is not None else wallclock.now()
+            opened = moment_of(open_session.clock_in_event)
+            length = moment - opened
 
-        # Dated after today: the machine's clock was ahead when the session
-        # opened. The sweep closes only days that have been and gone, so this is
-        # the only way out of a session that would hold the clock shut until
-        # that date came round.
-        ahead = open_session.work_date > moment.date()
+            # A future-dated session left by a wrong clock can be discarded;
+            # a same-day backwards reading must leave its real work intact.
+            ahead = open_session.work_date > moment.date()
+            if length < timedelta() and not ahead:
+                return ClockResult(
+                    success=False,
+                    message="That clock-out is earlier than the clock-in",
+                    session=open_session,
+                )
 
-        # A session cannot run backwards. That is a fault in the data, not a
-        # slip of the finger, and voiding it would discard real work.
-        if length < timedelta() and not ahead:
-            return ClockResult(
-                success=False,
-                message="That clock-out is earlier than the clock-in",
-                session=open_session,
+            short = length < self._minimum
+            clash = (
+                None if short else first_absence_overlap(self._session, opened, moment)
             )
+            if clash is not None:
+                booking, _boundary = clash
+                return ClockResult(
+                    success=False,
+                    message=(
+                        f"Work overlaps the booked {booking.portion.noun} on "
+                        f"{short_date(booking.date)}; remove that absence, "
+                        "then clock out again"
+                    ),
+                    session=open_session,
+                )
 
-        short = length < self._minimum
-        with atomic(self._session):
             closed = stage_clock_out(
                 self._session,
                 open_session.id,
@@ -352,7 +365,7 @@ class ClockService:
         hours of Tuesday. `overlapping` compares real instants, so a Monday that
         ended on Monday cannot collide here.
         """
-        return self._segments_dated(day - timedelta(days=1), day)
+        return [segment_of(row) for row in sessions_touching(self._session, day, day)]
 
     def _segments_dated(self, start: date, end: date) -> list[Segment]:
         stmt = (

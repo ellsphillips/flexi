@@ -144,9 +144,25 @@ class TimesheetModel(RuleBasedStateMachine):
             return
         closing = AUTO_CLOSE if self.open_since.time() <= AUTO_CLOSE else time(23, 59)
         closed_at = datetime.combine(self.open_since.date(), closing)
-        length = closed_at - self.open_since
-        self.sessions.append((self.open_since, closed_at, length < self.minimum))
+        closed_at = self._first_booked_moment(closed_at) or closed_at
+        self.sessions.append((self.open_since, closed_at, False))
         self.open_since = None
+
+    def _first_booked_moment(self, until: datetime) -> datetime | None:
+        """The first occupied half-day that intersects the running interval."""
+        if self.open_since is None:
+            return None
+        for day, booked in sorted(self.observed_absences.items()):
+            for half, hour in ((Portion.AM, 0), (Portion.PM, 12)):
+                start = datetime.combine(day, time(hour))
+                end = start + timedelta(hours=12)
+                if (
+                    (Portion.FULL in booked or half in booked)
+                    and start < until
+                    and self.open_since < end
+                ):
+                    return max(self.open_since, start)
+        return None
 
     def _booked_over(self, moment: datetime) -> bool:
         """Whether an absence booked on a date is spoken for at this moment.
@@ -185,8 +201,12 @@ class TimesheetModel(RuleBasedStateMachine):
         with time_machine.travel(self.now, tick=False):
             result = self.services.clock.clock_out()
 
-        assert result.success is (self.open_since is not None), result.message
-        if self.open_since is not None:
+        expected = self.open_since is not None and (
+            self.now - self.open_since < self.minimum
+            or self._first_booked_moment(self.now) is None
+        )
+        assert result.success is expected, result.message
+        if result.success and self.open_since is not None:
             length = self.now - self.open_since
             self.sessions.append((self.open_since, self.now, length < self.minimum))
             self.open_since = None

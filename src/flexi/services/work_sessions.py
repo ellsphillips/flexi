@@ -8,17 +8,78 @@ success and leave no speculative event behind for the losing writer.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from flexi.constants import ClockAction, EventSource
-from flexi.models.database.db import WorkSession
+from flexi import wallclock
+from flexi.constants import ClockAction, EventSource, Portion
+from flexi.domain.ledger import MIDDAY_HOUR
+from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 from flexi.models.database.moment import punched
 
-__all__ = ("stage_clock_in", "stage_clock_out", "stage_correction")
+__all__ = (
+    "first_absence_overlap",
+    "sessions_touching",
+    "stage_clock_in",
+    "stage_clock_out",
+    "stage_correction",
+)
+
+
+def first_absence_overlap(
+    session: Session, start: datetime, end: datetime
+) -> tuple[AbsenceDay, datetime] | None:
+    """The first booked absence touched by work, and where the overlap begins.
+
+    Endpoints may touch: work ending at noon leaves an afternoon booking intact.
+    The caller reserves the writer before using this answer to persist work.
+    """
+    stmt = (
+        select(AbsenceDay)
+        .where(AbsenceDay.date >= start.date(), AbsenceDay.date <= end.date())
+        .order_by(AbsenceDay.date, AbsenceDay.portion)
+    )
+    for absence in session.scalars(stmt):
+        midday = datetime.combine(absence.date, time(MIDDAY_HOUR))
+        midnight = datetime.combine(absence.date, time.min)
+        begins = wallclock.local(midday if absence.portion is Portion.PM else midnight)
+        finishes = wallclock.local(
+            midday if absence.portion is Portion.AM else midnight + timedelta(days=1)
+        )
+        if start < finishes and begins < end:
+            return absence, max(start, begins)
+    return None
+
+
+def sessions_touching(session: Session, start: date, end: date) -> list[WorkSession]:
+    """Load active work that can overlap a date range, including overnight work.
+
+    A session is filed under its opening date, but its recorded clock-out can
+    claim time on later dates. Open sessions are included for the caller to
+    resolve against its own cutoff. Both events are loaded in bounded queries.
+    """
+    stmt = (
+        select(WorkSession)
+        .outerjoin(ClockEvent, WorkSession.clock_out_id == ClockEvent.id)
+        .options(
+            selectinload(WorkSession.clock_in_event),
+            selectinload(WorkSession.clock_out_event),
+        )
+        .where(
+            WorkSession.work_date <= end,
+            WorkSession.voided.is_(False),
+            or_(
+                WorkSession.work_date >= start,
+                WorkSession.clock_out_id.is_(None),
+                ClockEvent.timestamp > datetime.combine(start, time.min),
+            ),
+        )
+        .order_by(WorkSession.work_date, WorkSession.id)
+    )
+    return list(session.scalars(stmt))
 
 
 def stage_clock_in(

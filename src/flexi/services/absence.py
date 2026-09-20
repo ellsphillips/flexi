@@ -22,7 +22,7 @@ from datetime import date, datetime, time
 from typing import NamedTuple
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import AbsenceType, EventSource, Portion, Verdict
@@ -36,6 +36,7 @@ from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 from flexi.services.transactions import write_transaction
+from flexi.services.work_sessions import sessions_touching
 
 __all__ = (
     "PLAN_CHANGED",
@@ -774,8 +775,13 @@ class AbsenceService:
         moment = wallclock.now()
         worked: defaultdict[date, list[Span]] = defaultdict(list)
         punched: set[date] = set()
-        for session in self._sessions_between(start, end):
-            worked[session.work_date].append(span_of(session, now=moment))
+        for session in sessions_touching(self._session, start, end):
+            span = span_of(session, now=moment)
+            last = max(session.work_date, span[1].date())
+            for when in days_between(max(start, session.work_date), min(end, last)):
+                midnight = wallclock.local(datetime.combine(when, time.min))
+                if when == session.work_date or span[1] > midnight:
+                    worked[when].append(span)
             # A punch means Flexi was there that day, whatever the tracking
             # stamp says; amended hours cannot vouch for it the same way, and
             # `LedgerService` draws the same distinction.
@@ -796,27 +802,6 @@ class AbsenceService:
             )
             for when in days_between(start, end)
         ]
-
-    def _sessions_between(self, start: date, end: date) -> list[WorkSession]:
-        """Live sessions in a span, with both their clock events loaded.
-
-        Loaded eagerly: a span is resolved into moments the instant it is read,
-        and a lazy relationship would cost two queries per session.
-        """
-        stmt = (
-            select(WorkSession)
-            .options(
-                selectinload(WorkSession.clock_in_event),
-                selectinload(WorkSession.clock_out_event),
-            )
-            .where(
-                WorkSession.work_date >= start,
-                WorkSession.work_date <= end,
-                WorkSession.voided.is_(False),
-            )
-            .order_by(WorkSession.work_date, WorkSession.id)
-        )
-        return list(self._session.execute(stmt).scalars())
 
     # --- planning ----------------------------------------------------------
 

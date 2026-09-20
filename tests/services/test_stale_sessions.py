@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
 
 import pytest
 import time_machine
 from sqlalchemy.orm import Session
 
+from flexi import wallclock
 from flexi.constants import ClockAction, EventSource
 from flexi.models.database.db import WorkSession
-from flexi.models.database.moment import punched
+from flexi.models.database.moment import moment_of, punched
 from flexi.services.clock import ClockService
 from flexi.services.startup import close_stale_sessions
 from tests.services.conftest import Configured
@@ -211,6 +212,18 @@ def test_session_closed_mid_sweep_is_not_reported(
     )
 
     assert close_stale_sessions(session, time(18, 0)) == []
+
+
+def test_a_timezone_change_cannot_auto_close_before_clock_in(
+    svc: ClockService, session: Session
+) -> None:
+    with wallclock.pinned(timezone(-timedelta(hours=12))):
+        assert svc.clock_in(now=datetime.combine(YESTERDAY, time(23, 59, 30))).success
+
+    [closed] = close_stale_sessions(session, time(18), today=TODAY)
+
+    assert closed.clock_out_event is not None
+    assert moment_of(closed.clock_out_event) == moment_of(closed.clock_in_event)
 
 
 class TestASessionDatedAfterToday:

@@ -162,6 +162,8 @@ if TYPE_CHECKING:
     )
     from flexi.services.wallet import WalletService
     from flexi.services.work_sessions import (
+        first_absence_overlap,
+        sessions_touching,
         stage_clock_in,
         stage_clock_out,
         stage_correction,
@@ -302,6 +304,8 @@ _EXPORTS: Final = MappingProxyType(
         "bind_write_transaction": ("transactions", "bind_write_transaction"),
         "write_transaction": ("transactions", "write_transaction"),
         "WalletService": ("wallet", "WalletService"),
+        "first_absence_overlap": ("work_sessions", "first_absence_overlap"),
+        "sessions_touching": ("work_sessions", "sessions_touching"),
         "stage_clock_in": ("work_sessions", "stage_clock_in"),
         "stage_clock_out": ("work_sessions", "stage_clock_out"),
         "stage_correction": ("work_sessions", "stage_correction"),
@@ -435,6 +439,8 @@ __all__ = (  # noqa: RUF022
     "bind_write_transaction",
     "write_transaction",
     "WalletService",
+    "first_absence_overlap",
+    "sessions_touching",
     "stage_clock_in",
     "stage_clock_out",
     "stage_correction",

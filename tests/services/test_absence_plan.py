@@ -332,10 +332,10 @@ def test_span_charges_only_the_days_still_to_come(
     assert plan.warning is None
 
 
-def test_toil_before_tracking_began_is_a_real_withdrawal(
+def test_toil_before_tracking_began_matches_the_untracked_ledger(
     configure: Configured,
 ) -> None:
-    """A day Flexi was not watching expects nothing, so TOIL on it takes hours.
+    """A day Flexi was not watching expects nothing and withdraws no TOIL.
 
     Hours recorded after the fact are a memory of the day, not proof Flexi was
     there for it, and that is the distinction the ledger draws.
@@ -348,8 +348,8 @@ def test_toil_before_tracking_began_is_a_real_withdrawal(
     )
 
     assert len(plan.bookable) == 1
-    assert plan.toil_after == -0.5
-    assert plan.warning is not None
+    assert plan.toil_after == 0.0
+    assert plan.warning is None
 
 
 def test_punched_day_before_tracking_is_counted(

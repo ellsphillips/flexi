@@ -14,10 +14,11 @@ from sqlalchemy.orm import Session
 
 from flexi import wallclock
 from flexi.constants import EventSource
+from flexi.domain.format import short_date
 from flexi.models.database.db import WorkSession
 from flexi.models.database.moment import moment_of
-from flexi.services.transactions import atomic
-from flexi.services.work_sessions import stage_clock_out
+from flexi.services.transactions import write_transaction
+from flexi.services.work_sessions import first_absence_overlap, stage_clock_out
 
 __all__ = ("close_stale_sessions",)
 
@@ -48,7 +49,7 @@ def close_stale_sessions(
         return []
 
     closed: list[WorkSession] = []
-    with atomic(session):
+    with write_transaction(session):
         for ws in stale:
             opened = moment_of(ws.clock_in_event)
 
@@ -59,7 +60,16 @@ def close_stale_sessions(
             if effective_close < opened.time():
                 effective_close = max(time(23, 59), opened.time())
 
-            closed_at = wallclock.local(datetime.combine(ws.work_date, effective_close))
+            wall_close = datetime.combine(ws.work_date, effective_close)
+            closed_at = wallclock.local(wall_close)
+            if closed_at < opened:
+                # The first occurrence of a repeated hour may precede a clock-in
+                # in its second occurrence. A changed machine timezone can make
+                # both readings earlier, in which case retain a zero-length span.
+                closed_at = max(opened, wallclock.local(wall_close.replace(fold=1)))
+            clash = first_absence_overlap(session, opened, closed_at)
+            if clash is not None:
+                booking, closed_at = clash
             if stage_clock_out(
                 session,
                 ws.id,
@@ -67,6 +77,12 @@ def close_stale_sessions(
                 source=EventSource.SYSTEM,
                 auto_closed=True,
             ):
+                if clash is not None:
+                    explanation = (
+                        f"Auto-closed at booked {booking.portion.noun} "
+                        f"on {short_date(booking.date)}"
+                    )
+                    ws.note = " · ".join(filter(None, (ws.note, explanation)))
                 closed.append(ws)
 
     return closed
