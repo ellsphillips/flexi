@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -55,6 +56,59 @@ def test_exclusive_lease_is_reusable_after_release(tmp_path: Path) -> None:
         pass
     with database_lease(database, LeaseMode.EXCLUSIVE):
         pass
+
+
+def test_symlink_and_target_share_a_lease(tmp_path: Path) -> None:
+    database = tmp_path / "records.db"
+    database.touch()
+    alias = tmp_path / "linked.db"
+    try:
+        alias.symlink_to(database)
+    except OSError:
+        pytest.skip("Creating symlinks is not available to this account")
+
+    assert lease_path(alias) == lease_path(database)
+    with (
+        database_lease(alias, LeaseMode.SHARED),
+        pytest.raises(DatabaseBusyError),
+        database_lease(database, LeaseMode.EXCLUSIVE, timeout=0),
+    ):
+        pytest.fail("another path to a live database must not bypass its lease")
+
+
+@pytest.mark.parametrize(
+    ("held", "requested", "expected"),
+    [
+        (LeaseMode.SHARED, LeaseMode.SHARED, 0),
+        (LeaseMode.SHARED, LeaseMode.EXCLUSIVE, 2),
+        (LeaseMode.EXCLUSIVE, LeaseMode.SHARED, 2),
+        (LeaseMode.EXCLUSIVE, LeaseMode.EXCLUSIVE, 2),
+    ],
+)
+def test_lease_coordinates_separate_processes(
+    tmp_path: Path, held: LeaseMode, requested: LeaseMode, expected: int
+) -> None:
+    database = tmp_path / "records.db"
+    script = """
+import sys
+from pathlib import Path
+from flexi.models.database.lease import database_lease, DatabaseBusyError, LeaseMode
+try:
+    with database_lease(Path(sys.argv[1]), LeaseMode(sys.argv[2]), timeout=0):
+        pass
+except DatabaseBusyError:
+    sys.exit(2)
+"""
+    with database_lease(database, held):
+        result = subprocess.run(  # noqa: S603 - fixed interpreter and script
+            [sys.executable, "-c", script, str(database), requested.value],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+
+    assert result.returncode == expected, result.stderr
 
 
 def test_negative_wait_is_rejected(tmp_path: Path) -> None:

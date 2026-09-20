@@ -60,7 +60,13 @@ class DatabaseBusyError(RuntimeError):
 
 
 def lease_path(database: Path) -> Path:
-    """The stable coordination file belonging to ``database``."""
+    """The stable coordination file belonging to the resolved database.
+
+    A symlink is another route to the same SQLite file, so it must share the
+    real file's lease. Otherwise a migration through one name can run while an
+    application holds a lease through the other.
+    """
+    database = database.resolve()
     return database.with_name(f"{database.name}.lock")
 
 
@@ -86,6 +92,25 @@ if sys.platform == "win32":  # pragma: no cover - Windows only
         )
 
     _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # Without argument declarations ctypes converts Python integers to C int,
+    # which is narrower than HANDLE on 64-bit Windows.
+    _kernel32.LockFileEx.argtypes = (
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(_Overlapped),
+    )
+    _kernel32.LockFileEx.restype = wintypes.BOOL
+    _kernel32.UnlockFileEx.argtypes = (
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.POINTER(_Overlapped),
+    )
+    _kernel32.UnlockFileEx.restype = wintypes.BOOL
 
     def _try_lock(handle: BinaryIO, mode: LeaseMode) -> bool:
         """Take a real shared or exclusive lock on the lease file's first byte.
