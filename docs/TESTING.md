@@ -220,6 +220,13 @@ commands CI runs.
 
 A failed snapshot prints its diff, so nothing needs uploading as an artefact.
 
+`pytest-timeout` bounds each test at 120 seconds and prints thread stacks when
+that limit is reached. The stateful service test has a 300-second limit because
+one test item exercises many database lifecycles. Keep timeout diagnostics under
+that same timer: a separate `faulthandler_timeout` ignores per-test limits. A
+Windows worker crashed during that extra stack dump before its test limit.
+Python's fatal-error handler remains enabled for actual interpreter faults.
+
 ## 7. Reproducing a loaded runner
 
 ```

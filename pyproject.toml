@@ -104,9 +104,6 @@ pythonpath = ["."]
 # `importlib` import mode so the doctest paths under src/ collect against an
 # installed flexi as well as against this checkout.
 addopts = "--doctest-modules --strict-markers --strict-config --import-mode=importlib -n auto --timeout=120"
-# Below --timeout, so a stalled test dumps every thread's stack to stderr before
-# pytest-timeout calls os._exit and xdist reports an anonymous crashed worker.
-faulthandler_timeout = 110
 
 [tool.coverage.run]
 branch = true
