@@ -21,7 +21,7 @@ TOIL comes out of the same balance overtime goes into. The leave year starts on 
 With [uv](https://docs.astral.sh/uv/), look around without installing anything. Needs Python 3.12 or newer, and a terminal to draw on.
 
 ```bash
-uvx flexi --demo
+uvx --from "flexi>=0.2.0" flexi --demo
 ```
 
 ## A look around
@@ -79,7 +79,9 @@ Colour carries the type and the glyph carries the portion; both are spelled out 
 
 ## Install
 
-Python 3.12, 3.13 or 3.14, on macOS, Linux or Windows. Every release runs the suite on all three platforms, on each interpreter, under UTC, Europe/London and America/New_York.
+Python 3.12, 3.13 or 3.14, on macOS, Linux or Windows. Release CI runs the suite on all three platforms, on each interpreter, under UTC, Europe/London and America/New_York. Other operating systems and Python implementations are not tested.
+
+The commands below require 0.2.0 or newer. Until 0.2.0 is published, use the source installation below; PyPI's legacy 0.1.0 does not provide this terminal app.
 
 It draws with box-drawing and block characters. [Ghostty](https://ghostty.org), [WezTerm](https://wezterm.org), [Kitty](https://sw.kovidgoyal.net/kitty/) and [Alacritty](https://alacritty.org) render it as shown; Terminal.app flattens the colours; on Windows use [Windows Terminal](https://aka.ms/terminal).
 
@@ -90,7 +92,7 @@ It draws with box-drawing and block characters. [Ghostty](https://ghostty.org), 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env        # or restart your shell
 
-uv tool install flexi
+uv tool install "flexi>=0.2.0"
 flexi
 ```
 
@@ -99,7 +101,7 @@ On Windows, in PowerShell:
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 # open a new terminal, then
-uv tool install flexi
+uv tool install "flexi>=0.2.0"
 flexi
 ```
 
@@ -109,7 +111,7 @@ Later: `uv tool upgrade flexi`, `uv tool uninstall flexi`. If your shell cannot 
     <summary>With pipx</summary>
 
 ```bash
-pipx install flexi
+pipx install "flexi>=0.2.0"
 ```
 
 </details>
@@ -120,7 +122,7 @@ pipx install flexi
 Only if you know which environment you are installing into.
 
 ```bash
-pip install flexi
+python -m pip install "flexi>=0.2.0"
 ```
 
 </details>
@@ -211,7 +213,7 @@ One SQLite file, migrated forward on launch with a backup taken first.
 ~/.config/flexi/config.yaml         # optional, hand-written: keybindings and defaults
 ```
 
-On Windows those are `%LOCALAPPDATA%\flexi\` and `%APPDATA%\flexi\config.yaml`. `XDG_DATA_HOME` and `XDG_CONFIG_HOME` win when they hold an *absolute* path, Windows included; a relative one is ignored, as the XDG specification requires. Flexi never writes `config.yaml`, and a section it cannot parse falls back to that section's defaults silently. [`docs/KEYMAP.md`](https://github.com/ellsphillips/flexi/blob/main/docs/KEYMAP.md) lists every key it takes.
+On Windows those are `%LOCALAPPDATA%\flexi\` and `%APPDATA%\flexi\config.yaml`. `XDG_DATA_HOME` and `XDG_CONFIG_HOME` win when they hold an *absolute* path, Windows included; a relative one is ignored, as the XDG specification requires. Flexi never writes `config.yaml`. An invalid section falls back to its defaults and reports the problem at startup. [`docs/KEYMAP.md`](https://github.com/ellsphillips/flexi/blob/main/docs/KEYMAP.md) lists every key it takes.
 
 Uninstalling removes the program, not the records: delete `~/.local/share/flexi` and `~/.config/flexi` yourself.
 
@@ -219,14 +221,14 @@ Uninstalling removes the program, not the records: delete `~/.local/share/flexi`
 
 Starting over — `flexi init` where records exist — is the only thing here that loses data, so it is not a flag. It says how many records it would erase, writes a protected snapshot, then asks you to type a word. With no terminal attached there is no menu at all.
 
-Two network calls, neither of which sends anything. The PyPI version check is silent. The bank holidays are not: Flexi fetches them from GOV.UK on first run, caches them for a week, and refuses to book absence until it has them.
+Two network services, neither of which receives your timesheet or settings. The PyPI version check is silent. Flexi fetches bank holidays from GOV.UK on first run, caches them for a week, and refuses to book absence until it has a calendar. Both servers receive ordinary connection metadata such as your IP address. Records and backups are not encrypted; see the [security policy](https://github.com/ellsphillips/flexi/blob/main/SECURITY.md).
 
 ## Development
 
 Clone, `uv sync`, `uv run pre-commit install`, then:
 
 ```bash
-uv run pytest -q                    # the suite, under a minute
+uv run pytest -q                    # the full suite
 uv run mypy                         # strict, over src and tests
 uv run ruff check
 uv run python scripts/shoot.py      # regenerate the screenshots above

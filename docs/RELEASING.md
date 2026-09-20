@@ -97,14 +97,15 @@ changes.
 
 ### 3. The name on PyPI
 
-`flexi` on PyPI was taken in 2022 by an unrelated package at `0.1.0`, which
-ships no console script. Until it is yanked, `uvx flexi` on an interpreter older
-than 3.12 resolves to it, downloads pandas, and fails with "Package `flexi` does
-not provide any executables".
+[PyPI's legacy 0.1.0](https://pypi.org/project/flexi/0.1.0/) lists Elliott
+Phillips as author and `ellsphillips` as maintainer. It ships no console script.
+Confirm that your PyPI account can manage this project before configuring its
+trusted publisher.
 
-Yank it — **Manage project → Releases → 0.1.0 → Yank** — so resolvers skip it and
-a pre-3.12 user gets `flexi==0.2.0 requires Python >=3.12` instead. This is
-independent of the release: the guard only asks PyPI about `0.2.0`.
+Installation examples require `flexi>=0.2.0` so an unpublished release or an
+older Python interpreter cannot silently resolve to the legacy package. Keep
+that lower bound in the README. Do not remove or yank an older release merely
+to make an unqualified installation command select the new one.
 
 ## Testing the pipeline without publishing
 
@@ -138,3 +139,8 @@ You cannot overwrite a version on PyPI, and you should not delete one people may
 already have installed. Yank it instead — PyPI → **Manage project → Releases →
 Yank** — which hides it from new installs while leaving it resolvable for anyone
 who pinned it. Then bump the version and release again.
+
+If upload succeeds but tagging fails, use **Re-run failed jobs** on that run.
+A new workflow run sees the published version and deliberately skips publishing
+and tagging. Check the existing tag points to the release commit before creating
+or publishing the GitHub release.

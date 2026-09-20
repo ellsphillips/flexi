@@ -267,21 +267,24 @@ that `All green` waits for all of them.
 # wheel: build it, install it where no source tree can be imported, run it
 uv build
 uv venv .probe
-uv pip install --python .probe/bin/python dist/*.whl --group dev
-.probe/bin/python -m pytest tests/test_packaging.py -q
+uv pip install --python .probe/bin/python dist/*.whl
+uv pip check --python .probe/bin/python
 .probe/bin/python scripts/smoke.py
+uv export --locked --no-emit-project --no-hashes --group dev -o .probe-reqs.txt
+uv pip install --python .probe/bin/python -r .probe-reqs.txt
+.probe/bin/python -m pytest tests/test_packaging.py -q
 .probe/bin/python -c "from flexi.locations import database_file; print(database_file())"
+uvx --from twine==7.0.0 twine check --strict dist/*
 ```
 
-On Windows the interpreter is `.probe/Scripts/python`; the job picks between
-the two by looking. The venv is relative and inside the checkout
+On Windows the interpreter is `.probe/Scripts/python.exe`. The venv is relative and inside the checkout
 because bash on Windows rewrites an absolute POSIX path on its way to a native
 binary, and the src layout is what keeps the check honest — the working
 directory is the source tree and `flexi` is still importable only from the
 wheel.
 
 The matrix rows differ by interpreter, timezone and operating system. `uv`
-supplies the first two:
+selects the interpreter; `TZ` selects the timezone on POSIX systems:
 
 ```
 UV_PROJECT_ENVIRONMENT=/tmp/py314 uv sync --locked --dev --python 3.14
@@ -289,7 +292,8 @@ TZ=Europe/London /tmp/py314/bin/python -m pytest -q
 TZ=America/New_York /tmp/py314/bin/python -m pytest -q
 ```
 
-The third cannot be supplied here, and does not need to be. The suite pins its
+An operating system needs its own runner; running these commands on macOS does
+not verify Windows or Linux. The suite pins its
 own clock through `flexi.wallclock`, so `TZ` is not what makes the timezone
 rows differ — the machine underneath them is, and green under all three is the
 evidence that no reading escapes the pin. Windows sets its zone with `tzutil`
@@ -306,8 +310,23 @@ uvx --from actionlint-py actionlint .github/workflows/*.yaml
 ```
 
 For byte-for-byte fidelity — the runner image, not just the commands — `act`
-runs the workflows in Docker:
+can run Linux jobs in Docker. It does not reproduce the hosted macOS or Windows
+matrix rows:
 
 ```
 act push -W .github/workflows/ci.yaml
 ```
+
+## 9. Dependency advisories
+
+The static workflow checks every locked runtime and development dependency:
+
+```bash
+uv export --locked --no-emit-project --group dev -o .probe-audit.txt --quiet
+uvx --from pip-audit==2.10.1 pip-audit --disable-pip --no-deps --progress-spinner off -r .probe-audit.txt
+```
+
+The audit evaluates environment markers for the current interpreter and OS.
+Run it on Windows to include Windows-only dependencies. It requires network
+access to the advisory service. A clean result covers known advisories at the
+time of the check; it is not a substitute for code review.

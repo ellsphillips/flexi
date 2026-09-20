@@ -79,9 +79,9 @@ Live when the table has focus.
 | `a` | Book an absence on the day under the cursor. |
 | `x` | Remove the absence booking under the cursor. It asks first. |
 
-`x` on a day or session row answers that deleting sessions is not implemented.
-Use `n` to record work that was missed; a recorded session is corrected, never
-deleted.
+`x` removes leave bookings. Clock records are retained as an audit trail.
+Use `n` to add work that was missed; editing or deleting an existing clocked
+session is not available in the interface.
 
 `left` and `right` are `DataTable`'s own column-cursor keys here. They do not
 step the period.

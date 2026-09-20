@@ -5,7 +5,7 @@ What changed, for the person using Flexi. Versions follow
 
 ## 0.2.0
 
-The first release on PyPI, and a rewrite of everything above the database. If
+The terminal application's release, and a rewrite of everything above the database. If
 you have used Flexi before, your records open unchanged: the schema is migrated
 forward on launch, with a backup taken first.
 
@@ -121,5 +121,6 @@ it is the sum for the current one, so in April it starts again from nought. See
 
 ---
 
-There is no 0.1.0. That version of the name on PyPI is an unrelated 2022 package
-by another author, so this project's history starts at 0.2.0.
+The [legacy 0.1.0 release](https://pypi.org/project/flexi/0.1.0/) was published
+by Elliott Phillips in August 2022. It does not contain this terminal application
+or its `flexi` command. This changelog covers the application from 0.2.0 onward.
