@@ -62,20 +62,33 @@ def run_migrations_online() -> None:
         if not isinstance(provided_engine, Engine):
             message = "Alembic's injected 'engine' attribute must be an Engine"
             raise TypeError(message)
-        with provided_engine.connect() as connection:
-            context.configure(connection=connection, target_metadata=target_metadata)
-            with context.begin_transaction():
-                context.run_migrations()
+        migrate_with_engine(provided_engine)
         return
 
     connectable = create_db_engine(requested_database())
     try:
-        with connectable.connect() as connection:
-            context.configure(connection=connection, target_metadata=target_metadata)
-            with context.begin_transaction():
-                context.run_migrations()
+        migrate_with_engine(connectable)
     finally:
         connectable.dispose()
+
+
+def migrate_with_engine(engine: Engine) -> None:
+    """Commit schema changes and their revision together, or roll both back.
+
+    Python's SQLite driver does not begin a transaction for DDL in its legacy
+    transaction mode. SQLAlchemy's transaction context alone therefore leaves
+    failed migrations with committed schema changes and an old revision. An
+    explicit SQLite transaction protects fresh installs and upgrades alike.
+    """
+    with engine.begin() as connection:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            transactional_ddl=True,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
 
 
 if context.is_offline_mode():

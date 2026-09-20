@@ -295,6 +295,42 @@ def test_fresh_database_reaches_head(db: Path) -> None:
     assert {"settings", "clock_events", "work_sessions", "absence_days"} <= names
 
 
+@pytest.mark.parametrize("initial_revision", [None, "0006", "0015"])
+def test_failed_migration_rolls_back_schema_and_can_be_retried(
+    db: Path, initial_revision: str | None
+) -> None:
+    if initial_revision is not None:
+        upgrade(db, initial_revision)
+    with closing(sqlite3.connect(db)) as connection:
+        before = tuple(connection.iterdump())
+
+    with alembic_config(db) as cfg:
+        engine = cfg.attributes["engine"]
+        assert isinstance(engine, sa.Engine)
+
+        def interrupt_after_ddl(
+            _connection: object,
+            _cursor: object,
+            statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            if statement.lstrip().startswith("CREATE TABLE bank_holiday_attempts"):
+                message = "migration interrupted after DDL"
+                raise RuntimeError(message)
+
+        sa.event.listen(engine, "after_cursor_execute", interrupt_after_ddl)
+        with pytest.raises(RuntimeError, match="interrupted after DDL"):
+            command.upgrade(cfg, HEAD)
+
+    with closing(sqlite3.connect(db)) as connection:
+        assert tuple(connection.iterdump()) == before
+
+    upgrade(db, HEAD)
+    assert revision_of(db) == RECORDED_HEAD
+
+
 def test_existing_absences_survive_the_rebuild(db: Path) -> None:
     """Every v1 row crosses as a full day, which is all v1 could record."""
     upgrade(db, BEFORE_HALF_DAYS)
