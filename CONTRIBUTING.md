@@ -1,5 +1,8 @@
 # Contributing
 
+Use Python 3.12–3.14 and uv 0.9.26 or newer. CI pins its own uv version;
+local development accepts newer releases.
+
 ```
 uv sync
 uv run pre-commit install

@@ -90,7 +90,7 @@ It draws with box-drawing and block characters. [Ghostty](https://ghostty.org), 
 ```bash
 # install uv, if you do not have it
 curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env        # or restart your shell
+source "$HOME/.local/bin/env"      # or restart your shell
 
 uv tool install "flexi>=0.2.0"
 flexi
@@ -136,6 +136,9 @@ cd flexi
 uv sync
 uv run flexi
 ```
+
+Use a current version of uv (0.9.26 or newer). `uv sync` creates the environment
+and installs the project's locked dependencies.
 
 </details>
 
@@ -200,6 +203,10 @@ flexi holidays refresh              # when GOV.UK was unreachable
 
 `flexi leave` prints the plan and asks first, naming every weekend and bank holiday it skipped. `--dry-run` stops at the plan, `--yes` skips the question, and a declined confirmation exits 1.
 
+If a session runs into booked leave, clock-out asks you to remove the conflicting
+booking and retry. The session stays open until you resolve the conflict, so
+the actual work is retained.
+
 There is no field for "I am already plus fourteen hours": put the days in with `n`, or start from nought with `flexi balance zero`. On Windows, set `PYTHONUTF8=1` before redirecting output to a file; the ANSI code page cannot encode a deficit's minus sign.
 
 ## Your data
@@ -219,9 +226,9 @@ Uninstalling removes the program, not the records: delete `~/.local/share/flexi`
 
 **Restoring a backup.** Every `.bak` is a complete SQLite database. Quit Flexi everywhere, copy the one you want over `db.db`, and launch; an older snapshot migrates forward, with a fresh backup taken first. `db_*.bak` is written before each migration, newest ten kept; `pre-init_*.bak` before a reset, never aged out.
 
-Starting over — `flexi init` where records exist — is the only thing here that loses data, so it is not a flag. It says how many records it would erase, writes a protected snapshot, then asks you to type a word. With no terminal attached there is no menu at all.
+Starting over — `flexi init` where records exist — removes all records. It says how many records it would erase and asks you to type a confirmation word, then writes and verifies a protected snapshot before resetting the database. With no terminal attached there is no menu at all.
 
-Two network services, neither of which receives your timesheet or settings. The PyPI version check is silent. Flexi fetches bank holidays from GOV.UK on first run, caches them for a week, and refuses to book absence until it has a calendar. Both servers receive ordinary connection metadata such as your IP address. Records and backups are not encrypted; see the [security policy](https://github.com/ellsphillips/flexi/blob/main/SECURITY.md).
+Two network services, neither of which receives your timesheet or settings. Flexi notifies you when PyPI has a newer version; a failed version check is silent. Flexi fetches bank holidays from GOV.UK on first run, caches them for a week, and refuses to book absence until it has a calendar. Both servers receive ordinary connection metadata such as your IP address. Records and backups are not encrypted; see the [security policy](https://github.com/ellsphillips/flexi/blob/main/SECURITY.md).
 
 ## Development
 

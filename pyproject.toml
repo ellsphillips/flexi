@@ -91,9 +91,8 @@ include = [
 
 [tool.uv]
 package = true
-# setup-uv reads this, so CI and this machine resolve with the same uv. Neither
-# Dependabot ecosystem bumps it; move it with the setup-uv action.
-required-version = "==0.9.26"
+# Source checkouts accept current uv releases; CI pins its tool version.
+required-version = ">=0.9.26"
 
 [tool.pytest.ini_options]
 # `auto` so a Pilot test is a plain `async def`; a forgotten decorator skips.

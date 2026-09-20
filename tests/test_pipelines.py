@@ -8,11 +8,14 @@ narrower publishes the least tested run in the repository, silently.
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
 
@@ -150,3 +153,21 @@ def test_pypi_guard_fails_closed_with_bounded_waits() -> None:
     assert "404)" in script
     assert "*)" in script
     assert "exit 1" in script
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_ci_uv_is_pinned_and_supported() -> None:
+    versions: set[str | None] = set()
+    for path in sorted(WORKFLOWS.glob("*.yaml")):
+        for job in _workflow(path.name)["jobs"].values():
+            for step in job.get("steps", []):
+                if step.get("uses", "").startswith("astral-sh/setup-uv@"):
+                    versions.add(step.get("with", {}).get("version"))
+
+    assert len(versions) == 1, "all CI jobs must use the same uv version"
+    pinned = versions.pop()
+    assert pinned is not None, "CI must pin uv independently of local setup"
+    project = tomllib.loads(
+        (WORKFLOWS.parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert Version(pinned) in SpecifierSet(project["tool"]["uv"]["required-version"])
