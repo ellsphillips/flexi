@@ -122,16 +122,54 @@ def test_ensure_is_how_a_directory_gets_made(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
-def test_directories_flexi_makes_are_private(tmp_path: Path) -> None:
-    """The database under it holds sick days and the notes beside them.
-
-    A default umask leaves 0755. `mkdir` carries its mode only to a directory
-    it creates, so an existing one is chmodded as well.
-    """
+def test_directories_flexi_makes_are_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """New directories and Flexi's dedicated data directory remain private."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     fresh = tmp_path / "fresh"
-    already = tmp_path / "already"
+    already = locations.data_directory()
     already.mkdir()
     already.chmod(0o755)
 
     assert stat.S_IMODE(locations.ensure(fresh).stat().st_mode) == 0o700
     assert stat.S_IMODE(locations.ensure(already).stat().st_mode) == 0o700
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
+def test_existing_custom_database_parent_keeps_its_permissions(tmp_path: Path) -> None:
+    from flexi.models.database.migrate import run_migrations
+
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    shared.chmod(0o755)
+
+    run_migrations(shared / "custom.db")
+
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+    assert (shared / "custom.db").is_file()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
+def test_dedicated_directory_symlink_does_not_chmod_its_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    shared.chmod(0o755)
+    linked = locations.data_directory()
+    linked.symlink_to(shared, target_is_directory=True)
+
+    assert locations.ensure(linked) == linked
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+
+
+def test_ensure_rejects_an_existing_regular_file(tmp_path: Path) -> None:
+    existing = tmp_path / "file"
+    existing.write_text("keep", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        locations.ensure(existing)
+
+    assert existing.read_text(encoding="utf-8") == "keep"

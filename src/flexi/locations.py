@@ -91,15 +91,22 @@ def backups_directory() -> Path:
 
 
 def ensure(directory: Path) -> Path:
-    """Create a directory, private to its owner, and return it.
+    """Create a private directory without changing an existing custom parent.
 
-    0700, because the contents are clock times, sick days and the notes beside
-    them; the XDG specification asks the same of a base directory. Both calls
-    are needed: `mkdir` applies its mode to the leaf alone, the umask masks it,
-    and neither reaches a directory that is already there. On Windows the mode
-    is ignored and `chmod` touches only the read-only attribute, which 0o700
-    leaves clear.
+    Flexi's dedicated directories are kept private on subsequent runs. A
+    caller-supplied database may live in a shared directory, so existing custom
+    parents and directory symlinks retain their permissions.
     """
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        directory.mkdir(parents=True, mode=0o700)
+    except FileExistsError:
+        if not directory.is_dir():
+            raise
+        if directory.is_symlink() or directory not in (
+            data_directory(),
+            config_directory(),
+            backups_directory(),
+        ):
+            return directory
     directory.chmod(0o700)
     return directory
