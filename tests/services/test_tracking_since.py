@@ -12,7 +12,7 @@ from datetime import date, time, timedelta
 import time_machine
 from sqlalchemy.orm import Session
 
-from flexi.constants import AbsenceType, DayKind, Division
+from flexi.constants import AbsenceType, DayKind, Division, Portion
 from flexi.models.database.db import BankHolidayCache
 from flexi.services.registry import Services, build_services, invalidate_services
 from flexi.services.settings import SettingsUpdate
@@ -279,3 +279,55 @@ def test_toil_on_a_new_bank_holiday_withdraws_nothing(
         assert day.kind is DayKind.HOLIDAY
         assert day.toil_taken == timedelta()
         assert day.balance_effect == timedelta()
+
+
+def test_toil_on_a_removed_working_day_withdraws_nothing(
+    configure: Configured,
+) -> None:
+    booked = date(2026, 6, 12)
+    services = configure(leave_year_start="04-06", tracking_since=LEAVE_YEAR_OPENED)
+    assert services.absence.book(booked, AbsenceType.FLEXI).success
+    assert services.ledger.day(booked).toil_taken == CONTRACTED
+
+    services.settings.save_settings(
+        SettingsUpdate(
+            leave_year_start=(4, 6),
+            working_days=(0, 1, 2, 3),
+            division=Division.ENGLAND_AND_WALES,
+            auto_close=time(18, 0),
+        )
+    )
+
+    day = services.ledger.day(booked)
+    assert day.toil_taken == timedelta()
+    assert day.balance_effect == timedelta()
+    assert services.absence.tally(booked, booked)[AbsenceType.FLEXI].days == 0
+
+
+def test_pre_tracking_toil_preview_matches_its_unchanged_balance(
+    configure: Configured,
+) -> None:
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
+        plan = services.absence.plan(
+            BEFORE_SETUP,
+            BEFORE_SETUP,
+            AbsenceType.FLEXI,
+            Portion.AM,
+            available_toil_days=0.0,
+        )
+
+        assert plan.cost == 0.5
+        assert plan.toil_cost == 0.0
+        assert plan.toil_after == 0.0
+        assert plan.warning is None
+        assert services.absence.book_plan(plan).warning is None
+        result = services.absence.book(
+            BEFORE_SETUP,
+            AbsenceType.FLEXI,
+            Portion.PM,
+            available_toil_days=0.0,
+        )
+        assert result.success
+        assert result.warning is None
+        assert services.ledger.day(BEFORE_SETUP).toil_taken == timedelta()

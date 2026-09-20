@@ -219,10 +219,10 @@ class LedgerService:
                 worked=worked,
                 expected=expected,
                 # TOIL is a withdrawal against what a day asks for, and an
-                # untracked day or a bank holiday asks for nothing.
+                # untracked day, non-working day or bank holiday asks for nothing.
                 toil_taken=(
                     toil_taken_for(contracted, slices)
-                    if is_tracked and title is None
+                    if is_tracked and is_working and title is None
                     else timedelta()
                 ),
                 adjustment=corrections.get(when, timedelta()),

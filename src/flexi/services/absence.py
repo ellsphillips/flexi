@@ -268,10 +268,10 @@ def _draws_on_the_balance(facts: DayFacts, today: date) -> bool:
 
     A tracked day already past expects its contracted hours and already carries
     the shortfall for not getting them, so TOIL booked over it trades one for
-    the other and leaves the balance where it was. A future or untracked day
-    expects nothing, so a withdrawal against either is real.
+    the other and leaves the balance where it was. A future tracked day reserves
+    time from the balance. An untracked day never withdraws from it.
     """
-    return facts.date > today or not facts.is_tracked
+    return facts.date > today and facts.is_tracked
 
 
 def verdict_for(
