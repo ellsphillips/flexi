@@ -34,8 +34,8 @@ jobs:
       title: ${{ steps.plan.outputs.title }}
       number: ${{ steps.plan.outputs.number }}
     steps:
-      # Trusted workflow revision: main for PR events, dev for the first-release
-      # manual bootstrap. Candidate code is never used in a credentialed job.
+      # GitHub runs PR-target workflows from the default branch, dev. Use that
+      # fixed revision, including for manual runs, in credentialed jobs.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}

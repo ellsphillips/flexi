@@ -99,6 +99,8 @@ required-version = ">=0.9.26"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests", "src/flexi/domain", "src/flexi/cli/ui", "src/flexi/services"]
+# Import developer tools without adding src or shadowing an installed flexi.
+pythonpath = ["."]
 # `importlib` import mode so the doctest paths under src/ collect against an
 # installed flexi as well as against this checkout.
 addopts = "--doctest-modules --strict-markers --strict-config --import-mode=importlib -n auto --timeout=120"

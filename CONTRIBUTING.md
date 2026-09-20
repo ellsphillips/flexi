@@ -61,8 +61,9 @@ floating point, and a leave year of rounding it gives a balance that disagrees
 with the sum of its own rows.
 
 Add a short user-facing note under `## Unreleased` in `CHANGELOG.md` for changes
-that belong in release notes. Release preparation promotes that section to the
-version named in the release pull request.
+that belong in future release notes. For the first 0.2.0 release, update its
+existing `## 0.2.0` section instead. Preparation promotes `Unreleased` only when
+the version named in the release pull request has no section yet.
 
 Anything that changes the interface should regenerate the screenshots and their
 text twins in `docs/shots/`:

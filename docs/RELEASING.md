@@ -6,8 +6,9 @@ review. Merging that pull request starts publishing.
 
 ## Publish a release
 
-1. Finish the release's changes on `dev`. Keep user-facing notes under
-   `## Unreleased` in `CHANGELOG.md`.
+1. Finish the release's changes on `dev`. For this first release, update the
+   existing `## 0.2.0` notes in `CHANGELOG.md`. For future versions, collect notes
+   under `## Unreleased`.
 2. Open a pull request with **base `main`**, **head `dev`**, and the exact title
    **`chore(release): 0.2.0`** for this release. For later releases, replace
    `0.2.0` with a stable `X.Y.Z` version newer than the version on `main`. The
@@ -26,8 +27,8 @@ review. Merging that pull request starts publishing.
    the merge commit and uploads its checked wheel and source distribution.
 7. After publication, review and publish the draft GitHub release.
 
-Preparation promotes `## Unreleased` into the requested version's changelog
-section. The existing `## 0.2.0` section is retained for the first release.
+Preparation promotes `## Unreleased` when the requested version has no changelog
+section yet. An existing version section is preserved; update its notes directly.
 Screenshots run in an isolated job with read-only repository permissions;
 running application code does not require repository write credentials.
 
@@ -35,13 +36,15 @@ The publishing workflow accepts only `main` and fails if PyPI cannot confirm
 whether the version exists. The artifacts that pass the package checks are the
 ones uploaded to PyPI.
 
-## Bootstrap the first release
+## Rerun preparation
 
-The preparer's `pull_request_target` trigger reads the workflow from `main`.
-For the first release, the workflow is new on `dev`, so open the release pull
-request and run **Prepare release** manually. In GitHub Actions, choose **Run
-workflow**, select branch **dev**, and enter the pull-request number in
-**pull_request**. With the GitHub CLI, replacing `123` with that number:
+Preparation starts automatically, including for the first 0.2.0 release.
+GitHub's `pull_request_target` trigger uses the trusted workflow revision from
+the default branch, `dev`.
+
+To retry manually, open **Prepare release → Run workflow** in GitHub Actions,
+select **dev**, and enter the pull-request number in **pull_request**. With the
+GitHub CLI, replacing `123` with that number:
 
 ```bash
 gh workflow run release-prepare.yaml --ref dev -f pull_request=123
@@ -50,10 +53,16 @@ gh workflow run release-prepare.yaml --ref dev -f pull_request=123
 This prepares the pull request; it does not publish to PyPI. Review any generated
 commit and wait for both required checks before merging.
 
-Once the workflow has reached `main`, later release pull requests prepare
-automatically.
-
 ## One-time setup
+
+### Actions event policy
+
+Review **Settings → Actions → Policies**. GitHub's
+[default policy](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target#default-policy-for-pull_request_target)
+will block `pull_request_target` in affected public repositories from
+2 November 2026. If preparation is blocked, use the manual retry above.
+Automatic runs require an applicable policy explicitly allowing this event;
+scope any exception to this repository's `.github/workflows/release-prepare.yaml`.
 
 ### Release-preparer GitHub App
 
@@ -142,6 +151,21 @@ UV_PUBLISH_URL=https://test.pypi.org/legacy/ uv publish dist/*
 ```
 
 The GitHub release workflow itself always targets PyPI.
+
+## Maintaining the preparer
+
+`scripts/release_pr.py` validates GitHub responses in `GitHubClient` and passes
+immutable release requests and file bundles into the workflow. `plan` reads the
+release request; `review` verifies the generated files without writing to GitHub;
+`commit` accepts only those reviewed changes and rechecks the request before
+advancing `dev`. Keep these stages separate when changing the automation.
+
+The tests inject a typed repository client and cover malformed responses,
+unexpected file changes, and concurrent pushes:
+
+```bash
+uv run pytest tests/test_release_pr.py tests/test_prepare_release.py tests/test_pipelines.py
+```
 
 ## Recover a failed release
 
