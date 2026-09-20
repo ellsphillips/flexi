@@ -23,12 +23,19 @@ async def _boot(db: Path) -> str:
     app = FlexiApp(db_path=db)
     async with app.run_test(size=TERMINAL) as pilot:
         await pilot.pause()
-        return type(app.screen).__name__
+        screen = type(app.screen).__name__
+    if app.return_code:
+        msg = f"Application exited with status {app.return_code}"
+        raise RuntimeError(msg)
+    if screen != "SetupScreen":
+        msg = f"Expected SetupScreen for a new database, got {screen}"
+        raise RuntimeError(msg)
+    return screen
 
 
 def main() -> int:
     # Windows can refuse to delete the database file while the engine holds it.
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         db = Path(tmp) / "smoke.db"
 
         run_migrations(db)

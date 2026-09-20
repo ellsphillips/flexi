@@ -20,11 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows as well as Linux, because that is the first moment anything
-        # checks the data directory resolves and the application paints there.
-        # macOS shares every path assumption with Linux and the test matrix
-        # already covers it three interpreters deep.
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     env:
       # uv puts the interpreter under `bin` on POSIX and `Scripts` on Windows,
       # and on Windows it is only found by its `.exe`: `uv pip install --python
@@ -49,9 +45,22 @@ jobs:
 
       - run: uv build
 
+      - name: Check PyPI metadata and README rendering
+        run: uvx --from twine==7.0.0 twine check --strict dist/*
+
       - name: Install it somewhere that has no source tree
         run: |
           uv venv .probe
+          uv pip install --python "$PROBE" dist/*.whl
+          uv pip check --python "$PROBE"
+          "$PROBE" -m flexi --version
+          "$PROBE" -m flexi --help
+
+      - name: It migrates and paints with runtime dependencies alone
+        run: '"$PROBE" scripts/smoke.py'
+
+      - name: Install the locked test tools
+        run: |
           # The toolchain comes from the lockfile, so a release on PyPI
           # cannot turn this job red between two runs of the same commit.
           # `uv pip install` never reads uv.lock, hence the export.
@@ -70,10 +79,6 @@ jobs:
         run: |
           "$PROBE" -m pytest tests/test_packaging.py -q
 
-      - name: It migrates a database and paints a screen
-        run: |
-          "$PROBE" scripts/smoke.py
-
       - name: It knows where to keep the records on this machine
         # The one thing `smoke.py` cannot check, because it runs against a
         # temporary file: that the real data directory resolves somewhere
@@ -89,7 +94,7 @@ jobs:
           "
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        # One copy. The wheel is pure Python and identical from either runner,
+        # One copy. The wheel is pure Python and identical from each runner,
         # and `release.yaml` downloads this by name: two uploads called `dist`
         # is an error, and the release would stop at the artefact check.
         if: matrix.os == 'ubuntu-latest'

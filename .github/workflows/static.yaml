@@ -46,3 +46,8 @@ jobs:
       # the POSIX code after a win32 early return is unreachable in this view.
       - name: mypy, the Windows view
         run: uv run mypy --platform win32 --no-warn-unreachable
+
+      - name: Audit locked runtime and development dependencies
+        run: |
+          uv export --locked --no-emit-project --group dev --output-file audit-requirements.txt --quiet
+          uvx --from pip-audit==2.10.1 pip-audit --disable-pip --no-deps --progress-spinner off --requirement audit-requirements.txt
