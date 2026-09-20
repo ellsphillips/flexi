@@ -11,7 +11,7 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from threading import Barrier
 from typing import Any
 from unittest.mock import patch
@@ -279,14 +279,14 @@ class TestOpeningWithoutWriting:
         assert verify(database)
 
     @pytest.mark.parametrize(
-        ("path", "uri"),
+        ("uri", "expected"),
         [
-            ("C:/data/db.db", "file:///C:/data/db.db?mode=ro"),
-            ("//server/share/db.db", "file:////server/share/db.db?mode=ro"),
+            ("file:///C:/data/db.db", "file:///C:/data/db.db?mode=ro"),
+            ("file://server/share/db.db", "file:////server/share/db.db?mode=ro"),
         ],
     )
-    def test_windows_uri_uses_an_empty_authority(self, path: str, uri: str) -> None:
-        assert _read_only_uri(PureWindowsPath(path)) == uri
+    def test_windows_uri_uses_an_empty_authority(self, uri: str, expected: str) -> None:
+        assert _read_only_uri(uri) == expected
 
 
 # ---------- backup failure ----------

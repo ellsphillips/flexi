@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from pathlib import Path, PurePath
+from pathlib import Path
 from time import monotonic
 
 from flexi import wallclock
@@ -78,14 +78,13 @@ def snapshot(source: Path, *, prefix: str = PROTECTED_PREFIX) -> Path:
     return target
 
 
-def _read_only_uri(database: PurePath) -> str:
-    """Encode an absolute filename with an empty SQLite URI authority.
+def _read_only_uri(uri: str) -> str:
+    """Give an escaped file URI an empty SQLite authority and read-only mode.
 
-    ``as_uri`` escapes literal percent signs, query markers and fragments. For
-    UNC paths it puts the server in the authority, which SQLite rejects; move
-    that server into the path, preserving the leading double slash.
+    ``Path.as_uri`` has already escaped percent signs, queries and fragments.
+    For UNC paths it puts the server in the authority, which SQLite rejects;
+    move that server into the path, preserving the leading double slash.
     """
-    uri = database.as_uri()
     location = uri.removeprefix("file://")
     if not location.startswith("/"):
         uri = f"file:////{location}"
@@ -107,7 +106,7 @@ def read_only(database: Path, *, timeout: float = 5.0) -> sqlite3.Connection:
         msg = f"No database at {database}"
         raise FileNotFoundError(msg)
     return sqlite3.connect(
-        _read_only_uri(database.absolute()), uri=True, timeout=timeout
+        _read_only_uri(database.absolute().as_uri()), uri=True, timeout=timeout
     )
 
 

@@ -6,6 +6,7 @@ from datetime import date, datetime
 
 import click
 import pytest
+import time_machine
 from sqlalchemy.orm import Session
 
 from flexi.cli.leave import Request, parse_request, render, run
@@ -315,11 +316,41 @@ def test_annual_leave_does_not_warn_about_flexi(
     assert "deficit" not in render(plan)
 
 
-def test_taking_toil_beyond_the_balance_warns(services: Services) -> None:
-    plan = services.absence.plan(
-        MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=2.0
-    )
+def test_taking_toil_beyond_the_balance_warns(
+    services: Services, session: Session
+) -> None:
+    before_the_span = date(2026, 8, 7)
+    settings = services.settings.get_settings()
+    assert settings is not None
+    settings.tracking_since = before_the_span
+    session.commit()
+
+    with time_machine.travel(before_the_span, tick=False):
+        plan = services.absence.plan(
+            MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=2.0
+        )
+
+    assert plan.toil_cost == 5.0
+    assert plan.toil_after == -3.0
     assert "deficit" in render(plan)
+
+
+def test_pre_tracking_toil_does_not_render_a_spurious_deficit(
+    services: Services, session: Session
+) -> None:
+    settings = services.settings.get_settings()
+    assert settings is not None
+    settings.tracking_since = FRIDAY
+    session.commit()
+
+    with time_machine.travel(FRIDAY, tick=False):
+        plan = services.absence.plan(
+            MONDAY, TUESDAY, AbsenceType.FLEXI, available_toil_days=0.0
+        )
+
+    assert plan.cost == 2.0
+    assert plan.toil_cost == 0.0
+    assert "deficit" not in render(plan)
 
 
 # Cancelling -----------------------------------------------------------------
