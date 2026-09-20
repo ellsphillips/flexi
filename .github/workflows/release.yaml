@@ -1,15 +1,9 @@
 name: Release
 
-# Publishing is hard to do by accident. Four things must all be true before
-# anything reaches PyPI:
-#
-#   1. the ref is main, for the push and for a manual dispatch alike
-#   2. the version in pyproject is one PyPI has never seen
-#   3. the whole suite passes, and the built wheel installs and boots
-#   4. a human approves the `pypi` environment in the Actions UI
-#
-# Miss any of them and the run stops. Push a README fix to main and it will
-# reach step 2, notice the version is unchanged, and stop without failing.
+# A reviewed merge to main authorizes release; the environment may additionally
+# require approval. Incomplete publication may be resumed, but already-published
+# files must match the newly tested artifacts.
+# Completed versions are harmless no-ops on later documentation commits.
 
 on:
   push:
@@ -29,11 +23,12 @@ env:
 
 jobs:
   guard:
-    name: Is this a new version?
+    name: Is publication complete?
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      publish: ${{ steps.published.outputs.publish }}
+      version: ${{ steps.status.outputs.version }}
+      publish: ${{ steps.status.outputs.publish }}
     steps:
       # `workflow_dispatch` accepts any ref. The `pypi` environment refuses
       # every branch but main at the end; this says so in seconds instead of
@@ -47,40 +42,11 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - id: version
-        name: Read the version from pyproject
-        run: |
-          version=$(python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "pyproject says $version"
-
-      - id: published
-        name: Has PyPI seen it before?
+      - id: status
+        name: Validate the version and inspect release state
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          if ! code=$(curl --silent --show-error \
-            --retry 3 --retry-all-errors --retry-delay 2 \
-            --connect-timeout 5 --max-time 20 \
-            --output /dev/null --write-out '%{http_code}' \
-            "https://pypi.org/pypi/${PACKAGE}/${VERSION}/json"); then
-            echo "::error::Could not establish whether ${PACKAGE} ${VERSION} exists on PyPI."
-            exit 1
-          fi
-          case "$code" in
-            200)
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::${PACKAGE} ${VERSION} is already on PyPI. Nothing to release."
-              ;;
-            404)
-              echo "publish=true" >> "$GITHUB_OUTPUT"
-              echo "::notice::${PACKAGE} ${VERSION} is new. Continuing to verification."
-              ;;
-            *)
-              echo "::error::PyPI returned HTTP ${code}; refusing to assume the version is new."
-              exit 1
-              ;;
-          esac
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release_status.py guard >> "$GITHUB_OUTPUT"
 
   # The same three workflows `ci.yaml` calls, so a release is verified by
   # exactly what a pull request is verified by. `tests/test_pipelines.py`
@@ -110,21 +76,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist
 
-      # `Package` already built it, installed it somewhere with no source tree
-      # and booted it, on Linux and on Windows. All that is left is to check
-      # that what it built carries the version the guard read out of pyproject.
-      - name: The filenames carry that version
+      # Existing files from a partial upload must have exactly these hashes.
+      # This read-only job runs repository code; the OIDC publish job does not.
+      - name: Verify filenames and any already-published distributions
         env:
           VERSION: ${{ needs.guard.outputs.version }}
-        run: |
-          ls -1 dist/
-          test -f "dist/${PACKAGE}-${VERSION}-py3-none-any.whl"
-          test -f "dist/${PACKAGE}-${VERSION}.tar.gz"
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/release_status.py verify --version "$VERSION"
 
   publish:
     name: Publish to PyPI
@@ -139,9 +104,8 @@ jobs:
       # file and the `pypi` environment below, so a workflow added on a branch
       # cannot mint one.
       id-token: write
-    # The approval gate. This environment has a required reviewer, so the run
-    # pauses here until a human presses the button in the Actions UI, and it is
-    # restricted to main so no other branch can reach it.
+    # The environment binds the trusted publisher and restricts deployments
+    # to main. Any configured environment reviewer remains an additional gate.
     environment:
       name: pypi
       url: https://pypi.org/project/flexi/${{ needs.guard.outputs.version }}
@@ -170,21 +134,19 @@ jobs:
     name: Tag the release
     needs: [guard, publish]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Tag and release
-        # Drafted, not published: the generated notes are PR titles, and the
-        # release is the page a stranger arriving from PyPI reads first.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - name: Finish the tag and draft release without replacing either
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.guard.outputs.version }}
-        run: |
-          git tag "v${VERSION}"
-          git push origin "v${VERSION}"
-          gh release create "v${VERSION}" \
-            --draft \
-            --title "v${VERSION}" \
-            --generate-notes
+        run: python scripts/release_status.py finalize --version "$VERSION"
