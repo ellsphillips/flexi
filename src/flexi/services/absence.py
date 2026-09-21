@@ -51,6 +51,7 @@ __all__ = (
     "RemovalPlan",
     "Span",
     "Tally",
+    "ToilBalance",
     "clash_reason",
     "covers_the_whole_day",
     "deficit",
@@ -368,6 +369,31 @@ class AnnualBalance:
 
 
 @dataclass(frozen=True, slots=True)
+class ToilBalance:
+    """One leave year's banked TOIL before and after a proposed booking."""
+
+    year: int
+    before: float
+    after: float
+
+
+def _toil_warning(
+    balances: tuple[ToilBalance, ...], *, opening: str = "This"
+) -> str | None:
+    warnings = []
+    for balance in balances:
+        warning = (
+            overdraw(balance.after, opening=opening)
+            if balance.after < balance.before
+            else None
+        )
+        if warning:
+            suffix = f" ({balance.year} leave year)" if len(balances) > 1 else ""
+            warnings.append(warning + suffix)
+    return "\n".join(warnings) or None
+
+
+@dataclass(frozen=True, slots=True)
 class AbsencePlan:
     """The effect of booking a span, decided without writing anything.
 
@@ -388,6 +414,7 @@ class AbsencePlan:
     tracked day already past relabels a shortfall the balance has counted.
     ``None`` is a plan built without a date to measure against, where every
     bookable day counts."""
+    toil_balances: tuple[ToilBalance, ...] = ()
 
     @property
     def bookable(self) -> tuple[PlannedDay, ...]:
@@ -440,6 +467,9 @@ class AbsencePlan:
 
     @property
     def toil_after(self) -> float | None:
+        """The resulting TOIL balance, when exactly one leave year is affected."""
+        if self.toil_balances:
+            return self.toil_balances[0].after if len(self.toil_balances) == 1 else None
         if self.toil_available is None:
             return None
         if not self.absence_type.draws_down_balance:
@@ -457,6 +487,8 @@ class AbsencePlan:
         """
         if not self.absence_type.draws_down_balance:
             return None
+        if self.toil_balances:
+            return _toil_warning(self.toil_balances)
         return overdraw(self.toil_after)
 
 
@@ -730,13 +762,16 @@ class AbsenceService:
             if decided.verdict is not Verdict.BOOK:
                 return AbsenceResult(False, decided.reason)
 
-            charged = (
-                portion.days if _draws_on_the_balance(facts, wallclock.today()) else 0.0
-            )
-            after = (
-                available_toil_days - charged
-                if absence_type.draws_down_balance and available_toil_days is not None
-                else None
+            today = wallclock.today()
+            charged = portion.days if _draws_on_the_balance(facts, today) else 0.0
+            balances = (
+                self._toil_balances(
+                    {self._settings.active_leave_year(day): charged},
+                    available_toil_days,
+                    today,
+                )
+                if absence_type.draws_down_balance
+                else ()
             )
             absence = AbsenceDay(
                 date=day,
@@ -750,7 +785,7 @@ class AbsenceService:
             success=True,
             message=f"{absence_type.label} booked for {short_date(day)}",
             absence=absence,
-            warning=overdraw(after, opening="Booked, but this"),
+            warning=_toil_warning(balances, opening="Booked, but this"),
         )
 
     # --- what deciding a date needs ----------------------------------------
@@ -805,6 +840,51 @@ class AbsenceService:
 
     # --- planning ----------------------------------------------------------
 
+    def _toil_balances(
+        self, costs: dict[int, float], available: float | None, today: date
+    ) -> tuple[ToilBalance, ...]:
+        """Spend each year's bank without projecting unworked future hours.
+
+        Callers supply today's bank after its existing reservations. Future
+        leave years start at zero and reserve only their own valid bookings;
+        neither today's surplus nor today's deficit carries across the reset.
+        """
+        if available is None:
+            return ()
+        month, day = self._settings.get_leave_year_start()
+        current_year = leaveyear.active_year(today, month, day)
+        balances = []
+        for year, cost in costs.items():
+            if year == current_year:
+                before = available
+            elif year > current_year:
+                start, end = self.leave_year_bounds(leaveyear.clamp(year, month, day))
+                reservations = self._only_still_bookable(
+                    [
+                        row
+                        for row in self.in_range(start, end)
+                        if row.absence_type.draws_down_balance
+                    ]
+                )
+                tracked = (
+                    {
+                        facts.date
+                        for facts in self.facts_between(start, end)
+                        if facts.is_tracked
+                    }
+                    if reservations
+                    else set()
+                )
+                before = -sum(
+                    row.portion.days for row in reservations if row.date in tracked
+                )
+            else:
+                # Historical TOIL relabels an already counted shortfall. It
+                # cannot spend today's bank or cause a new withdrawal.
+                before = 0.0
+            balances.append(ToilBalance(year, before, before - cost))
+        return tuple(balances)
+
     def plan(
         self,
         start: date,
@@ -833,6 +913,7 @@ class AbsenceService:
         days: list[PlannedDay] = []
         today = wallclock.today()
         toil_cost = 0.0
+        toil_costs: defaultdict[int, float] = defaultdict(float)
 
         for facts in span_facts:
             active_year = leaveyear.active_year(facts.date, month, day)
@@ -847,8 +928,9 @@ class AbsenceService:
             days.append(decided)
             if decided.verdict is not Verdict.BOOK:
                 continue
-            if _draws_on_the_balance(facts, today):
-                toil_cost += portion.days
+            charged = portion.days if _draws_on_the_balance(facts, today) else 0.0
+            toil_cost += charged
+            toil_costs[active_year] += charged
             if absence_type.draws_down_entitlement and available is not None:
                 remaining[active_year] = available - portion.days
 
@@ -864,6 +946,11 @@ class AbsenceService:
             ),
             toil_available=available_toil_days,
             toil_cost=toil_cost,
+            toil_balances=(
+                self._toil_balances(toil_costs, available_toil_days, today)
+                if absence_type.draws_down_balance
+                else ()
+            ),
         )
 
     def book_plan(self, plan: AbsencePlan) -> RangeResult:
