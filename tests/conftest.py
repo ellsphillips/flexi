@@ -36,9 +36,10 @@ from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 
 from flexi import wallclock
-from flexi.models.database.db import Base, WorkSession
+from flexi.models.database.db import WorkSession
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services import setup
+from tests.database import create_schema
 
 settings.register_profile("dev", max_examples=100, deadline=None)
 """How hard Hypothesis tries by default.
@@ -229,9 +230,11 @@ def in_london() -> Iterator[None]:
 def engine(tmp_path: Path) -> Iterator[Engine]:
     """An empty database on disk with every table created, disposed on the way out."""
     created = create_db_engine(tmp_path / "test.db")
-    Base.metadata.create_all(created)
-    yield created
-    created.dispose()
+    try:
+        create_schema(created)
+        yield created
+    finally:
+        created.dispose()
 
 
 @pytest.fixture

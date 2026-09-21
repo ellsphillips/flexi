@@ -51,6 +51,13 @@ throwaway SQLite file under `tmp_path`. `tests/services/conftest.py` adds
 registry — plus `services` for the common case and `work()` for putting a day of
 hours on the clock.
 
+`tests.database.create_schema()` creates the tables, indexes, and triggers in
+one explicit transaction. The Python SQLite driver's
+[legacy transaction mode](https://docs.sqlalchemy.org/en/20/dialects/sqlite.html#legacy-transaction-mode-with-the-sqlite3-driver)
+otherwise commits each schema statement separately, adding disk writes to every
+new test database. Tests still use isolated files and the application's normal
+connection settings.
+
 ```python
 def test_clock_in_is_refused_on_a_day_booked_off(configure):
     services = configure(entitlement=(2026, 25.0))

@@ -32,7 +32,6 @@ from flexi.models.database.db import (
     AbsenceDay,
     BankHolidayCache,
     BankHolidayRefresh,
-    Base,
     WorkSession,
 )
 from flexi.models.database.engine import create_db_engine, get_session
@@ -41,6 +40,7 @@ from flexi.services.absence import covers_the_whole_day
 from flexi.services.registry import build_services, invalidate_services
 from flexi.services.settings import parse_settings
 from tests import strategies
+from tests.database import create_schema
 
 START = datetime(2026, 6, 1, 8, 0)
 """A Monday morning, early in a leave year that starts on 6 April."""
@@ -75,7 +75,7 @@ class TimesheetModel(RuleBasedStateMachine):
         self.directory = tempfile.mkdtemp()
         path = Path(self.directory) / "model.db"
         self.engine = create_db_engine(path)
-        Base.metadata.create_all(self.engine)
+        create_schema(self.engine)
         self.db = get_session(self.engine)
 
         build_services(self.db).settings.save_settings(
@@ -314,7 +314,7 @@ TestTimesheetModel.settings = settings(
 )
 """This test sets its own budget instead of following the profile.
 
-One example is a migrated SQLite database and up to forty service calls against
+One example is a fresh SQLite database and up to forty service calls against
 it. Depth per example is worth more here than breadth across them, which is
 what `stateful_step_count` buys.
 """
