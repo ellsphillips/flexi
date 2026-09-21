@@ -82,6 +82,7 @@ include = [
     "tests",
     "docs",
     "scripts",
+    "justfile",
     "README.md",
     "CONTRIBUTING.md",
     "SECURITY.md",

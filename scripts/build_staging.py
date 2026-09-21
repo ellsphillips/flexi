@@ -19,6 +19,12 @@ from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
 from zipfile import BadZipFile, ZipFile
 
+from scripts.release_status import (
+    ReleaseError,
+    preview_version,
+    validate_staging_version,
+)
+
 PRODUCTION = "flexi"
 STAGING = "flexi-test"
 MAX_MEMBER = 20 * 1024 * 1024
@@ -31,6 +37,10 @@ PROJECT = re.compile(r"(?ms)^\[project\][ \t]*(?:#[^\n]*)?\r?\n.*?(?=^\[|\Z)")
 NAME = re.compile(
     r"(?m)^(?P<prefix>[ \t]*name[ \t]*=[ \t]*)(?P<quote>['\"])"
     r"flexi(?P=quote)(?P<suffix>[ \t]*(?:#[^\r\n]*)?\r?)$"
+)
+PROJECT_VERSION = re.compile(
+    r"(?m)^(?P<prefix>[ \t]*version[ \t]*=[ \t]*)(?P<quote>['\"])"
+    rf"{VERSION}(?P=quote)(?P<suffix>[ \t]*(?:#[^\r\n]*)?\r?)$"
 )
 WINDOWS_RESERVED = frozenset(
     {"con", "prn", "aux", "nul"}
@@ -183,7 +193,15 @@ def require_metadata(content: bytes, package: str, version: str) -> None:
         raise BuildError(message)
 
 
-def rename_project(content: bytes, version: str) -> bytes:
+def rename_project(
+    content: bytes, version: str, staging_version: str | None = None
+) -> bytes:
+    try:
+        target = validate_staging_version(
+            version if staging_version is None else staging_version, production=version
+        )
+    except ReleaseError as error:
+        raise BuildError(str(error)) from error
     source = content.decode("utf-8")
     before = tomllib.loads(source)
     project = before.get("project")
@@ -205,11 +223,22 @@ def rename_project(content: bytes, version: str) -> bytes:
         ),
         table.group(),
     )
+    if target != version:
+        if len(list(PROJECT_VERSION.finditer(renamed))) != 1:
+            message = "Source must have one simple quoted project.version assignment"
+            raise BuildError(message)
+        renamed = PROJECT_VERSION.sub(
+            lambda match: (
+                f"{match['prefix']}{match['quote']}{target}"
+                f"{match['quote']}{match['suffix']}"
+            ),
+            renamed,
+        )
     result = source[: table.start()] + renamed + source[table.end() :]
     expected = dict(before)
-    expected["project"] = {**project, "name": STAGING}
+    expected["project"] = {**project, "name": STAGING, "version": target}
     if tomllib.loads(result) != expected:
-        message = "Staging changed project metadata beyond its distribution name"
+        message = "Staging changed project metadata beyond its name and version"
         raise BuildError(message)
     return result.encode("utf-8")
 
@@ -291,7 +320,7 @@ def run_build(source: Path, output: Path) -> None:
         raise BuildError(message) from error
 
 
-def build_staging(directory: Path, output: Path) -> str:
+def build_staging(directory: Path, output: Path, *, run_id: str | None = None) -> str:
     if directory.is_symlink() or not directory.is_dir():
         message = "Production distributions must be a regular directory"
         raise BuildError(message)
@@ -304,6 +333,10 @@ def build_staging(directory: Path, output: Path) -> str:
         message = "Cannot identify exactly one stable production wheel version"
         raise BuildError(message)
     version = versions[0]
+    try:
+        target = version if run_id is None else preview_version(version, run_id)
+    except ReleaseError as error:
+        raise BuildError(str(error)) from error
     wheel, source = distribution_pair(directory, PRODUCTION, version)
     original = wheel_files(wheel)
     require_metadata(
@@ -313,7 +346,7 @@ def build_staging(directory: Path, output: Path) -> str:
     if "pyproject.toml" not in files:
         message = "Production source archive is missing pyproject.toml"
         raise BuildError(message)
-    files["pyproject.toml"] = rename_project(files["pyproject.toml"], version)
+    files["pyproject.toml"] = rename_project(files["pyproject.toml"], version, target)
     if output.exists() or output.is_symlink():
         message = "Staging output must not already exist; use a fresh output directory"
         raise BuildError(message)
@@ -324,23 +357,23 @@ def build_staging(directory: Path, output: Path) -> str:
         scratch = Path(temporary).resolve()
         checkout = scratch / "source"
         for name, content in files.items():
-            target = checkout / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
+            destination = checkout / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(content)
         built = scratch / "dist"
         run_build(checkout, built)
-        test_wheel, test_source = distribution_pair(built, STAGING, version)
+        test_wheel, test_source = distribution_pair(built, STAGING, target)
         staged = wheel_files(test_wheel)
         require_metadata(
-            staged.get(f"{dist_info(staged)}/METADATA", b""), STAGING, version
+            staged.get(f"{dist_info(staged)}/METADATA", b""), STAGING, target
         )
-        staged_files = source_files(test_source, f"flexi_test-{version}")
-        require_metadata(staged_files.get("PKG-INFO", b""), STAGING, version)
+        staged_files = source_files(test_source, f"flexi_test-{target}")
+        require_metadata(staged_files.get("PKG-INFO", b""), STAGING, target)
         if {
             name: data for name, data in staged_files.items() if name != "PKG-INFO"
         } != {name: data for name, data in files.items() if name != "PKG-INFO"}:
             message = (
-                "Staging source differs beyond the project name and generated metadata"
+                "Staging source differs beyond the project name, version and metadata"
             )
             raise BuildError(message)
         require_same_payload(wheel, test_wheel)
@@ -352,13 +385,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist", type=Path, default=Path("dist"))
     parser.add_argument("--out", type=Path, default=Path("test-dist"))
+    parser.add_argument("--run-id", help="GitHub run ID for a unique TestPyPI preview")
     args = parser.parse_args()
     try:
-        version = build_staging(args.dist, args.out)
+        version = build_staging(args.dist, args.out, run_id=args.run_id)
+        target = (
+            version if args.run_id is None else preview_version(version, args.run_id)
+        )
     except (BuildError, OSError, ValueError) as error:
         print(f"Staging build stopped: {error}", file=sys.stderr)
         return 1
-    print(f"Built {STAGING} {version}; application payload matches {PRODUCTION}.")
+    print(
+        f"Built {STAGING} {target}; application payload matches {PRODUCTION} {version}."
+    )
     return 0
 
 

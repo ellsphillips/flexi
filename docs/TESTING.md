@@ -163,7 +163,7 @@ Rules that keep them useful:
   (narrow) and 64×22 (tiny). The dashboard is pinned at all three, leave at wide
   and narrow, insights at 120×36 and 120×44, and the rest at wide only. The
   responsive rules in `DESIGN-SYSTEM.md` §6 only exist where they are pinned.
-- **Regenerate, then read the diff.** `uv run python scripts/shoot.py` rewrites
+- **Regenerate, then read the diff.** `just shots` rewrites
   both the SVGs and the text; the diff is what you review before committing.
 - **A version bump is a visual change.** The header carries `v0.2.0`, so every
   `.txt` twin carries it too, and bumping `version` in `pyproject.toml` without
@@ -185,7 +185,7 @@ async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> 
     (SHOTS / f"{name}.txt").write_text(screen_text(app), encoding="utf-8")
 ```
 
-`uv run python scripts/shoot.py` writes the set into `docs/shots/`, as an SVG and
+`just shots` writes the set into `docs/shots/`, as an SVG and
 a text twin per screen. `SHOOTS` there is `CASES` plus the five wider
 `showcase-*` shots the README embeds; the two lists are kept in step by hand.
 Convert to PNG for a terminal that renders images:
@@ -208,22 +208,23 @@ exit.
 
 ## 6. Running
 
-```
-uv run pytest -q                     # everything
-uv run pytest tests/domain -q        # while working on arithmetic
-uv run pytest tests/tui -q           # while working on interaction
-uv run python scripts/shoot.py       # after an intentional visual change
-uv run mypy                          # strict, and it is meant to stay strict
-uv run ruff check
+Follow [Developer tasks](TASKS.md) for the tool requirements and `just setup`.
+Run `just` to list the recipes; test recipes accept pytest paths and options.
+
+```bash
+just test                           # everything
+just test tests/domain -q            # while working on arithmetic
+just test tests/tui -q               # while working on interaction
+just shots                          # after an intentional visual change
+just check                          # lockfile, style, types, and workflows
+just coverage                       # CI property budget and coverage reports
 ```
 
-Neither `mypy` nor `ruff` needs an argument. `mypy` covers `src` and `tests`
-both, and `mypy_path = "src"` is what stops a src layout being discovered twice
-— once as `flexi.x` and once as `src.flexi.x` — which makes mypy refuse to check
-either.
+`just types` checks `src` and `tests` with mypy's native and Windows platform
+views. `just lint` checks Python and justfile style without applying fixes.
 
-`uv run pre-commit run --all-files` runs the lot, and those hooks are the same
-commands CI runs.
+Use `just fix` to apply automated style fixes, or `just hooks` to run every
+configured pre-commit hook. Both may modify files; review the diff afterward.
 
 A failed snapshot prints its diff, so nothing needs uploading as an artefact.
 
@@ -236,9 +237,11 @@ Python's fatal-error handler remains enabled for actual interpreter faults.
 
 ## 7. Reproducing a loaded runner
 
+```bash
+just test-late -q
 ```
-FLEXI_LATE_CALLBACKS=0.05 uv run pytest -q
-```
+
+This uses the CI property-test profile and sets `FLEXI_LATE_CALLBACKS=0.05`.
 
 `pilot.pause()` drains the messages queued at the moment it is called. Work that
 a *layout* schedules — `RecordsModule` measuring its strip column, the key strip
@@ -268,35 +271,32 @@ by pushing.
 
 | Workflow | Job | The same thing, locally |
 |---|---|---|
-| `static.yaml` | `Lint and types` | `uv sync --locked --dev && uv lock --check && uv run ruff check && uv run ruff format --check && uv run mypy && uv run mypy --platform win32 --no-warn-unreachable` |
-| `tests.yaml` | the matrix | `HYPOTHESIS_PROFILE=ci TZ=UTC uv run pytest` (or the row's timezone) |
-| `tests.yaml` | the coverage row | `HYPOTHESIS_PROFILE=ci TZ=UTC uv run pytest --cov` |
-| `tests.yaml` | `The declared floors still pass` | `uv lock --resolution lowest-direct && uv sync --frozen --dev && HYPOTHESIS_PROFILE=ci TZ=UTC uv run --frozen pytest` |
-| `tests.yaml` | `Deferred callbacks land late` | `HYPOTHESIS_PROFILE=ci TZ=UTC FLEXI_LATE_CALLBACKS=0.05 uv run pytest` |
-| `package.yaml` | `Wheel installs and runs` | see below |
+| `static.yaml` | `Lint and types` | `just check` and `just audit` |
+| `tests.yaml` | the matrix | `just test-ci` on the row's interpreter and timezone |
+| `tests.yaml` | the coverage row | `just coverage` |
+| `tests.yaml` | `The declared floors still pass` | `just test-floors` |
+| `tests.yaml` | `Deferred callbacks land late` | `just test-late` |
+| `package.yaml` | `Wheel installs and runs` | `just package-check` |
 
 `tests/test_pipelines.py` asserts that both pipelines call the same three, and
 that `All green` waits for all of them.
 
-```
-# wheel: build it, install it where no source tree can be imported, run it
-uv build
-uv venv .probe
-uv pip install --python .probe/bin/python dist/*.whl
-uv pip check --python .probe/bin/python
-.probe/bin/python scripts/smoke.py
-uv export --locked --no-emit-project --no-hashes --group dev -o .probe-reqs.txt
-uv pip install --python .probe/bin/python -r .probe-reqs.txt
-.probe/bin/python -m pytest tests/test_packaging.py -q
-.probe/bin/python -c "from flexi.locations import database_file; print(database_file())"
-uvx --from twine==7.0.0 twine check --strict dist/*
-```
+`just test-floors` copies the current checkout, including uncommitted changes,
+and resolves the lowest direct dependencies in a temporary lockfile and virtual
+environment. It does not rewrite your working lockfile or replace your `.venv`.
+Locally it uses the oldest supported Python, 3.12, avoiding source builds of
+older dependencies on newer interpreters; uv selects or downloads that
+interpreter without switching your development environment. CI additionally
+checks floors on the repository's Python version from `.python-version`.
+Pass pytest arguments to narrow a reproduction, such as
+`just test-floors tests/services -q`.
 
-On Windows the interpreter is `.probe/Scripts/python.exe`. The venv is relative and inside the checkout
-because bash on Windows rewrites an absolute POSIX path on its way to a native
-binary, and the src layout is what keeps the check honest — the working
-directory is the source tree and `flexi` is still importable only from the
-wheel.
+`just package-check` builds both `flexi` and `flexi-test`, checks metadata and
+README rendering with Twine, and installs each wheel separately. Runtime smoke
+checks run before the locked test tools are added for the installed-package
+tests. Builds, environments, configuration, and data are temporary on every OS.
+Neither command publishes anything. CI retains the direct commands in its
+workflows and separately tests the recipes on all three operating systems.
 
 The full suite runs in 15 matrix jobs. Every Linux, macOS and Windows runner
 tests Python 3.12, 3.13 and 3.14 in UTC. Each OS also tests Python 3.13 in
@@ -331,8 +331,8 @@ can genuinely deny.
 
 The workflow files themselves are checked by the linter that knows about them:
 
-```
-uvx --from actionlint-py actionlint .github/workflows/*.yaml
+```bash
+just workflow-check
 ```
 
 `act` can run Linux jobs in Docker. Its images may differ from GitHub's hosted
@@ -347,9 +347,11 @@ act workflow_dispatch -W .github/workflows/ci.yaml
 The static workflow checks every locked runtime and development dependency:
 
 ```bash
-uv export --locked --no-emit-project --group dev -o .probe-audit.txt --quiet
-uvx --from pip-audit==2.10.1 pip-audit --disable-pip --no-deps --progress-spinner off -r .probe-audit.txt
+just audit
 ```
+
+The recipe exports requirements to temporary storage and uses a pinned
+pip-audit version.
 
 The audit evaluates environment markers for the current interpreter and OS.
 Run it on Windows to include Windows-only dependencies. It requires network

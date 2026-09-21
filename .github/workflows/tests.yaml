@@ -98,6 +98,11 @@ jobs:
 
       - run: uv sync --locked --dev
 
+      # Exercise the developer recipes once on each OS without adding matrix jobs.
+      - name: Test the developer recipes
+        if: matrix.python == '3.13' && matrix.tz == 'UTC'
+        run: uvx --from rust-just==1.46.0 just test tests/test_tasks.py -q -n 0
+
       # Coverage instrumentation roughly doubles the CPU cost of a run. It is
       # enforced once, on a canonical interpreter; the rest run the same tests
       # without it, to catch failures.

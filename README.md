@@ -150,13 +150,61 @@ for details and vulnerability reporting.
 
 ## Development
 
+`just` runs the project's named development tasks. Use Python 3.12–3.14,
+uv 0.9.26 or newer, and just 1.46 or newer. From a checkout of this repository:
+
 ```bash
-uv sync
-uv run pre-commit install
-uv run pytest -q
-uv run mypy
-uv run ruff check
+uv tool install "rust-just>=1.46"
+just setup
 ```
+
+`setup` installs the locked development dependencies and Git hooks that check
+your changes when you commit. If your shell cannot find `just`, run
+`uv tool update-shell` and restart the terminal.
+
+| Command | What it does |
+|---|---|
+| `just` | List all available tasks with short descriptions. |
+| `just demo` | Run your local code with temporary sample records. |
+| `just run` | Run your local code with your real records. |
+| `just dev` | Run with Textual's development tools and your real records; use `just console` in another terminal to see logs. |
+| `just check` | Check formatting, lint, types, the lockfile, and GitHub workflows. |
+| `just test` | Run the test suite; add a path, such as `just test tests/domain`, to run a smaller set. |
+| `just fix` | Apply automated code fixes and formatting; review the resulting diff. |
+| `just audit` | Check dependencies against the online database of known security advisories. |
+| `just shots` | Update the screenshots and text snapshots in `docs/shots/`. |
+| `just package-check` | Build local code as `flexi` and `flexi-test`, install each temporarily, and check it. Uploads nothing. |
+
+Run `just check` and `just test` before pushing changes. The
+[full recipe reference](https://github.com/ellsphillips/flexi/blob/main/docs/TASKS.md)
+covers coverage, dependency-floor tests, builds, and release preparation.
+
+### Try a release before publishing
+
+With the [GitHub CLI](https://cli.github.com/) installed and signed in through
+`gh auth login`, run:
+
+```bash
+just try-release --demo
+```
+
+This tests the release from **remote `main`**, then opens its demo with sample
+records. It reuses or starts a GitHub Actions release run, which can publish
+`flexi-test` to **TestPyPI**, the separate package registry used for testing.
+Each run gets a preview version such as `0.2.0.dev123` on TestPyPI; the production
+release stays `0.2.0` until you choose a new version.
+
+Before opening the demo, it installs and checks two packages separately:
+`flexi-test` downloaded from TestPyPI, and the matching production `flexi` build
+from GitHub Actions. Checks cover package identity, dependencies, command-line
+help, version, and startup. `--demo` opens the production build interactively.
+The temporary installations and sample records are removed on exit; your real
+records are untouched. Omit `--demo` to run only the automated checks.
+
+Use `--run RUN_ID` to select a specific GitHub Actions run instead of current
+remote `main`. **Production PyPI publishing still requires your manual approval
+in GitHub.** See [Releasing](https://github.com/ellsphillips/flexi/blob/main/docs/RELEASING.md)
+for the required publisher setup and approval steps.
 
 See [Contributing](https://github.com/ellsphillips/flexi/blob/main/CONTRIBUTING.md)
 for the workflow, [the documentation](https://github.com/ellsphillips/flexi/tree/main/docs)

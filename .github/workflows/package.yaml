@@ -5,7 +5,7 @@ name: Package
 # directory, or paints a screen on the machine it was installed on.
 #
 # It produces independently tested `dist` and `test-dist` artifacts. The
-# TestPyPI build has a distinct distribution name and identical application files.
+# TestPyPI build has a preview version for this run and identical application files.
 on:
   workflow_call:
 
@@ -50,7 +50,9 @@ jobs:
 
       - name: Build the TestPyPI distribution from the production source archive
         if: matrix.registry == 'testpypi'
-        run: uv run --no-project --python 3.12 -m scripts.build_staging --dist dist --out test-dist
+        run: >-
+          uv run --no-project --python 3.12 -m scripts.build_staging
+          --dist dist --out test-dist --run-id "$GITHUB_RUN_ID"
 
       - name: Check PyPI metadata and README rendering
         run: uvx --from twine==7.0.0 twine check --strict "$DIST"/*

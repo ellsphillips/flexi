@@ -342,6 +342,7 @@ def probe_release(
     production_artifacts: Path,
     staging_artifacts: Path,
     *,
+    staging_version: str | None = None,
     demo: bool = False,
 ) -> None:
     if demo and not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -354,18 +355,22 @@ def probe_release(
     root: Path | None = None
     try:
         release_status.validate_version(version)
+        staging_version = release_status.validate_staging_version(
+            version if staging_version is None else staging_version,
+            production=version,
+        )
         release_status.validate_artifacts(production_artifacts, version)
         release_status.verify_artifacts(
             staging_artifacts,
-            version,
+            staging_version,
             registry=release_status.Registry.TESTPYPI,
             complete=True,
         )
-        staging_name = wheel_filename(version, release_status.Registry.TESTPYPI)
+        staging_name = wheel_filename(staging_version, release_status.Registry.TESTPYPI)
         production_name = wheel_filename(version, release_status.Registry.PYPI)
         with (staging_artifacts / staging_name).open("rb") as source:
             digest = hashlib.file_digest(source, "sha256").hexdigest()
-        url = wheel_url(version, digest)
+        url = wheel_url(staging_version, digest)
         with tempfile.TemporaryDirectory(prefix="flexi-release-probe-") as temporary:
             root = Path(temporary).resolve()
             staging_root, production_root = root / "staging", root / "production"
@@ -375,12 +380,14 @@ def probe_release(
             production_wheel = production_root / production_name
             download_wheel(url, digest, staging_wheel)
             shutil.copyfile(production_artifacts / production_name, production_wheel)
-            check_metadata(staging_wheel, version, release_status.Registry.TESTPYPI)
+            check_metadata(
+                staging_wheel, staging_version, release_status.Registry.TESTPYPI
+            )
             check_metadata(production_wheel, version, release_status.Registry.PYPI)
             require_same_payload(production_wheel, staging_wheel)
             exercise_wheel(
                 staging_wheel,
-                version,
+                staging_version,
                 release_status.Registry.TESTPYPI,
                 uv=uv,
                 env=environment(staging_root),

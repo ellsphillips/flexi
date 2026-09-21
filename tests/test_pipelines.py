@@ -186,6 +186,7 @@ def test_release_guard_uses_the_tested_state_machine() -> None:
     assert 'scripts/release_status.py guard >> "$GITHUB_OUTPUT"' in status["run"]
     assert guard["outputs"] == {
         "version": "${{ steps.status.outputs.version }}",
+        "test_version": "${{ steps.status.outputs.test_version }}",
         "publish": "${{ steps.status.outputs.publish }}",
     }
 
@@ -222,7 +223,24 @@ def test_production_waits_for_verified_testpypi_publication() -> None:
     )
     assert "--registry testpypi --complete" in verification
     preflight = "\n".join(step.get("run", "") for step in jobs["artefact"]["steps"])
-    assert '--version "$VERSION" --registry testpypi' in preflight
+    assert '--version "$TEST_VERSION" --registry testpypi' in preflight
+    artifact_check = next(step for step in jobs["artefact"]["steps"] if "run" in step)
+    assert artifact_check["env"]["VERSION"] == "${{ needs.guard.outputs.version }}"
+    assert artifact_check["env"]["TEST_VERSION"] == (
+        "${{ needs.guard.outputs.test_version }}"
+    )
+    uploaded_check = next(
+        step for step in jobs["test-verify"]["steps"] if "run" in step
+    )
+    assert uploaded_check["env"]["VERSION"] == (
+        "${{ needs.guard.outputs.test_version }}"
+    )
+    assert jobs["test-publish"]["environment"]["url"].endswith(
+        "${{ needs.guard.outputs.test_version }}"
+    )
+    assert jobs["publish"]["environment"]["url"].endswith(
+        "${{ needs.guard.outputs.version }}"
+    )
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
@@ -279,6 +297,7 @@ def test_both_distributions_are_installed_on_every_supported_platform() -> None:
     )
     assert staging["if"] == "matrix.registry == 'testpypi'"
     assert "--dist dist --out test-dist" in staging["run"]
+    assert '--run-id "$GITHUB_RUN_ID"' in staging["run"]
     installs = [
         step["run"] for step in steps if "uv pip install" in step.get("run", "")
     ]

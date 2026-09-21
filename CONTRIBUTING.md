@@ -1,13 +1,17 @@
 # Contributing
 
-Use Python 3.12–3.14 and uv 0.9.26 or newer. CI pins its own uv version;
-local development accepts newer releases.
+Use Python 3.12–3.14, uv 0.9.26 or newer, and just 1.46 or newer. See
+[Developer tasks](docs/TASKS.md) for installation and the recipe reference.
 
+```bash
+uv tool install "rust-just>=1.46"
+just setup
+just check
+just test
 ```
-uv sync
-uv run pre-commit install
-uv run pytest -q
-```
+
+`just` lists all tasks. `just run` and `just dev` use your real database;
+`just demo` uses temporary sample records.
 
 `dev` is the default and working branch: branch off it, and open pull requests
 into it. Release pull requests go from `dev` into `main`, with a title such as
@@ -16,22 +20,24 @@ screenshots on `dev` before review and merge. See
 [`docs/RELEASING.md`](docs/RELEASING.md) for the checks and publishing procedure.
 
 To try the staged release with an authenticated GitHub CLI, run
-`uv run -m scripts.try_release` from the checkout. It separately tests the
+`just try-release` from the checkout. It separately tests the
 TestPyPI `flexi-test` wheel and the production `flexi` CI wheel, built from the
-same source and version. Both retain the `flexi` import and command. Add `--demo`
+same source. TestPyPI uses an automatic preview version for each workflow run;
+production keeps the version in `pyproject.toml`. Both retain the `flexi` import
+and command. Add `--demo`
 to try the production CI wheel's interactive demo after both checks. See
 [Try the staged release](docs/RELEASING.md#try-the-staged-release) for prerequisites;
 production publishing still requires the owner's approval.
 
 The hooks run CI's static checks — ruff, the formatter, mypy and
 `uv lock --check` — through the locked environment. They do not run the suite.
-Run `uv run pytest -q` before pushing. CI tests the proposed merge on pull
-requests into `dev` or `main`, including the supported operating systems and
+Run `just check` and `just test` before pushing. CI tests the proposed merge on
+pull requests into `dev` or `main`, including the supported operating systems and
 interpreters. A push without an open pull request does not start CI. To check a
 pushed branch before opening one, use an authenticated GitHub CLI:
 
 ```bash
-gh workflow run ci.yaml --ref YOUR_BRANCH
+just ci YOUR_BRANCH
 ```
 
 A manual run provides early feedback; the pull request still needs its own
@@ -86,7 +92,7 @@ Anything that changes the interface should regenerate the screenshots and their
 text twins in `docs/shots/`:
 
 ```
-uv run python scripts/shoot.py
+just shots
 ```
 
 The release preparer also regenerates them after updating the version drawn in

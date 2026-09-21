@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.status.outputs.version }}
+      test_version: ${{ steps.status.outputs.test_version }}
       publish: ${{ steps.status.outputs.publish }}
     steps:
       # `workflow_dispatch` accepts any ref. The `pypi` environment refuses
@@ -90,10 +91,11 @@ jobs:
       - name: Verify filenames and any already-published distributions
         env:
           VERSION: ${{ needs.guard.outputs.version }}
+          TEST_VERSION: ${{ needs.guard.outputs.test_version }}
           GH_TOKEN: ${{ github.token }}
         run: |
           python scripts/release_status.py verify --version "$VERSION"
-          python scripts/release_status.py verify --version "$VERSION" --registry testpypi --dist test-dist
+          python scripts/release_status.py verify --version "$TEST_VERSION" --registry testpypi --dist test-dist
 
   test-publish:
     name: Publish to TestPyPI
@@ -107,7 +109,7 @@ jobs:
     # trusted publisher belongs to TestPyPI, not the production registry.
     environment:
       name: testpypi
-      url: https://test.pypi.org/project/flexi-test/${{ needs.guard.outputs.version }}
+      url: https://test.pypi.org/project/flexi-test/${{ needs.guard.outputs.test_version }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -117,6 +119,7 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.9.26"
+          enable-cache: false
 
       - name: Upload the tested distributions
         run: |
@@ -141,7 +144,7 @@ jobs:
 
       - name: Confirm both uploaded files match the tested artifacts
         env:
-          VERSION: ${{ needs.guard.outputs.version }}
+          VERSION: ${{ needs.guard.outputs.test_version }}
           GH_TOKEN: ${{ github.token }}
         run: >-
           python scripts/release_status.py verify --version "$VERSION"
@@ -178,6 +181,7 @@ jobs:
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: "0.9.26"
+          enable-cache: false
 
       - name: Upload
         # --check-url makes a re-run of an interrupted upload a no-op rather

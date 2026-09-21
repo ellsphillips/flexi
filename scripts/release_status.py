@@ -19,6 +19,10 @@ from urllib.request import Request, urlopen
 
 PACKAGE = "flexi"
 STABLE_VERSION = re.compile(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)", re.ASCII)
+RUN_ID = re.compile(r"[1-9][0-9]{0,19}", re.ASCII)
+STAGING_VERSION = re.compile(
+    rf"(?P<production>{STABLE_VERSION.pattern})(?:\.dev[1-9][0-9]{{0,19}})?", re.ASCII
+)
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
@@ -137,6 +141,31 @@ def validate_version(version: object) -> str:
     return version
 
 
+def preview_version(production: str, run_id: str) -> str:
+    production = validate_version(production)
+    if RUN_ID.fullmatch(run_id) is None:
+        message = "GITHUB_RUN_ID must be a positive decimal of at most 20 digits"
+        raise ReleaseError(message)
+    return f"{production}.dev{run_id}"
+
+
+def validate_staging_version(value: object, production: str | None = None) -> str:
+    match = STAGING_VERSION.fullmatch(value) if isinstance(value, str) else None
+    if match is None or not isinstance(value, str):
+        message = "A staging version must be stable X.Y.Z or X.Y.Z.devRUN_ID"
+        raise ReleaseError(message)
+    if production is not None and match["production"] != validate_version(production):
+        message = f"The staging version must be based on production {production}"
+        raise ReleaseError(message)
+    return value
+
+
+def validate_registry_version(value: object, registry: Registry) -> str:
+    if registry is Registry.TESTPYPI:
+        return validate_staging_version(value)
+    return validate_version(value)
+
+
 def validate_sha(sha: str) -> str:
     if COMMIT_SHA.fullmatch(sha) is None:
         message = "GITHUB_SHA must be the full commit being released"
@@ -154,6 +183,7 @@ def project_version(project: Path) -> str:
 
 
 def filenames(version: str, registry: Registry = Registry.PYPI) -> set[str]:
+    validate_registry_version(version, registry)
     distribution = registry.package.replace("-", "_")
     return {
         f"{distribution}-{version}-py3-none-any.whl",
@@ -162,6 +192,7 @@ def filenames(version: str, registry: Registry = Registry.PYPI) -> set[str]:
 
 
 def published_files(version: str, registry: Registry = Registry.PYPI) -> dict[str, str]:
+    expected = filenames(version, registry)
     payload = request_json(
         f"{registry.root}/pypi/{registry.package}/{version}/json", missing_ok=True
     )
@@ -173,7 +204,7 @@ def published_files(version: str, registry: Registry = Registry.PYPI) -> dict[st
     found: dict[str, str] = {}
     for item in payload["urls"]:
         name = item.get("filename") if isinstance(item, dict) else None
-        if not isinstance(name, str) or name not in filenames(version, registry):
+        if not isinstance(name, str) or name not in expected:
             message = (
                 f"{registry.label} has unexpected distribution files; "
                 "refusing this release"
@@ -216,6 +247,7 @@ class GitHub:
         )
 
     def tag_sha(self, version: str) -> str | None:
+        validate_version(version)
         tag = self.api(f"git/ref/tags/v{version}", missing_ok=True)
         if tag is None:
             return None
@@ -236,6 +268,7 @@ class GitHub:
         raise ReleaseError(message)
 
     def has_release(self, version: str) -> bool:
+        validate_version(version)
         # The by-tag endpoint documents published releases only. Listing with
         # authentication includes drafts, so reruns retain an existing draft.
         for page in range(1, MAX_RELEASE_PAGES + 1):
@@ -410,18 +443,20 @@ def main() -> int:
         version = (
             project_version(args.project)
             if args.command == "guard"
-            else validate_version(args.version)
+            else validate_registry_version(args.version, args.registry)
         )
         sha = validate_sha(os.environ.get("GITHUB_SHA", ""))
         github = GitHub(
             os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("GH_TOKEN", "")
         )
         if args.command == "guard":
+            test_version = preview_version(version, os.environ.get("GITHUB_RUN_ID", ""))
             publish = needs_publication(version, sha, github)
             print(f"version={version}")
+            print(f"test_version={test_version}")
             print(f"publish={str(publish).lower()}")
         elif args.command == "verify":
-            github.require_tag(version, sha)
+            github.require_tag(version.partition(".dev")[0], sha)
             if args.complete:
                 wait_for_publication(
                     args.dist, version, registry=args.registry, seconds=args.wait or 0
