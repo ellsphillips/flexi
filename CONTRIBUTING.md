@@ -16,9 +16,12 @@ screenshots on `dev` before review and merge. See
 [`docs/RELEASING.md`](docs/RELEASING.md) for the checks and publishing procedure.
 
 To try the staged release with an authenticated GitHub CLI, run
-`uv run -m scripts.try_release` from the checkout. Add `--demo` for an interactive
-demo. See [Try the staged release](docs/RELEASING.md#try-the-staged-release) for
-prerequisites; production publishing still requires the owner's approval.
+`uv run -m scripts.try_release` from the checkout. It separately tests the
+TestPyPI `flexi-test` wheel and the production `flexi` CI wheel, built from the
+same source and version. Both retain the `flexi` import and command. Add `--demo`
+to try the production CI wheel's interactive demo after both checks. See
+[Try the staged release](docs/RELEASING.md#try-the-staged-release) for prerequisites;
+production publishing still requires the owner's approval.
 
 The hooks run CI's static checks — ruff, the formatter, mypy and
 `uv lock --check` — through the locked environment. They do not run the suite.

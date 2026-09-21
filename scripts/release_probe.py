@@ -1,4 +1,4 @@
-"""Install and exercise the TestPyPI wheel verified against one CI artifact."""
+"""Exercise distinct staging and production wheels from the same tested CI run."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zipfile import BadZipFile, ZipFile
 
 from scripts import release_status
+from scripts.build_staging import BuildError, require_same_payload
 
 MAX_WHEEL_BYTES = 20 * 1024 * 1024
 MAX_METADATA_BYTES = 1024 * 1024
@@ -58,9 +59,10 @@ import json
 import pathlib
 import sys
 import flexi
-version, wheel_uri, digest = sys.argv[1:]
-distribution = importlib.metadata.distribution("flexi")
+package, version, wheel_uri, digest = sys.argv[1:]
+distribution = importlib.metadata.distribution(package)
 assert distribution.version == version, "Installed version differs from the release"
+assert flexi.version() == version, "Application reports an unexpected version"
 installed = pathlib.Path(flexi.__file__).resolve()
 assert installed.is_relative_to(pathlib.Path(sys.prefix).resolve()), \\
     "Imported flexi outside the probe venv"
@@ -86,9 +88,9 @@ class NoRedirect(HTTPRedirectHandler):
 
 def wheel_url(version: str, digest: str) -> str:
     document = release_status.request_json(
-        f"https://test.pypi.org/pypi/flexi/{version}/json"
+        f"https://test.pypi.org/pypi/{release_status.Registry.TESTPYPI.package}/{version}/json"
     )
-    filename = f"flexi-{version}-py3-none-any.whl"
+    filename = wheel_filename(version, release_status.Registry.TESTPYPI)
     entries = document.get("urls") if isinstance(document, dict) else None
     if not isinstance(entries, list):
         message = "TestPyPI did not return distribution metadata"
@@ -165,8 +167,19 @@ def download_wheel(url: str, digest: str, destination: Path) -> None:
     destination.write_bytes(body)
 
 
-def check_metadata(wheel: Path, version: str) -> None:
-    expected = f"flexi-{version}.dist-info/METADATA"
+def wheel_filename(version: str, registry: release_status.Registry) -> str:
+    return next(
+        name
+        for name in release_status.filenames(version, registry)
+        if name.endswith(".whl")
+    )
+
+
+def check_metadata(
+    wheel: Path, version: str, registry: release_status.Registry
+) -> None:
+    distribution = registry.package.replace("-", "_")
+    expected = f"{distribution}-{version}.dist-info/METADATA"
     with ZipFile(wheel) as archive:
         metadata = [entry for entry in archive.infolist() if entry.filename == expected]
         if len(metadata) != 1 or metadata[0].file_size > MAX_METADATA_BYTES:
@@ -178,7 +191,9 @@ def check_metadata(wheel: Path, version: str) -> None:
         message = "Wheel metadata exceeds the probe's size limit"
         raise ProbeError(message)
     document = BytesParser(policy=policy.default).parsebytes(body)
-    if document.get("Name") != "flexi" or document.get("Version") != version:
+    if document.get_all("Name") != [registry.package] or document.get_all(
+        "Version"
+    ) != [version]:
         message = "Wheel metadata does not identify the requested Flexi release"
         raise ProbeError(message)
     if any("@" in str(value) for value in document.get_all("Requires-Dist", [])):
@@ -253,7 +268,82 @@ def run(
         raise ProbeError(message) from error
 
 
-def probe_release(version: str, artifact_dir: Path, *, demo: bool = False) -> None:
+def exercise_wheel(
+    wheel: Path,
+    version: str,
+    registry: release_status.Registry,
+    *,
+    uv: str,
+    env: dict[str, str],
+) -> Path:
+    root = wheel.parent
+    with wheel.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    venv = root / "venv"
+    python = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    console = venv / ("Scripts/flexi.exe" if sys.platform == "win32" else "bin/flexi")
+    uv_command = [uv, "--no-config", "--cache-dir", str(root / "uv-cache")]
+    commands = [
+        (
+            [
+                *uv_command,
+                "venv",
+                "--python",
+                sys.executable,
+                "--no-python-downloads",
+                str(venv),
+            ],
+            "Creating the temporary environment",
+        ),
+        (
+            [
+                *uv_command,
+                "pip",
+                "install",
+                "--python",
+                str(python),
+                "--no-build",
+                "--index-url",
+                "https://pypi.org/simple/",
+                "--keyring-provider",
+                "disabled",
+                str(wheel),
+            ],
+            "Installing the wheel and its PyPI dependencies",
+        ),
+        (
+            [*uv_command, "pip", "check", "--python", str(python)],
+            "Checking installed dependencies",
+        ),
+        (
+            [
+                str(python),
+                "-I",
+                "-c",
+                INSTALLED_CHECK,
+                registry.package,
+                version,
+                wheel.as_uri(),
+                digest,
+            ],
+            "Checking the installed wheel's identity",
+        ),
+        ([str(console), "--version"], "Checking the packaged version command"),
+        ([str(console), "--help"], "Checking packaged command help"),
+        ([str(python), "-I", str(SMOKE)], "Booting the installed application"),
+    ]
+    for command, operation in commands:
+        run(command, root=root, env=env, operation=f"{operation} ({registry.package})")
+    return python
+
+
+def probe_release(
+    version: str,
+    production_artifacts: Path,
+    staging_artifacts: Path,
+    *,
+    demo: bool = False,
+) -> None:
     if demo and not (sys.stdin.isatty() and sys.stdout.isatty()):
         message = "The demo needs an interactive terminal; omit --demo for a smoke test"
         raise ProbeError(message)
@@ -264,95 +354,54 @@ def probe_release(version: str, artifact_dir: Path, *, demo: bool = False) -> No
     root: Path | None = None
     try:
         release_status.validate_version(version)
+        release_status.validate_artifacts(production_artifacts, version)
         release_status.verify_artifacts(
-            artifact_dir,
+            staging_artifacts,
             version,
             registry=release_status.Registry.TESTPYPI,
             complete=True,
         )
-        filename = f"flexi-{version}-py3-none-any.whl"
-        with (artifact_dir / filename).open("rb") as source:
+        staging_name = wheel_filename(version, release_status.Registry.TESTPYPI)
+        production_name = wheel_filename(version, release_status.Registry.PYPI)
+        with (staging_artifacts / staging_name).open("rb") as source:
             digest = hashlib.file_digest(source, "sha256").hexdigest()
         url = wheel_url(version, digest)
         with tempfile.TemporaryDirectory(prefix="flexi-release-probe-") as temporary:
             root = Path(temporary).resolve()
-            env = environment(root)
-            wheel = root / filename
-            download_wheel(url, digest, wheel)
-            check_metadata(wheel, version)
-            venv = root / "venv"
-            python = venv / (
-                "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
+            staging_root, production_root = root / "staging", root / "production"
+            staging_root.mkdir()
+            production_root.mkdir()
+            staging_wheel = staging_root / staging_name
+            production_wheel = production_root / production_name
+            download_wheel(url, digest, staging_wheel)
+            shutil.copyfile(production_artifacts / production_name, production_wheel)
+            check_metadata(staging_wheel, version, release_status.Registry.TESTPYPI)
+            check_metadata(production_wheel, version, release_status.Registry.PYPI)
+            require_same_payload(production_wheel, staging_wheel)
+            exercise_wheel(
+                staging_wheel,
+                version,
+                release_status.Registry.TESTPYPI,
+                uv=uv,
+                env=environment(staging_root),
             )
-            console = venv / (
-                "Scripts/flexi.exe" if sys.platform == "win32" else "bin/flexi"
+            production_env = environment(production_root)
+            python = exercise_wheel(
+                production_wheel,
+                version,
+                release_status.Registry.PYPI,
+                uv=uv,
+                env=production_env,
             )
-            uv_command = [uv, "--no-config", "--cache-dir", str(root / "uv-cache")]
-            commands = [
-                (
-                    [
-                        *uv_command,
-                        "venv",
-                        "--python",
-                        sys.executable,
-                        "--no-python-downloads",
-                        str(venv),
-                    ],
-                    "Creating the temporary environment",
-                ),
-                (
-                    [
-                        *uv_command,
-                        "pip",
-                        "install",
-                        "--python",
-                        str(python),
-                        "--no-build",
-                        "--index-url",
-                        "https://pypi.org/simple/",
-                        "--keyring-provider",
-                        "disabled",
-                        str(wheel),
-                    ],
-                    "Installing the staged wheel and its PyPI dependencies",
-                ),
-                (
-                    [*uv_command, "pip", "check", "--python", str(python)],
-                    "Checking installed dependencies",
-                ),
-                (
-                    [
-                        str(python),
-                        "-I",
-                        "-c",
-                        INSTALLED_CHECK,
-                        version,
-                        wheel.as_uri(),
-                        digest,
-                    ],
-                    "Checking the installed wheel's identity",
-                ),
-                (
-                    [str(console), "--version"],
-                    "Checking the packaged version command",
-                ),
-                (
-                    [str(console), "--help"],
-                    "Checking packaged command help",
-                ),
-                ([str(python), "-I", str(SMOKE)], "Booting the installed application"),
-            ]
-            for command, operation in commands:
-                run(command, root=root, env=env, operation=operation)
             if demo:
                 run(
                     [str(python), "-I", "-m", "flexi", "--demo"],
-                    root=root,
-                    env=env,
-                    operation="Running the demo",
+                    root=production_root,
+                    env=production_env,
+                    operation="Running the production demo",
                     interactive=True,
                 )
-    except release_status.ReleaseError as error:
+    except (release_status.ReleaseError, BuildError) as error:
         raise ProbeError(str(error)) from error
     except (OSError, ValueError, BadZipFile) as error:
         location = f" at {root}" if root is not None else ""

@@ -2,9 +2,11 @@
 
 Work lands on `dev`, the default branch. A release pull request from `dev` into
 `main` names the next version; automation prepares the release on `dev` for
-review. Merging runs the full checks, builds the release artifacts, and
-automatically publishes that version to TestPyPI. After verification, publishing
-the same files to PyPI waits for the owner's approval in GitHub Actions.
+review. Merging runs the full checks and builds `flexi` for PyPI and `flexi-test`
+for TestPyPI from the same source and version. CI independently installs and
+tests both builds, then automatically publishes `flexi-test` to TestPyPI.
+After verification, publishing `flexi` to PyPI waits for the owner's approval
+in GitHub Actions. Both distributions retain the `flexi` import and command.
 
 ## Publish a release
 
@@ -25,17 +27,18 @@ the same files to PyPI waits for the owner's approval in GitHub Actions.
    commit. New commits need fresh passing checks.
 5. Use **Create a merge commit** to merge into `main`. Keep `dev`; regular merges
    preserve the ancestry between the development and release branches.
-6. Wait for the full release checks, package build, automatic TestPyPI upload,
-   and TestPyPI verification. Verification waits up to two minutes for the
-   uploaded files to appear and requires both distribution filenames and SHA256
-   digests to match the tested artifacts. Any failure stops the release before
-   production. Run `uv run -m scripts.try_release --demo` locally to wait for
-   staging, check the installed package, and try it before approving production.
+6. Wait for the full release checks, both package builds, automatic TestPyPI
+   upload, and TestPyPI verification. Verification waits up to two minutes for
+   the uploaded files to appear and requires both distribution filenames and
+   SHA256 digests to match the tested `flexi-test` artifacts. Any failure stops
+   the release before production. Run `uv run -m scripts.try_release --demo`
+   locally to wait for staging, check both installed builds, and try the
+   production CI build before approving publication.
    Omit `--demo` for automated checks only; see [Try the staged release](#try-the-staged-release).
 7. As `ellsphillips`, open the release run in GitHub Actions and click **Review
    deployments**. Select the **pypi** checkbox, then **Approve and deploy**. The
-   workflow uploads the same wheel and source distribution to PyPI without
-   rebuilding or changing their version.
+   workflow uploads the tested production `flexi` wheel and source distribution
+   to PyPI without rebuilding them.
 8. After publication, the workflow creates the version tag and draft GitHub
    release. Review and publish the draft.
 
@@ -45,8 +48,8 @@ Screenshots run in an isolated job with read-only repository permissions;
 running application code does not require repository write credentials.
 
 The publishing workflow accepts only `main` and stops if either package index
-cannot confirm its release state. The artifacts that pass the package checks
-are the ones uploaded to both indexes.
+cannot confirm its release state. Each index receives its own tested artifacts;
+the different distribution names mean their files and hashes differ.
 
 ## Rerun preparation
 
@@ -119,19 +122,21 @@ a workflow does not require approval.
 Register or sign in at [test.pypi.org](https://test.pypi.org/account/register/)
 and sign in separately at [pypi.org](https://pypi.org/).
 
-On **each index**, configure a GitHub trusted publisher for `flexi`:
+Configure a GitHub trusted publisher for **`flexi-test` on TestPyPI** and
+**`flexi` on PyPI**:
 
-1. If `flexi` already exists, its owner must add the publisher under
-   **Manage project → Publishing**. Owning the PyPI project does not grant
+1. If the project already exists on that index, its owner must add the publisher
+   under **Manage project → Publishing**. Owning the PyPI project does not grant
    ownership of the TestPyPI project. See
    [adding a publisher to an existing project](https://docs.pypi.org/trusted-publishers/adding-a-publisher/).
 2. If the name is available, add a
    [pending publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
-   under **Your account → Publishing**, using project name `flexi`. This creates
-   the project on first upload; it does not reserve the name beforehand.
+   under **Your account → Publishing**, using the project name in the table.
+   This creates the project on first upload; it does not reserve the name beforehand.
 
 | Field | TestPyPI | PyPI |
 |---|---|---|
+| Project name | `flexi-test` | `flexi` |
 | GitHub owner | `ellsphillips` | `ellsphillips` |
 | Repository | `flexi` | `flexi` |
 | Workflow filename | `release.yaml` | `release.yaml` |
@@ -175,9 +180,9 @@ Neither command commits, pushes, or publishes. Screenshot generation is a
 separate step, also run by the preparation workflow.
 
 See [TESTING.md](TESTING.md) for the full local checks. After merging, the release
-workflow automatically rehearses publication on TestPyPI using the exact
-production version and artifacts. Production remains paused until the owner
-approves the `pypi` deployment.
+workflow automatically rehearses publication as `flexi-test` on TestPyPI using
+the production version and source. The separately tested `flexi` production
+build remains paused until the owner approves the `pypi` deployment.
 
 ## Try the staged release
 
@@ -194,14 +199,15 @@ and the [one-time setup](#one-time-setup) must be complete. The command reuses a
 release run for the current remote `main` commit, or starts one on `main`. It
 waits for TestPyPI verification without waiting for production approval.
 
-It downloads that run's exact distribution artifact and verifies the TestPyPI
-wheel's SHA256 against it, then tests the installed version, CLI help,
-import origin, dependencies, and headless TUI startup. The checks use a temporary
-virtual environment, configuration, and data directory, with dependencies from
-real PyPI. Temporary files are removed on exit.
+It downloads that run's production and test artifacts, verifies the TestPyPI
+`flexi-test` wheel's SHA256 against its test artifact, and separately installs
+that wheel and the production `flexi` CI wheel. Each installation is checked for
+version, CLI help, import origin, dependencies, and headless TUI startup in its
+own temporary environment, configuration, and data directory. Dependencies come
+from real PyPI. Temporary files are removed on exit.
 
-Add `--demo` to launch the staged app's interactive demo after the checks; this
-needs a terminal. Use `--run RUN_ID` to select or resume an exact release run.
+Add `--demo` to launch the production `flexi` CI wheel's interactive demo after
+both checks; this needs a terminal. Use `--run RUN_ID` to select or resume an exact release run.
 The command never approves production; the owner must still approve the `pypi`
 deployment separately.
 
@@ -231,9 +237,9 @@ uv run pytest tests/test_release_pr.py tests/test_prepare_release.py tests/test_
   reported verification problem, then retry the original run. Production stays
   blocked until TestPyPI verification passes.
 - **Only part of the upload succeeded, or the tag or draft release is missing:**
-  retry the original run. On either index, existing files must have the same
-  SHA256 digests as the tested artifacts. Matching files are skipped during
-  upload; missing files can be uploaded. An existing tag must point to the same
+  retry the original run. On each index, existing files must have the same
+  SHA256 digests as that index's tested artifacts. Matching files are skipped
+  during upload; missing files can be uploaded. An existing tag must point to the same
   commit, and an existing GitHub release is reused without replacing it.
 - **A new run sees a completed version:** when both distributions exist on
   PyPI alongside the tag and a draft or published GitHub release, it does

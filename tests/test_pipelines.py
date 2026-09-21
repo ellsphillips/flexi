@@ -189,18 +189,24 @@ def test_production_waits_for_verified_testpypi_publication() -> None:
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
 @pytest.mark.parametrize(
-    ("job", "upload", "index"),
+    ("job", "artifact", "upload", "index"),
     [
         (
             "test-publish",
+            "test-dist",
             "https://test.pypi.org/legacy/",
             "https://test.pypi.org/simple/",
         ),
-        ("publish", "https://upload.pypi.org/legacy/", "https://pypi.org/simple/"),
+        (
+            "publish",
+            "dist",
+            "https://upload.pypi.org/legacy/",
+            "https://pypi.org/simple/",
+        ),
     ],
 )
-def test_both_registries_receive_the_same_artifacts_with_correct_retry_urls(
-    job: str, upload: str, index: str
+def test_each_registry_receives_its_tested_artifacts_with_correct_retry_urls(
+    job: str, artifact: str, upload: str, index: str
 ) -> None:
     steps = _workflow("release.yaml")["jobs"][job]["steps"]
     downloads = [
@@ -209,12 +215,49 @@ def test_both_registries_receive_the_same_artifacts_with_correct_retry_urls(
         if step.get("uses", "").startswith("actions/download-artifact@")
     ]
     assert len(downloads) == 1
-    assert downloads[0]["with"] == {"name": "dist", "path": "dist"}
+    assert downloads[0]["with"] == {"name": artifact, "path": "dist"}
     commands = [step["run"] for step in steps if "run" in step]
     assert len(commands) == 1
     assert f'--publish-url "{upload}"' in commands[0]
     assert f'--check-url "{index}" dist/*' in commands[0]
     assert "uv build" not in commands[0]
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_both_distributions_are_installed_on_every_supported_platform() -> None:
+    wheel = _workflow("package.yaml")["jobs"]["wheel"]
+    assert set(wheel["strategy"]["matrix"]["registry"]) == {"pypi", "testpypi"}
+    assert set(wheel["strategy"]["matrix"]["os"]) == {
+        "ubuntu-latest",
+        "macos-latest",
+        "windows-latest",
+    }
+    assert wheel["env"]["DIST"] == (
+        "${{ matrix.registry == 'testpypi' && 'test-dist' || 'dist' }}"
+    )
+    steps = wheel["steps"]
+    staging = next(
+        step for step in steps if "scripts.build_staging" in step.get("run", "")
+    )
+    assert staging["if"] == "matrix.registry == 'testpypi'"
+    assert "--dist dist --out test-dist" in staging["run"]
+    installs = [
+        step["run"] for step in steps if "uv pip install" in step.get("run", "")
+    ]
+    assert all('"$DIST"/*.whl' in command for command in installs)
+    artifact = next(
+        step for step in steps if "actions/upload-artifact@" in step.get("uses", "")
+    )
+    assert artifact["with"]["name"] == "${{ env.DIST }}"
+    assert artifact["with"]["path"] == "${{ env.DIST }}/"
+    jobs = _workflow("release.yaml")["jobs"]
+    for name, expected in (("test-verify", "test-dist"), ("tag", "dist")):
+        downloads = [
+            step["with"]["name"]
+            for step in jobs[name]["steps"]
+            if "actions/download-artifact@" in step.get("uses", "")
+        ]
+        assert downloads == [expected]
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")

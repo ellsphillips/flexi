@@ -18,7 +18,12 @@ from time import monotonic, sleep
 import yaml
 
 from scripts.release_probe import ProbeError, probe_release
-from scripts.release_status import ReleaseError, validate_sha, validate_version
+from scripts.release_status import (
+    Registry,
+    ReleaseError,
+    validate_sha,
+    validate_version,
+)
 
 REPOSITORY = "ellsphillips/flexi"
 WORKFLOW = ".github/workflows/release.yaml"
@@ -228,7 +233,7 @@ class GitHub:
         message = "The release returned too many jobs"
         raise TrialError(message)
 
-    def download(self, run: ReleaseRun, directory: Path) -> None:
+    def download(self, run: ReleaseRun, directory: Path, registry: Registry) -> None:
         run.require_same_attempt(self.run(run.id))
         self.command(
             "run",
@@ -237,7 +242,7 @@ class GitHub:
             "--repo",
             REPOSITORY,
             "--name",
-            "dist",
+            "test-dist" if registry is Registry.TESTPYPI else "dist",
             "--dir",
             str(directory),
         )
@@ -260,6 +265,11 @@ def require_staging_workflow(source: str) -> None:
             staging_environment = staging_environment.get("name")
         valid = (
             staging_environment == "testpypi"
+            and any(
+                str(step.get("uses", "")).startswith("actions/download-artifact@")
+                and step.get("with") == {"name": "test-dist", "path": "dist"}
+                for step in records(stage.get("steps"))
+            )
             and verify.get("name") == VERIFY_JOB
             and isinstance(needs, list)
             and "test-verify" in needs
@@ -344,10 +354,14 @@ def main() -> int:
         )
         wait_for_testpypi(github, run)
         with tempfile.TemporaryDirectory(prefix="flexi-release-") as temporary:
-            directory = Path(temporary) / "dist"
-            github.download(run, directory)
-            probe_release(version, directory, demo=args.demo)
-        print(f"Passed: TestPyPI flexi {version}. Temporary installation removed.")
+            production = Path(temporary) / "dist"
+            staging = Path(temporary) / "test-dist"
+            github.download(run, production, Registry.PYPI)
+            github.download(run, staging, Registry.TESTPYPI)
+            probe_release(version, production, staging, demo=args.demo)
+        print(
+            f"Passed: flexi-test and flexi {version}. Temporary installations removed."
+        )
         print("Production approval remains yours in GitHub Actions.")
     except KeyboardInterrupt:
         print(

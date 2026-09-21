@@ -36,6 +36,10 @@ class Registry(StrEnum):
     TESTPYPI = "testpypi"
 
     @property
+    def package(self) -> str:
+        return "flexi" if self is Registry.PYPI else "flexi-test"
+
+    @property
     def root(self) -> str:
         return {
             Registry.PYPI: "https://pypi.org",
@@ -149,13 +153,17 @@ def project_version(project: Path) -> str:
     return validate_version(metadata.get("version"))
 
 
-def filenames(version: str) -> set[str]:
-    return {f"{PACKAGE}-{version}-py3-none-any.whl", f"{PACKAGE}-{version}.tar.gz"}
+def filenames(version: str, registry: Registry = Registry.PYPI) -> set[str]:
+    distribution = registry.package.replace("-", "_")
+    return {
+        f"{distribution}-{version}-py3-none-any.whl",
+        f"{distribution}-{version}.tar.gz",
+    }
 
 
 def published_files(version: str, registry: Registry = Registry.PYPI) -> dict[str, str]:
     payload = request_json(
-        f"{registry.root}/pypi/{PACKAGE}/{version}/json", missing_ok=True
+        f"{registry.root}/pypi/{registry.package}/{version}/json", missing_ok=True
     )
     if payload is None:
         return {}
@@ -165,7 +173,7 @@ def published_files(version: str, registry: Registry = Registry.PYPI) -> dict[st
     found: dict[str, str] = {}
     for item in payload["urls"]:
         name = item.get("filename") if isinstance(item, dict) else None
-        if not isinstance(name, str) or name not in filenames(version):
+        if not isinstance(name, str) or name not in filenames(version, registry):
             message = (
                 f"{registry.label} has unexpected distribution files; "
                 "refusing this release"
@@ -272,6 +280,21 @@ def needs_publication(version: str, sha: str, github: GitHub) -> bool:
     return True
 
 
+def validate_artifacts(
+    directory: Path,
+    version: str,
+    *,
+    registry: Registry = Registry.PYPI,
+) -> None:
+    expected = filenames(version, registry)
+    if {path.name for path in directory.iterdir()} != expected or any(
+        not (directory / name).is_file() or (directory / name).is_symlink()
+        for name in expected
+    ):
+        message = "The artifact must contain exactly this version's wheel and sdist"
+        raise ReleaseError(message)
+
+
 def verify_artifacts(
     directory: Path,
     version: str,
@@ -279,13 +302,8 @@ def verify_artifacts(
     registry: Registry = Registry.PYPI,
     complete: bool = False,
 ) -> None:
-    expected = filenames(version)
-    if {path.name for path in directory.iterdir()} != expected or any(
-        not (directory / name).is_file() or (directory / name).is_symlink()
-        for name in expected
-    ):
-        message = "The artifact must contain exactly this version's wheel and sdist"
-        raise ReleaseError(message)
+    validate_artifacts(directory, version, registry=registry)
+    expected = filenames(version, registry)
     remote = published_files(version, registry)
     for name, digest in remote.items():
         with (directory / name).open("rb") as source:

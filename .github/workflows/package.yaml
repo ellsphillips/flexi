@@ -4,8 +4,8 @@ name: Package
 # cannot say whether the wheel carries its stylesheets, resolves a data
 # directory, or paints a screen on the machine it was installed on.
 #
-# It also produces the `dist` artefact that `release.yaml` publishes, so the
-# thing that is verified here is the thing that is uploaded.
+# It produces independently tested `dist` and `test-dist` artifacts. The
+# TestPyPI build has a distinct distribution name and identical application files.
 on:
   workflow_call:
 
@@ -14,14 +14,17 @@ permissions:
 
 jobs:
   wheel:
-    name: Wheel installs and runs · ${{ matrix.os }}
+    name: Wheel installs and runs · ${{ matrix.os }} · ${{ matrix.registry }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        registry: [pypi, testpypi]
     env:
+      DIST: ${{ matrix.registry == 'testpypi' && 'test-dist' || 'dist' }}
+      DISTRIBUTION: ${{ matrix.registry == 'testpypi' && 'flexi-test' || 'flexi' }}
       # uv puts the interpreter under `bin` on POSIX and `Scripts` on Windows,
       # and on Windows it is only found by its `.exe`: `uv pip install --python
       # .probe/Scripts/python` answers "no virtual environment found".
@@ -43,16 +46,21 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - run: uv build
+      - run: uv build --no-create-gitignore
+
+      - name: Build the TestPyPI distribution from the production source archive
+        if: matrix.registry == 'testpypi'
+        run: uv run --no-project --python 3.12 -m scripts.build_staging --dist dist --out test-dist
 
       - name: Check PyPI metadata and README rendering
-        run: uvx --from twine==7.0.0 twine check --strict dist/*
+        run: uvx --from twine==7.0.0 twine check --strict "$DIST"/*
 
       - name: Install it somewhere that has no source tree
         run: |
           uv venv .probe
-          uv pip install --python "$PROBE" dist/*.whl
+          uv pip install --python "$PROBE" "$DIST"/*.whl
           uv pip check --python "$PROBE"
+          "$PROBE" -c "import importlib.metadata, sys, flexi; assert flexi.version() == importlib.metadata.version(sys.argv[1])" "$DISTRIBUTION"
           "$PROBE" -m flexi --version
           "$PROBE" -m flexi --help
 
@@ -70,7 +78,7 @@ jobs:
           # the resolution stays the locked one. `uv pip check` then still reads
           # the wheel's own Requires-Dist and says so if it names something the
           # export did not bring.
-          uv pip install --python "$PROBE" --no-deps dist/*.whl
+          uv pip install --python "$PROBE" --no-deps "$DIST"/*.whl
           uv pip check --python "$PROBE"
 
       - name: Its data files travelled with it
@@ -94,11 +102,9 @@ jobs:
           "
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        # One copy. The wheel is pure Python and identical from each runner,
-        # and `release.yaml` downloads this by name: two uploads called `dist`
-        # is an error, and the release would stop at the artefact check.
+        # One copy per distribution, each installed on all supported platforms.
         if: matrix.os == 'ubuntu-latest'
         with:
-          name: dist
-          path: dist/
+          name: ${{ env.DIST }}
+          path: ${{ env.DIST }}/
           if-no-files-found: error

@@ -1,4 +1,4 @@
-"""A local probe must execute only the verified staged wheel, in temporary paths."""
+"""A local probe verifies distinct staging and production wheels in isolated paths."""
 
 from __future__ import annotations
 
@@ -24,20 +24,29 @@ from scripts import release_probe as probe
 from scripts import release_status
 
 VERSION = "1.2.3"
-WHEEL = f"flexi-{VERSION}-py3-none-any.whl"
-SDIST = f"flexi-{VERSION}.tar.gz"
-JSON_URL = f"https://test.pypi.org/pypi/flexi/{VERSION}/json"
+PRODUCTION_WHEEL = f"flexi-{VERSION}-py3-none-any.whl"
+WHEEL = f"flexi_test-{VERSION}-py3-none-any.whl"
+SDIST = f"flexi_test-{VERSION}.tar.gz"
+JSON_URL = f"https://test.pypi.org/pypi/flexi-test/{VERSION}/json"
 WHEEL_URL = f"https://test-files.pythonhosted.org/packages/example/{WHEEL}"
 
 
-def wheel_bytes(*, version: str = VERSION, dependency: str = "httpx>=0.27") -> bytes:
+def wheel_bytes(
+    *,
+    version: str = VERSION,
+    dependency: str = "httpx>=0.27",
+    package: str = "flexi-test",
+    payload: bytes = b"application code",
+    extra_metadata: str = "",
+) -> bytes:
     output = io.BytesIO()
     with ZipFile(output, "w") as archive:
         archive.writestr(
-            f"flexi-{VERSION}.dist-info/METADATA",
-            f"Metadata-Version: 2.3\nName: flexi\nVersion: {version}\n"
-            f"Requires-Dist: {dependency}\n\n",
+            f"{package.replace('-', '_')}-{VERSION}.dist-info/METADATA",
+            f"Metadata-Version: 2.3\nName: {package}\nVersion: {version}\n"
+            f"Requires-Dist: {dependency}\n{extra_metadata}\n",
         )
+        archive.writestr("flexi/__init__.py", payload)
     return output.getvalue()
 
 
@@ -51,8 +60,11 @@ class Invocation:
 
 
 class Harness:
-    def __init__(self, artifacts: Path) -> None:
+    def __init__(self, artifacts: Path, production: Path) -> None:
         self.artifacts = artifacts
+        self.production = production
+        (production / PRODUCTION_WHEEL).write_bytes(wheel_bytes(package="flexi"))
+        (production / f"flexi-{VERSION}.tar.gz").write_bytes(b"production source")
         self.body = b""
         self.entries: list[dict[str, object]] = []
         self.url = WHEEL_URL
@@ -122,7 +134,9 @@ class Harness:
 def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Harness:
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
-    harness = Harness(artifacts)
+    production = tmp_path / "production"
+    production.mkdir()
+    harness = Harness(artifacts, production)
     monkeypatch.setattr(release_status, "request_json", harness.metadata)
     monkeypatch.setattr(probe, "build_opener", harness.opener)
     monkeypatch.setattr(subprocess, "run", harness.run)
@@ -149,55 +163,70 @@ def test_probe_uses_verified_wheel_and_isolated_paths(
         monkeypatch.setenv(key, "must-not-travel")
     monkeypatch.setenv("SystemRoot", "C:\\Windows")
 
-    probe.probe_release(VERSION, harness.artifacts)
+    probe.probe_release(VERSION, harness.production, harness.artifacts)
 
-    assert len(harness.calls) == 7
-    root = harness.calls[0].root
-    assert not root.exists()
+    assert len(harness.calls) == 14
+    staging_root = harness.calls[0].root
+    production_root = harness.calls[7].root
+    assert staging_root != production_root
+    assert staging_root.parent == production_root.parent
+    assert not staging_root.parent.exists()
     assert harness.artifacts.is_dir()
-    python = (
-        root / "venv" / ("Scripts/python.exe" if platform == "win32" else "bin/python")
-    )
-    install = harness.calls[1].command
-    assert install[install.index("--python") + 1] == str(python)
-    assert install[install.index("--index-url") + 1] == "https://pypi.org/simple/"
-    assert install[-1] == str(root / WHEEL)
-    assert "--no-build" in install
-    assert "--no-config" in install
-    assert "--extra-index-url" not in install
-    assert harness.calls[0].command[-3:] == [
-        sys.executable,
-        "--no-python-downloads",
-        str(root / "venv"),
-    ]
-    for call in harness.calls:
-        assert call.root == root
-        assert "must-not-travel" not in call.env.values()
-        environment = {key.upper(): value for key, value in call.env.items()}
-        assert environment["SYSTEMROOT"] == "C:\\Windows"
-        assert Path(call.env["XDG_DATA_HOME"]).is_relative_to(root)
-        assert Path(call.env["XDG_CONFIG_HOME"]).is_relative_to(root)
-        assert Path(call.env["TEMP"]).is_relative_to(root)
-        assert call.captured
-        assert call.timeout == probe.COMMAND_TIMEOUT
-    assert harness.calls[3].command[:3] == [str(python), "-I", "-c"]
-    assert harness.calls[4].command[-1] == "--version"
-    assert harness.calls[5].command[-1] == "--help"
-    assert harness.calls[6].command == [str(python), "-I", str(probe.SMOKE)]
+    assert harness.production.is_dir()
+    assert (harness.artifacts / WHEEL).read_bytes() != (
+        harness.production / PRODUCTION_WHEEL
+    ).read_bytes()
+    for offset, root, filename, package in (
+        (0, staging_root, WHEEL, "flexi-test"),
+        (7, production_root, PRODUCTION_WHEEL, "flexi"),
+    ):
+        python = (
+            root
+            / "venv"
+            / ("Scripts/python.exe" if platform == "win32" else "bin/python")
+        )
+        calls = harness.calls[offset : offset + 7]
+        install = calls[1].command
+        assert install[install.index("--python") + 1] == str(python)
+        assert install[install.index("--index-url") + 1] == "https://pypi.org/simple/"
+        assert install[-1] == str(root / filename)
+        assert "--no-build" in install
+        assert "--no-config" in install
+        assert "--extra-index-url" not in install
+        assert calls[0].command[-3:] == [
+            sys.executable,
+            "--no-python-downloads",
+            str(root / "venv"),
+        ]
+        for call in calls:
+            assert call.root == root
+            assert "must-not-travel" not in call.env.values()
+            environment = {key.upper(): value for key, value in call.env.items()}
+            assert environment["SYSTEMROOT"] == "C:\\Windows"
+            assert Path(call.env["XDG_DATA_HOME"]).is_relative_to(root)
+            assert Path(call.env["XDG_CONFIG_HOME"]).is_relative_to(root)
+            assert Path(call.env["TEMP"]).is_relative_to(root)
+            assert call.captured
+            assert call.timeout == probe.COMMAND_TIMEOUT
+        assert calls[3].command[:3] == [str(python), "-I", "-c"]
+        assert calls[3].command[-4:-2] == [package, VERSION]
+        assert calls[4].command[-1] == "--version"
+        assert calls[5].command[-1] == "--help"
+        assert calls[6].command == [str(python), "-I", str(probe.SMOKE)]
     assert harness.requests == [JSON_URL, JSON_URL, WHEEL_URL]
 
 
 def test_download_hash_is_checked_before_any_installation(harness: Harness) -> None:
     harness.body = b"different download"
     with pytest.raises(probe.ProbeError, match=r"Downloaded.*differs"):
-        probe.probe_release(VERSION, harness.artifacts)
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
     assert harness.calls == []
 
 
 def test_registry_hash_must_match_the_selected_ci_artifact(harness: Harness) -> None:
     harness.entries[0]["digests"] = {"sha256": "0" * 64}
     with pytest.raises(probe.ProbeError, match="differs from the tested"):
-        probe.probe_release(VERSION, harness.artifacts)
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
     assert harness.requests == [JSON_URL]
     assert harness.calls == []
 
@@ -218,7 +247,7 @@ def test_untrusted_wheel_urls_are_rejected(harness: Harness, url: str) -> None:
     for entry in harness.entries:
         entry["url"] = url
     with pytest.raises(probe.ProbeError, match="unexpected download URL"):
-        probe.probe_release(VERSION, harness.artifacts)
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
     assert WHEEL_URL not in harness.requests
     assert harness.calls == []
 
@@ -240,7 +269,7 @@ def test_wheel_metadata_must_match_before_installing(
 ) -> None:
     harness.set_wheel(wheel_bytes(version=version, dependency=dependency))
     with pytest.raises(probe.ProbeError, match=message):
-        probe.probe_release(VERSION, harness.artifacts)
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
     assert harness.calls == []
 
 
@@ -253,7 +282,7 @@ def test_failed_commands_clean_up_and_report_the_operation(
     else:
         harness.timeout_at = 2
     with pytest.raises(probe.ProbeError, match="Installing") as caught:
-        probe.probe_release(VERSION, harness.artifacts)
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
     if failure == "exit":
         assert "dependency unavailable" in str(caught.value)
     assert len(harness.calls) == 2
@@ -274,7 +303,7 @@ def test_cleanup_failure_reports_the_temporary_directory(
 
     monkeypatch.setattr(tempfile, "TemporaryDirectory", locked_directory)
     with pytest.raises(probe.ProbeError, match="close any process") as caught:
-        probe.probe_release(VERSION, harness.artifacts)
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
     assert str(root) in str(caught.value)
     assert root.exists()
 
@@ -284,22 +313,25 @@ def test_demo_requires_a_terminal_before_any_network_or_install(
 ) -> None:
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
     with pytest.raises(probe.ProbeError, match="interactive terminal"):
-        probe.probe_release(VERSION, harness.artifacts, demo=True)
+        probe.probe_release(VERSION, harness.production, harness.artifacts, demo=True)
     assert harness.requests == []
     assert harness.calls == []
 
 
-def test_demo_runs_in_the_same_temporary_environment_until_exit(
+def test_demo_uses_production_after_both_temporary_installs_pass(
     harness: Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    probe.probe_release(VERSION, harness.artifacts, demo=True)
+    probe.probe_release(VERSION, harness.production, harness.artifacts, demo=True)
     demo = harness.calls[-1]
     assert demo.command[1:] == ["-I", "-m", "flexi", "--demo"]
     assert not demo.captured
     assert demo.timeout == probe.DEMO_TIMEOUT
-    assert demo.env == harness.calls[0].env
+    assert len(harness.calls) == 15
+    assert demo.env == harness.calls[7].env
+    assert demo.env != harness.calls[0].env
+    assert demo.root == harness.calls[7].root
     assert not demo.root.exists()
 
 
@@ -308,7 +340,7 @@ def test_download_size_is_bounded(
 ) -> None:
     monkeypatch.setattr(probe, "MAX_WHEEL_BYTES", 2)
     with pytest.raises(probe.ProbeError, match="size limit"):
-        probe.probe_release(VERSION, harness.artifacts)
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
     assert harness.calls == []
 
 
@@ -346,12 +378,21 @@ class InstalledDistribution:
         return json.dumps(self.origin)
 
 
+@pytest.mark.parametrize("package", ["flexi", "flexi-test"])
 @pytest.mark.parametrize(
     "condition",
-    ["missing-hash", "matching-hash", "wrong-hash", "version", "origin", "path"],
+    [
+        "missing-hash",
+        "matching-hash",
+        "wrong-hash",
+        "version",
+        "app-version",
+        "origin",
+        "path",
+    ],
 )
 def test_installed_identity_accepts_uv_metadata_and_rejects_conflicts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, condition: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, condition: str, package: str
 ) -> None:
     venv = tmp_path / "venv"
     wheel_uri = (tmp_path / WHEEL).as_uri()
@@ -370,12 +411,84 @@ def test_installed_identity_accepts_uv_metadata_and_rejects_conflicts(
     module.__file__ = str(
         (tmp_path if condition == "path" else venv) / "flexi" / "__init__.py"
     )
+    monkeypatch.setattr(
+        module,
+        "version",
+        lambda: "unknown" if condition == "app-version" else VERSION,
+        raising=False,
+    )
     monkeypatch.setitem(sys.modules, "flexi", module)
-    monkeypatch.setattr(metadata, "distribution", lambda _name: distribution)
+
+    def installed(name: str) -> InstalledDistribution:
+        assert name == package
+        return distribution
+
+    monkeypatch.setattr(metadata, "distribution", installed)
     monkeypatch.setattr(sys, "prefix", str(venv))
-    monkeypatch.setattr(sys, "argv", ["-c", VERSION, wheel_uri, digest])
+    monkeypatch.setattr(sys, "argv", ["-c", package, VERSION, wheel_uri, digest])
     if condition in {"missing-hash", "matching-hash"}:
         exec(probe.INSTALLED_CHECK, {})  # noqa: S102 - the probe's fixed identity check
     else:
         with pytest.raises(AssertionError):
             exec(probe.INSTALLED_CHECK, {})  # noqa: S102 - fixed check, mocked imports
+
+
+def test_staging_application_payload_must_equal_production(harness: Harness) -> None:
+    harness.set_wheel(wheel_bytes(payload=b"different application"))
+    with pytest.raises(probe.ProbeError, match="payload"):
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
+    assert harness.calls == []
+
+
+def test_registry_artifact_directories_cannot_be_swapped(harness: Harness) -> None:
+    with pytest.raises(probe.ProbeError, match="exactly"):
+        probe.probe_release(VERSION, harness.artifacts, harness.production)
+    assert harness.requests == []
+    assert harness.calls == []
+
+
+@pytest.mark.parametrize("condition", ["package", "version", "direct-url"])
+def test_production_metadata_is_checked_before_either_installation(
+    harness: Harness, condition: str
+) -> None:
+    body = wheel_bytes(
+        package="flexi-test" if condition == "package" else "flexi",
+        version="9.9.9" if condition == "version" else VERSION,
+        dependency="httpx @ https://evil.example/wheel"
+        if condition == "direct-url"
+        else "httpx>=0.27",
+    )
+    (harness.production / PRODUCTION_WHEEL).write_bytes(body)
+    with pytest.raises(probe.ProbeError):
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
+    assert harness.calls == []
+
+
+def test_production_failure_prevents_demo_and_cleans_both_environments(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    harness.fail_at = 9
+    with pytest.raises(probe.ProbeError, match=r"Installing.*flexi"):
+        probe.probe_release(VERSION, harness.production, harness.artifacts, demo=True)
+    assert len(harness.calls) == 9
+    assert all("--demo" not in call.command for call in harness.calls)
+    assert not harness.calls[0].root.parent.exists()
+
+
+@pytest.mark.parametrize("production", [False, True])
+@pytest.mark.parametrize("header", ["Name: unexpected\n", "Version: 9.9.9\n"])
+def test_duplicate_metadata_identity_is_rejected_before_installation(
+    harness: Harness, production: bool, header: str
+) -> None:
+    body = wheel_bytes(
+        package="flexi" if production else "flexi-test", extra_metadata=header
+    )
+    if production:
+        (harness.production / PRODUCTION_WHEEL).write_bytes(body)
+    else:
+        harness.set_wheel(body)
+    with pytest.raises(probe.ProbeError, match="requested Flexi release"):
+        probe.probe_release(VERSION, harness.production, harness.artifacts)
+    assert harness.calls == []

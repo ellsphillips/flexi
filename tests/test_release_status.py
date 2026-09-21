@@ -23,7 +23,7 @@ OTHER_SHA = "b" * 40
 REPOSITORY = "example/flexi"
 GITHUB = f"https://api.github.com/repos/{REPOSITORY}"
 PYPI = f"https://pypi.org/pypi/flexi/{VERSION}/json"
-TESTPYPI = f"https://test.pypi.org/pypi/flexi/{VERSION}/json"
+TESTPYPI = f"https://test.pypi.org/pypi/flexi-test/{VERSION}/json"
 TEST_CREDENTIAL = "invalid-test-credential"
 
 
@@ -52,14 +52,28 @@ def artifacts(tmp_path: Path) -> Path:
     return directory
 
 
+@pytest.fixture
+def staging_artifacts(tmp_path: Path) -> Path:
+    directory = tmp_path / "staging"
+    directory.mkdir()
+    (directory / f"flexi_test-{VERSION}-py3-none-any.whl").write_bytes(b"staging wheel")
+    (directory / f"flexi_test-{VERSION}.tar.gz").write_bytes(b"staging source archive")
+    return directory
+
+
 class Remote:
-    def __init__(self, script: ModuleType, artifacts: Path) -> None:
+    def __init__(
+        self, script: ModuleType, artifacts: Path, staging_artifacts: Path
+    ) -> None:
         self.script = script
         self.files = {
             path.name: hashlib.sha256(path.read_bytes()).hexdigest()
             for path in artifacts.iterdir()
         }
-        self.test_files = dict(self.files)
+        self.test_files = {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in staging_artifacts.iterdir()
+        }
         self.tag: str | None = None
         self.release = False
         self.writes: list[str] = []
@@ -123,9 +137,12 @@ class Remote:
 
 @pytest.fixture
 def remote(
-    release_script: ModuleType, artifacts: Path, monkeypatch: pytest.MonkeyPatch
+    release_script: ModuleType,
+    artifacts: Path,
+    staging_artifacts: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Remote:
-    remote = Remote(release_script, artifacts)
+    remote = Remote(release_script, artifacts, staging_artifacts)
     monkeypatch.setattr(release_script, "request_json", remote.request)
     return remote
 
@@ -422,10 +439,12 @@ def test_verification_uses_only_the_selected_registry(
     release_script: ModuleType,
     remote: Remote,
     artifacts: Path,
+    staging_artifacts: Path,
     registry: str,
     file_count: int,
     complete: bool,
 ) -> None:
+    artifacts = artifacts if registry == "pypi" else staging_artifacts
     selected = remote.files if registry == "pypi" else remote.test_files
     unselected = remote.test_files if registry == "pypi" else remote.files
     for name in list(selected)[file_count:]:
@@ -456,9 +475,11 @@ def test_hash_mismatch_in_either_registry_is_refused(
     release_script: ModuleType,
     remote: Remote,
     artifacts: Path,
+    staging_artifacts: Path,
     registry: str,
     complete: bool,
 ) -> None:
+    artifacts = artifacts if registry == "pypi" else staging_artifacts
     selected = remote.files if registry == "pypi" else remote.test_files
     selected[next(iter(selected))] = "0" * 64
     with pytest.raises(release_script.ReleaseError, match="differs from the tested"):
@@ -491,11 +512,13 @@ def test_verify_cli_honors_registry_and_completeness(
     release_script: ModuleType,
     remote: Remote,
     artifacts: Path,
+    staging_artifacts: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     registry: str,
     complete: bool,
 ) -> None:
+    artifacts = artifacts if registry == "pypi" else staging_artifacts
     selected = remote.files if registry == "pypi" else remote.test_files
     selected.pop(next(iter(selected)))
     arguments = [
@@ -581,7 +604,7 @@ def publication_clock(
 def test_complete_cli_waits_for_registry_propagation(
     release_script: ModuleType,
     remote: Remote,
-    artifacts: Path,
+    staging_artifacts: Path,
     publication_clock: PublicationClock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -605,7 +628,7 @@ def test_complete_cli_waits_for_registry_propagation(
             "--version",
             VERSION,
             "--dist",
-            str(artifacts),
+            str(staging_artifacts),
             "--registry",
             "testpypi",
             "--complete",
@@ -626,7 +649,7 @@ def test_complete_cli_waits_for_registry_propagation(
 def test_missing_publication_stops_at_the_deadline(
     release_script: ModuleType,
     remote: Remote,
-    artifacts: Path,
+    staging_artifacts: Path,
     publication_clock: PublicationClock,
     seconds: int,
     sleeps: list[float],
@@ -636,7 +659,7 @@ def test_missing_publication_stops_at_the_deadline(
 
     with pytest.raises(release_script.PublicationPendingError):
         release_script.wait_for_publication(
-            artifacts,
+            staging_artifacts,
             VERSION,
             registry=release_script.Registry.TESTPYPI,
             seconds=seconds,
@@ -652,9 +675,11 @@ def test_partial_upload_with_conflicting_bytes_is_never_retried(
     release_script: ModuleType,
     remote: Remote,
     artifacts: Path,
+    staging_artifacts: Path,
     publication_clock: PublicationClock,
     registry: str,
 ) -> None:
+    artifacts = artifacts if registry == "pypi" else staging_artifacts
     selected = remote.files if registry == "pypi" else remote.test_files
     selected.pop(next(iter(selected)))
     selected[next(iter(selected))] = "0" * 64
@@ -670,7 +695,7 @@ def test_partial_upload_with_conflicting_bytes_is_never_retried(
 
 def test_registry_errors_are_never_retried(
     release_script: ModuleType,
-    artifacts: Path,
+    staging_artifacts: Path,
     publication_clock: PublicationClock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -683,7 +708,10 @@ def test_registry_errors_are_never_retried(
     monkeypatch.setattr(release_script, "request_json", unavailable)
     with pytest.raises(release_script.RemoteError, match="HTTP 503"):
         release_script.wait_for_publication(
-            artifacts, VERSION, registry=release_script.Registry.TESTPYPI, seconds=120
+            staging_artifacts,
+            VERSION,
+            registry=release_script.Registry.TESTPYPI,
+            seconds=120,
         )
 
     assert requests == [TESTPYPI]
@@ -713,3 +741,36 @@ def test_invalid_wait_options_are_rejected_before_network_access(
         release_script.main()
     assert remote.reads == []
     assert remote.writes == []
+
+
+@pytest.mark.parametrize("registry", ["pypi", "testpypi"])
+def test_registry_distribution_names_are_distinct(
+    release_script: ModuleType, registry: str
+) -> None:
+    target = release_script.Registry(registry)
+    package = "flexi" if registry == "pypi" else "flexi-test"
+    normalized = package.replace("-", "_")
+    assert target.package == package
+    assert release_script.filenames(VERSION, target) == {
+        f"{normalized}-{VERSION}-py3-none-any.whl",
+        f"{normalized}-{VERSION}.tar.gz",
+    }
+    assert release_script.filenames(VERSION) == release_script.filenames(
+        VERSION, release_script.Registry.PYPI
+    )
+
+
+@pytest.mark.parametrize("registry", ["pypi", "testpypi"])
+def test_other_registry_artifacts_are_rejected_before_network(
+    release_script: ModuleType,
+    remote: Remote,
+    artifacts: Path,
+    staging_artifacts: Path,
+    registry: str,
+) -> None:
+    wrong_directory = staging_artifacts if registry == "pypi" else artifacts
+    with pytest.raises(release_script.ReleaseError, match="exactly"):
+        release_script.verify_artifacts(
+            wrong_directory, VERSION, registry=release_script.Registry(registry)
+        )
+    assert remote.reads == []

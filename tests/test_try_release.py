@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from scripts import try_release as trial
 from scripts.release_probe import ProbeError
-from scripts.release_status import ReleaseError
+from scripts.release_status import Registry, ReleaseError
 
 HEAD = "a" * 40
 OTHER = "b" * 40
@@ -88,7 +88,12 @@ class Remote(trial.GitHub):
         assert payload is None
         directory = Path(args[args.index("--dir") + 1])
         directory.mkdir(parents=True)
-        (directory / f"flexi-{VERSION}-py3-none-any.whl").write_bytes(b"run artifact")
+        package = (
+            "flexi_test" if args[args.index("--name") + 1] == "test-dist" else "flexi"
+        )
+        (directory / f"{package}-{VERSION}-py3-none-any.whl").write_bytes(
+            b"run artifact"
+        )
         return ""
 
 
@@ -301,11 +306,12 @@ def test_wait_is_bounded_and_does_not_cancel_the_release(
     assert remote.commands == []
 
 
-def test_artifact_download_is_pinned_to_the_selected_run(
-    remote: Remote, tmp_path: Path
+@pytest.mark.parametrize("registry", list(Registry))
+def test_artifact_download_is_pinned_to_the_selected_run_and_registry(
+    remote: Remote, tmp_path: Path, registry: Registry
 ) -> None:
     directory = tmp_path / "dist"
-    remote.download(trial.ReleaseRun(RUN_ID, HEAD, 1, "waiting"), directory)
+    remote.download(trial.ReleaseRun(RUN_ID, HEAD, 1, "waiting"), directory, registry)
     assert remote.commands == [
         (
             "run",
@@ -314,13 +320,13 @@ def test_artifact_download_is_pinned_to_the_selected_run(
             "--repo",
             trial.REPOSITORY,
             "--name",
-            "dist",
+            "test-dist" if registry is Registry.TESTPYPI else "dist",
             "--dir",
             str(directory),
         )
     ]
     assert (
-        directory / f"flexi-{VERSION}-py3-none-any.whl"
+        directory / f"{registry.package.replace('-', '_')}-{VERSION}-py3-none-any.whl"
     ).read_bytes() == b"run artifact"
 
 
@@ -333,13 +339,17 @@ def test_rerun_before_or_during_download_cannot_reach_the_probe(
         run_response(run_attempt=2),
     ]
     with pytest.raises(trial.TrialError, match="rerun"):
-        remote.download(trial.ReleaseRun(RUN_ID, HEAD, 1, "waiting"), tmp_path / "dist")
+        remote.download(
+            trial.ReleaseRun(RUN_ID, HEAD, 1, "waiting"),
+            tmp_path / "dist",
+            Registry.PYPI,
+        )
     assert bool(remote.commands) is during_download
 
 
 @pytest.mark.parametrize("resume", [False, True])
 @pytest.mark.parametrize("fail_probe", [False, True])
-def test_cli_probes_one_temporary_artifact_and_always_cleans_up(
+def test_cli_probes_both_temporary_artifacts_and_always_cleans_up(
     remote: Remote,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -348,14 +358,15 @@ def test_cli_probes_one_temporary_artifact_and_always_cleans_up(
 ) -> None:
     artifact_directories: list[Path] = []
 
-    def probe(version: str, directory: Path, *, demo: bool) -> None:
+    def probe(version: str, production: Path, staging: Path, *, demo: bool) -> None:
         assert version == VERSION
         assert not demo
-        assert directory.is_dir()
-        assert (
-            directory / f"flexi-{VERSION}-py3-none-any.whl"
-        ).read_bytes() == b"run artifact"
-        artifact_directories.append(directory)
+        for directory, package in ((production, "flexi"), (staging, "flexi_test")):
+            assert directory.is_dir()
+            assert (
+                directory / f"{package}-{VERSION}-py3-none-any.whl"
+            ).read_bytes() == b"run artifact"
+            artifact_directories.append(directory)
         if fail_probe:
             message = "isolated package smoke failed"
             raise ProbeError(message)
@@ -365,7 +376,12 @@ def test_cli_probes_one_temporary_artifact_and_always_cleans_up(
         sys, "argv", ["try_release", *(["--run", str(RUN_ID)] if resume else [])]
     )
     assert trial.main() == int(fail_probe)
-    assert len(artifact_directories) == 1
+    assert len(artifact_directories) == 2
+    assert artifact_directories[0] != artifact_directories[1]
+    assert [args[args.index("--name") + 1] for args in remote.commands] == [
+        "dist",
+        "test-dist",
+    ]
     assert not artifact_directories[0].parent.exists()
     assert not any(path == DISPATCH_PATH for path, _payload in remote.requests)
     if resume:
@@ -377,7 +393,7 @@ def test_cli_probes_one_temporary_artifact_and_always_cleans_up(
     if fail_probe:
         assert "isolated package smoke failed" in output.err
     else:
-        assert "Temporary installation removed" in output.out
+        assert "Temporary installations removed" in output.out
 
 
 @pytest.mark.parametrize(("stdin_tty", "stdout_tty"), [(False, True), (True, False)])
