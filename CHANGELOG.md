@@ -112,6 +112,13 @@ every coloured cell, rule and bar sits beside a word or a signed number.
 records table. `?` lists every binding on the screen. `ctrl+p` opens a command
 palette carrying every action, including those with no key.
 
+### Development and releases
+
+- Documented `just` commands cover development, testing and temporary package
+  installation checks.
+- TestPyPI previews can be repeated without changing the production version.
+  Publishing to PyPI requires the owner's manual approval.
+
 ### Known limits
 
 A contract other than 37 hours cannot be set yet; there is no export, no import,

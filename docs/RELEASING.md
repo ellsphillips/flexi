@@ -3,10 +3,16 @@
 Work lands on `dev`, the default branch. A release pull request from `dev` into
 `main` names the next version; automation prepares the release on `dev` for
 review. Merging runs the full checks and builds `flexi` for PyPI and `flexi-test`
-for TestPyPI from the same source and version. CI independently installs and
+for TestPyPI from the same source. CI independently installs and
 tests both builds, then automatically publishes `flexi-test` to TestPyPI.
 After verification, publishing `flexi` to PyPI waits for the owner's approval
 in GitHub Actions. Both distributions retain the `flexi` import and command.
+
+Each TestPyPI run gets an automatic preview version: production `0.2.0` becomes
+`flexi-test 0.2.0.dev<RUN_ID>`. The same run reuses its preview when retried.
+This lets you update and test an unpublished release without bumping its public
+version or replacing TestPyPI files. Application files are identical between
+the two builds; their distribution names and versions differ.
 
 ## Publish a release
 
@@ -15,9 +21,10 @@ in GitHub Actions. Both distributions retain the `flexi` import and command.
    under `## Unreleased`.
 2. Open a pull request with **base `main`**, **head `dev`**, and the exact title
    **`chore(release): 0.2.0`** for this release. For later releases, replace
-   `0.2.0` with a stable `X.Y.Z` version newer than the version on `main`. The
-   title must match exactly: no `v` prefix, prerelease suffix, leading zeroes,
-   or surrounding whitespace.
+   `0.2.0` with a stable `X.Y.Z` version. It may equal the version on `main`
+   only while PyPI has no record of that version; otherwise choose a newer
+   version. Downgrades are refused. The title must match exactly: no `v` prefix,
+   prerelease suffix, leading zeroes, or surrounding whitespace.
 3. Wait for **Prepare release** (`release-prepare.yaml`). It updates
    `pyproject.toml`, `uv.lock`, the README version badge, and `CHANGELOG.md`, then
    regenerates the screenshots and their text twins. Those changes are committed
@@ -27,6 +34,8 @@ in GitHub Actions. Both distributions retain the `flexi` import and command.
    commit. New commits need fresh passing checks.
 5. Use **Create a merge commit** to merge into `main`. Keep `dev`; regular merges
    preserve the ancestry between the development and release branches.
+   If an older run is waiting for approval for the release you are revising,
+   cancel that superseded run before merging so it does not hold the release queue.
 6. Wait for the full release checks, both package builds, automatic TestPyPI
    upload, and TestPyPI verification. Verification waits up to two minutes for
    the uploaded files to appear and requires both distribution filenames and
@@ -181,8 +190,8 @@ drawn in text snapshot headers without changing files. Neither recipe commits,
 pushes, or publishes.
 
 See [TESTING.md](TESTING.md) for the full local checks. After merging, the release
-workflow automatically rehearses publication as `flexi-test` on TestPyPI using
-the production version and source. The separately tested `flexi` production
+workflow automatically rehearses publication as a `flexi-test` preview on
+TestPyPI using the production source. The separately tested `flexi` production
 build remains paused until the owner approves the `pypi` deployment.
 
 ## Try the staged release
@@ -259,8 +268,10 @@ just test tests/test_release_pr.py tests/test_prepare_release.py tests/test_pipe
   existing tag still match; use the original run for recovery, not a later
   `main` commit.
 - **The original artifacts are unavailable or their digests differ:** do not
-  replace published files or move the release tag. Release a new version,
-  including when only TestPyPI contains the conflicting files. Both
+  replace published files or move the release tag. If only TestPyPI has files,
+  start a new release run to get a fresh preview number; production can keep
+  its version while it remains unpublished. Once PyPI has any files for that
+  version, use the original artifacts or prepare a newer production version. Both
   [TestPyPI](https://test.pypi.org/help/#file-name-reuse) and
   [PyPI](https://pypi.org/help/#file-name-reuse) reject reuse of distribution
   filenames, even after deletion. A collision must not bypass the TestPyPI gate.

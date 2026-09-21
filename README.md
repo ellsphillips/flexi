@@ -191,6 +191,8 @@ just try-release --demo
 This tests the release from **remote `main`**, then opens its demo with sample
 records. It reuses or starts a GitHub Actions release run, which can publish
 `flexi-test` to **TestPyPI**, the separate package registry used for testing.
+Each run gets a preview version such as `0.2.0.dev123` on TestPyPI; the production
+release stays `0.2.0` until you choose a new version.
 
 Before opening the demo, it installs and checks two packages separately:
 `flexi-test` downloaded from TestPyPI, and the matching production `flexi` build

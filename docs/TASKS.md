@@ -40,7 +40,7 @@ Use `just --show RECIPE` to inspect the commands behind a task.
 | `just audit` | Check locked dependencies for advisories. | Uses temporary requirements and a pinned pip-audit; needs network access. |
 | `just workflow-check` | Validate GitHub Actions workflows. | Runs actionlint. |
 | `just build` | Build the production wheel and source archive. | Replaces generated `dist/` with fresh artifacts. |
-| `just build-staging` | Build production and TestPyPI distributions. | Replaces generated `dist/` and `test-dist/`; does not publish. |
+| `just build-staging` | Build production and a local TestPyPI preview. | Replaces generated `dist/` and `test-dist/`; does not publish. |
 | `just package-check` | Check both distributions as installed packages. | Builds in temporary storage, checks metadata with Twine, and runs runtime smoke and installed-package tests in isolated environments. |
 | `just release-prepare VERSION` | Prepare a release locally. | Updates metadata and screenshots, then checks them; does not commit or publish. |
 | `just release-check VERSION` | Check prepared release metadata. | Checks the version, release notes, badge, lockfile, and text snapshot versions. |
@@ -61,6 +61,10 @@ That ID comes from the end of the
 [release run URL](https://github.com/ellsphillips/flexi/actions/runs/35583429416).
 Omit `--run` to reuse or start a run for current remote `main`. `--demo` requires
 a terminal and opens the production CI wheel's demo after both package checks.
+TestPyPI uses a preview version such as `0.2.0.dev123`, with the run ID after
+`.dev`; production stays `0.2.0`. A retry of the same run reuses its preview.
+The older run above used a stable TestPyPI version and can still be checked.
+Local `build-staging` and `package-check` use `.dev1` for their disposable preview.
 
 See [Testing](TESTING.md) for test design and platform reproduction, and
 [Releasing](RELEASING.md) for the publication gates. CI keeps its verification

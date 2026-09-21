@@ -175,7 +175,7 @@ build:
         raise SystemExit("Refusing to replace a linked dist directory.")
     raise SystemExit(subprocess.call(["uv", "build", "--clear", "--no-create-gitignore", "--out-dir", str(output)]))
 
-# Build both names from the same source, replacing dist/ and test-dist/.
+# Build production and a local preview, replacing dist/ and test-dist/.
 [group('Packaging')]
 [script]
 build-staging: build
@@ -186,7 +186,7 @@ build-staging: build
         raise SystemExit("Refusing to replace a linked test-dist directory.")
     if output.exists():
         shutil.rmtree(output)
-    raise SystemExit(subprocess.call(["uv", "run", "--locked", "--module", "scripts.build_staging", "--dist", "dist", "--out", str(output)]))
+    raise SystemExit(subprocess.call(["uv", "run", "--locked", "--module", "scripts.build_staging", "--dist", "dist", "--out", str(output), "--run-id", "1"]))
 
 # Build, install and test both distributions in temporary directories; no upload.
 [group('Packaging')]
