@@ -25,7 +25,15 @@ def version() -> str:
     try:
         return importlib.metadata.version("flexi")
     except importlib.metadata.PackageNotFoundError:
-        return "unknown"
+        # A repackaged distribution can retain the flexi import package. Avoid
+        # scanning installed distributions on the ordinary startup path.
+        providers = importlib.metadata.packages_distributions().get("flexi", [])
+        if len(providers) != 1:
+            return "unknown"
+        try:
+            return importlib.metadata.version(providers[0])
+        except importlib.metadata.PackageNotFoundError:
+            return "unknown"
 
 
 def __getattr__(name: str) -> str:
