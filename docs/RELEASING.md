@@ -29,7 +29,9 @@ the same files to PyPI waits for the owner's approval in GitHub Actions.
    and TestPyPI verification. Verification waits up to two minutes for the
    uploaded files to appear and requires both distribution filenames and SHA256
    digests to match the tested artifacts. Any failure stops the release before
-   production.
+   production. Run `uv run -m scripts.try_release --demo` locally to wait for
+   staging, check the installed package, and try it before approving production.
+   Omit `--demo` for automated checks only; see [Try the staged release](#try-the-staged-release).
 7. As `ellsphillips`, open the release run in GitHub Actions and click **Review
    deployments**. Select the **pypi** checkbox, then **Approve and deploy**. The
    workflow uploads the same wheel and source distribution to PyPI without
