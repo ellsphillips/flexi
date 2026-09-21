@@ -173,7 +173,8 @@ def test_probe_uses_verified_wheel_and_isolated_paths(
     for call in harness.calls:
         assert call.root == root
         assert "must-not-travel" not in call.env.values()
-        assert call.env["SystemRoot"] == "C:\\Windows"
+        environment = {key.upper(): value for key, value in call.env.items()}
+        assert environment["SYSTEMROOT"] == "C:\\Windows"
         assert Path(call.env["XDG_DATA_HOME"]).is_relative_to(root)
         assert Path(call.env["XDG_CONFIG_HOME"]).is_relative_to(root)
         assert Path(call.env["TEMP"]).is_relative_to(root)
