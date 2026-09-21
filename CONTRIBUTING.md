@@ -15,6 +15,11 @@ into it. Release pull requests go from `dev` into `main`, with a title such as
 screenshots on `dev` before review and merge. See
 [`docs/RELEASING.md`](docs/RELEASING.md) for the checks and publishing procedure.
 
+To try the staged release with an authenticated GitHub CLI, run
+`uv run -m scripts.try_release` from the checkout. Add `--demo` for an interactive
+demo. See [Try the staged release](docs/RELEASING.md#try-the-staged-release) for
+prerequisites; production publishing still requires the owner's approval.
+
 The hooks run CI's static checks — ruff, the formatter, mypy and
 `uv lock --check` — through the locked environment. They do not run the suite.
 Run `pytest` yourself before you push; CI also checks the supported operating

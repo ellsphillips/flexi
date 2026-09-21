@@ -177,6 +177,32 @@ workflow automatically rehearses publication on TestPyPI using the exact
 production version and artifacts. Production remains paused until the owner
 approves the `pypi` deployment.
 
+## Try the staged release
+
+From a checkout with `uv` installed and `gh` authenticated, run:
+
+```bash
+uv run -m scripts.try_release
+```
+
+If needed, sign in to GitHub once with `gh auth login`.
+
+The TestPyPI stages of `release.yaml` must already be merged into remote `main`,
+and the [one-time setup](#one-time-setup) must be complete. The command reuses a
+release run for the current remote `main` commit, or starts one on `main`. It
+waits for TestPyPI verification without waiting for production approval.
+
+It downloads that run's exact distribution artifact and verifies the TestPyPI
+wheel's SHA256 against it, then tests the installed version, CLI help,
+import origin, dependencies, and headless TUI startup. The checks use a temporary
+virtual environment, configuration, and data directory, with dependencies from
+real PyPI. Temporary files are removed on exit.
+
+Add `--demo` to launch the staged app's interactive demo after the checks; this
+needs a terminal. Use `--run RUN_ID` to select or resume an exact release run.
+The command never approves production; the owner must still approve the `pypi`
+deployment separately.
+
 ## Maintaining the preparer
 
 `scripts/release_pr.py` validates GitHub responses in `GitHubClient` and passes
