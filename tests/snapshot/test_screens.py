@@ -16,10 +16,10 @@ import pytest
 import time_machine
 
 from flexi.app import FlexiApp
-from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.samples import NOW, seed_demo
 from tests.conftest import settled
+from tests.database import create_schema
 from tests.tui.conftest import screen_text
 
 SHOTS = Path(__file__).resolve().parent.parent.parent / "docs" / "shots"
@@ -51,7 +51,7 @@ def demo_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     path = tmp_path_factory.mktemp("snapshot") / "flexi.db"
     with time_machine.travel(NOW, tick=False):
         engine = create_db_engine(path)
-        Base.metadata.create_all(engine)
+        create_schema(engine)
         session = get_session(engine)
         seed_demo(session)
         session.close()

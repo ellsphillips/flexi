@@ -16,13 +16,14 @@ import time_machine
 
 from flexi.app import FlexiApp
 from flexi.constants import ClockAction
-from flexi.models.database.db import Base, ClockEvent, WorkSession
+from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.moment import moment_of
 from flexi.screens.dashboard import DashboardScreen
 from flexi.services.registry import build_services
 from flexi.services.settings import parse_settings
 from tests.conftest import sessions_on
+from tests.database import create_schema
 from tests.tui.conftest import WIDE, showing
 
 MONDAY = date(2026, 6, 8)
@@ -37,7 +38,7 @@ def left_open(tmp_path: Path) -> Path:
     """A configured database with Monday still on the clock."""
     path = tmp_path / "flexi.db"
     engine = create_db_engine(path)
-    Base.metadata.create_all(engine)
+    create_schema(engine)
     session = get_session(engine)
 
     build_services(session).settings.save_settings(

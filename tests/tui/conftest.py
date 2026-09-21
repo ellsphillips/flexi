@@ -18,10 +18,10 @@ from textual.screen import Screen
 
 from flexi.app import FlexiApp
 from flexi.components.chrome import AppFooter
-from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.screens.dashboard import DashboardScreen
 from flexi.services.samples import NOW, seed_demo
+from tests.database import create_schema
 
 WIDE = (120, 36)
 
@@ -44,7 +44,7 @@ def seeded_db(tmp_path: Path, _frozen: None) -> Path:
     """A database holding the demo's six weeks of a working life."""
     path = tmp_path / "flexi.db"
     engine = create_db_engine(path)
-    Base.metadata.create_all(engine)
+    create_schema(engine)
     session = get_session(engine)
     seed_demo(session)
     session.close()

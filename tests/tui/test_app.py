@@ -19,7 +19,7 @@ from flexi.components.chrome import NavBar, VersionTag
 from flexi.components.modules.records import RecordsModule
 from flexi.constants import Division
 from flexi.context import flexi_app
-from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh, Base
+from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.insights import InsightsScreen
@@ -30,6 +30,7 @@ from flexi.services.bank_holidays import CACHE_MAX_AGE, BankHolidayService
 from flexi.services.samples import NOW
 from flexi.versioning import UPGRADE_HINT
 from tests.conftest import session_at
+from tests.database import create_schema
 from tests.tui.conftest import (
     READABLE,
     WIDE,
@@ -60,7 +61,7 @@ def unconfigured(tmp_path: Path) -> Path:
     """A migrated database with the setup questions unanswered."""
     path = tmp_path / "flexi.db"
     engine = create_db_engine(path)
-    Base.metadata.create_all(engine)
+    create_schema(engine)
     engine.dispose()
     return path
 

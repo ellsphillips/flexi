@@ -13,7 +13,6 @@ from textual.widgets import Input, Select, Static
 
 from flexi.app import FlexiApp
 from flexi.components.wordmark import Wordmark
-from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.settings import NO_DIVISION
@@ -21,6 +20,7 @@ from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
 from flexi.services.settings import SettingsService
 from flexi.theme import MARK_LIVE, TAIL, colour
 from tests.conftest import session_at
+from tests.database import create_schema
 from tests.tui.conftest import WIDE, showing
 
 
@@ -29,7 +29,7 @@ def fresh_db(tmp_path: Path) -> Path:
     """A migrated database with nothing in it, as `run_migrations` leaves it."""
     path = tmp_path / "flexi.db"
     engine = create_db_engine(path)
-    Base.metadata.create_all(engine)
+    create_schema(engine)
     engine.dispose()
     return path
 

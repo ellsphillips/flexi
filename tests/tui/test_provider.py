@@ -19,12 +19,12 @@ from textual.widgets import Input, RadioSet
 from flexi.app import FlexiApp
 from flexi.constants import AbsenceType, Granularity
 from flexi.context import command_app
-from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine
 from flexi.provider import Command, FlexiCommands, commands
 from flexi.screens.modals import AbsenceModal
 from flexi.screens.setup import SetupScreen
 from tests.conftest import settled
+from tests.database import create_schema
 from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
 
 
@@ -77,7 +77,7 @@ def unconfigured(tmp_path: Path) -> Path:
     """A migrated but unanswered database, which opens on setup."""
     path = tmp_path / "flexi.db"
     engine = create_db_engine(path)
-    Base.metadata.create_all(engine)
+    create_schema(engine)
     engine.dispose()
     return path
 

@@ -17,13 +17,13 @@ from textual.widgets import Button, Input, Select
 from flexi.app import FlexiApp
 from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import Division
-from flexi.models.database.db import Base
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen, describe_working_days
 from flexi.services.settings import parse_working_days
 from tests.conftest import settled
+from tests.database import create_schema
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
 
@@ -73,7 +73,7 @@ async def test_screen_opens_before_any_settings_exist(tmp_path: Path) -> None:
     """`compose` falls back to defaults when there is no settings row to read."""
     path = tmp_path / "empty.db"
     engine = create_db_engine(path)
-    Base.metadata.create_all(engine)
+    create_schema(engine)
     engine.dispose()
 
     app = FlexiApp(db_path=path)

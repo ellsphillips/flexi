@@ -14,7 +14,7 @@ import flexi.app as app_module
 import flexi.models.database.engine as database_engine
 from flexi.app import FlexiApp
 from flexi.messages import BankHolidayRefreshCompleted
-from flexi.models.database.db import Base
+from tests.database import create_schema
 
 
 def install_database_spies(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> None:
@@ -88,7 +88,7 @@ async def test_blocked_fetch_cannot_retain_the_database(
     directory.mkdir()
     db_path = directory / "flexi.db"
     engine = database_engine.create_db_engine(db_path)
-    Base.metadata.create_all(engine)
+    create_schema(engine)
     engine.dispose()
 
     started = Event()
