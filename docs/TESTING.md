@@ -262,9 +262,10 @@ by pushing.
 | Workflow | Job | The same thing, locally |
 |---|---|---|
 | `static.yaml` | `Lint and types` | `uv sync --locked --dev && uv lock --check && uv run ruff check && uv run ruff format --check && uv run mypy && uv run mypy --platform win32 --no-warn-unreachable` |
-| `tests.yaml` | the matrix | `TZ=UTC uv run pytest`, `TZ=Europe/London uv run pytest`, `TZ=America/New_York uv run pytest` |
-| `tests.yaml` | the coverage row | `TZ=UTC uv run pytest --cov` |
-| `tests.yaml` | `Deferred callbacks land late` | `TZ=UTC FLEXI_LATE_CALLBACKS=0.05 uv run pytest` |
+| `tests.yaml` | the matrix | `HYPOTHESIS_PROFILE=ci TZ=UTC uv run pytest` (or the row's timezone) |
+| `tests.yaml` | the coverage row | `HYPOTHESIS_PROFILE=ci TZ=UTC uv run pytest --cov` |
+| `tests.yaml` | `The declared floors still pass` | `uv lock --resolution lowest-direct && uv sync --frozen --dev && HYPOTHESIS_PROFILE=ci TZ=UTC uv run --frozen pytest` |
+| `tests.yaml` | `Deferred callbacks land late` | `HYPOTHESIS_PROFILE=ci TZ=UTC FLEXI_LATE_CALLBACKS=0.05 uv run pytest` |
 | `package.yaml` | `Wheel installs and runs` | see below |
 
 `tests/test_pipelines.py` asserts that both pipelines call the same three, and
@@ -290,13 +291,24 @@ binary, and the src layout is what keeps the check honest — the working
 directory is the source tree and `flexi` is still importable only from the
 wheel.
 
-The matrix rows differ by interpreter, timezone and operating system. `uv`
-selects the interpreter; `TZ` selects the timezone on POSIX systems:
+The full suite runs in 15 matrix jobs. Every Linux, macOS and Windows runner
+tests Python 3.12, 3.13 and 3.14 in UTC. Each OS also tests Python 3.13 in
+Europe/London and America/New_York. This retains every OS/Python pair and every
+OS/timezone pair without repeating all 27 combinations.
+
+The canonical Linux/Python 3.13/UTC job enforces coverage. Every matrix job,
+the minimum-dependency job and the delayed-callback job use Hypothesis's `ci`
+profile: up to 500 examples per property. The stateful SQLite test keeps its
+separate budget of 40 examples with up to 40 steps each on every runner. No
+tests are excluded from any of these jobs. Each run prints its 15 slowest tests
+with `--durations=15`, so further performance work can target measured bottlenecks.
+
+`uv` selects the interpreter; `TZ` selects the timezone on POSIX systems:
 
 ```
-UV_PROJECT_ENVIRONMENT=/tmp/py314 uv sync --locked --dev --python 3.14
-TZ=Europe/London /tmp/py314/bin/python -m pytest -q
-TZ=America/New_York /tmp/py314/bin/python -m pytest -q
+UV_PROJECT_ENVIRONMENT=/tmp/py313 uv sync --locked --dev --python 3.13
+HYPOTHESIS_PROFILE=ci TZ=Europe/London /tmp/py313/bin/python -m pytest -q
+HYPOTHESIS_PROFILE=ci TZ=America/New_York /tmp/py313/bin/python -m pytest -q
 ```
 
 An operating system needs its own runner; running these commands on macOS does
@@ -320,7 +332,7 @@ uvx --from actionlint-py actionlint .github/workflows/*.yaml
 runners, and it does not reproduce the macOS or Windows matrix rows:
 
 ```
-act push -W .github/workflows/ci.yaml
+act workflow_dispatch -W .github/workflows/ci.yaml
 ```
 
 ## 9. Dependency advisories

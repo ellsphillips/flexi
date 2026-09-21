@@ -25,8 +25,17 @@ production publishing still requires the owner's approval.
 
 The hooks run CI's static checks — ruff, the formatter, mypy and
 `uv lock --check` — through the locked environment. They do not run the suite.
-Run `pytest` yourself before you push; CI also checks the supported operating
-systems and interpreters.
+Run `uv run pytest -q` before pushing. CI tests the proposed merge on pull
+requests into `dev` or `main`, including the supported operating systems and
+interpreters. A push without an open pull request does not start CI. To check a
+pushed branch before opening one, use an authenticated GitHub CLI:
+
+```bash
+gh workflow run ci.yaml --ref YOUR_BRANCH
+```
+
+A manual run provides early feedback; the pull request still needs its own
+passing checks. Merging a release into `main` starts the full release checks.
 
 ## The layout
 

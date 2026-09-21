@@ -1,7 +1,7 @@
 name: Tests
 
-# The suite, on every combination Flexi claims to run on, plus the one run that
-# makes the machine behave badly.
+# Every supported OS/Python pair, with extra timezone checks on each OS, plus
+# minimum dependencies and deliberately delayed UI callbacks.
 on:
   workflow_call:
 
@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 env:
-  # Five hundred examples a property instead of a hundred. The profile is
-  # registered in `tests/conftest.py` and reached only from here.
+  # Keep the 500-example property search on every row. Matrix selection saves
+  # complete suite runs without reducing any individual run's test depth.
   HYPOTHESIS_PROFILE: ci
 
 jobs:
@@ -30,12 +30,29 @@ jobs:
         # who has it. Every SQLAlchemy below 2.0.41 raises TypeError building a
         # mapping there, which is what the floor in pyproject is for.
         python: ["3.12", "3.13", "3.14"]
-        # A timesheet's arithmetic must not move with the machine.
-        # Europe/London is the audience and the only zone here with
-        # transitions. New York is the only one behind UTC, which is where a
-        # reading escaping `flexi.wallclock` disagrees with a frozen naive
-        # datetime.
-        tz: ["UTC", "Europe/London", "America/New_York"]
+        # Nine OS/Python pairs at UTC. Each OS also gets London and New York
+        # on 3.13: both have DST, and New York catches dates behind UTC. These
+        # six extra rows test the machine clock without a redundant 27-row grid.
+        tz: ["UTC"]
+        include:
+          - os: ubuntu-latest
+            python: "3.13"
+            tz: Europe/London
+          - os: ubuntu-latest
+            python: "3.13"
+            tz: America/New_York
+          - os: macos-latest
+            python: "3.13"
+            tz: Europe/London
+          - os: macos-latest
+            python: "3.13"
+            tz: America/New_York
+          - os: windows-latest
+            python: "3.13"
+            tz: Europe/London
+          - os: windows-latest
+            python: "3.13"
+            tz: America/New_York
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -86,11 +103,11 @@ jobs:
       # without it, to catch failures.
       - name: pytest with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC'
-        run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
+        run: uv run pytest --durations=15 --cov --cov-report=term-missing --cov-report=xml
 
       - name: pytest
         if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC') }}
-        run: uv run pytest
+        run: uv run pytest --durations=15
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC'
@@ -123,7 +140,7 @@ jobs:
       - name: pytest, at the floor of every dependency
         env:
           TZ: UTC
-        run: uv run --frozen pytest
+        run: uv run --frozen pytest --durations=15
 
   late:
     name: Deferred callbacks land late
@@ -148,4 +165,4 @@ jobs:
         env:
           TZ: UTC
           FLEXI_LATE_CALLBACKS: "0.05"
-        run: uv run pytest
+        run: uv run pytest --durations=15

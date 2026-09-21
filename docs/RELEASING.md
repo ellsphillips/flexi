@@ -161,9 +161,10 @@ rebase, or delete `dev` after a release.
 
 ## Verify without publishing
 
-CI runs on pull requests without publishing. It checks formatting, types,
-dependency advisories, the OS/Python/timezone matrix, minimum dependency
-versions, metadata, and clean wheel installs.
+CI tests the proposed merge on pull requests into `dev` or `main`, without
+publishing; the release workflow separately checks merged `main`. CI checks
+formatting, types, dependency advisories, the OS/Python/timezone matrix,
+minimum dependency versions, metadata, and clean wheel installs.
 
 To inspect preparation locally:
 

@@ -7,6 +7,7 @@ narrower publishes the least tested run in the repository, silently.
 
 from __future__ import annotations
 
+import itertools
 import re
 import tomllib
 from pathlib import Path
@@ -52,6 +53,43 @@ def test_both_pipelines_verify_with_the_same_workflows() -> None:
     assert ci == release, (
         f"only CI runs {ci - release}; only the release runs {release - ci}"
     )
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_ci_checks_each_pr_without_duplicate_push_runs() -> None:
+    workflow = _workflow("ci.yaml")
+    assert set(workflow[ON]) == {"pull_request", "workflow_dispatch"}
+    assert set(workflow[ON]["pull_request"]["branches"]) == {"dev", "main"}
+    assert workflow["concurrency"]["cancel-in-progress"] is True
+    assert workflow["jobs"]["green"]["if"] == "${{ !cancelled() }}"
+    release = _workflow("release.yaml")
+    assert release[ON]["push"]["branches"] == ["main"]
+    assert release["concurrency"]["cancel-in-progress"] is False
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_test_matrix_preserves_platform_python_and_timezone_coverage() -> None:
+    workflow = _workflow("tests.yaml")
+    assert workflow["env"]["HYPOTHESIS_PROFILE"] == "ci"
+    assert all(
+        "HYPOTHESIS_PROFILE" not in job.get("env", {})
+        for job in workflow["jobs"].values()
+    )
+    suite = workflow["jobs"]["suite"]
+    matrix = suite["strategy"]["matrix"]
+    rows = list(itertools.product(matrix["os"], matrix["python"], matrix["tz"]))
+    rows.extend((row["os"], row["python"], row["tz"]) for row in matrix["include"])
+    operating_systems = {"ubuntu-latest", "macos-latest", "windows-latest"}
+    versions = {"3.12", "3.13", "3.14"}
+    zones = {"UTC", "Europe/London", "America/New_York"}
+    assert len(rows) == len(set(rows)) == 15
+    assert {(os, python) for os, python, _tz in rows} == set(
+        itertools.product(operating_systems, versions)
+    )
+    assert {(os, tz) for os, _python, tz in rows} == set(
+        itertools.product(operating_systems, zones)
+    )
+    assert ("ubuntu-latest", "3.13", "UTC") in rows
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")

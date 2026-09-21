@@ -1,16 +1,15 @@
 name: CI
 
 on:
-  push:
-    branches: [dev, main]
   pull_request:
     branches: [dev, main]
   workflow_dispatch:
 
-# A new push to a branch makes the run before it irrelevant.
+# PRs test the merge result once. Release tests main before publishing;
+# workflow_dispatch covers a branch before its PR is opened.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -37,9 +36,9 @@ jobs:
   green:
     name: All green
     needs: [static, tests, package]
-    # `always()`, so a skipped or cancelled check is reported rather than
-    # quietly satisfying the gate by never running.
-    if: always()
+    # Report failures and skipped checks, but let a superseded run stop
+    # immediately instead of queuing a final job after cancellation.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
