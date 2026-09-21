@@ -150,13 +150,18 @@ for details and vulnerability reporting.
 
 ## Development
 
+Use Python 3.12–3.14, uv 0.9.26 or newer, and just 1.46 or newer. See the
+[developer tasks](https://github.com/ellsphillips/flexi/blob/main/docs/TASKS.md)
+for setup and the command reference.
+
 ```bash
-uv sync
-uv run pre-commit install
-uv run pytest -q
-uv run mypy
-uv run ruff check
+uv tool install "rust-just>=1.46"
+just setup
+just check
+just test
 ```
+
+Run `just` to list all tasks, or `just demo` to explore with sample records.
 
 See [Contributing](https://github.com/ellsphillips/flexi/blob/main/CONTRIBUTING.md)
 for the workflow, [the documentation](https://github.com/ellsphillips/flexi/tree/main/docs)

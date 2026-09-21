@@ -31,7 +31,7 @@ in GitHub Actions. Both distributions retain the `flexi` import and command.
    upload, and TestPyPI verification. Verification waits up to two minutes for
    the uploaded files to appear and requires both distribution filenames and
    SHA256 digests to match the tested `flexi-test` artifacts. Any failure stops
-   the release before production. Run `uv run -m scripts.try_release --demo`
+   the release before production. Run `just try-release --demo`
    locally to wait for staging, check both installed builds, and try the
    production CI build before approving publication.
    Omit `--demo` for automated checks only; see [Try the staged release](#try-the-staged-release).
@@ -58,11 +58,12 @@ GitHub's `pull_request_target` trigger uses the trusted workflow revision from
 the default branch, `dev`.
 
 To retry manually, open **Prepare release → Run workflow** in GitHub Actions,
-select **dev**, and enter the pull-request number in **pull_request**. With the
-GitHub CLI, replacing `123` with that number:
+select **dev**, and enter the pull-request number in **pull_request**. From a
+checkout after [developer setup](TASKS.md), with `gh` authenticated, replace `123`
+with that number:
 
 ```bash
-gh workflow run release-prepare.yaml --ref dev -f pull_request=123
+just release-retry 123
 ```
 
 This prepares the pull request; it does not publish to PyPI. Review any generated
@@ -166,19 +167,18 @@ publishing; the release workflow separately checks merged `main`. CI checks
 formatting, types, dependency advisories, the OS/Python/timezone matrix,
 minimum dependency versions, metadata, and clean wheel installs.
 
-To inspect preparation locally:
+After [developer setup](TASKS.md), inspect preparation locally:
 
 ```bash
-uv run python scripts/prepare_release.py prepare --root . --title "chore(release): 0.2.0"
-uv run python scripts/shoot.py
-uv run python scripts/prepare_release.py check --root . --title "chore(release): 0.2.0" --check-snapshots
+just release-prepare 0.2.0
+just release-check 0.2.0
 git diff
 ```
 
-`prepare` updates the four metadata files; `check` verifies their agreement, and
-`--check-snapshots` also checks the version drawn in the text snapshot headers.
-Neither command commits, pushes, or publishes. Screenshot generation is a
-separate step, also run by the preparation workflow.
+`release-prepare` updates the four metadata files, regenerates screenshots, and
+checks their agreement. `release-check` checks the metadata and the version
+drawn in text snapshot headers without changing files. Neither recipe commits,
+pushes, or publishes.
 
 See [TESTING.md](TESTING.md) for the full local checks. After merging, the release
 workflow automatically rehearses publication as `flexi-test` on TestPyPI using
@@ -187,10 +187,10 @@ build remains paused until the owner approves the `pypi` deployment.
 
 ## Try the staged release
 
-From a checkout with `uv` installed and `gh` authenticated, run:
+From a checkout after [developer setup](TASKS.md), with `gh` authenticated, run:
 
 ```bash
-uv run -m scripts.try_release
+just try-release
 ```
 
 If needed, sign in to GitHub once with `gh auth login`.
@@ -198,7 +198,8 @@ If needed, sign in to GitHub once with `gh auth login`.
 The TestPyPI stages of `release.yaml` must already be merged into remote `main`,
 and the [one-time setup](#one-time-setup) must be complete. The command reuses a
 release run for the current remote `main` commit, or starts one on `main`. It
-waits for TestPyPI verification without waiting for production approval.
+can publish `flexi-test` to TestPyPI and waits for its verification without
+waiting for production approval.
 
 It downloads that run's production and test artifacts, verifies the TestPyPI
 `flexi-test` wheel's SHA256 against its test artifact, and separately installs
@@ -208,7 +209,16 @@ own temporary environment, configuration, and data directory. Dependencies come
 from real PyPI. Temporary files are removed on exit.
 
 Add `--demo` to launch the production `flexi` CI wheel's interactive demo after
-both checks; this needs a terminal. Use `--run RUN_ID` to select or resume an exact release run.
+both checks; this needs a terminal. Use `--run RUN_ID` to select or resume an
+exact release run.
+The ID is the number at the end of a GitHub Actions run URL, not a package
+version. For example, for
+[run 35583429416](https://github.com/ellsphillips/flexi/actions/runs/35583429416):
+
+```bash
+just try-release --run 35583429416 --demo
+```
+
 The command never approves production; the owner must still approve the `pypi`
 deployment separately.
 
@@ -224,7 +234,7 @@ The tests inject a typed repository client and cover malformed responses,
 unexpected file changes, and concurrent pushes:
 
 ```bash
-uv run pytest tests/test_release_pr.py tests/test_prepare_release.py tests/test_pipelines.py
+just test tests/test_release_pr.py tests/test_prepare_release.py tests/test_pipelines.py
 ```
 
 ## Recover a failed release

@@ -10,6 +10,7 @@ If you are here to change it, read them in this order:
 
 | Document | What it settles |
 |---|---|
+| [`TASKS.md`](TASKS.md) | Developer setup and the just recipes for running, checking, building, and preparing releases. |
 | [`DOMAIN.md`](DOMAIN.md) | The data model, the period model, and the arithmetic of a flexi balance. Every screen is a view of this. |
 | [`DESIGN-SYSTEM.md`](DESIGN-SYSTEM.md) | The palette, the type scale, the component contract, and the rules that keep the interface coherent. |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Package layout, layering, and how a keypress becomes a database write and a redraw. |
