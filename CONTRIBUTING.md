@@ -15,7 +15,7 @@ just test
 
 `dev` is the default and working branch: branch off it, and open pull requests
 into it. Release pull requests go from `dev` into `main`, with a title such as
-`chore(release): 0.2.1`. Automation prepares the version, release notes, and
+`chore(release): 0.2.0`. Automation prepares the version, release notes, and
 screenshots on `dev` before review and merge. See
 [`docs/RELEASING.md`](docs/RELEASING.md) for the checks and publishing procedure.
 
@@ -82,9 +82,9 @@ floating point, and a leave year of rounding it gives a balance that disagrees
 with the sum of its own rows.
 
 Add a short user-facing note under `## Unreleased` in `CHANGELOG.md` for changes
-that belong in release notes. Preparation promotes `Unreleased` when the version
-named in the release pull request has no section yet; an existing version
-section is preserved.
+that belong in future release notes. For the first 0.2.0 release, update its
+existing `## 0.2.0` section instead. Preparation promotes `Unreleased` only when
+the version named in the release pull request has no section yet.
 
 Anything that changes the interface should regenerate the screenshots and their
 text twins in `docs/shots/`:

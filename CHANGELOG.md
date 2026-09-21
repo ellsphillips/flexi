@@ -3,13 +3,6 @@
 What changed, for the person using Flexi. Versions follow
 [semantic versioning](https://semver.org).
 
-## 0.2.1
-
-- Document the `just` commands for development, testing, package checks, and
-  trying a release locally before approving publication.
-- Check both package builds and minimum dependency versions in temporary
-  environments, keeping the development lockfile and environment intact.
-
 ## 0.2.0
 
 The terminal application's release, and a rewrite of everything above the

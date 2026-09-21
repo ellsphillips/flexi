@@ -10,12 +10,14 @@ in GitHub Actions. Both distributions retain the `flexi` import and command.
 
 ## Publish a release
 
-1. Finish the release's changes on `dev` and collect their notes under
-   `## Unreleased` in `CHANGELOG.md`.
+1. Finish the release's changes on `dev`. For this first release, update the
+   existing `## 0.2.0` notes in `CHANGELOG.md`. For future versions, collect notes
+   under `## Unreleased`.
 2. Open a pull request with **base `main`**, **head `dev`**, and the exact title
-   **`chore(release): X.Y.Z`**, for example **`chore(release): 0.2.1`**. Choose a
-   stable version newer than the version on `main`. The title must match exactly:
-   no `v` prefix, prerelease suffix, leading zeroes, or surrounding whitespace.
+   **`chore(release): 0.2.0`** for this release. For later releases, replace
+   `0.2.0` with a stable `X.Y.Z` version newer than the version on `main`. The
+   title must match exactly: no `v` prefix, prerelease suffix, leading zeroes,
+   or surrounding whitespace.
 3. Wait for **Prepare release** (`release-prepare.yaml`). It updates
    `pyproject.toml`, `uv.lock`, the README version badge, and `CHANGELOG.md`, then
    regenerates the screenshots and their text twins. Those changes are committed
@@ -51,7 +53,7 @@ the different distribution names mean their files and hashes differ.
 
 ## Rerun preparation
 
-Preparation starts automatically for a release pull request.
+Preparation starts automatically, including for the first 0.2.0 release.
 GitHub's `pull_request_target` trigger uses the trusted workflow revision from
 the default branch, `dev`.
 
@@ -168,8 +170,8 @@ minimum dependency versions, metadata, and clean wheel installs.
 After [developer setup](TASKS.md), inspect preparation locally:
 
 ```bash
-just release-prepare 0.2.1
-just release-check 0.2.1
+just release-prepare 0.2.0
+just release-check 0.2.0
 git diff
 ```
 
@@ -210,8 +212,8 @@ Add `--demo` to launch the production `flexi` CI wheel's interactive demo after
 both checks; this needs a terminal. Use `--run RUN_ID` to select or resume an
 exact release run.
 The ID is the number at the end of a GitHub Actions run URL, not a package
-version. For example, to revisit the existing
-[0.2.0 run 35583429416](https://github.com/ellsphillips/flexi/actions/runs/35583429416):
+version. For example, for
+[run 35583429416](https://github.com/ellsphillips/flexi/actions/runs/35583429416):
 
 ```bash
 just try-release --run 35583429416 --demo

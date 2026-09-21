@@ -3,7 +3,7 @@
 Track working hours, leave, and your flexitime balance from the terminal.
 Your records stay in a local SQLite database. No account required.
 
-[![version](https://shieldcn.dev/badge/version-0.2.1-00AAAD.svg?variant=outline)](https://pypi.org/project/flexi/)
+[![version](https://shieldcn.dev/badge/version-0.2.0-00AAAD.svg?variant=outline)](https://pypi.org/project/flexi/)
 [![python](https://shieldcn.dev/badge/python-3.12_|_3.13_|_3.14-00AAAD.svg?logo=python&variant=outline)](https://www.python.org)
 [![ci](https://shieldcn.dev/github/ci/ellsphillips/flexi.svg?variant=outline)](https://github.com/ellsphillips/flexi/actions/workflows/ci.yaml)
 [![licence](https://shieldcn.dev/badge/licence-MIT-2E9E52.svg)](https://github.com/ellsphillips/flexi/blob/main/LICENSE)

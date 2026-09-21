@@ -165,9 +165,9 @@ Rules that keep them useful:
   responsive rules in `DESIGN-SYSTEM.md` §6 only exist where they are pinned.
 - **Regenerate, then read the diff.** `just shots` rewrites
   both the SVGs and the text; the diff is what you review before committing.
-- **A version bump is a visual change.** The header carries the package version,
-  so every `.txt` twin carries it too. Bumping `version` in `pyproject.toml`
-  without re-shooting turns the snapshot suite red.
+- **A version bump is a visual change.** The header carries `v0.2.0`, so every
+  `.txt` twin carries it too, and bumping `version` in `pyproject.toml` without
+  re-shooting turns the snapshot suite red.
 
 ## 5. Screenshots for review
 
