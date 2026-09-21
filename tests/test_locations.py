@@ -1,13 +1,12 @@
-"""Where Flexi puts things, on each platform, and what it creates by asking.
+"""Where Flexi puts things, on each platform, and what asking creates.
 
-The second half matters as much as the first: these functions answer a
-question, and a question should not have a filesystem side effect. Every one of
-them used to call mkdir, so `flexi --version` left a config directory behind on
-a machine that had never run the application.
+These functions answer a question, and a question has no filesystem side
+effect: only `ensure` makes a directory.
 """
 
 from __future__ import annotations
 
+import stat
 import sys
 from pathlib import Path
 
@@ -39,7 +38,7 @@ def test_xdg_config_home_wins_when_set(
 
 
 def test_xdg_is_honoured_on_windows_too(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Somebody who sets XDG_DATA_HOME on Windows means it."""
+    """``XDG_DATA_HOME`` wins on every platform, Windows included."""
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("XDG_DATA_HOME", str(Path("D:/data").resolve()))
     monkeypatch.setenv("LOCALAPPDATA", "C:/Users/x/AppData/Local")
@@ -47,12 +46,20 @@ def test_xdg_is_honoured_on_windows_too(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.parametrize("value", ["", "   ", "relative/path", "./here"])
-def test_a_relative_or_empty_setting_is_ignored(
+def test_relative_or_empty_setting_is_ignored(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """Otherwise XDG_DATA_HOME=. drops a database wherever you were standing."""
+    """``XDG_DATA_HOME=.`` would otherwise drop a database in the shell's cwd.
+
+    Compared against the answer with nothing set, not against `~/.local/share`:
+    the claim is that the value is ignored, and Windows falls back elsewhere.
+    """
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    unset = locations.data_home()
+
     monkeypatch.setenv("XDG_DATA_HOME", value)
-    assert locations.data_home() == Path.home() / ".local" / "share"
+
+    assert locations.data_home() == unset
 
 
 def test_windows_uses_localappdata_for_data(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -67,7 +74,7 @@ def test_windows_uses_appdata_for_config(monkeypatch: pytest.MonkeyPatch) -> Non
     assert locations.config_home() == Path("C:/Users/x/AppData/Roaming").resolve()
 
 
-def test_windows_without_the_variables_still_lands_somewhere_sensible(
+def test_windows_without_the_variables_still_lands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
@@ -112,3 +119,57 @@ def test_ensure_is_how_a_directory_gets_made(tmp_path: Path) -> None:
     assert locations.ensure(target) == target
     assert target.is_dir()
     assert locations.ensure(target) == target  # idempotent
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
+def test_directories_flexi_makes_are_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """New directories and Flexi's dedicated data directory remain private."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    fresh = tmp_path / "fresh"
+    already = locations.data_directory()
+    already.mkdir()
+    already.chmod(0o755)
+
+    assert stat.S_IMODE(locations.ensure(fresh).stat().st_mode) == 0o700
+    assert stat.S_IMODE(locations.ensure(already).stat().st_mode) == 0o700
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
+def test_existing_custom_database_parent_keeps_its_permissions(tmp_path: Path) -> None:
+    from flexi.models.database.migrate import run_migrations
+
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    shared.chmod(0o755)
+
+    run_migrations(shared / "custom.db")
+
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+    assert (shared / "custom.db").is_file()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX modes")
+def test_dedicated_directory_symlink_does_not_chmod_its_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    shared.chmod(0o755)
+    linked = locations.data_directory()
+    linked.symlink_to(shared, target_is_directory=True)
+
+    assert locations.ensure(linked) == linked
+    assert stat.S_IMODE(shared.stat().st_mode) == 0o755
+
+
+def test_ensure_rejects_an_existing_regular_file(tmp_path: Path) -> None:
+    existing = tmp_path / "file"
+    existing.write_text("keep", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        locations.ensure(existing)
+
+    assert existing.read_text(encoding="utf-8") == "keep"

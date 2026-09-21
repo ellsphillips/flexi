@@ -1,38 +1,75 @@
 """The modal that draws the jump badges.
 
-Dismisses with the id of, or a reference to, the widget the user chose — or
-``None`` when they pressed escape, in which case the app puts focus back exactly
-where it was. That restoration is the whole reason jump mode feels safe to try:
-a mode you can leave without consequence is one people will press by accident and
-keep using on purpose.
+Dismisses with the id of, or a reference to, the widget the user chose, or with
+``None`` on escape, which leaves the app to restore the previous focus.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar, Protocol
 
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Center
+from textual.geometry import Offset
 from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Label
 
-if TYPE_CHECKING:
-    from flexi.components.jumper import Jumper
+from flexi.components.jumper import BadgeShape, JumpInfo
+
+__all__ = (
+    "BADGE_OVERHANG",
+    "SWALLOWED_KEYS",
+    "JumpOverlay",
+    "JumpOverlayProvider",
+    "badge_offset",
+)
 
 SWALLOWED_KEYS: frozenset[str] = frozenset({"tab", "shift+tab"})
-"""Keys stopped rather than let through.
+"""Keys the overlay stops instead of passing on.
 
-If these reach the parent after the overlay closes, the parent handles them and
-focus shifts again — unexpectedly, and after the jump target was already
-focused, which reads as the jump having gone to the wrong place.
+Reaching the parent after the overlay closes would move focus a second time,
+off the widget the jump landed on.
 """
+
+
+BADGE_OVERHANG = 1
+"""How far a badge sits outside the corner it marks, in cells.
+
+The badge is a box three rows tall, hung on the corner so its middle row lands
+on the panel's border. One cell each way is what puts the panel's corner behind
+the badge's own.
+"""
+
+
+def badge_offset(corner: Offset, shape: BadgeShape) -> Offset:
+    """Where a badge is drawn for a target whose top-left is ``corner``.
+
+    A row chip stays where the caller placed it, on the table line it belongs
+    to. A corner box is hung outward and clamped at the screen edge: a panel
+    flush against the top or the left has nothing to overhang into, and a
+    negative offset clips the border instead of moving the widget outward.
+    """
+    if shape is BadgeShape.ROW:
+        return corner
+    return Offset(
+        max(0, corner.x - BADGE_OVERHANG),
+        max(0, corner.y - BADGE_OVERHANG),
+    )
+
+
+class JumpOverlayProvider(Protocol):
+    """A collaborator that resolves the badges visible on the current screen."""
+
+    def get_overlays(self) -> dict[Offset, JumpInfo]: ...
 
 
 class JumpOverlay(ModalScreen[str | Widget | None]):
     """The badges, and the two bars that explain the mode."""
+
+    HELP_LABEL = "Jump mode"
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss_overlay", "Dismiss", show=False),
@@ -40,7 +77,7 @@ class JumpOverlay(ModalScreen[str | Widget | None]):
 
     def __init__(
         self,
-        jumper: Jumper,
+        jumper: JumpOverlayProvider,
         name: str | None = None,
         id: str | None = None,  # noqa: A002 - Textual's own parameter name
         classes: str | None = None,
@@ -70,7 +107,7 @@ class JumpOverlay(ModalScreen[str | Widget | None]):
         """Redraw the badges when the layout under them moves.
 
         The first resize is the one that mounts the overlay, and recomposing
-        during it would throw away the children being mounted.
+        during it throws away the children being mounted.
         """
         self._resize_counter += 1
         if self._resize_counter == 1:
@@ -86,8 +123,11 @@ class JumpOverlay(ModalScreen[str | Widget | None]):
     def compose(self) -> ComposeResult:
         self._sync()
         for offset, jump_info in self.overlays.items():
-            label = Label(jump_info.key, classes="textual-jump-label")
-            label.styles.offset = offset
+            label = Label(
+                jump_info.key,
+                classes=f"textual-jump-label -{jump_info.shape}",
+            )
+            label.styles.offset = badge_offset(offset, jump_info.shape)
             yield label
         with Center(id="textual-jump-info"):
             yield Label("Press a key to jump")

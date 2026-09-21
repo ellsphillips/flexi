@@ -1,24 +1,33 @@
-"""The one number the application exists to show.
+"""The flexi balance, drawn as the dashboard headline.
 
-The only place in Flexi where type gets bigger. A terminal has one font at one
-size, so scale has to be drawn, and spending Textual's ``Digits`` on exactly one
-figure is what makes it read as the headline.
+The only Textual ``Digits`` in the application: a terminal has one font at one
+size, so scale has to be drawn.
 
-Zero is drawn unsigned and muted, because ``+0:00`` reads as a small surplus and
-the point of the figure is that there is not one.
+Zero is drawn unsigned and muted, because ``+0:00`` reads as a small surplus.
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.widgets import Digits, Static
 
 from flexi.components.modules.base import Module
-from flexi.domain.format import delta, digits, hm, signed_days, stamp
+from flexi.components.options import ModuleOptions
+from flexi.domain.format import (
+    delta,
+    digits,
+    hm,
+    is_level,
+    plural,
+    signed_days,
+    stamp,
+)
 from flexi.messages import Scope
+
+__all__ = ("STATE_CLASSES", "BalanceModule", "lean_class")
 
 STATE_CLASSES = ("surplus", "deficit", "muted")
 
@@ -28,7 +37,7 @@ class BalanceModule(Module):
 
     WATCHES: ClassVar[Scope] = Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="balance-module", title="Balance", **kwargs)
 
     def compose(self) -> ComposeResult:
@@ -42,13 +51,14 @@ class BalanceModule(Module):
     def rebuild(self) -> None:
         services = self.services
         today = self.now.date()
-        summary = services.ledger.balance(today, now=self.now)
+        # Whole minutes, so these digits and `flexi balance show` agree.
+        summary = services.ledger.balance(today, now=self.now).as_shown()
         contracted = services.settings.get_contracted()
 
         readout = self.query_one("#balance-digits", Digits)
         readout.update(digits(summary.delta))
         readout.remove_class(*STATE_CLASSES)
-        readout.add_class(_state_class(summary.delta))
+        readout.add_class(lean_class(summary.delta))
 
         self.query_one("#balance-detail", Static).update(
             self._detail(summary.delta, contracted)
@@ -57,24 +67,26 @@ class BalanceModule(Module):
         self.set_subtitle(f"{stamp(start, '%-d %b %y')}–{stamp(end, '%-d %b %y')}")
 
     def _detail(self, value: timedelta, contracted: timedelta) -> str:
-        """The caption: the same figure said a second way.
-
-        Hours are what the balance is measured in; days are what it is spent in.
-        Showing both removes the arithmetic a reader would otherwise do in their
-        head before deciding whether they can take Friday off.
-        """
-        if not value:
+        """Return the caption: the balance in hours and again in days."""
+        if is_level(value):
             return "Level with contracted hours"
         if not contracted:
             return delta(value)
-        days = value / contracted
+        days = round(value / contracted, 1)
         word = "banked" if value > timedelta() else "owed"
-        return f"{hm(value)} {word} · {signed_days(round(days, 1))} days"
+        if not days:
+            # Under a tenth of a day: "0 days" beside a non-zero figure
+            # reads as a contradiction.
+            return f"{hm(value)} {word}"
+        return f"{hm(value)} {word} · {signed_days(days)} {plural(abs(days), 'day')}"
 
 
-def _state_class(value: timedelta) -> str:
-    if value > timedelta():
-        return "surplus"
-    if value < timedelta():
-        return "deficit"
-    return "muted"
+def lean_class(value: timedelta) -> str:
+    """Return the state class for ``value``, by the rule that draws the digits.
+
+    The test is `is_level`, not a comparison against zero, so the colour cannot
+    claim a direction the digits do not show.
+    """
+    if is_level(value):
+        return "muted"
+    return "surplus" if value > timedelta() else "deficit"

@@ -1,35 +1,33 @@
 """How far through the day, and the period, you are.
 
-Progress is worked against expected rather than wall-clock against the working
-day: someone who started at seven is further through than someone who started at
-ten, and the clock on the wall does not know that.
+Progress is worked against expected, not wall-clock against the working day: a
+seven o'clock start is further through the day than a ten o'clock start.
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import ClassVar, Final, Unpack
 
 from rich.text import Text
-from textual.app import ComposeResult, RenderResult
+from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widget import Widget
 
+from flexi.components.common import styled_track
+from flexi.components.options import WidgetOptions
 from flexi.domain.format import hm
 
-TRACK: Any = "━"
-FILL: Any = "━"
-EDGE: Any = "╺"
-OVER: Any = "┿"
-MIN_RAIL = 8
+__all__ = ("MIN_RAIL", "ProgressRail", "TimeProgress")
+
+MIN_RAIL: Final = 8
 
 
 class ProgressRail(Widget):
     """One labelled bar: a share of something done, and the figures behind it.
 
-    Overshoot is drawn, not clipped. A ten-hour day against a seven-hour contract
-    is the single most interesting thing a flexitime tracker can tell you, and a
-    bar that stopped at full would say it was an ordinary day.
+    Overshoot is drawn, not clipped: a bar that stopped at full would draw a
+    ten-hour day against a seven-hour contract as an ordinary one.
     """
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
@@ -40,15 +38,29 @@ class ProgressRail(Widget):
         "rail--figure",
     }
 
-    def __init__(self, label: str, **kwargs: Any) -> None:
+    def __init__(self, label: str, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self.label = label
         self.done = timedelta()
         self.total = timedelta()
         self.compact = False
 
-    def show(self, done: timedelta, total: timedelta, *, compact: bool = False) -> None:
+    def show(
+        self,
+        done: timedelta,
+        total: timedelta,
+        *,
+        label: str | None = None,
+        compact: bool = False,
+    ) -> None:
+        """Draw a reading, and relabel the rail if this one is named differently.
+
+        `label` belongs here because it is a plain attribute: `rail.label = x`
+        changes nothing until something calls `refresh()`.
+        """
         self.done, self.total, self.compact = done, total, compact
+        if label is not None:
+            self.label = label
         self.refresh()
 
     @property
@@ -58,7 +70,7 @@ class ProgressRail(Widget):
             return 1.0 if self.done else 0.0
         return self.done / self.total
 
-    def render(self) -> RenderResult:
+    def render(self) -> Text:
         label_style = self.get_component_rich_style("rail--label")
         figure_style = self.get_component_rich_style("rail--figure")
         readout = self._readout()
@@ -80,25 +92,23 @@ class ProgressRail(Widget):
         return f"{hm(self.done)} of {hm(self.total)}"
 
     def _bar(self, width: int) -> Text:
-        """The track, filled to the share, with anything past full called out."""
-        share = self.share
-        filled = min(width, max(0, round(min(share, 1.0) * width)))
-        glyphs = [TRACK] * width
-        if share > 1.0:
-            # The last cell becomes the overshoot mark rather than a longer bar:
-            # a rail that grew past its own track would push the figures about.
-            glyphs[-1] = OVER
+        """The track, filled to the share, with anything past full called out.
 
-        # Glyphs first, then spans. Rebuilding a Text to swap a character drops
-        # the base style, which leaves the unfilled track in the default
-        # foreground — a bright line straight across the panel.
-        bar = Text("".join(glyphs))
-        bar.stylize(self.get_component_rich_style("rail--track"), 0, width)
-        if filled:
-            bar.stylize(self.get_component_rich_style("rail--fill"), 0, filled)
-        if share > 1.0:
-            bar.stylize(self.get_component_rich_style("rail--over"), width - 1, width)
-        return bar
+        The last cell becomes the overshoot mark: a rail longer than its own
+        track would push the figures about.
+        """
+        share = self.share
+        return styled_track(
+            width,
+            track=self.get_component_rich_style("rail--track"),
+            fill=self.get_component_rich_style("rail--fill"),
+            filled=min(width, max(0, round(min(share, 1.0) * width))),
+            mark=(
+                (width - 1, self.get_component_rich_style("rail--over"))
+                if share > 1.0
+                else None
+            ),
+        )
 
 
 class TimeProgress(Horizontal):
@@ -122,5 +132,6 @@ class TimeProgress(Horizontal):
         day.show(day_done, day_total, compact=compact)
 
         period = self.query_one("#rail-period", ProgressRail)
-        period.label = period_label.upper()
-        period.show(period_done, period_total, compact=compact)
+        period.show(
+            period_done, period_total, label=period_label.upper(), compact=compact
+        )

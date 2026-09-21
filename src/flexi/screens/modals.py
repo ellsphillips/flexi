@@ -1,29 +1,48 @@
 """Modals, and the contract every one of them keeps.
 
-``escape`` cancels and dismisses with ``None``. ``enter`` confirms. ``tab`` moves
-between fields. A modal that breaks one of those is a bug, and
-``tests/tui/test_modal_contract.py`` discovers every :class:`FlexiModal` subclass
-by walking the package and asserts it — so a new modal is covered the day it is
-written rather than the day somebody remembers to add a test.
+``escape`` cancels and dismisses with ``None``. ``enter`` confirms. ``tab``
+moves between fields. Enforced for every :class:`FlexiModal` subclass by
+tests/tui/test_keyboard.py.
 """
 
-from __future__ import annotations
-
-from datetime import date, timedelta
-from typing import Any, ClassVar
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import date, time, timedelta
+from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, VerticalScroll
+from textual.dom import DOMNode
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
 
 from flexi.constants import AbsenceType, Portion
+from flexi.domain.dates import parse_date
+from flexi.domain.format import clock, hm, plural, short_date
 from flexi.domain.format import days as fmt_days
+from flexi.domain.ledger import Segment
+from flexi.services.settings import parse_clock_time
+
+__all__ = (
+    "AbsenceBooking",
+    "AbsenceModal",
+    "ConfirmModal",
+    "Correction",
+    "CorrectionModal",
+    "CorrectionsModal",
+    "FlexiModal",
+    "GoToDateModal",
+    "PressingRadioSet",
+    "correction_line",
+    "selected_name",
+)
 
 
 class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     """A dialog with a title, a body, and the two keys every dialog has."""
+
+    HELP_LABEL = "Dialog"
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "cancel", "Cancel", show=True),
@@ -33,11 +52,28 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     title_text: ClassVar[str] = ""
     confirm_label: ClassVar[str] = "Save"
 
+    tall: ClassVar[bool] = False
+    """True for a modal whose body can outgrow the screen.
+
+    `.modal` sizes to its content and clips at 80% of the screen; `-tall` takes
+    that 80% as a fixed height, so the body scrolls while the title, the error
+    line and the buttons stay put.
+    """
+
+    @property
+    def modal_title(self) -> str:
+        """The title rendered for this modal instance."""
+        return self.title_text
+
     def compose(self) -> ComposeResult:
-        with Container(classes="modal"):
-            yield Static(self.title_text, classes="modal-title")
-            yield from self.compose_body()
-            yield Static("", id="modal-error", classes="modal-error")
+        with Container(classes="modal -tall" if self.tall else "modal"):
+            yield Static(self.modal_title, classes="modal-title")
+            with VerticalScroll(classes="modal-body"):
+                yield from self.compose_body()
+            yield from self.compose_aside()
+            # Literal, not markup: a parser quotes what was typed back, and
+            # "[/]" in a time field is a closing tag with nothing to close.
+            yield Static("", id="modal-error", classes="modal-error", markup=False)
             with Horizontal(classes="modal-actions"):
                 yield Button("Cancel", id="modal-cancel", classes="-quiet")
                 yield Button(self.confirm_label, id="modal-confirm", classes="-primary")
@@ -45,6 +81,23 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     def compose_body(self) -> ComposeResult:
         """The fields between the title and the buttons."""
         return iter(())
+
+    def compose_aside(self) -> ComposeResult:
+        """What stays on screen while the fields scroll past it."""
+        return iter(())
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
+        """Stand `enter` down while a button other than Confirm holds focus.
+
+        The binding is priority, so it otherwise beats the focused widget and
+        confirms from a focused Cancel. Standing it down lets the button's own
+        `enter` press it, which :meth:`on_button_pressed` answers.
+        """
+        del parameters
+        if action == "confirm":
+            focused = self.focused
+            return not (isinstance(focused, Button) and focused.id != "modal-confirm")
+        return True
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -62,8 +115,7 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
         """The value this modal was opened to collect.
 
         Raise :class:`ValueError` with a sentence the user can act on; it is
-        shown under the fields rather than replacing them, so what they typed
-        stays on screen next to what was wrong with it.
+        shown under the fields, which keep what was typed.
         """
         raise NotImplementedError
 
@@ -78,6 +130,29 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
             self.action_cancel()
 
 
+class PressingRadioSet(RadioSet):
+    """A radio set whose arrows move the pressed dot, not only the highlight.
+
+    Textual's arrows move the highlight and leave the pressed button behind, so
+    the highlighted option and the answer can disagree.
+    """
+
+    HELP_LABEL = "Options"
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("down,right", "press_next", "Next option", show=False),
+        Binding("up,left", "press_previous", "Previous option", show=False),
+    ]
+
+    def action_press_next(self) -> None:
+        self.action_next_button()
+        self.action_toggle_button()
+
+    def action_press_previous(self) -> None:
+        self.action_previous_button()
+        self.action_toggle_button()
+
+
 class ConfirmModal(FlexiModal[bool]):
     """A yes-or-no question. Dismisses ``True``, ``False`` or ``None``."""
 
@@ -89,12 +164,10 @@ class ConfirmModal(FlexiModal[bool]):
         self._title = title
         self._question = question
 
-    def compose(self) -> ComposeResult:
-        # The title varies per question, and `title_text` is a class variable
-        # every other modal sets once. Overriding compose is cheaper than making
-        # the attribute an instance one on the base for the sake of this modal.
-        self.title_text = self._title  # type: ignore[misc]
-        yield from super().compose()
+    @property
+    def modal_title(self) -> str:
+        """The title supplied with this particular confirmation."""
+        return self._title
 
     def compose_body(self) -> ComposeResult:
         yield Static(self._question)
@@ -106,18 +179,16 @@ class ConfirmModal(FlexiModal[bool]):
         self.dismiss(False)
 
 
+@dataclass(frozen=True, slots=True)
 class AbsenceBooking:
     """What the absence modal collected."""
 
-    __slots__ = ("kind", "note", "portion", "when")
-
-    def __init__(
-        self, when: date, kind: AbsenceType, portion: Portion, note: str | None
-    ) -> None:
-        self.when = when
-        self.kind = kind
-        self.portion = portion
-        self.note = note
+    when: date
+    kind: AbsenceType
+    portion: Portion
+    note: str | None
+    until: date
+    """The last day, inclusive; the modal defaults it to ``when``."""
 
 
 class AbsenceModal(FlexiModal[AbsenceBooking]):
@@ -125,78 +196,103 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
 
     title_text: ClassVar[str] = "Book absence"
     confirm_label: ClassVar[str] = "Book"
+    tall: ClassVar[bool] = True
 
     def __init__(
         self,
         when: date,
         kind: AbsenceType = AbsenceType.ANNUAL,
         *,
+        until: date | None = None,
+        portion: Portion = Portion.FULL,
         remaining: float | None = None,
         toil_days: float | None = None,
     ) -> None:
         super().__init__()
         self._when = when
+        self._until = until if until and until != when else None
         self._kind = kind
+        self._portion = portion
         self._remaining = remaining
         self._toil_days = toil_days
 
     def compose_body(self) -> ComposeResult:
-        yield Label("Date", classes="overline")
+        yield Label("From" if self._until else "Date", classes="overline")
         yield Input(self._when.isoformat(), id="absence-date", placeholder="YYYY-MM-DD")
+        if self._until:
+            yield Label("Until", classes="overline")
+            yield Input(
+                self._until.isoformat(), id="absence-until", placeholder="YYYY-MM-DD"
+            )
 
         yield Label("Type", classes="overline")
-        with RadioSet(id="absence-type"):
+        with PressingRadioSet(id="absence-type"):
             for kind in AbsenceType:
                 yield RadioButton(kind.label, value=kind is self._kind, name=kind.value)
 
         yield Label("How much", classes="overline")
-        with RadioSet(id="absence-portion"):
+        with PressingRadioSet(id="absence-portion"):
             for portion in Portion:
                 yield RadioButton(
-                    portion.label, value=portion is Portion.FULL, name=portion.value
+                    portion.label, value=portion is self._portion, name=portion.value
                 )
 
         yield Label("Note", classes="overline")
         yield Input("", id="absence-note", placeholder="Required for Other")
+
+    def compose_aside(self) -> ComposeResult:
         yield Static(self._allowance_hint(), classes="caption")
 
     def _allowance_hint(self) -> str:
-        """What is left, so the decision does not need another screen."""
+        """What is left of the annual allowance and of banked TOIL."""
         parts: list[str] = []
         if self._remaining is not None:
-            parts.append(f"{fmt_days(self._remaining)} days annual leave left")
+            left = self._remaining
+            parts.append(f"{fmt_days(left)} {plural(left, 'day')} annual leave left")
         if self._toil_days is not None:
-            parts.append(f"{fmt_days(round(self._toil_days, 1))} days of TOIL banked")
+            banked = round(self._toil_days, 1)
+            parts.append(f"{fmt_days(banked)} {plural(banked, 'day')} of TOIL banked")
         return " · ".join(parts)
 
     def result(self) -> AbsenceBooking:
         raw = self.query_one("#absence-date", Input).value.strip()
-        try:
-            when = parse_date(raw, today=self._when)
-        except ValueError as error:
-            raise ValueError(str(error)) from error
+        when = parse_date(raw, reference=self._when)
 
         kind = AbsenceType(
-            _selected_name(self, "#absence-type", AbsenceType.ANNUAL.value)
+            selected_name(self, "#absence-type", fallback=AbsenceType.ANNUAL.value)
         )
-        portion = Portion(_selected_name(self, "#absence-portion", Portion.FULL.value))
+        portion = Portion(
+            selected_name(self, "#absence-portion", fallback=Portion.FULL.value)
+        )
         note = self.query_one("#absence-note", Input).value.strip() or None
 
         if kind.requires_note and not note:
             msg = "Other absence needs a note saying what it is"
             raise ValueError(msg)
-        return AbsenceBooking(when, kind, portion, note)
+
+        until = when
+        if self._until:
+            raw_until = self.query_one("#absence-until", Input).value.strip()
+            until = parse_date(raw_until, reference=self._until)
+            if until < when:
+                msg = "The last day is before the first"
+                raise ValueError(msg)
+        return AbsenceBooking(when, kind, portion, note, until)
 
 
 class GoToDateModal(FlexiModal[date]):
-    """Jump the period anchor to a date, typed however is quickest."""
+    """Jump the period anchor to a date, typed however is quickest.
+
+    Input is read relative to the day on screen, not to today: `12` while
+    browsing last March means the 12th of March.
+    """
 
     title_text: ClassVar[str] = "Go to date"
     confirm_label: ClassVar[str] = "Go"
 
-    def __init__(self, today: date) -> None:
+    def __init__(self, anchor: date) -> None:
         super().__init__()
-        self._today = today
+        self._anchor = anchor
 
     def compose_body(self) -> ComposeResult:
         yield Input(
@@ -205,8 +301,8 @@ class GoToDateModal(FlexiModal[date]):
             placeholder="12 · 12 Jun · 2026-06-12 · +3d · -2w",
         )
         yield Static(
-            "A bare number is a day of the current month. "
-            "An offset moves from today: d, w, m, y.",
+            "A bare number is a day of the month on screen. "
+            "An offset moves from the day on screen: d, w, m, y.",
             classes="caption",
         )
 
@@ -214,76 +310,132 @@ class GoToDateModal(FlexiModal[date]):
         self.query_one("#goto-input", Input).focus()
 
     def result(self) -> date:
-        return parse_date(self.query_one("#goto-input", Input).value, today=self._today)
+        return parse_date(
+            self.query_one("#goto-input", Input).value, reference=self._anchor
+        )
 
 
-OFFSET_UNITS = {"d": 1, "w": 7}
+@dataclass(frozen=True, slots=True)
+class Correction:
+    """A stretch of work recorded after the fact."""
+
+    day: date
+    opened: time
+    closed: time
 
 
-def parse_date(raw: str, *, today: date) -> date:
-    """Read the several ways somebody might type a date.
+class CorrectionModal(FlexiModal[Correction]):
+    """Record work on a day that was not clocked at the time.
 
-    Accepts ``2026-06-12``, ``12 Jun``, ``12`` (this month), and offsets from
-    today like ``+3d`` or ``-2w``. Anything else raises with a sentence naming
-    the forms it does understand, because "invalid date" tells nobody anything.
+    The day defaults to the one selected. The times use the clock-time grammar
+    the rest of Flexi uses, so `9`, `9:15`, `9.15` and `9am` all read.
     """
-    text = raw.strip()
-    if not text:
-        msg = "Type a date, a day of the month, or an offset like +3d"
-        raise ValueError(msg)
 
-    if text[0] in "+-" and text[-1].lower() in "dwmy":
-        return _apply_offset(text, today)
+    title_text: ClassVar[str] = "Record work"
+    confirm_label: ClassVar[str] = "Record"
 
-    for pattern in ("%Y-%m-%d", "%d %b %Y", "%d %b", "%d/%m/%Y", "%d/%m"):
-        try:
-            parsed = date.fromisoformat(text) if pattern == "%Y-%m-%d" else None
-            if parsed is None:
-                from datetime import datetime
+    def __init__(self, day: date) -> None:
+        super().__init__()
+        self._day = day
 
-                parsed = datetime.strptime(text, pattern).date()  # noqa: DTZ007
-                if "%Y" not in pattern:
-                    parsed = parsed.replace(year=today.year)
-        except ValueError:
-            continue
-        else:
-            return parsed
+    @property
+    def modal_title(self) -> str:
+        return f"Record work on {short_date(self._day)}"
 
-    if text.isdigit():
-        day = int(text)
-        try:
-            return today.replace(day=day)
-        except ValueError as error:
-            msg = f"{today.strftime('%B')} has no day {day}"
-            raise ValueError(msg) from error
+    def compose_body(self) -> ComposeResult:
+        yield Label("From", classes="overline")
+        yield Input("", id="correction-from", placeholder="9:00")
+        yield Label("To", classes="overline")
+        yield Input("", id="correction-to", placeholder="17:00")
+        yield Static(
+            "For a day you worked and did not clock. It counts for everything a "
+            "punched session counts for, and is drawn apart from one.",
+            classes="caption",
+        )
 
-    msg = "Try 2026-06-12, 12 Jun, 12, or an offset like +3d"
-    raise ValueError(msg)
+    def on_mount(self) -> None:
+        self.query_one("#correction-from", Input).focus()
 
+    def result(self) -> Correction:
+        return Correction(
+            day=self._day,
+            opened=self._time("#correction-from", "a start"),
+            closed=self._time("#correction-to", "an end"),
+        )
 
-def _apply_offset(text: str, today: date) -> date:
-    unit = text[-1].lower()
-    try:
-        count = int(text[:-1])
-    except ValueError as error:
-        msg = "An offset looks like +3d, -2w, +1m"
-        raise ValueError(msg) from error
-    if unit in OFFSET_UNITS:
-        return today + timedelta(days=count * OFFSET_UNITS[unit])
-    months = count * (12 if unit == "y" else 1)
-    total = today.year * 12 + today.month - 1 + months
-    year, month = total // 12, total % 12 + 1
-    import calendar
-
-    return date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+    def _time(self, selector: str, what: str) -> time:
+        """One field, read as a clock time."""
+        typed = self.query_one(selector, Input).value.strip()
+        if not typed:
+            msg = f"Give {what} time"
+            raise ValueError(msg)
+        return time(*parse_clock_time(typed))
 
 
-def _selected_name(screen: ModalScreen[Any], selector: str, fallback: str) -> str:
+class CorrectionsModal(FlexiModal[None]):
+    """Every correction in the period, listed together for review."""
+
+    HELP_LABEL = "Corrections"
+
+    title_text: ClassVar[str] = "Corrections"
+    confirm_label: ClassVar[str] = "Close"
+    tall: ClassVar[bool] = True
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "cancel", "Close", show=True),
+        Binding("enter", "cancel", "Close", show=True, priority=True),
+    ]
+
+    def __init__(self, period: str, corrections: Sequence[Segment]) -> None:
+        super().__init__()
+        self._period = period
+        self._corrections = tuple(corrections)
+
+    @property
+    def modal_title(self) -> str:
+        return f"Corrections · {self._period}"
+
+    def compose_body(self) -> ComposeResult:
+        if not self._corrections:
+            yield Static(
+                "Nothing recorded after the fact in this period.",
+                classes="caption",
+            )
+            return
+        for segment in self._corrections:
+            yield Static(correction_line(segment), classes="correction-row")
+
+    def compose_aside(self) -> ComposeResult:
+        yield Static(self._summary(), classes="caption")
+
+    def _summary(self) -> str:
+        if not self._corrections:
+            return ""
+        total = sum(
+            (
+                segment.end - segment.start
+                for segment in self._corrections
+                if segment.end
+            ),
+            timedelta(),
+        )
+        counted = len(self._corrections)
+        return f"{counted} {plural(counted, 'correction')} · {hm(total)} recorded"
+
+
+def correction_line(segment: Segment) -> str:
+    """One correction, as a date and the window it claims."""
+    finish = segment.end
+    window = "open" if finish is None else f"{clock(segment.start)}–{clock(finish)}"
+    length = "" if finish is None else f"  {hm(finish - segment.start)}"
+    return f"{short_date(segment.start.date()):<12} {window}{length}"
+
+
+def selected_name(screen: DOMNode, selector: str, *, fallback: str) -> str:
     """The ``name`` of the pressed radio button, or a fallback.
 
-    Radio sets report the pressed *button*, and Flexi puts the enum value in its
-    ``name`` so the modal never has to map a label back to a member — a mapping
-    that silently breaks the moment a label is reworded.
+    A radio set reports the pressed *button*, so the enum value goes in its
+    ``name`` and rewording a label cannot break the mapping.
     """
     radio_set = screen.query_one(selector, RadioSet)
     pressed = radio_set.pressed_button

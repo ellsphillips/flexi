@@ -2,9 +2,9 @@
 
     balance = Σ worked − Σ expected − Σ TOIL taken + Σ adjustments
 
-TOIL is subtracted separately rather than folded into ``expected``: it is a
-withdrawal from the account the surplus accrues into, not a day nobody expected
-you to work, and folding it in would stop the balance ever going down.
+TOIL is subtracted separately, not folded into ``expected``: it is a withdrawal
+from the account the surplus accrues into, and folding it in would stop the
+balance ever going down.
 
 Everything is a :class:`~datetime.timedelta`. Hours exist only at the formatting
 boundary, because 7.4 is not representable in binary floating point and a leave
@@ -18,30 +18,49 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from flexi.constants import AbsenceType
+from flexi.domain.format import whole_minutes
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
+
+__all__ = (
+    "ZERO",
+    "BalanceSummary",
+    "accumulate",
+    "expected_for",
+    "toil_taken_for",
+    "worked_from",
+)
 
 ZERO = timedelta()
 
 
 def worked_from(segments: Iterable[Segment], now: datetime) -> timedelta:
-    """Time on the clock, counting an open session up to ``now``."""
+    """Time on the clock, counting an open session up to ``now``.
+
+    ``now`` must be a local moment carrying its offset (see
+    :mod:`flexi.wallclock`); a naive one raises instead of returning the wall
+    difference.
+    """
     return sum((segment.duration(now) for segment in segments), start=ZERO)
 
 
 def expected_for(
     contracted: timedelta,
     *,
+    is_tracked: bool,
     is_working_day: bool,
     is_holiday: bool,
     absences: Iterable[AbsenceSlice] = (),
 ) -> timedelta:
     """How much work a date asked for.
 
-    Zero on a non-working day, a bank holiday, or a full day of absence of any
-    type. Half the contract for one half-day; zero for two, even of different
-    types.
+    Zero on a day before Flexi was tracking, a non-working day, a bank holiday,
+    or a full day of absence of any type. Half the contract for one half-day;
+    zero for two, even of different types.
+
+    ``is_tracked`` has no default: true is the behaviour this argument exists
+    to correct, and a caller must not reach it by forgetting.
     """
-    if not is_working_day or is_holiday:
+    if not is_tracked or not is_working_day or is_holiday:
         return ZERO
     booked = sum(slice_.portion.days for slice_ in absences)
     remaining = max(0.0, 1.0 - booked)
@@ -71,7 +90,7 @@ class BalanceSummary:
     expected: timedelta = ZERO
     toil_taken: timedelta = ZERO
     adjustment: timedelta = ZERO
-    """The only term stored rather than derived from clock events."""
+    """The only term stored, not derived from clock events."""
 
     @property
     def delta(self) -> timedelta:
@@ -85,6 +104,22 @@ class BalanceSummary:
     @property
     def is_deficit(self) -> bool:
         return self.delta < ZERO
+
+    def as_shown(self) -> BalanceSummary:
+        """The same summary in the whole minutes every surface prints.
+
+        Each term is floored before the subtraction, so the balance a reader
+        sees is the one they get by doing the arithmetic on the lines above it.
+        On the exact figures the two disagree by a minute whenever the sessions
+        carry seconds: 2:00:09 worked against 3:42 expected shows ``2:00``,
+        ``3:42`` and ``−1:41``.
+        """
+        return BalanceSummary(
+            worked=whole_minutes(self.worked),
+            expected=whole_minutes(self.expected),
+            toil_taken=whole_minutes(self.toil_taken),
+            adjustment=whole_minutes(self.adjustment),
+        )
 
     def __add__(self, other: BalanceSummary) -> BalanceSummary:
         return BalanceSummary(

@@ -1,8 +1,7 @@
 """Boot the installed package once, against a throwaway database.
 
-Run by CI with an interpreter that has Flexi installed from a wheel and no
-source tree on the path. It is the check the test suite cannot make: whether
-the artefact people actually download starts.
+Runs against an interpreter carrying Flexi installed from a wheel, with no
+source tree on the path.
 
     python scripts/smoke.py
 """
@@ -24,10 +23,18 @@ async def _boot(db: Path) -> str:
     app = FlexiApp(db_path=db)
     async with app.run_test(size=TERMINAL) as pilot:
         await pilot.pause()
-        return type(app.screen).__name__
+        screen = type(app.screen).__name__
+    if app.return_code:
+        msg = f"Application exited with status {app.return_code}"
+        raise RuntimeError(msg)
+    if screen != "SetupScreen":
+        msg = f"Expected SetupScreen for a new database, got {screen}"
+        raise RuntimeError(msg)
+    return screen
 
 
 def main() -> int:
+    # Windows can refuse to delete the database file while the engine holds it.
     with tempfile.TemporaryDirectory() as tmp:
         db = Path(tmp) / "smoke.db"
 

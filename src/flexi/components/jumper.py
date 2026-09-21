@@ -1,28 +1,94 @@
 """Jump mode: one keystroke puts a badge on every jumpable region.
 
-Nothing needs a per-widget hook -- the overlay is a modal screen that reads the
-live compositor geometry underneath it.
+The overlay is a modal screen reading the live compositor geometry underneath
+it, so no widget carries a hook of its own.
 
-Targets are asked of the current screen rather than held in an application-wide
-dict, so a target can only ever name something that is mounted.
+Targets come from the current screen, not an application-wide dict, so a target
+can only name a mounted widget.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any, NamedTuple, Protocol, runtime_checkable
+from enum import StrEnum
+from typing import NamedTuple, Protocol, runtime_checkable
 
 from textual.errors import NoWidget
 from textual.geometry import Offset
-from textual.screen import Screen
 from textual.widget import Widget
+
+from flexi.messages import Scope
+
+__all__ = (
+    "BadgeShape",
+    "HasFocusTarget",
+    "HasJumpOverlays",
+    "HasJumpTargets",
+    "JumpInfo",
+    "JumpScreen",
+    "Jumpable",
+    "Jumper",
+    "Refreshable",
+)
+
+
+class JumpScreen(Protocol):
+    """The geometry operations jump mode needs from a Textual screen."""
+
+    def walk_children(self, filter_type: type[Widget]) -> list[Widget]: ...
+
+    def get_offset(self, widget: Widget) -> Offset: ...
 
 
 @runtime_checkable
 class Jumpable(Protocol):
-    """A widget that names its own jump key rather than being registered."""
+    """A widget that carries its own jump key."""
 
     jump_key: str
+
+
+@runtime_checkable
+class Refreshable(Protocol):
+    """A screen that can redraw itself when the data underneath it moves."""
+
+    def refresh_modules(self, scope: Scope) -> None: ...
+
+
+@runtime_checkable
+class HasJumpTargets(Protocol):
+    """A screen that says which of its regions a key can reach."""
+
+    def jump_targets(self) -> Mapping[str, str]: ...
+
+
+@runtime_checkable
+class HasJumpOverlays(Protocol):
+    """A screen with targets that are not widgets, such as table rows."""
+
+    def jump_overlays(self) -> dict[Offset, JumpInfo]: ...
+
+
+@runtime_checkable
+class HasFocusTarget(Protocol):
+    """A widget that redirects a jump to a descendant.
+
+    A module whose content is a table takes focus on the table, not the panel.
+    """
+
+    def focus_target(self) -> Widget: ...
+
+
+class BadgeShape(StrEnum):
+    """How a target's badge is drawn, according to what it marks."""
+
+    CORNER = "corner"
+    """A panel: the badge is a box hung on its top-left corner."""
+
+    ROW = "row"
+    """A line of a table: the badge is a chip one row tall.
+
+    Rows sit a single cell apart, so a box would overlap its neighbours.
+    """
 
 
 class JumpInfo(NamedTuple):
@@ -34,6 +100,9 @@ class JumpInfo(NamedTuple):
     widget: str | Widget
     """Either the id of the target or a direct reference to it."""
 
+    shape: BadgeShape = BadgeShape.CORNER
+    """How to draw the badge."""
+
 
 class Jumper:
     """The set of jump targets on one screen, resolved to screen coordinates."""
@@ -41,27 +110,23 @@ class Jumper:
     def __init__(
         self,
         ids_to_keys: Mapping[str, str],
-        screen: Screen[Any],
+        screen: JumpScreen,
         extra: Callable[[], dict[Offset, JumpInfo]] | None = None,
     ) -> None:
         self.ids_to_keys = dict(ids_to_keys)
-        self.keys_to_ids = {key: widget_id for widget_id, key in ids_to_keys.items()}
         self.screen = screen
         self.extra = extra
         """Targets that are not widgets.
 
-        A table row has no id and no rectangle of its own, so it cannot be found
-        by walking the DOM. A screen that wants rows to be jumpable computes
-        their screen offsets itself and hands them over here."""
+        A table row has no id and no rectangle, so walking the DOM cannot reach
+        it; a screen supplies the offsets itself.
+        """
 
     def get_overlays(self) -> dict[Offset, JumpInfo]:
-        """Every visible target, keyed by where its badge belongs.
+        """Return every visible target, keyed by where its badge belongs.
 
-        Keyed by offset rather than by id because two targets cannot occupy the
-        same cell, and because the overlay needs the position anyway. A widget
-        the layout is currently hiding raises ``NoWidget`` and is skipped, which
-        is how a collapsed or off-screen panel drops out of the map without the
-        caller having to know it might.
+        Offsets are unique because two targets cannot occupy one cell. A widget
+        the layout is hiding raises ``NoWidget`` and drops out of the map.
         """
         overlays: dict[Offset, JumpInfo] = {}
         for child in self.screen.walk_children(Widget):

@@ -1,9 +1,11 @@
-"""Messages that travel between widgets.
+"""What travels through Textual, and the flags that decide who redraws.
 
-One rule: a module never calls another module's ``rebuild()``. It posts
-:class:`DataChanged` with a scope, the screen invalidates the ledger cache once,
-and every module that declared an interest in that scope redraws -- so adding a
-module is a declaration rather than an edit to somebody else's method.
+One rule: a module never calls another module's ``rebuild()``. A module that
+wants something written posts a message the *screen* handles (`BookHere`,
+`DeleteHere`, `BookRequested`), and the screen reports the result, invalidates
+the ledger cache once, and calls ``refresh_modules(scope)``. Each module
+declares in ``WATCHES`` which scopes it cares about, so clocking in does not
+rebuild the calendar's bank-holiday markers.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from enum import Flag, auto
 
 from textual.message import Message
 
-from flexi.domain.period import Period
+__all__ = ("BankHolidayRefreshCompleted", "DateSelected", "Scope")
 
 
 class Scope(Flag):
@@ -32,35 +34,27 @@ class Scope(Flag):
     ALL = CLOCK | ABSENCE | SETTINGS | PERIOD
 
 
-class DataChanged(Message):
-    """Something was written. Bubbles to the screen, which decides who redraws."""
-
-    def __init__(self, scope: Scope = Scope.ALL) -> None:
-        super().__init__()
-        self.scope = scope
-
-
-class PeriodChanged(Message):
-    """The temporal view moved to a different span."""
-
-    def __init__(self, period: Period) -> None:
-        super().__init__()
-        self.period = period
-
-
 class DateSelected(Message):
-    """A single date was picked — from the calendar, or from a table row."""
+    """A single date was picked, from the calendar or from a table row."""
 
     def __init__(self, when: date) -> None:
         super().__init__()
         self.date = when
 
 
-class StatusUpdate(Message):
-    """A service said something worth putting in the status bar."""
+class BankHolidayRefreshCompleted(Message):
+    """A worker finished the network-only half of a calendar refresh.
 
-    def __init__(self, text: str, *, tone: str = "neutral", pill: str = "") -> None:
+    The payload is untrusted. The application receives this message on
+    Textual's message loop and asks ``BankHolidayService`` to validate and
+    persist it there, so neither a SQLAlchemy session nor an engine lease ever
+    crosses the thread boundary.
+    """
+
+    payload: object
+    forced: bool
+
+    def __init__(self, payload: object, *, forced: bool) -> None:
         super().__init__()
-        self.text = text
-        self.tone = tone
-        self.pill = pill
+        self.payload = payload
+        self.forced = forced

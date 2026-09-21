@@ -1,37 +1,26 @@
-"""Laying a span of months out as one continuous grid.
+"""A span of months laid out as one continuous grid.
 
-A terminal has no page edges, so a leave year is one scrolling column: months
-flow into each other and a fortnight spanning the end of July stays a fortnight.
-
-Every month starts on its own row so the weekday columns line up down the whole
-year. That costs a partial row at each seam, which is the price of a grid you
-can read a column of Mondays off.
+A leave year is one scrolling column, so a fortnight spanning the end of July
+stays a fortnight. Every month starts on its own row, so the weekday columns
+line up down the whole year at the cost of a partial row at each seam.
 """
 
 from __future__ import annotations
 
 import calendar
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from flexi.domain.format import long_date, short_date, stamp
+from flexi.domain.dates import add_months, days_between
+from flexi.domain.format import long_date, month_title, short_date, stamp
 
-DAYS_IN_WEEK = 7
-MONTHS_IN_YEAR = 12
-MONTH_NAMES = (
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
+__all__ = (
+    "Cell",
+    "MonthBlock",
+    "Selection",
+    "month_block",
+    "stitch",
+    "weekday_initials",
 )
 
 
@@ -40,14 +29,10 @@ class Cell:
     """One position in the grid.
 
     ``date`` is ``None`` where a month has not started yet or has already
-    ended — the blanks at a seam.
+    ended: the blanks at a seam.
     """
 
     date: date | None
-
-    @property
-    def filled(self) -> bool:
-        return self.date is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +45,7 @@ class MonthBlock:
 
     @property
     def title(self) -> str:
-        return f"{MONTH_NAMES[self.month - 1]} {self.year}"
+        return month_title(self.year, self.month)
 
     @property
     def first(self) -> date:
@@ -75,32 +60,20 @@ class MonthBlock:
     def contains(self, when: date) -> bool:
         return (when.year, when.month) == (self.year, self.month)
 
-    @property
-    def height(self) -> int:
-        """Rows the block occupies, including its title."""
-        return len(self.rows) + 1
-
 
 def month_block(year: int, month: int, *, first_weekday: int = 0) -> MonthBlock:
-    """One month laid out as whole weeks.
+    """A month laid out as whole weeks.
 
-    Leading and trailing cells are blank rather than borrowed from the
-    neighbouring month. A grid that showed the 30th of June twice — once in
-    June's block and once in July's — would make a cursor ambiguous and a
+    Leading and trailing cells are blank, never borrowed from the neighbouring
+    month: a date drawn in two blocks would make the cursor ambiguous and a
     selection uncountable.
     """
-    first = date(year, month, 1)
-    length = calendar.monthrange(year, month)[1]
-    lead = (first.weekday() - first_weekday) % DAYS_IN_WEEK
-
-    cells: list[Cell] = [Cell(None)] * lead
-    cells += [Cell(date(year, month, day)) for day in range(1, length + 1)]
-    while len(cells) % DAYS_IN_WEEK:
-        cells.append(Cell(None))
-
+    # `monthdayscalendar` pads both ends with 0 and hands back whole weeks
+    # rotated to `first_weekday`.
+    weeks = calendar.Calendar(first_weekday).monthdayscalendar(year, month)
     rows = tuple(
-        tuple(cells[index : index + DAYS_IN_WEEK])
-        for index in range(0, len(cells), DAYS_IN_WEEK)
+        tuple(Cell(date(year, month, day) if day else None) for day in week)
+        for week in weeks
     )
     return MonthBlock(year, month, rows)
 
@@ -108,15 +81,15 @@ def month_block(year: int, month: int, *, first_weekday: int = 0) -> MonthBlock:
 def stitch(start: date, end: date, *, first_weekday: int = 0) -> list[MonthBlock]:
     """Every month touched by the span, in order.
 
-    Whole months, even when the span starts mid-month: a leave year beginning on
-    the 20th of October still wants October drawn, or the days before it would
-    have nowhere to be and the seam would land in the middle of a week.
+    Whole months, even when the span starts mid-month: a leave year beginning
+    on the 20th of October still draws October, or the seam would land in the
+    middle of a week.
     """
     blocks: list[MonthBlock] = []
-    year, month = start.year, start.month
-    while (year, month) <= (end.year, end.month):
-        blocks.append(month_block(year, month, first_weekday=first_weekday))
-        year, month = (year + 1, 1) if month == MONTHS_IN_YEAR else (year, month + 1)
+    first = start.replace(day=1)
+    while first <= end.replace(day=1):
+        blocks.append(month_block(first.year, first.month, first_weekday=first_weekday))
+        first = add_months(first, 1)
     return blocks
 
 
@@ -130,9 +103,8 @@ def weekday_initials(first_weekday: int = 0) -> tuple[str, ...]:
 class Selection:
     """The cursor, and how far it has been extended.
 
-    Held as an anchor and a head rather than a start and an end, because a
-    selection extended backwards and then forwards has to return to one day
-    rather than inverting.
+    An anchor and a head, not a start and an end: a selection extended
+    backwards and then forwards returns to one day instead of inverting.
     """
 
     anchor: date
@@ -160,11 +132,9 @@ class Selection:
     def __contains__(self, when: object) -> bool:
         return isinstance(when, date) and self.start <= when <= self.end
 
-    def days(self) -> Iterator[date]:
-        current = self.start
-        while current <= self.end:
-            yield current
-            current += timedelta(days=1)
+    def days(self) -> list[date]:
+        """Every date the selection covers, in order."""
+        return days_between(self.start, self.end)
 
     def move(self, days: int) -> Selection:
         """Move the whole thing, collapsing it back to one day."""
@@ -179,12 +149,19 @@ class Selection:
         return Selection.at(self.head)
 
     def go_to(self, when: date) -> Selection:
+        """Jump to a date, dropping any span."""
         return Selection.at(when)
 
     def label(self) -> str:
-        """How the selection names itself."""
+        """How the selection names itself.
+
+        Each end drops only what the other end makes obvious, so a span
+        crossing a year carries the year at both ends.
+        """
         if self.single:
             return long_date(self.anchor)
+        if self.start.year != self.end.year:
+            return f"{long_date(self.start)} – {long_date(self.end)}"
         if self.start.month == self.end.month:
             return f"{stamp(self.start, '%a %-d')} – {long_date(self.end)}"
         return f"{short_date(self.start)} – {long_date(self.end)}"

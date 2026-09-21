@@ -1,0 +1,171 @@
+"""The animated wordmark, as a widget that something else can sit under.
+
+A widget and not a screen, because `Screen.dismiss` pops the top of the stack
+and not the screen that calls it. The word turns in, lands, and stays where it
+is while the setup questions arrive underneath.
+"""
+
+from __future__ import annotations
+
+import sys
+from itertools import groupby
+from typing import Final, Unpack
+
+from rich.text import Text
+from textual.message import Message
+from textual.timer import Timer
+from textual.widgets import Static
+
+from flexi.components import splash
+from flexi.components.options import StaticOptions
+from flexi.theme import colour
+
+__all__ = (
+    "BACKGROUND",
+    "FRAME_SECONDS",
+    "Wordmark",
+    "blend",
+    "shade",
+    "wanted",
+)
+
+FRAME_SECONDS: Final = 1 / 30
+"""Thirty frames a second; sixty buys nothing in a terminal and costs over SSH."""
+
+BACKGROUND: Final = colour("c-ink")
+"""The ground the strapline fades up out of; a fade needs both ends."""
+
+
+def blend(start: str, end: str, amount: float) -> str:
+    """A colour part of the way between two others."""
+    first = tuple(int(start[at : at + 2], 16) for at in (1, 3, 5))
+    second = tuple(int(end[at : at + 2], 16) for at in (1, 3, 5))
+    mixed = (
+        round(one + (two - one) * amount)
+        for one, two in zip(first, second, strict=True)
+    )
+    return "#{:02X}{:02X}{:02X}".format(*mixed)
+
+
+def shade(level: int) -> str:
+    """The colour of one step of the luminance ramp."""
+    half = (len(splash.RAMP) - 1) / 2
+    if level <= half:
+        return blend(BACKGROUND, colour("c-accent"), level / half)
+    return blend(colour("c-accent"), colour("c-accent-lift"), (level - half) / half)
+
+
+def wanted(*, animation_level: str) -> bool:
+    """Whether this terminal should see the animation."""
+    return splash.should_play(
+        interactive=sys.stdout.isatty(),
+        animations=animation_level != "none",
+    )
+
+
+class Wordmark(Static):
+    """`flexi`, computed in three dimensions, turning in and settling."""
+
+    DEFAULT_CSS = """
+    Wordmark { width: auto; }
+    """
+
+    STRAPLINE_GAP: Final = 2
+    """Rows between the foot of the settled word and the strapline.
+
+    Measured from the word: the canvas is taller, to make room for the turn."""
+
+    class Landed(Message):
+        """The word has stopped moving. Whatever waits beneath it may arrive."""
+
+    def __init__(
+        self, *, animate: bool = True, **kwargs: Unpack[StaticOptions]
+    ) -> None:
+        super().__init__(**kwargs)
+        self._plays = animate
+        self._elapsed = 0.0 if animate else splash.DURATION
+        self._timer: Timer | None = None
+        self._landed = False
+
+    def on_mount(self) -> None:
+        # Height from the canvas: `height: auto` inside a vertical resolves to
+        # a single row. The width is left to the stylesheet, so the wordmark can
+        # be told to fill whatever it is centred over.
+        self.styles.height = splash.CANVAS_HEIGHT
+        self._draw()
+        if not self._plays:
+            self._land()
+            return
+        self._timer = self.set_interval(FRAME_SECONDS, self._tick)
+
+    def on_resize(self) -> None:
+        """Redraw at the new width, so the centring follows the widget.
+
+        A wordmark that is not animating draws once, before layout has given it
+        a width, and would otherwise stay centred on the fallback.
+        """
+        self._draw()
+
+    def _tick(self) -> None:
+        self._elapsed += FRAME_SECONDS
+        self._draw()
+        if splash.is_finished(self._elapsed):
+            self._land()
+
+    def skip(self) -> None:
+        """Cut to the end of the animation."""
+        self._elapsed = splash.DURATION
+        self._draw()
+        self._land()
+
+    def _land(self) -> None:
+        """Announce the landing once, and stop the timer that would repeat it.
+
+        Nothing else stops the timer, so without the guard the message goes out
+        on every frame after the word settles.
+        """
+        if self._landed:
+            return
+        self._landed = True
+        if self._timer is not None:
+            self._timer.stop()
+        self.post_message(self.Landed())
+
+    def _draw(self) -> None:
+        """Draw the canvas, coloured by how lit each character is.
+
+        Colour follows luminance, not position: the shading already carries the
+        form. Runs of equal brightness are appended as one span, so a row costs
+        a handful of styled appends and not one per cell.
+        """
+        levels = splash.luminance(self._elapsed)
+        # Centred on the widget, not on the canvas: the widget is as wide as
+        # whatever sits under it, and the logo has to be centred over that.
+        width = max(splash.CANVAS_WIDTH, len(splash.STRAPLINE), self.size.width)
+        margin = " " * ((width - splash.CANVAS_WIDTH) // 2)
+
+        # The strapline takes over one row of the canvas: by the time it is
+        # visible the word has settled and that row is empty. The rows left
+        # under it are the gap before whatever comes next.
+        strapline_row = splash.settled_rows()[1] + self.STRAPLINE_GAP
+        faded = blend(
+            BACKGROUND, colour("c-muted"), splash.strapline_fade(self._elapsed)
+        )
+
+        art = Text(no_wrap=True)
+        for index, row in enumerate(levels):
+            if index == strapline_row:
+                art.append(splash.STRAPLINE.center(width), style=faded)
+                art.append("\n")
+                continue
+            art.append(margin)
+            for level, run in groupby(row):
+                length = len(list(run))
+                if level < 0:
+                    art.append(" " * length)
+                else:
+                    art.append(
+                        splash.RAMP[level] * length, style=f"bold {shade(level)}"
+                    )
+            art.append("\n")
+        self.update(art)

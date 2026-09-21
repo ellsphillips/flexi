@@ -1,8 +1,8 @@
 """The application shell: theme, services, screens, jump mode.
 
-The theme is registered in ``__init__`` rather than ``on_mount``, because
-setting ``App.theme`` raises if ``register_theme`` has not run and the setup
-screen can be pushed before ``on_mount`` finishes.
+``register_theme`` runs in ``__init__``, not ``on_mount``: setting ``App.theme``
+raises before the theme is registered, and the setup screen can be pushed before
+``on_mount`` finishes.
 
 ``/`` is bound with ``priority=True`` so it works from any screen, and stood
 down by :meth:`check_action` inside a text field, where a date being typed is
@@ -11,25 +11,38 @@ allowed to contain one.
 
 from __future__ import annotations
 
-from pathlib import PurePath
-from typing import Any, ClassVar, cast
+from collections.abc import Callable
+from contextlib import ExitStack
+from functools import partial
+from pathlib import Path, PurePath
+from threading import Event, Lock
+from typing import ClassVar
 
 from textual import events, log
 from textual import work as textual_work
 from textual.app import App as TextualApp
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
+from textual.command import Provider
 from textual.css.query import NoMatches
 from textual.reactive import Reactive, reactive
+from textual.screen import Screen
 from textual.widget import Widget
 from textual.widgets import Input, TextArea
 
 import flexi
-from flexi.components.chrome import NAV_BY_SCREEN, NAV_ITEMS, AppHeader, NavBar
+from flexi.components.chrome import NAV_ITEMS, AppFooter, AppHeader, NavBar, stamped
 from flexi.components.jump_overlay import JumpOverlay
-from flexi.components.jumper import Jumper
-from flexi.config import CONFIG
-from flexi.models.database.app import create_db_engine, get_session
+from flexi.components.jumper import (
+    HasFocusTarget,
+    HasJumpOverlays,
+    HasJumpTargets,
+    Jumper,
+    Refreshable,
+)
+from flexi.config import CONFIG, CONFIG_PROBLEM
+from flexi.messages import BankHolidayRefreshCompleted, Scope
+from flexi.models.database.engine import database_scope
 from flexi.provider import FlexiCommands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings
@@ -37,9 +50,15 @@ from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
-from flexi.services.registry import Services
+from flexi.services.bank_holidays import (
+    BankHolidayFetcher,
+    fetch_bank_holiday_index,
+)
+from flexi.services.registry import build_services, invalidate_services
 from flexi.theme import THEME_NAME, flexi_theme
-from flexi.versioning import available_update
+from flexi.versioning import UPGRADE_HINT, available_update
+
+__all__ = ("UPDATE_NOTICE_SECONDS", "FlexiApp")
 
 UPDATE_NOTICE_SECONDS = 10
 
@@ -49,13 +68,17 @@ class FlexiApp(TextualApp[None]):
 
     TITLE = "flexi"
 
+    HELP_LABEL = "Anywhere"
+
     CSS_PATH: ClassVar[list[str | PurePath]] = [
         "theme/flexi.tcss",
         "styles/dashboard.tcss",
         "styles/leave.tcss",
     ]
 
-    COMMANDS: ClassVar[set[Any]] = {FlexiCommands}
+    COMMANDS: ClassVar[set[type[Provider] | Callable[[], type[Provider]]]] = {
+        FlexiCommands
+    }
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(
@@ -75,154 +98,357 @@ class FlexiApp(TextualApp[None]):
     ]
 
     nav: Reactive[str] = reactive("dashboard", init=False)
-    """Which destination is current, read by the nav bar when it composes."""
-
-    context_label: Reactive[str] = reactive("", init=False)
-    """The right-hand slot of the header: today's date and the shown period."""
+    """Which destination is current; the nav bar reads it when it composes."""
 
     _jumping: Reactive[bool] = reactive(False, init=False, bindings=True)
-    """True while the jump overlay is open."""
 
-    def __init__(self, *, db_path: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        db_path: Path | None = None,
+        bank_holiday_fetcher: BankHolidayFetcher = fetch_bank_holiday_index,
+    ) -> None:
         super().__init__()
-        self._engine = create_db_engine(db_path) if db_path else create_db_engine()
-        self._session = get_session(self._engine)
-        self.services = Services.build(self._session)
-        # Before anything can be pushed: `App.theme = x` raises if the theme has
-        # not been registered, and setup is pushed from `on_mount`.
-        self.register_theme(flexi_theme())
-        self.theme = THEME_NAME
-        self.jumper: Jumper | None = None
-        self._pushed: InsightsScreen | LeaveScreen | None = None
-        """The screen `action_go_to` pushed, so `f1` can dismiss it.
+        with ExitStack() as construction:
+            self._engine, self._session = construction.enter_context(
+                database_scope(db_path)
+            )
+            self.services = build_services(self._session)
+            # `App.theme = x` raises unless `register_theme` has already run,
+            # and `on_mount` pushes a screen.
+            self.register_theme(flexi_theme())
+            self.theme = THEME_NAME
+            self.jumper: Jumper | None = None
+            self.show_splash = False
+            """Set by `flexi init` on a first run, to play the splash."""
+            self.open_settings = False
+            """Set by `flexi init` when the user chose to change settings."""
+            self._pushed: Screen[None] | None = None
+            """The one destination open on top of the dashboard, if any.
 
-        Held rather than found with `isinstance(self.screen, ...)`: `App.screen`
-        is typed as `Screen[object]` and narrowing it against a `Screen[None]`
-        gives mypy `Never`."""
+            Held as an attribute, not found with `isinstance(self.screen, ...)`:
+            `App.screen` is typed as `Screen[object]`, and narrowing it against
+            a `Screen[None]` gives mypy `Never`."""
+            self._settings: SettingsScreen | None = None
+            """The settings form, if it is open.
 
-    # -- lifecycle ---------------------------------------------------------
+            Kept separate from `_pushed`: `SettingsScreen` is a `Screen[bool]`,
+            `Screen`'s parameter is invariant, and assigning one to a
+            `Screen[None]` is a mypy error."""
+            self._bank_holiday_fetcher = bank_holiday_fetcher
+            self._holiday_refresh_lock = Lock()
+            self._shutdown_event = Event()
+            self.latest_release = ""
+            """The published version superseding this one, once one is known."""
+            self._database_lifetime = construction.pop_all()
+
+    # lifecycle ---------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
         return iter(())
 
     def on_mount(self) -> None:
         if self.services.settings.is_setup_complete():
+            # The CLI sweeps when it opens the database, and so does this: a
+            # session left open overnight otherwise draws as still running.
+            self.services.clock.sweep()
             self.push_screen(DashboardScreen(self.services, id="dashboard"))
+            if self.open_settings:
+                # Held like any other form, so `f4` cannot push a second over
+                # it and `f1` can close it.
+                self._settings = SettingsScreen(self.services)
+                self.push_screen(self._settings, callback=self._on_settings_saved)
         else:
-            self.push_screen(SetupScreen(self.services), callback=self._on_setup_done)
-        self._check_for_updates()
+            # The wordmark is part of the setup screen, not a screen pushed over
+            # it: `Screen.dismiss` pops the top of the stack, not the screen it
+            # is called on, so a splash on its own screen would dismiss the form
+            # underneath.
+            from flexi.components.wordmark import wanted
 
-    def _on_setup_done(self, completed: bool | None) -> None:
+            plays = self.show_splash and wanted(animation_level=self.animation_level)
+            self.push_screen(
+                SetupScreen(self.services, animate=plays),
+                callback=self._on_setup_done,
+            )
+        self._check_for_updates()
+        self.refresh_holidays()
+        if CONFIG_PROBLEM:
+            # `BINDINGS` reads `CONFIG` at class scope, with no screen to say
+            # this on; here is the first moment there is one.
+            self.notify(
+                CONFIG_PROBLEM, severity="warning", timeout=UPDATE_NOTICE_SECONDS
+            )
+
+    def _on_setup_done(self, completed: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
         if not completed:
             self.exit()
             return
-        # Rebuild: the division and the working pattern are chosen during setup,
-        # and the services were wired before either existed.
-        self.services = Services.build(self._session)
         self.push_screen(DashboardScreen(self.services, id="dashboard"))
+        # Freshness is per division and the division was only just answered, so
+        # without this a Scottish or Northern Irish first run reaches the
+        # dashboard with no calendar of its own.
+        self.refresh_holidays()
 
     def on_unmount(self) -> None:
-        self._session.close()
-        self._engine.dispose()
+        # Textual cannot stop a synchronous request already inside a worker
+        # thread. The flag is set first, so a late completion cannot reach the
+        # database after its lifetime has closed.
+        self._shutdown_event.set()
+        self._database_lifetime.close()
 
-    @textual_work(thread=True)
+    def refresh_holidays(self, *, force: bool = False) -> None:
+        """Request a holiday refresh without blocking Textual's message loop.
+
+        Freshness is database state, so it is checked here, on the message loop;
+        only the network call goes to a worker, keeping the session and the
+        engine's database lease on their owning thread. ``force`` is the
+        command-palette path, and always asks GOV.UK.
+        """
+        if self._shutdown_event.is_set():
+            return
+        if not force and self.services.bank_holidays.is_fresh():
+            # A fresh cache needs no redraw, and refetching would put a GOV.UK
+            # timeout in front of a current calendar.
+            return
+        self.fetch_holiday_payload(forced=force)
+
+    @textual_work(thread=True, exit_on_error=False)
+    def fetch_holiday_payload(self, *, forced: bool) -> None:
+        """Fetch one untrusted calendar payload without touching persistence."""
+        with self._holiday_refresh_lock:
+            try:
+                payload = self._bank_holiday_fetcher()
+            except Exception:  # noqa: BLE001 - an injected fetcher may raise anything
+                # A failed fetch is a completion with nothing in it. An
+                # exception escaping the worker would take the application down
+                # and leave the message below unposted.
+                payload = None
+
+        # ``post_message`` is thread-safe and declines a closed message pump.
+        # The event covers the race where unmount begins just before this check;
+        # the handler repeats it before touching services.
+        if not self._shutdown_event.is_set():
+            self.post_message(
+                BankHolidayRefreshCompleted(payload, forced=forced),
+            )
+
+    def on_bank_holiday_refresh_completed(
+        self, message: BankHolidayRefreshCompleted
+    ) -> None:
+        """Persist a worker result while the message-loop database is alive."""
+        if self._shutdown_event.is_set():
+            return
+        fetched = self.services.bank_holidays.cache_payload(message.payload)
+        self.finish_holiday_refresh(fetched=fetched, forced=message.forced)
+
+    def finish_holiday_refresh(self, *, fetched: bool, forced: bool) -> None:
+        """Apply one holiday worker result on Textual's message loop."""
+        if fetched:
+            self.holidays_refreshed()
+        if forced:
+            self.notify(
+                "Bank holidays refreshed" if fetched else "Could not reach gov.uk",
+                severity="information" if fetched else "warning",
+                timeout=4,
+            )
+        elif not fetched and not self.services.bank_holidays.is_available():
+            # Only when nothing is cached: a stale calendar is still the one
+            # every figure on screen is derived from.
+            self.notify(
+                "No bank holiday calendar. Days off will count as working days.",
+                severity="warning",
+                timeout=UPDATE_NOTICE_SECONDS,
+            )
+
+    def holidays_refreshed(self) -> None:
+        """Redraw the open screens: every figure depends on which days are off."""
+        self.refresh_open_screens()
+
+    @textual_work(thread=True, exit_on_error=False)
     def _check_for_updates(self) -> None:
         """Ask PyPI whether there is a newer Flexi, and say nothing if not."""
         latest = available_update()
         if latest is None:
             return
+        self.call_from_thread(self.update_offered, latest)
         self.notify(
-            f"Update available: {flexi.__version__} → {latest}\n"
-            f"Run: uv tool upgrade flexi",
+            f"Update available: {stamped(flexi.__version__)} → {stamped(latest)}\n"
+            f"{UPGRADE_HINT}",
             severity="information",
             timeout=UPDATE_NOTICE_SECONDS,
         )
 
-    # -- navigation --------------------------------------------------------
+    def update_offered(self, latest: str) -> None:
+        """Remember that a newer version exists, and say so on every header.
+
+        Called on the message loop: the check runs on a thread, and writing a
+        reactive from one refreshes widgets off the loop.
+        """
+        self.latest_release = latest
+        self.dress_headers()
+
+    def dress_headers(self) -> None:
+        """Tell every header on the stack what the app knows about the release.
+
+        The value travels down: a header may be mounted without an application
+        to reach up to, and a screen opened after the check has not been told.
+        """
+        if not self.latest_release:
+            return
+        for screen in self.screen_stack:
+            for header in screen.query(AppHeader):
+                header.offer_update(self.latest_release)
+
+    # navigation --------------------------------------------------------------
 
     def action_go_to(self, name: str) -> None:
         """Move to a destination from the one navigation table."""
+        board = self.dashboard()
+        if board is None:
+            # No dashboard means setup is still open, and every destination is
+            # drawn from the period the dashboard holds. Settings is refused
+            # with the rest: saving it marks the install configured, which would
+            # end setup without an entitlement having been answered.
+            self.notify("Finish setup first.", severity="information", timeout=3)
+            return
         if name == self.nav:
+            # Settings has no nav item, so `self.nav` still names the
+            # destination underneath an open form. Choosing the destination you
+            # are on closes the form over it and nothing else.
+            self._close_settings()
             return
         if name == "settings":
-            self.push_screen(
-                SettingsScreen(self.services), callback=self._on_settings_saved
-            )
+            # `self.nav` is only ever set to a destination with a nav item, so
+            # the guard above cannot cover settings. A second form would hold
+            # the field values read at its construction and write them back over
+            # the first form's save.
+            if self._settings is not None:
+                return
+            # `_close_pushed()` is not called here: settings sits *on top of*
+            # whatever destination is open, and the callback redraws that screen
+            # after a save.
+            self._settings = SettingsScreen(self.services)
+            self.push_screen(self._settings, callback=self._on_settings_saved)
             return
-        board = self._dashboard()
-        if name == "insights" and board is not None:
-            self.nav = name
-            self._pushed = InsightsScreen(self.services, board.period)
-            self.push_screen(self._pushed, callback=self._back)
+        if name == "insights":
+            self._open(name, InsightsScreen(board.period))
             return
-        if name == "leave" and board is not None:
-            self.nav = name
-            self._pushed = LeaveScreen(self.services, board.period.anchor)
-            self.push_screen(self._pushed, callback=self._back)
+        if name == "leave":
+            self._open(name, LeaveScreen(self.services, board.period.anchor))
             return
-        if name == "dashboard":
-            # Insights is a pushed screen, so returning to the dashboard means
-            # leaving it. Without this, f1 set the nav label and nothing else,
-            # and escape was the only way back.
-            if self._pushed is not None:
-                self._pushed.dismiss(None)
-                self._pushed = None
-            self.nav = name
-            self._sync_nav()
-            return
-        item = NAV_BY_SCREEN.get(name)
-        self.notify(
-            f"{item.label if item else name} is not built yet.",
-            severity="information",
-            timeout=3,
-        )
+        # Insights and Leave are pushed screens, so returning to the dashboard
+        # means dismissing whichever of them is open.
+        self._close_pushed()
+        self.nav = name
 
     def on_nav_bar_selected(self, event: NavBar.Selected) -> None:
-        """A tab was clicked. The keys and the pointer arrive at one place.
-
-        `NavItemLabel` is a widget with a hover state rather than a line of
-        markup, so that a pointer works — which it does not until somebody
-        handles the message it posts.
-        """
+        """Route a clicked tab through the same path as the key bindings."""
         event.stop()
         self.action_go_to(event.item.screen)
 
-    def _back(self, _result: object = None) -> None:
-        """Leaving a pushed screen returns the nav bar to where the user is."""
+    def _open(self, name: str, screen: Screen[None]) -> None:
+        """Show a pushed destination, closing any other that is already open.
+
+        One destination is open at a time: pushing a second over the first would
+        overwrite the only reference to it and leave it on the stack.
+        """
+        self._close_pushed()
+        self._pushed = screen
+        self.nav = name
+        self.push_screen(screen, callback=partial(self._back, screen))
+        # After the refresh: the pushed screen composes its header on the way
+        # in, and there is no header to tell until it has.
+        self.call_after_refresh(self.dress_headers)
+
+    def _close_pushed(self) -> None:
+        """Dismiss whatever destination is open, if any.
+
+        `_pushed` is cleared before the dismissal, so the callback can tell "this
+        screen was replaced" from "the user left it". Settings is closed first,
+        because it sits on top and `Screen.dismiss` pops whatever is on top of
+        the stack, not the screen it was called on.
+        """
+        self._close_settings()
+        if self._pushed is None:
+            return
+        leaving, self._pushed = self._pushed, None
+        leaving.dismiss(None)
+
+    def _close_settings(self) -> None:
+        """Dismiss the settings form if one is open, clearing `_settings` first.
+
+        A callback arriving during the dismissal then cannot find the form it is
+        closing.
+        """
+        if self._settings is None:
+            return
+        form, self._settings = self._settings, None
+        form.dismiss(False)
+
+    def _back(self, screen: Screen[None], _result: object = None) -> None:
+        """Return the nav bar to the dashboard when a pushed screen is dismissed.
+
+        Ignored once the screen has been replaced: the dismissal that swap
+        performs must not drag the nav label back behind its replacement.
+        """
+        if self._pushed is not screen:
+            return
         self._pushed = None
         self.nav = "dashboard"
-        self._sync_nav()
 
-    def _on_settings_saved(self, saved: bool | None) -> None:
+    def _on_settings_saved(self, saved: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
+        """Forget the closed form, and redraw if it was saved."""
+        self._settings = None
         if not saved:
             return
-        self.services = Services.build(self._session)
-        self.services.invalidate()
-        screen = self._dashboard()
-        if screen is not None:
-            from flexi.messages import Scope
+        self.refresh_open_screens()
+        # Freshness is per division, so this is a no-op unless the division has
+        # just changed to one with no calendar; leave bookings are refused for
+        # the rest of the session without one.
+        self.refresh_holidays()
 
-            screen.refresh_modules(Scope.ALL)
+    def refresh_open_screens(self, scope: Scope = Scope.ALL) -> None:
+        """Redraw every screen on the stack that can redraw.
 
-    def _sync_nav(self) -> None:
-        for header in self.query(AppHeader):
-            header.set_active(self.nav)
-        for bar in self.query(NavBar):
-            bar.active = self.nav
+        Not the dashboard alone: a screen behind an open form is showing figures
+        derived from whatever was just written.
+        """
+        invalidate_services(self.services)
+        for screen in self.screen_stack:
+            if isinstance(screen, Refreshable):
+                try:
+                    screen.refresh_modules(scope)
+                except NoMatches:
+                    # Still being built: widgets compose depth by depth, so a
+                    # message arriving while the dashboard mounts can land on a
+                    # module whose own cells are not in the tree yet. There is
+                    # no flag meaning "my subtree is composed" (`is_mounted` is
+                    # true well before it), and a mounting screen redraws from
+                    # `on_mount` with the data this call has committed.
+                    continue
 
-    def _dashboard(self) -> DashboardScreen | None:
+    def dashboard(self) -> DashboardScreen | None:
         for screen in self.screen_stack:
             if isinstance(screen, DashboardScreen):
                 return screen
         return None
 
-    # -- clocking ----------------------------------------------------------
+    def showing_dashboard(self) -> bool:
+        """Whether the dashboard is the destination in front of the user.
+
+        Answered from what is open, not from `self.screen`: the command palette
+        is itself a pushed screen, so `self.screen` is the palette while a
+        command is being chosen.
+        """
+        return self._pushed is None and self._settings is None
+
+    # clocking ----------------------------------------------------------------
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Stand `/` down while somebody is typing.
+        """Stand `/` down while an Input or TextArea has focus.
 
-        The binding is `priority=True`, so it runs before the focused widget -- without
-        this it would eat the slash out of a date being typed into "go to date".
+        The binding is `priority=True`, so it runs before the focused widget and
+        would otherwise eat the slash out of a date being typed.
         """
         del parameters
         if action != "clock_toggle":
@@ -230,18 +456,27 @@ class FlexiApp(TextualApp[None]):
         return not isinstance(self.focused, Input | TextArea)
 
     def action_clock_toggle(self) -> None:
-        """One key, from anywhere. The dashboard owns the confirmation."""
-        screen = self._dashboard()
-        if screen is None:
-            return
-        screen.toggle_clock()
+        """Toggle the clock from anywhere, with the receipt on the visible footer.
 
-    # -- help --------------------------------------------------------------
+        The dashboard does the clocking and reports to its own footer, which
+        sits underneath Leave and Insights.
+        """
+        board = self.dashboard()
+        if board is None:
+            return
+        message, tone = board.toggle_clock()
+        if self.screen is board:
+            return
+        for footer in self.screen.query(AppFooter):
+            footer.set_status(message, tone)
+        self.refresh_open_screens(Scope.CLOCK)
+
+    # help --------------------------------------------------------------------
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen(collect_bindings(self.screen)))
 
-    # -- jump mode ---------------------------------------------------------
+    # jump mode ---------------------------------------------------------------
 
     def action_toggle_jump_mode(self) -> None:
         self._jumping = not self._jumping
@@ -251,10 +486,16 @@ class FlexiApp(TextualApp[None]):
         if focused_before is not None:
             self.set_focus(None, scroll_visible=False)
 
+        # `isinstance` against a runtime-checkable Protocol, not `getattr` by
+        # name: a renamed hook stays valid Python and leaves jump mode silently
+        # offering nothing.
+        screen = self.screen
         self.jumper = Jumper(
-            self._jump_targets(),
-            screen=self.screen,
-            extra=getattr(self.screen, "jump_overlays", None),
+            screen.jump_targets() if isinstance(screen, HasJumpTargets) else {},
+            screen=screen,
+            extra=(
+                screen.jump_overlays if isinstance(screen, HasJumpOverlays) else None
+            ),
         )
 
         def handle(target: str | Widget | None) -> None:
@@ -263,26 +504,21 @@ class FlexiApp(TextualApp[None]):
             elif isinstance(target, Widget):
                 self.set_focus(target)
             elif focused_before is not None:
-                # Escape. Put focus back exactly where it was — a mode you can
-                # leave without consequence is one people will keep using.
+                # Escape: restore the previous focus.
                 self.set_focus(focused_before, scroll_visible=False)
 
         self.clear_notifications()
         self.push_screen(JumpOverlay(self.jumper), callback=handle)
 
-    def _jump_targets(self) -> dict[str, str]:
-        getter = getattr(self.screen, "jump_targets", None)
-        return dict(getter()) if callable(getter) else {}
-
     def _jump_to_id(self, target: str) -> None:
         """Focus the target, or click it if it cannot take focus.
 
-        A row key lands here too: the records table owns the cursor rather than
-        the focus, so a `d-` key moves the cursor and focuses the table.
+        A row key lands here too: the records table owns the cursor, so a `d-`
+        key moves the cursor and focuses the table.
         """
-        from flexi.components.expandable import DAY, ExpandableTable
+        from flexi.components.expandable import ExpandableTable, RowKind
 
-        if target.startswith(DAY):
+        if target.startswith(RowKind.DAY):
             for table in self.screen.query(ExpandableTable):
                 table.focus_key(target)
                 self.set_focus(table)
@@ -294,19 +530,14 @@ class FlexiApp(TextualApp[None]):
         except NoMatches:
             log.warning(f"jump target #{target} is not on {self.screen!r}")
             return
-        focus_on: Widget = widget
-        chooser = getattr(widget, "focus_target", None)
-        if callable(chooser):
-            focus_on = cast("Widget", chooser())
+        focus_on = (
+            widget.focus_target() if isinstance(widget, HasFocusTarget) else widget
+        )
         if focus_on.focusable:
             self.set_focus(focus_on)
         else:
-            # Not focusable: a button, say. Synthesise the click the pointer
+            # Not focusable (a button, say): synthesise the click a pointer
             # would have made, so a jump can press things too.
             widget.post_message(
                 events.Click(widget, 0, 0, 0, 0, 0, False, False, False)
             )
-
-
-App = FlexiApp
-"""The v1 name, kept so ``flexi.__main__`` and older tests keep importing."""

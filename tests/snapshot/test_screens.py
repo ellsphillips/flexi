@@ -1,20 +1,10 @@
-"""Visual regression, against text rather than against SVG.
+"""Visual regression against text, not against SVG.
 
 ``pytest-textual-snapshot`` compares rendered SVGs, and an SVG diff is only
-readable as a picture — which means a CI failure is a file you have to download
-before you can tell whether the change was intended.
-
-So the snapshots here are the *characters* the compositor produced, committed
-alongside the SVGs in ``docs/shots/``. A failure prints a unified diff of two
-screens, in the terminal, where the person who caused it is already looking. The
-SVGs are still written by ``scripts/shoot.py`` and are still what a reviewer
-looks at; they are just not what the test asserts on.
-
-Regenerate deliberately:
-
-    uv run python scripts/shoot.py
-
-and read the diff before committing it.
+readable as a picture, so a CI failure is a file you have to download. These
+snapshots are the characters the compositor produced, committed beside the SVGs
+in ``docs/shots/``, and a failure prints a unified diff in the terminal.
+Regenerate with ``uv run python scripts/shoot.py`` and read the diff.
 """
 
 from __future__ import annotations
@@ -26,16 +16,17 @@ import pytest
 import time_machine
 
 from flexi.app import FlexiApp
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import Base
+from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services.samples import NOW, seed_demo
+from tests.conftest import settled
+from tests.database import create_schema
 from tests.tui.conftest import screen_text
 
 SHOTS = Path(__file__).resolve().parent.parent.parent / "docs" / "shots"
 
 WIDE = (120, 36)
 NARROW = (84, 28)
-TINY = (64, 22)
+TINY = (63, 22)  # one column under TINY_COLUMNS, so the -tiny rules apply
 
 CASES: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
     ("dashboard-wide", WIDE, []),
@@ -60,7 +51,7 @@ def demo_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
     path = tmp_path_factory.mktemp("snapshot") / "flexi.db"
     with time_machine.travel(NOW, tick=False):
         engine = create_db_engine(path)
-        Base.metadata.create_all(engine)
+        create_schema(engine)
         session = get_session(engine)
         seed_demo(session)
         session.close()
@@ -74,7 +65,6 @@ def demo_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 async def test_screen_matches_its_committed_render(
     name: str, size: tuple[int, int], keys: list[str], demo_db: Path
 ) -> None:
-    """It draws what it drew last time, or says exactly what changed."""
     expected_path = SHOTS / f"{name}.txt"
     assert expected_path.exists(), (
         f"{expected_path} is missing — run `uv run python scripts/shoot.py`"
@@ -87,10 +77,12 @@ async def test_screen_matches_its_committed_render(
         app.animation_level = "none"
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
+            await settled(pilot)
             for key in keys:
                 await pilot.press(key)
                 await pilot.pause()
             await pilot.pause()
+            await settled(pilot)
             actual = "\n".join(line.rstrip() for line in screen_text(app).splitlines())
 
     expected = expected_path.read_text(encoding="utf-8").rstrip("\n")

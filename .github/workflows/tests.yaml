@@ -1,0 +1,168 @@
+name: Tests
+
+# Every supported OS/Python pair, with extra timezone checks on each OS, plus
+# minimum dependencies and deliberately delayed UI callbacks.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  # Keep the 500-example property search on every row. Matrix selection saves
+  # complete suite runs without reducing any individual run's test depth.
+  HYPOTHESIS_PROFILE: ci
+
+jobs:
+  suite:
+    name: ${{ matrix.os }} · Python ${{ matrix.python }} · TZ ${{ matrix.tz }}
+    runs-on: ${{ matrix.os }}
+    # Windows runs the same suite three to five times slower than Linux, close
+    # enough to the shorter ceiling that a stalling runner reaches it.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 40 || 25 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is here because the classifier says so, and `%LOCALAPPDATA%`
+        # is no more a claim than `~/.local/share` until a job proves it.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # 3.14 is here because `requires-python = ">=3.12"` serves it to anyone
+        # who has it. Every SQLAlchemy below 2.0.41 raises TypeError building a
+        # mapping there, which is what the floor in pyproject is for.
+        python: ["3.12", "3.13", "3.14"]
+        # Nine OS/Python pairs at UTC. Each OS also gets London and New York
+        # on 3.13: both have DST, and New York catches dates behind UTC. These
+        # six extra rows test the machine clock without a redundant 27-row grid.
+        tz: ["UTC"]
+        include:
+          - os: ubuntu-latest
+            python: "3.13"
+            tz: Europe/London
+          - os: ubuntu-latest
+            python: "3.13"
+            tz: America/New_York
+          - os: macos-latest
+            python: "3.13"
+            tz: Europe/London
+          - os: macos-latest
+            python: "3.13"
+            tz: America/New_York
+          - os: windows-latest
+            python: "3.13"
+            tz: Europe/London
+          - os: windows-latest
+            python: "3.13"
+            tz: America/New_York
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # `TZ` is a POSIX idea. Windows keeps the zone in the registry, and the
+      # CRT reads `TZ` in its own `tzn[+|-]hh[dzn]` grammar with U.S. daylight
+      # rules, so an IANA name there parses as a nameless UTC+0 zone and hides
+      # the registry one.
+      - name: Put the POSIX runner in the row's timezone
+        if: runner.os != 'Windows'
+        env:
+          ZONE: ${{ matrix.tz }}
+        run: echo "TZ=$ZONE" >> "$GITHUB_ENV"
+
+      - name: Put the Windows runner in the row's timezone
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ZONE: ${{ matrix.tz }}
+        run: |
+          # Explicit, and it fails on a zone it has not been taught: a fallback
+          # to UTC would leave a new matrix row running under a job name that
+          # claims otherwise.
+          $zones = @{
+            'UTC'               = 'UTC'
+            'Europe/London'     = 'GMT Standard Time'
+            'America/New_York'  = 'Eastern Standard Time'
+          }
+          $zone = $zones[$env:ZONE]
+          if (-not $zone) { throw "no Windows zone mapped for '$env:ZONE'" }
+          tzutil /s "$zone"
+          # `$LASTEXITCODE` alone would not do: a native command's failure is
+          # not terminating by default, and the next one overwrites the code.
+          $now = tzutil /g
+          if ($now -ne $zone) { throw "runner is on '$now', not '$zone'" }
+          Write-Host "runner clock: $(Get-Date -Format o)  ($now)"
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: ${{ matrix.python }}
+
+      - run: uv sync --locked --dev
+
+      # Coverage instrumentation roughly doubles the CPU cost of a run. It is
+      # enforced once, on a canonical interpreter; the rest run the same tests
+      # without it, to catch failures.
+      - name: pytest with coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC'
+        run: uv run pytest --durations=15 --cov --cov-report=term-missing --cov-report=xml
+
+      - name: pytest
+        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC') }}
+        run: uv run pytest --durations=15
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13' && matrix.tz == 'UTC'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: error
+
+  floors:
+    name: The declared floors still pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # `[project.dependencies]` says the oldest version of each dependency the
+      # code runs on. This is the row that makes that a claim rather than a
+      # guess; the lockfile is what every other row runs.
+      - run: uv lock --resolution lowest-direct
+
+      - run: uv sync --frozen --dev
+
+      - name: pytest, at the floor of every dependency
+        env:
+          TZ: UTC
+        run: uv run --frozen pytest --durations=15
+
+  late:
+    name: Deferred callbacks land late
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --locked --dev
+
+      # Work a layout defers lands on top of what a test has just set up, on a
+      # loaded three-core runner and not on a laptop. This puts every deferred
+      # callback behind a timer, so that ordering is reproduced on purpose.
+      # `docs/TESTING.md` covers running it locally.
+      - name: pytest, with the screen finishing late
+        env:
+          TZ: UTC
+          FLEXI_LATE_CALLBACKS: "0.05"
+        run: uv run pytest --durations=15

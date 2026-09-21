@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flexi"
-version = "0.1.0"
+version = "0.2.0"
 description = "A terminal application for tracking flexitime."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,24 +17,29 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Office/Business :: Scheduling",
     "Topic :: Utilities",
     "Typing :: Typed",
 ]
 
+# Floors are the oldest version the code runs on, not the version in the lock.
 dependencies = [
     "alembic>=1.13.0",
-    "click>=8.1.8",
+    "click>=8.4.0",  # ParamType became generic in its converted type here
     "httpx>=0.27.0",
     "packaging>=24.0",
-    "pydantic>=2.0",
-    "pyyaml>=6.0",
+    "pydantic>=2.8.0",  # first pydantic-core wheels for 3.13
+    "pyyaml>=6.0.3",  # first wheels for 3.12, 3.13 and 3.14
     "rich>=13.9.4",
-    "sqlalchemy>=2.0.37",
+    "sqlalchemy>=2.0.41",  # 2.0.40 and below raise TypeError on 3.14 mappings
     "textual>=8.2,<9",
+    # Windows ships no zoneinfo database, so ZoneInfo there reads this package.
+    "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
 [project.urls]
@@ -48,81 +53,106 @@ flexi = "flexi.__main__:cli"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.14.1",
-    "pre-commit>=4.0.1",
-    "pygments>=2.19.1",
+    "mypy>=2.3.1",
+    "pre-commit>=4.6.2",
     "pytest>=8.3.4",
-    "pytest-cov>=6.0.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-mock>=3.14.0",
-    "ruff>=0.9.1",
-    "textual-dev>=1.7.0",
-    "pytest-textual-snapshot>=1.1.0",
-    "time-machine>=2.16.0",
-    "types-pyyaml>=6.0",
-    "typing-extensions>=4.12.2",
+    "pytest-cov>=7.1.0",
+    "pytest-asyncio>=1.4.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.16.5",
+    "textual-dev>=1.8.0",
+    "time-machine>=3.5.0",
+    "types-pyyaml>=6.0.12.20260815",
+    "pytest-xdist>=3.8.0",
+    "hypothesis>=6.165.10",
+    "pytest-randomly>=3.16",
+    "pytest-timeout>=2.3",
 ]
 
 [tool.hatch.build.targets.wheel]
-# Everything under the package, not just the .py files: the app reads its
-# stylesheets, py.typed and alembic templates from beside its own __file__.
+# The whole package, not just the .py files: the app loads its .tcss
+# stylesheets from beside __file__, py.typed is the PEP 561 marker, and
+# migrations/script.py.mako is the template `alembic revision` writes from.
 packages = ["src/flexi"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "docs", "README.md", "alembic.ini"]
+# `scripts` travels because tests/test_dev.py runs scripts/dev.py by path.
+include = [
+    "src",
+    "tests",
+    "docs",
+    "scripts",
+    "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "alembic.ini",
+]
 
 [tool.uv]
 package = true
+# Source checkouts accept current uv releases; CI pins its tool version.
+required-version = ">=0.9.26"
 
 [tool.pytest.ini_options]
-# `auto` so a Pilot test is just an `async def`. With the decorator, the one
-# somebody forgets is skipped silently rather than failed.
+# `auto` so a Pilot test is a plain `async def`; a forgotten decorator skips.
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests", "src/flexi/domain"]
-addopts = "--doctest-modules --strict-markers --strict-config"
+testpaths = ["tests", "src/flexi/domain", "src/flexi/cli/ui", "src/flexi/services"]
+# Import developer tools without adding src or shadowing an installed flexi.
+pythonpath = ["."]
+# `importlib` import mode so the doctest paths under src/ collect against an
+# installed flexi as well as against this checkout.
+addopts = "--doctest-modules --strict-markers --strict-config --import-mode=importlib -n auto --timeout=120"
 
 [tool.coverage.run]
 branch = true
 source = ["src/flexi"]
+# Stepped through by tests/models/test_migrations.py and not measured here:
+# env.py runs only under the alembic CLI.
 omit = ["*/migrations/*"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
+fail_under = 100
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+    # A module entry point cannot run in the process running the tests.
+    "if __name__ == .__main__.:",
+    # A Protocol member body: nothing calls it, the implementers are what run.
+    "^\\s*\\.\\.\\.$",
+]
 
 [tool.mypy]
 strict = true
-# src layout: without mypy_path every module is found twice, once as `flexi.x`
-# and once as `src.flexi.x`, and mypy refuses to check either.
+# src layout: without this every module is found twice, as `flexi.x` and as
+# `src.flexi.x`, and mypy refuses to check either.
 mypy_path = "src"
 files = ["src/flexi", "tests"]
-exclude = "migrations|dist|build"
+exclude = "dist|build"
 warn_unreachable = true
 show_error_codes = true
-ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 88
 target-version = "py312"
 src = ["src", "tests"]
-extend-exclude = ["src/flexi/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    # The formatter owns these. Enabling them makes ruff argue with ruff-format.
+    # The formatter owns these; enabling them makes ruff argue with ruff-format.
     "COM812",
     "ISC001",
-    # A docstring is earned, not mandatory. D2xx and D4xx still hold the ones
-    # that exist to a standard.
+    # A docstring is earned. D2xx and D4xx still hold the ones that exist.
     "D1",
     # Textual and Click hand back values that cannot be narrowed here.
     "ANN401",
-    # Flexi records local civil time: a timesheet is written in the wall time
-    # the person lives in. DTZ005 and DTZ011 stay on, so the only way to read
-    # the system clock remains flexi/wallclock.py.
+    # Flexi records local civil time. DTZ005 and DTZ011 stay on, so the system
+    # clock is still read only in flexi/wallclock.py.
     "DTZ001",
     # Click and Textual both pass flags positionally.
     "FBT003",
@@ -131,18 +161,22 @@ ignore = [
     "RUF001",
     "RUF002",
     "RUF003",
-    # SQLAlchemy's declarative mapping and pydantic both resolve annotations at
-    # runtime, so deferring an import is a NameError waiting for a release.
+    # SQLAlchemy and pydantic resolve annotations at runtime, so a deferred
+    # import is a NameError waiting for a release.
     "TC001",
     "TC002",
     "TC003",
+    # The licence is stated in LICENSE and in the `license` field above.
+    "CPY001",
+    # The package facades resolve exports through PEP 562 `__getattr__`, so the
+    # CLI startup path never imports SQLAlchemy.
+    "PLC0415",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
     "S101",    # asserts are the point
     "PLR2004", # a test says 7 because it means 7
-    "INP001",  # the suite is not a package
     "SLF001",  # a test may reach past the front door
     "ARG",     # fixtures arrive as arguments and are not always read
     "FBT",     # parametrised booleans are data, not an API being designed
@@ -153,9 +187,10 @@ ignore = [
 "scripts/*" = ["INP001", "T201"]
 
 [tool.ruff.lint.pylint]
-# The wide signatures in this codebase are keyword-only by construction, so
-# their call sites read as prose rather than as a row of unlabelled values.
-# FBT and the keyword-only style carry what the arity limit is reaching for.
+# _verdict is one decision with seven named outcomes; splitting it would put
+# their ordering in two places.
+max-returns = 8
+# The wide signatures here are keyword-only, so call sites read as prose.
 max-args = 8
 
 [tool.ruff.lint.pydocstyle]

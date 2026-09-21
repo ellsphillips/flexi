@@ -6,7 +6,7 @@ until the kinds it touches are green.
 | Kind | Question | Where | Speed |
 |---|---|---|---|
 | **Domain** | Is the arithmetic right? | `tests/domain/` | instant |
-| **Service** | Does the write happen, and is it refused when it should be? | `tests/services/` | fast, in-memory SQLite |
+| **Service** | Does the write happen, and is it refused when it should be? | `tests/services/` | fast, a SQLite file under `tmp_path` |
 | **Pilot** | Does the keypress do the thing? | `tests/tui/` | ~50 ms each |
 | **Snapshot** | Does it still look right? | `tests/snapshot/` | ~100 ms each |
 
@@ -19,16 +19,20 @@ The three that matter most:
 
 ```python
 @pytest.mark.parametrize(
-    ("worked", "expected", "want"),
+    ("value", "want"),
     [
-        (h(7, 24), h(7, 24), "0:00"),
-        (h(8, 12), h(7, 24), "+0:48"),
-        (h(3, 10), h(7, 24), "−4:14"),   # U+2212, not a hyphen
+        (timedelta(0), "0:00"),
+        (timedelta(minutes=48), "+0:48"),
+        (timedelta(hours=-4, minutes=-14), "−4:14"),  # U+2212, not a hyphen
     ],
 )
-def test_delta_formatting(worked, expected, want):
-    assert format_delta(worked - expected) == want
+def test_delta_formatting(value, want):
+    assert delta(value) == want
 ```
+
+`flexi.domain.format` also carries doctests, and `pytest` runs them: `pyproject`
+puts `src/flexi/domain`, `src/flexi/cli/ui` and `src/flexi/services` on
+`testpaths` with `--doctest-modules`. An example in a docstring there is a test.
 
 `Period` gets a full matrix: every granularity × {start, end, label, shift(±1),
 zoom, contains}, including the boundaries that break naive implementations —
@@ -40,36 +44,57 @@ the signature and a one-cell drift is invisible in review and obvious in use.
 
 ## 2. Service tests
 
-`tests/conftest.py` already provides an in-memory session; keep it. Add a
-`services` fixture returning a built `Services` registry, and a `frozen_clock`
-fixture using `time-machine`:
+The fixtures are already written; use them.
+`tests/conftest.py` gives every test an `engine` and a `session` against a
+throwaway SQLite file under `tmp_path`. `tests/services/conftest.py` adds
+`configure` — one call that sets Flexi up and hands back a built `Services`
+registry — plus `services` for the common case and `work()` for putting a day of
+hours on the clock.
+
+`tests.database.create_schema()` creates the tables, indexes, and triggers in
+one explicit transaction. The Python SQLite driver's
+[legacy transaction mode](https://docs.sqlalchemy.org/en/20/dialects/sqlite.html#legacy-transaction-mode-with-the-sqlite3-driver)
+otherwise commits each schema statement separately, adding disk writes to every
+new test database. Tests still use isolated files and the application's normal
+connection settings.
 
 ```python
-@pytest.fixture
-def at():
-    def _at(iso: str):
-        return time_machine.travel(iso, tick=False)
-    return _at
+def test_clock_in_is_refused_on_a_day_booked_off(configure):
+    services = configure(entitlement=(2026, 25.0))
+    services.absence.book(date(2026, 6, 10), AbsenceType.ANNUAL, Portion.FULL)
 
-def test_clock_in_refused_on_absence(services, at):
-    with at("2026-06-10 09:00:00+01:00"):
-        services.absence.book(date(2026, 6, 10), AbsenceType.ANNUAL, Portion.FULL)
-        result = services.clock.clock_in()
+    result = services.clock.clock_in(now=datetime(2026, 6, 10, 9, tzinfo=UTC))
+
     assert not result.success
-    assert "annual" in result.message.lower()
 ```
+
+**`configure` seeds a bank holiday, and it has to.**
+`BankHolidayService.titles_between` answers `None` — not an empty mapping — when
+the calendar is absent, and `AbsenceService` refuses to book against `None`. A
+test that arranges its own database without a cache row does not fail loudly: it
+gets "Bank holiday data unavailable" back from every booking and then asserts
+something else, which is how a test passes while exercising nothing.
+
+**Anything that touches "now" must pin the clock.** The suite pins the *zone*
+session-wide through `flexi.wallclock`, but not the date, so a test that reads
+the real one is a test that fails on some future Tuesday for reasons that have
+nothing to do with the code. Two files learned this the hard way — see
+`tests/services/test_short_sessions.py` and `test_stale_sessions.py`, both of
+which hold the clock still with `time_machine.travel(..., tick=False)` in a
+module-level autouse fixture, and say why in the docstring. `configure`'s seeded
+holiday is the usual trap: on the day after it, every `clock_in()` is refused.
 
 Every service method that returns a `Result` needs both branches tested. The
 refusal message is part of the contract — it is what the status bar shows.
 
 **Migrations.** `tests/models/test_migrations.py` upgrades and downgrades a
-*populated* database. `0007` rebuilds `absence_days` rather than altering it, and
+*populated* database. `0007` rebuilds `absence_days` instead of altering it, and
 a table rebuild that silently loses rows is the kind of bug only discovered by the
 person whose leave records it ate.
 
 Write to those tables with **raw SQL, not the ORM**: the models carry columns a
 later revision adds, so writing through them tests the schema against itself
-rather than against what is on disk.
+instead of against what is on disk.
 
 ## 3. Pilot tests
 
@@ -86,16 +111,16 @@ async def test_slash_toggles_the_clock(app_factory):
 ```
 
 `app_factory` builds a `FlexiApp` against a temporary database with settings
-already saved, so the setup screen does not intercept. Put it in
+already saved, so the setup screen does not intercept. It lives in
 `tests/tui/conftest.py`.
 
-What to cover here, at minimum — these are the acceptance tests for the six
-features:
+What to cover here, at minimum:
 
 - `/` clocks in and out from every screen, and does **not** fire inside an
   `Input`.
 - `space` expands the row under the cursor and the cursor does not move.
-- `d`/`w`/`m`/`y` change the records table's row count to 1 / 7 / 28–31 / 12.
+- `d`/`w`/`m`/`y` give the records table a row per day in the period plus one
+  total row: 2, 8, 29–32, 366.
 - `t` returns to today from any period.
 - `v` opens the overlay, a target key focuses that panel, `escape` restores the
   previously focused widget.
@@ -111,14 +136,15 @@ features:
 
 ## 4. Snapshot tests
 
-`tests/snapshot/test_screens.py` drives eleven screens and compares what the
-compositor produced against the text committed in `docs/shots/`.
+`tests/snapshot/test_screens.py` drives every case in its `CASES` tuple and
+compares what the compositor produced against the text committed in
+`docs/shots/`.
 
-**Text, not SVG.** `pytest-textual-snapshot` is installed and compares rendered
-SVGs, which are only readable as pictures — a CI failure becomes a file you have
-to download before you can tell whether the change was intended. Comparing
-characters means a failure prints a unified diff of two screens, in the terminal,
-where whoever caused it is already looking:
+**Text, not SVG.** `pytest-textual-snapshot` compares rendered SVGs, which are
+only readable as pictures — a CI failure becomes a file you have to download
+before you can tell whether the change was intended. So Flexi does not use it.
+Comparing characters means a failure prints a unified diff of two screens, in the
+terminal, where whoever caused it is already looking:
 
 ```
 -  │ ANNUAL LEAVE  20.5 left of 25 │
@@ -128,15 +154,20 @@ where whoever caused it is already looking:
 The SVGs are still written and are still what a reviewer looks at; they are just
 not what the test asserts on.
 
-Rules that keep them useful rather than noisy:
+Rules that keep them useful:
 
 - **Freeze time.** Every case runs inside `time_machine.travel` at
   `flexi.services.samples.NOW` against the seeded database, otherwise the diff is
   the clock.
-- **Three widths, every time**: 120×36 (wide), 84×28 (narrow), 64×22 (tiny). The
-  responsive rules in `DESIGN-SYSTEM.md` §6 only exist if all three are pinned.
-- **Update deliberately**: `uv run python scripts/shoot.py` regenerates both the
-  SVGs and the text, and the diff is what you review before committing it.
+- **Pin the widths the case is about.** The three are 120×36 (wide), 84×28
+  (narrow) and 64×22 (tiny). The dashboard is pinned at all three, leave at wide
+  and narrow, insights at 120×36 and 120×44, and the rest at wide only. The
+  responsive rules in `DESIGN-SYSTEM.md` §6 only exist where they are pinned.
+- **Regenerate, then read the diff.** `uv run python scripts/shoot.py` rewrites
+  both the SVGs and the text; the diff is what you review before committing.
+- **A version bump is a visual change.** The header carries `v0.2.0`, so every
+  `.txt` twin carries it too, and bumping `version` in `pyproject.toml` without
+  re-shooting turns the snapshot suite red.
 
 ## 5. Screenshots for review
 
@@ -145,30 +176,35 @@ app headlessly and export SVG:
 
 ```python
 # scripts/shoot.py
-async def shoot(name: str, size: tuple[int, int], keys: list[str]) -> None:
-    app = build_demo_app()
-    async with app.run_test(size=size) as pilot:
-        for key in keys:
-            await pilot.press(key)
-        await pilot.pause()
-        app.save_screenshot(f"docs/shots/{name}.svg")
+def build_database(path: Path) -> Session: ...
+
+
+async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> None:
+    ...
+    app.save_screenshot(str(SHOTS / f"{name}.svg"))
+    (SHOTS / f"{name}.txt").write_text(screen_text(app), encoding="utf-8")
 ```
 
 `uv run python scripts/shoot.py` writes the set into `docs/shots/`, as an SVG and
-a text twin per screen. Convert to PNG for a terminal that renders images:
+a text twin per screen. `SHOOTS` there is `CASES` plus the five wider
+`showcase-*` shots the README embeds; the two lists are kept in step by hand.
+Convert to PNG for a terminal that renders images:
 
 ```
 rsvg-convert -w 1600 docs/shots/dashboard-wide.svg -o /tmp/dashboard-wide.png
 ```
 
 The demo seeds a leave year of plausible data — some overtime, one short day, a
-booked week of annual leave, two bank holidays, a sick day, a half-day and a TOIL
-day — so the shots show the interesting cases rather than an empty database. It
-lives in `flexi/services/samples.py` and is what `flexi --demo` runs, which makes
-it the same data a reviewer, a snapshot test and a new user all see.
+week of annual leave, the year's bank holidays, a sick day, a half day and a TOIL
+day — so the shots show the interesting cases and not an empty database. It lives
+in `flexi/services/samples.py` and is what `flexi --demo` runs, which makes it
+the same data a reviewer, a snapshot test and a new user all see.
 
-`--demo` builds it in a temporary directory and throws it away on exit, so it can
-never be confused with real records.
+Everything is derived from the anchor it is handed. The snapshots pass `ANCHOR`,
+a fixed Thursday, because a committed SVG cannot move; `--demo` passes today,
+along with the wall time that day has reached, so nothing is seeded that has not
+happened yet. `--demo` builds it in a temporary directory and throws it away on
+exit.
 
 ## 6. Running
 
@@ -189,4 +225,133 @@ either.
 `uv run pre-commit run --all-files` runs the lot, and those hooks are the same
 commands CI runs.
 
-A failed snapshot prints its diff, so nothing needs uploading as an artifact.
+A failed snapshot prints its diff, so nothing needs uploading as an artefact.
+
+`pytest-timeout` bounds each test at 120 seconds and prints thread stacks when
+that limit is reached. The stateful service test has a 300-second limit because
+one test item exercises many database lifecycles. Keep timeout diagnostics under
+that same timer: a separate `faulthandler_timeout` ignores per-test limits. A
+Windows worker crashed during that extra stack dump before its test limit.
+Python's fatal-error handler remains enabled for actual interpreter faults.
+
+## 7. Reproducing a loaded runner
+
+```
+FLEXI_LATE_CALLBACKS=0.05 uv run pytest -q
+```
+
+`pilot.pause()` drains the messages queued at the moment it is called. Work that
+a *layout* schedules — `RecordsModule` measuring its strip column, the key strip
+recomposing — may or may not have landed by the time it returns, and which of
+those happens is a property of how loaded the machine is, not of the
+code. On a laptop it lands early and every test passes. On a three-core runner
+it lands a moment later, on top of whatever the test had just set up: a table the
+test emptied fills again, a ledger cache the test just invalidated refills.
+
+That variable puts every deferred callback behind a timer, which is the one thing
+`pause` cannot drain, so a loaded runner's ordering is reproducible on an idle
+machine in twenty seconds. **It is expected to be green**, and a test that passes
+without it and fails with it has not found a bug — it is asserting on a screen
+that had not finished drawing. The cure is `await settled(pilot)` from
+`tests/conftest.py`, which waits for the callbacks themselves instead of
+guessing at a number of pauses.
+
+Both failures that motivated it were real CI failures, in different files, that
+reproduced locally in under a second once the ordering was made deterministic.
+
+## 8. Running what CI runs, without pushing
+
+CI is three reusable workflows, called by both `ci.yaml` and `release.yaml` so
+that a release is verified by exactly what a pull request is verified by. Every
+job in them is a command you can run here. Nothing in CI is discoverable only
+by pushing.
+
+| Workflow | Job | The same thing, locally |
+|---|---|---|
+| `static.yaml` | `Lint and types` | `uv sync --locked --dev && uv lock --check && uv run ruff check && uv run ruff format --check && uv run mypy && uv run mypy --platform win32 --no-warn-unreachable` |
+| `tests.yaml` | the matrix | `HYPOTHESIS_PROFILE=ci TZ=UTC uv run pytest` (or the row's timezone) |
+| `tests.yaml` | the coverage row | `HYPOTHESIS_PROFILE=ci TZ=UTC uv run pytest --cov` |
+| `tests.yaml` | `The declared floors still pass` | `uv lock --resolution lowest-direct && uv sync --frozen --dev && HYPOTHESIS_PROFILE=ci TZ=UTC uv run --frozen pytest` |
+| `tests.yaml` | `Deferred callbacks land late` | `HYPOTHESIS_PROFILE=ci TZ=UTC FLEXI_LATE_CALLBACKS=0.05 uv run pytest` |
+| `package.yaml` | `Wheel installs and runs` | see below |
+
+`tests/test_pipelines.py` asserts that both pipelines call the same three, and
+that `All green` waits for all of them.
+
+```
+# wheel: build it, install it where no source tree can be imported, run it
+uv build
+uv venv .probe
+uv pip install --python .probe/bin/python dist/*.whl
+uv pip check --python .probe/bin/python
+.probe/bin/python scripts/smoke.py
+uv export --locked --no-emit-project --no-hashes --group dev -o .probe-reqs.txt
+uv pip install --python .probe/bin/python -r .probe-reqs.txt
+.probe/bin/python -m pytest tests/test_packaging.py -q
+.probe/bin/python -c "from flexi.locations import database_file; print(database_file())"
+uvx --from twine==7.0.0 twine check --strict dist/*
+```
+
+On Windows the interpreter is `.probe/Scripts/python.exe`. The venv is relative and inside the checkout
+because bash on Windows rewrites an absolute POSIX path on its way to a native
+binary, and the src layout is what keeps the check honest — the working
+directory is the source tree and `flexi` is still importable only from the
+wheel.
+
+The full suite runs in 15 matrix jobs. Every Linux, macOS and Windows runner
+tests Python 3.12, 3.13 and 3.14 in UTC. Each OS also tests Python 3.13 in
+Europe/London and America/New_York. This retains every OS/Python pair and every
+OS/timezone pair without repeating all 27 combinations.
+
+The canonical Linux/Python 3.13/UTC job enforces coverage. Every matrix job,
+the minimum-dependency job and the delayed-callback job use Hypothesis's `ci`
+profile: up to 500 examples per property. The stateful SQLite test keeps its
+separate budget of 40 examples with up to 40 steps each on every runner. No
+tests are excluded from any of these jobs. Each run prints its 15 slowest tests
+with `--durations=15`, so further performance work can target measured bottlenecks.
+
+`uv` selects the interpreter; `TZ` selects the timezone on POSIX systems:
+
+```
+UV_PROJECT_ENVIRONMENT=/tmp/py313 uv sync --locked --dev --python 3.13
+HYPOTHESIS_PROFILE=ci TZ=Europe/London /tmp/py313/bin/python -m pytest -q
+HYPOTHESIS_PROFILE=ci TZ=America/New_York /tmp/py313/bin/python -m pytest -q
+```
+
+An operating system needs its own runner; running these commands on macOS does
+not verify Windows or Linux. The suite pins its
+own clock through `flexi.wallclock`, so `TZ` is not what makes the timezone
+rows differ — the machine underneath them is, and green under all three is the
+evidence that no reading escapes the pin. Windows sets its zone with `tzutil`
+and not with `TZ`, which is a POSIX idea `time.tzset` implements and Windows
+does not have. Two tests are skipped there and say so: the pty reader in
+`tests/cli/test_terminal.py`, which needs a terminal Windows has no equivalent
+of, and the pair in `tests/services/test_setup.py` that need a file `chmod`
+can genuinely deny.
+
+The workflow files themselves are checked by the linter that knows about them:
+
+```
+uvx --from actionlint-py actionlint .github/workflows/*.yaml
+```
+
+`act` can run Linux jobs in Docker. Its images may differ from GitHub's hosted
+runners, and it does not reproduce the macOS or Windows matrix rows:
+
+```
+act workflow_dispatch -W .github/workflows/ci.yaml
+```
+
+## 9. Dependency advisories
+
+The static workflow checks every locked runtime and development dependency:
+
+```bash
+uv export --locked --no-emit-project --group dev -o .probe-audit.txt --quiet
+uvx --from pip-audit==2.10.1 pip-audit --disable-pip --no-deps --progress-spinner off -r .probe-audit.txt
+```
+
+The audit evaluates environment markers for the current interpreter and OS.
+Run it on Windows to include Windows-only dependencies. It requires network
+access to the advisory service. A clean result covers known advisories at the
+time of the check; it is not a substitute for code review.

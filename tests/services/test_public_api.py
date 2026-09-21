@@ -1,0 +1,163 @@
+"""The supported, lazy import surface of :mod:`flexi.services`."""
+
+from __future__ import annotations
+
+import importlib
+import subprocess
+import sys
+from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import FrozenInstanceError, fields
+from pathlib import Path
+from typing import assert_type, get_type_hints
+from unittest.mock import patch
+
+import pytest
+from sqlalchemy.orm import Session
+
+import flexi.services as service_api
+from flexi.services import Services as FacadeServices
+from flexi.services import build_services as facade_build_services
+from flexi.services.registry import Services as RegistryServices
+from flexi.services.registry import (
+    available_toil_days,
+    build_services,
+    invalidate_services,
+    settlement_date,
+    zero_balance,
+)
+from tests.public_api import check_declared_api, check_public_annotations
+
+SERVICES = Path(service_api.__file__).parent
+MODULE_NAMES = tuple(
+    path.stem for path in sorted(SERVICES.glob("*.py")) if path.stem != "__init__"
+)
+
+
+@pytest.mark.parametrize("module_name", MODULE_NAMES)
+def test_each_module_exports_its_public_names(module_name: str) -> None:
+    check_declared_api(importlib.import_module(f"flexi.services.{module_name}"))
+
+
+@pytest.mark.parametrize("module_name", MODULE_NAMES)
+def test_every_service_annotation_resolves(module_name: str) -> None:
+    check_public_annotations(importlib.import_module(f"flexi.services.{module_name}"))
+
+
+def test_facade_routes_to_every_export_once() -> None:
+    owners: defaultdict[str, list[str]] = defaultdict(list)
+    modules = {
+        name: importlib.import_module(f"flexi.services.{name}") for name in MODULE_NAMES
+    }
+    for module_name, module in modules.items():
+        for public_name in module.__all__:
+            owners[public_name].append(module_name)
+
+    collisions = {name: found for name, found in owners.items() if len(found) > 1}
+    assert collisions == {}
+    assert set(service_api.__all__) == set(MODULE_NAMES) | set(owners)
+    assert len(service_api.__all__) == len(set(service_api.__all__))
+
+    for module_name, module in modules.items():
+        assert getattr(service_api, module_name) is module
+        for public_name in module.__all__:
+            assert getattr(service_api, public_name) is getattr(module, public_name)
+
+
+def test_typed_facade_exposes_composition() -> None:
+    factory: Callable[[Session], RegistryServices] = facade_build_services
+
+    assert assert_type(FacadeServices, type[RegistryServices]) is RegistryServices
+    assert factory is build_services
+
+
+def test_services_is_frozen_and_session_free(session: Session) -> None:
+    services = build_services(session)
+
+    assert {field.name for field in fields(services)} == {
+        "absence",
+        "adjustments",
+        "bank_holidays",
+        "clock",
+        "ledger",
+        "settings",
+        "wallet",
+        "write",
+    }
+    assert not hasattr(services, "session")
+    assert not hasattr(services.wallet, "_session")
+    assert not {
+        "available_toil_days",
+        "build",
+        "invalidate",
+        "settles_to",
+        "zero_balance",
+    }.intersection(vars(RegistryServices))
+
+    name = "wallet"
+    with pytest.raises(FrozenInstanceError):
+        setattr(services, name, services.wallet)
+
+
+def test_composition_function_annotations_resolve() -> None:
+    for operation in (
+        available_toil_days,
+        build_services,
+        invalidate_services,
+        settlement_date,
+        zero_balance,
+    ):
+        assert get_type_hints(operation)
+
+
+def test_lazily_resolved_symbol_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delitem(vars(service_api), "build_services", raising=False)
+    with patch("importlib.import_module", wraps=importlib.import_module) as load:
+        assert service_api.build_services is build_services
+        assert service_api.build_services is build_services
+
+    load.assert_called_once_with("flexi.services.registry")
+
+
+def test_dir_lists_unresolved_public_names() -> None:
+    assert set(service_api.__all__) <= set(dir(service_api))
+
+
+def test_unknown_attribute_still_raises() -> None:
+    name = "not_a_service"
+    with pytest.raises(
+        AttributeError,
+        match=r"module 'flexi.services' has no attribute 'not_a_service'",
+    ):
+        getattr(service_api, name)
+
+
+def test_setup_import_avoids_the_service_graph() -> None:
+    """A fresh interpreter, so imports from earlier tests cannot mask one."""
+    script = """
+import sys
+
+before = set(sys.modules)
+import flexi.services
+
+dir(flexi.services)
+import flexi.services.setup
+
+introduced = set(sys.modules) - before
+service_modules = {
+    name
+    for name in introduced
+    if name == "flexi.services" or name.startswith("flexi.services.")
+}
+expected = {"flexi.services", "flexi.services.setup"}
+if service_modules != expected:
+    raise AssertionError(f"setup loaded the service graph: {sorted(service_modules)}")
+
+heavy = {"alembic", "httpx", "sqlalchemy", "textual"}
+loaded_heavy = {name.split(".")[0] for name in introduced}.intersection(heavy)
+if loaded_heavy:
+    raise AssertionError(f"setup loaded heavy dependencies: {sorted(loaded_heavy)}")
+"""
+    subprocess.run(  # noqa: S603 - fixed interpreter and in-repository script
+        [sys.executable, "-c", script], check=True
+    )

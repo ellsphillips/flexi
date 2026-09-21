@@ -15,8 +15,8 @@ body:
     attributes:
       label: What was on screen
       description: >
-        Paste the terminal, or attach a capture. `uv run python scripts/shoot.py`
-        writes SVGs and their plain-text twins to `docs/shots/`.
+        Paste the terminal text, or attach a screenshot of the window. Say
+        which screen you were on.
       render: text
 
   - type: input
@@ -24,7 +24,7 @@ body:
     attributes:
       label: Version
       description: "`flexi --version`, and your terminal and OS."
-      placeholder: "flexi 0.1.0 · kitty 0.32 · macOS 15.3"
+      placeholder: "0.2.0 · kitty 0.32 · macOS 15.3"
     validations:
       required: true
 

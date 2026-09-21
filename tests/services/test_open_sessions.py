@@ -1,20 +1,18 @@
-"""A session nobody closed is worth its own day, not every hour since.
+"""A session left open is worth its own day, not every hour since.
 
 Startup auto-closes stale sessions, so this only matters in the window between
-a crash and the next launch. During it, a Tuesday left open used to report every
-hour from Tuesday morning to right now as time worked on Tuesday.
+a crash and the next launch.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-import pytest
 from sqlalchemy.orm import Session
 
 from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
-from flexi.services.registry import Services
+from flexi.services.registry import Services, invalidate_services
 
 TUESDAY = date(2026, 8, 11)
 THURSDAY = date(2026, 8, 13)
@@ -22,18 +20,6 @@ TUESDAY_NINE = datetime.combine(TUESDAY, datetime.min.time(), tzinfo=UTC).replac
     hour=9
 )
 THURSDAY_NOON = datetime.combine(THURSDAY, datetime.min.time()).replace(hour=12)
-
-
-@pytest.fixture
-def services(session: Session) -> Services:
-    built = Services.build(session)
-    built.settings.save_settings(
-        leave_year_start="10-20",
-        working_days="0,1,2,3,4",
-        bank_holiday_division="england-and-wales",
-        auto_close_time="18:00",
-    )
-    return Services.build(session)
 
 
 def _leave_open(session: Session, at: datetime) -> None:
@@ -45,11 +31,9 @@ def _leave_open(session: Session, at: datetime) -> None:
     session.commit()
 
 
-def test_an_open_past_day_stops_at_its_own_midnight(
-    services: Services, session: Session
-) -> None:
+def test_open_past_day_stops_at_midnight(services: Services, session: Session) -> None:
     _leave_open(session, TUESDAY_NINE)
-    services.invalidate()
+    invalidate_services(services)
 
     tuesday = services.ledger.day(TUESDAY, now=THURSDAY_NOON)
 
@@ -59,22 +43,23 @@ def test_an_open_past_day_stops_at_its_own_midnight(
     )
 
 
-def test_it_does_not_count_the_days_since(services: Services, session: Session) -> None:
-    """The bug: two days and three hours of 'work' on a single Tuesday."""
+def test_open_day_does_not_count_days_since(
+    services: Services, session: Session
+) -> None:
     _leave_open(session, TUESDAY_NINE)
-    services.invalidate()
+    invalidate_services(services)
 
     tuesday = services.ledger.day(TUESDAY, now=THURSDAY_NOON)
 
     assert tuesday.worked != THURSDAY_NOON - TUESDAY_NINE.replace(tzinfo=None)
 
 
-def test_an_open_session_today_still_runs_live(
+def test_open_session_today_still_runs_live(
     services: Services, session: Session
 ) -> None:
-    """Today is not clamped -- the balance has to tick up while it is watched."""
+    """Today is not clamped: the balance ticks up while it is watched."""
     _leave_open(session, TUESDAY_NINE)
-    services.invalidate()
+    invalidate_services(services)
 
     watching = datetime.combine(TUESDAY, datetime.min.time()).replace(
         hour=11, minute=30
@@ -82,3 +67,17 @@ def test_an_open_session_today_still_runs_live(
     tuesday = services.ledger.day(TUESDAY, now=watching)
 
     assert tuesday.worked == timedelta(hours=2, minutes=30)
+
+
+def test_a_cached_open_session_reaches_its_cutoff_after_midnight(
+    services: Services, session: Session
+) -> None:
+    _leave_open(session, TUESDAY_NINE)
+    watching = TUESDAY_NINE.replace(hour=23)
+    before_midnight = services.ledger.day(TUESDAY, now=watching)
+    assert before_midnight.worked == timedelta(hours=14)
+
+    after_midnight = services.ledger.day(TUESDAY, now=watching + timedelta(hours=2))
+
+    assert after_midnight.worked == timedelta(hours=15, microseconds=-1)
+    assert after_midnight is not before_midnight

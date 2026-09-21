@@ -1,0 +1,110 @@
+name: Package
+
+# What a person actually downloads. The suite runs from a source tree and
+# cannot say whether the wheel carries its stylesheets, resolves a data
+# directory, or paints a screen on the machine it was installed on.
+#
+# It produces independently tested `dist` and `test-dist` artifacts. The
+# TestPyPI build has a distinct distribution name and identical application files.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  wheel:
+    name: Wheel installs and runs · ${{ matrix.os }} · ${{ matrix.registry }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        registry: [pypi, testpypi]
+    env:
+      DIST: ${{ matrix.registry == 'testpypi' && 'test-dist' || 'dist' }}
+      DISTRIBUTION: ${{ matrix.registry == 'testpypi' && 'flexi-test' || 'flexi' }}
+      # uv puts the interpreter under `bin` on POSIX and `Scripts` on Windows,
+      # and on Windows it is only found by its `.exe`: `uv pip install --python
+      # .probe/Scripts/python` answers "no virtual environment found".
+      #
+      # Relative, and inside the workspace: bash on Windows rewrites absolute
+      # POSIX paths on the way to a native binary, and a venv the job cannot
+      # name afterwards is a job that skips itself.
+      PROBE: ${{ matrix.os == 'windows-latest' && '.probe/Scripts/python.exe' || '.probe/bin/python' }}
+    defaults:
+      run:
+        # bash on every runner gives wheel globs the same expansion rules.
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv build --no-create-gitignore
+
+      - name: Build the TestPyPI distribution from the production source archive
+        if: matrix.registry == 'testpypi'
+        run: uv run --no-project --python 3.12 -m scripts.build_staging --dist dist --out test-dist
+
+      - name: Check PyPI metadata and README rendering
+        run: uvx --from twine==7.0.0 twine check --strict "$DIST"/*
+
+      - name: Install it somewhere that has no source tree
+        run: |
+          uv venv .probe
+          uv pip install --python "$PROBE" "$DIST"/*.whl
+          uv pip check --python "$PROBE"
+          "$PROBE" -c "import importlib.metadata, sys, flexi; assert flexi.version() == importlib.metadata.version(sys.argv[1])" "$DISTRIBUTION"
+          "$PROBE" -m flexi --version
+          "$PROBE" -m flexi --help
+
+      - name: It migrates and paints with runtime dependencies alone
+        run: '"$PROBE" scripts/smoke.py'
+
+      - name: Install the locked test tools
+        run: |
+          # The toolchain comes from the lockfile, so a release on PyPI
+          # cannot turn this job red between two runs of the same commit.
+          # `uv pip install` never reads uv.lock, hence the export.
+          uv export --locked --no-emit-project --no-hashes --group dev -o .probe-reqs.txt
+          uv pip install --python "$PROBE" -r .probe-reqs.txt
+          # `--no-deps`, so the wheel is the only copy of flexi on the path and
+          # the resolution stays the locked one. `uv pip check` then still reads
+          # the wheel's own Requires-Dist and says so if it names something the
+          # export did not bring.
+          uv pip install --python "$PROBE" --no-deps "$DIST"/*.whl
+          uv pip check --python "$PROBE"
+
+      - name: Its data files travelled with it
+        # Run against the installed package, not the checkout: a wheel missing
+        # its stylesheets imports cleanly and then dies on the first frame.
+        run: |
+          "$PROBE" -m pytest tests/test_packaging.py -q
+
+      - name: It knows where to keep the records on this machine
+        # The one thing `smoke.py` cannot check, because it runs against a
+        # temporary file: that the real data directory resolves somewhere
+        # absolute and platform-appropriate. `%LOCALAPPDATA%` unset in a
+        # service account, or an XDG variable inherited from a shell, both land
+        # here rather than in a user's first run.
+        run: |
+          "$PROBE" -c "
+          from flexi.locations import config_file, database_file
+          for path in (database_file(), config_file()):
+              assert path.is_absolute(), path
+              print(path)
+          "
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        # One copy per distribution, each installed on all supported platforms.
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: ${{ env.DIST }}
+          path: ${{ env.DIST }}/
+          if-no-files-found: error

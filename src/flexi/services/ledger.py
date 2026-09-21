@@ -1,21 +1,23 @@
-"""Building day ledgers, in one pass over a period.
+"""Build day ledgers in one pass over a period.
 
-A period loads in three queries regardless of its length, and the results are
-memoised until something writes. The dashboard calls ``invalidate()`` when a
-:class:`~flexi.services.registry.DataChanged` scope says the rows moved; nothing
-else clears the cache, so a redraw provoked by a resize costs nothing.
+A period loads in three queries whatever its length, and the results are
+memoised. The cache clears when the session commits or rolls back, when another
+connection commits, and when a :class:`~flexi.messages.Scope` says the rows
+moved, so a redraw provoked by a resize costs nothing.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, date, datetime, time, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
-from flexi.constants import DayKind
+from flexi.constants import DayKind, EventSource
+from flexi.domain import leaveyear
 from flexi.domain.balance import (
     BalanceSummary,
     accumulate,
@@ -23,28 +25,53 @@ from flexi.domain.balance import (
     toil_taken_for,
     worked_from,
 )
+from flexi.domain.dates import days_between
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.punch import Window
 from flexi.models.database.db import (
     AbsenceDay,
     BalanceAdjustment,
-    BankHolidayCache,
     WorkSession,
 )
+from flexi.models.database.moment import moment_of
+from flexi.services.bank_holidays import BankHolidayService
 from flexi.services.settings import SettingsService
 
+__all__ = (
+    "LedgerRevision",
+    "LedgerService",
+    "day_kind",
+    "end_of_day",
+    "ledger_revision",
+    "segment_of",
+)
 
-def _naive(moment: datetime) -> datetime:
-    """A timestamp as local wall time, without a zone.
 
-    Everything on screen is wall-clock: a punch strip is drawn against the hours
-    of the day the wearer lived, not against UTC. Timestamps are stored aware and
-    compared naive, in one place, so the conversion cannot be forgotten in a
-    widget.
+@dataclass(frozen=True, slots=True)
+class LedgerRevision:
+    """The SQLite connection and external-commit counter behind a derivation."""
+
+    connection: object
+    data_version: int
+
+
+def ledger_revision(session: Session) -> LedgerRevision:
+    """Identify the source state against which ledger rows are cached.
+
+    ``PRAGMA data_version`` changes when another SQLite connection commits. Its
+    number means nothing on any other connection, so the connection identity
+    travels with it and a different pooled connection counts as a new revision.
     """
-    if moment.tzinfo is None:
-        return moment
-    return moment.astimezone().replace(tzinfo=None)
+    connection = session.connection()
+    driver = connection.connection.dbapi_connection
+    if driver is None:
+        msg = "A ledger revision requires an active database connection"
+        raise RuntimeError(msg)
+    version = connection.exec_driver_sql("PRAGMA data_version").scalar_one()
+    if not isinstance(version, int):
+        msg = "SQLite returned an invalid data_version"
+        raise TypeError(msg)
+    return LedgerRevision(driver, version)
 
 
 class LedgerService:
@@ -54,31 +81,44 @@ class LedgerService:
         self,
         session: Session,
         settings: SettingsService,
-        division: str = "england-and-wales",
+        holidays: BankHolidayService,
     ) -> None:
         self._session = session
         self._settings = settings
-        self._division = division
+        self._holidays_service = holidays
         self._cache: dict[date, DayLedger] = {}
+        self._revision: LedgerRevision | None = None
+        event.listen(session, "after_commit", self.invalidate_after_transaction)
+        event.listen(session, "after_rollback", self.invalidate_after_transaction)
 
-    # -- cache -------------------------------------------------------------
+    # Cache.
 
     def invalidate(self) -> None:
         """Forget every ledger built so far."""
         self._cache.clear()
 
-    # -- reading -----------------------------------------------------------
+    def invalidate_after_transaction(self, completed: Session) -> None:
+        """Forget derived values after the source session commits or rolls back.
+
+        A rollback may release the connection whose ``data_version`` is being
+        compared, and it leaves derivations built over rows that never committed.
+        """
+        if completed is self._session:
+            self.invalidate()
+
+    def refresh_revision(self) -> None:
+        """Invalidate when another connection committed since the last read."""
+        current = ledger_revision(self._session)
+        if self._revision is not None and current != self._revision:
+            self.invalidate()
+        self._revision = current
+
+    # Reading.
 
     @property
     def window(self) -> Window:
         """The span of the day the punch strip should draw."""
-        start, end = self._settings.get_day_window()
-        return Window.parse(start, end)
-
-    @property
-    def contracted(self) -> timedelta:
-        """How long a standard working day is."""
-        return self._settings.get_contracted()
+        return self._settings.get_day_window()
 
     def day(self, when: date, *, now: datetime | None = None) -> DayLedger:
         """One day's ledger."""
@@ -89,15 +129,19 @@ class LedgerService:
     ) -> list[DayLedger]:
         """Every day between two dates, inclusive, built in three queries.
 
-        A day already in the cache is reused unless it is *today* — today's
-        ledger contains any open session, whose length changes every second, so
-        caching it would freeze the live readout.
+        Today's ledger and any day holding an open session are rebuilt. An open
+        session valued yesterday must reach its day-end cutoff after midnight.
         """
-        moment = now or wallclock.now()
+        self.refresh_revision()
+        moment = wallclock.local(now) if now is not None else wallclock.now()
         today = moment.date()
 
-        wanted = _date_range(start, end)
-        missing = [day for day in wanted if day not in self._cache or day == today]
+        wanted = days_between(start, end)
+        missing = [
+            day
+            for day in wanted
+            if day not in self._cache or day == today or self._cache[day].is_open
+        ]
         if missing:
             self._build(min(missing), max(missing), moment, today)
         return [self._cache[day] for day in wanted]
@@ -113,29 +157,31 @@ class LedgerService:
     ) -> BalanceSummary:
         """The running flexi balance, from the start of the leave year to a date.
 
-        Accumulated rather than stored, so a corrected session or a changed
-        contract is reflected everywhere at once and there is no derived total to
-        fall out of step.
+        Accumulated on every read, never stored, so a corrected session or a
+        changed contract takes effect everywhere at once.
         """
         as_of = as_of or wallclock.today()
-        year = self._settings.active_leave_year(as_of)
         month, day = self._settings.get_leave_year_start()
-        return self.summary(date(year, month, day), as_of, now=now)
+        return self.summary(leaveyear.start_of(as_of, month, day), as_of, now=now)
 
-    # -- building ----------------------------------------------------------
+    # Building.
 
     def _build(self, start: date, end: date, moment: datetime, today: date) -> None:
         sessions = self._sessions(start, end)
         absences = self._absences(start, end)
-        holidays = self._holidays(start, end)
+        # `titles_between` returns None for "no calendar"; the ledger treats
+        # that as "no holidays" and leaves the distinction to the service.
+        holidays = self._holidays_service.titles_between(start, end) or {}
         corrections = self._adjustments(start, end)
-        working_days = set(self._settings.get_working_day_indices())
-        contracted = self.contracted
+        settings = self._settings.resolved()
+        working_days = set(settings.working_days)
+        contracted = settings.contracted
+        tracking_since = settings.tracking_since
 
-        for when in _date_range(start, end):
+        for when in days_between(start, end):
             segments = tuple(
                 sorted(
-                    (_segment(row) for row in sessions[when]),
+                    (segment_of(row) for row in sessions[when]),
                     key=lambda item: item.start,
                 )
             )
@@ -145,12 +191,17 @@ class LedgerService:
             )
             title = holidays.get(when)
             is_working = when.weekday() in working_days
+            # A real punch tracks the day whatever `tracking_since` says; an
+            # amended one cannot, since nothing was clocking at the time.
+            punched = any(not segment.amended for segment in segments)
+            is_tracked = tracking_since is None or when >= tracking_since or punched
 
             worked = worked_from(
-                segments, now=moment if when >= today else _end_of(when)
+                segments, now=moment if when >= today else end_of_day(when)
             )
             expected = expected_for(
                 contracted,
+                is_tracked=is_tracked,
                 is_working_day=is_working,
                 is_holiday=title is not None,
                 absences=slices,
@@ -158,12 +209,26 @@ class LedgerService:
 
             self._cache[when] = DayLedger(
                 date=when,
-                kind=_kind(title, slices, segments, is_working=is_working),
+                kind=day_kind(
+                    title,
+                    slices,
+                    segments,
+                    is_working=is_working,
+                    # Broader than the test `expected` uses: a corrected
+                    # pre-setup day asks for nothing but is still known about.
+                    is_tracked=is_tracked or bool(segments),
+                ),
                 is_working_day=is_working,
                 contracted=contracted,
                 worked=worked,
                 expected=expected,
-                toil_taken=toil_taken_for(contracted, slices),
+                # TOIL is a withdrawal against what a day asks for, and an
+                # untracked day, non-working day or bank holiday asks for nothing.
+                toil_taken=(
+                    toil_taken_for(contracted, slices)
+                    if is_tracked and is_working and title is None
+                    else timedelta()
+                ),
                 adjustment=corrections.get(when, timedelta()),
                 holiday_title=title,
                 absences=slices,
@@ -171,12 +236,11 @@ class LedgerService:
             )
 
     def _sessions(self, start: date, end: date) -> defaultdict[date, list[WorkSession]]:
-        # Eager-load both events. They are what a segment is made of, so a lazy
-        # relationship turns "three queries for a period" into three plus two per
-        # session — 34 round trips for a month, which is the shape this service
-        # exists to avoid.
+        # Eager-load both events: a segment is made of them, and a lazy
+        # relationship would cost two more queries per session.
         stmt = (
             select(WorkSession)
+            .execution_options(populate_existing=True)
             .options(
                 selectinload(WorkSession.clock_in_event),
                 selectinload(WorkSession.clock_out_event),
@@ -196,6 +260,7 @@ class LedgerService:
     def _absences(self, start: date, end: date) -> defaultdict[date, list[AbsenceDay]]:
         stmt = (
             select(AbsenceDay)
+            .execution_options(populate_existing=True)
             .where(AbsenceDay.date >= start, AbsenceDay.date <= end)
             .order_by(AbsenceDay.date, AbsenceDay.id)
         )
@@ -207,65 +272,61 @@ class LedgerService:
     def _adjustments(self, start: date, end: date) -> dict[date, timedelta]:
         """Stored corrections, by the date they take effect.
 
-        Carried on the day rather than added at the end, so a period summary and
-        the running balance pick them up by the same route as every other term.
-        A correction dated before the leave year belongs to the leave year it
-        was dated in, and is not counted here — which is what makes it possible
-        to settle one year without disturbing the next.
+        Carried on the day, so a period summary and the running balance pick
+        them up by the same route as every other term. A correction dated
+        before the span belongs to its own leave year and is not counted here.
         """
         stmt = select(BalanceAdjustment.date, BalanceAdjustment.minutes).where(
             BalanceAdjustment.date >= start, BalanceAdjustment.date <= end
         )
-        totals: dict[date, timedelta] = {}
+        # Returned as a plain mapping: indexing a defaultdict would grow it
+        # while a span is iterated, so callers use `.get(when, timedelta())`.
+        totals: defaultdict[date, timedelta] = defaultdict(timedelta)
         for row in self._session.execute(stmt):
-            totals[row.date] = totals.get(row.date, timedelta()) + timedelta(
-                minutes=row.minutes
-            )
+            totals[row.date] += timedelta(minutes=row.minutes)
         return totals
 
-    def _holidays(self, start: date, end: date) -> dict[date, str]:
-        stmt = select(BankHolidayCache.date, BankHolidayCache.title).where(
-            BankHolidayCache.division == self._division,
-            BankHolidayCache.date >= start,
-            BankHolidayCache.date <= end,
-        )
-        return {row.date: row.title for row in self._session.execute(stmt)}
 
-
-def _end_of(day: date) -> datetime:
+def end_of_day(day: date) -> datetime:
     """The last moment of a date.
 
-    A session nobody closed is worth the rest of its own day, not every hour
-    since. Startup auto-closes stale sessions, so this only catches the window
-    between a crash and the next launch -- but during it, an open Tuesday would
-    otherwise report Tuesday to now as time worked on Tuesday.
+    An unclosed session is worth the rest of its own day, not every hour since,
+    so a past day's open session stops at midnight.
     """
-    return datetime.combine(day, time.max)
+    return wallclock.local(datetime.combine(day, time.max))
 
 
-def _segment(row: WorkSession) -> Segment:
-    start = _naive(row.clock_in_event.timestamp)
-    end = (
-        _naive(row.clock_out_event.timestamp)
-        if row.clock_out_event is not None
-        else None
-    )
+def segment_of(row: WorkSession) -> Segment:
+    start = moment_of(row.clock_in_event)
+    end = moment_of(row.clock_out_event) if row.clock_out_event is not None else None
     return Segment(
         session_id=row.id,
         start=start,
         end=end,
         auto_closed=row.auto_closed,
+        # Both events of a correction carry AMENDED; the clock-in always exists.
+        amended=row.clock_in_event.source is EventSource.AMENDED,
         note=row.note,
     )
 
 
-def _kind(
+def day_kind(
     holiday: str | None,
     slices: tuple[AbsenceSlice, ...],
     segments: tuple[Segment, ...],
     *,
     is_working: bool,
+    is_tracked: bool,
 ) -> DayKind:
+    """What a date is, from what is recorded against it.
+
+    The six kinds are decided here, in precedence order. `UNTRACKED` comes
+    first, so a day before setup is never labelled a weekend or a holiday;
+    `_build` settles before this call that a day with work on it is tracked.
+    `PARTIAL` is a half-day absence with work in the other half.
+    """
+    if not is_tracked:
+        return DayKind.UNTRACKED
     if holiday is not None:
         return DayKind.HOLIDAY
     if not is_working:
@@ -278,13 +339,3 @@ def _kind(
     if slices:
         return DayKind.PARTIAL
     return DayKind.WORKING
-
-
-def _date_range(start: date, end: date) -> list[date]:
-    span = (end - start).days
-    return [start + timedelta(days=offset) for offset in range(max(0, span) + 1)]
-
-
-def utc_now() -> datetime:
-    """The current moment, aware, for anything being written to the database."""
-    return datetime.now(tz=UTC)

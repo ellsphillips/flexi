@@ -2,14 +2,14 @@
    flexi — the design system
    ==========================================================================
 
-   The single source of truth for Flexi's terminal palette. `flexi.theme.palette()`
-   parses the PALETTE block below and hands it to the Textual `Theme`, which
-   republishes every name as an app-wide CSS variable. That indirection exists
-   because Textual scopes variables declared inside a stylesheet to *that
-   stylesheet only* — a `$c-accent` written here would be invisible to
-   `styles/dashboard.tcss`. Going through the theme means every screen can use
-   these names without re-declaring them, and there is still exactly one place a
-   colour is written down.
+   The single source of truth for Flexi's terminal palette. Textual scopes
+   variables declared inside a stylesheet to *that stylesheet only*, so a
+   `$c-accent` written here would be invisible to `styles/dashboard.tcss`.
+   `flexi.theme.palette()` parses the PALETTE block below and hands it to the
+   Textual `Theme`, which republishes every name as an app-wide CSS variable,
+   so every screen can use these names without re-declaring them. A colour is
+   chosen here; `flexi.theme.FALLBACK` answers on a machine where this file
+   cannot be read, and a test holds the two together.
 
    Add a colour to the PALETTE block and every screen gets it. Do not declare
    `$` variables outside that block; they will not travel.
@@ -18,28 +18,27 @@
    boxes, an overline above every figure, and one accent — teal, because TOIL is
    the application's own currency and it wears the house colour. Surplus green,
    deficit red and warning amber are *state*: they appear where something is
-   genuinely ahead, behind, or unactioned, never as decoration.
+   ahead, behind, or unactioned, never as decoration.
 
    Every value below is a fixed OKLCH hue rendered at a chosen lightness and
-   chroma, not an eyeballed hex. The three day-type colours that carry series
-   identity in a chart — toil, annual, sick — pass the dataviz validator's
-   all-pairs CVD check. See docs/DESIGN-SYSTEM.md §3 before changing any of them.
+   chroma. The three day-type colours that carry series identity in a chart —
+   toil, annual, sick — clear an all-pairs separation check under deutan,
+   protan and tritan simulation. See docs/DESIGN-SYSTEM.md §3 before changing
+   any of them.
    ========================================================================== */
 
 
-/* -- PALETTE --------------------------------------------------------------
-   Parsed by `flexi.theme.palette()`. Literal values only: a value containing
-   `$` is skipped, because the parser does no substitution and a half-resolved
-   colour is worse than a missing one.
+/* --- PALETTE -------------------------------------------------------------
+   Parsed by `flexi.theme.palette()`. Literal values only: the parser does no
+   substitution, so a value containing `$` is skipped.
    ------------------------------------------------------------------------- */
 
-/* Grounds — warm graphite. Terminals are dark; a warm ground gives the cool
-   accent something to sit against, and it is not the blue-black every other
-   terminal app defaults to.
+/* Grounds — warm graphite, which gives the cool accent something to sit
+   against on a dark terminal.
 
    `ink` is the page AND the modules: a panel is a rounded rule drawn *on* the
    page, not a lighter rectangle floating above it. `surface` and `raised` are
-   for the few things that genuinely lift — a modal, a hover, a field. */
+   for the few things that lift: a modal, a hover, a field. */
 $c-ink: #0F0E0D;
 $c-surface: #171614;
 $c-raised: #201E1B;
@@ -74,8 +73,7 @@ $c-warning-deep: #3A2400;
 
 /* Day types. toil/annual/sick are the validated chart scale — cyan, violet and
    orange, which clear an all-pairs colour-vision check. The other three are
-   deliberately quieter, because a bank holiday should not compete with a sick
-   day for attention. */
+   quieter, so a bank holiday does not compete with a sick day for attention. */
 $c-toil: #00AAAD;
 $c-toil-lift: #4CDCDF;
 $c-toil-deep: #003031;
@@ -97,7 +95,7 @@ $c-holiday-deep: #142537;
 
 
 
-/* -- Ground ---------------------------------------------------------------
+/* --- Ground --------------------------------------------------------------
    Every screen sits on ink. A screen does not set its own background; a region
    that needs to feel different uses `.module` or `.card` inside.
    ------------------------------------------------------------------------- */
@@ -106,22 +104,21 @@ Screen {
     background: $c-ink;
     color: $c-paper;
     layers: base overlay textual-jump;
-    /* Nothing here is read by scrolling sideways, and a screen that can scroll
-       horizontally grows a scrollbar docked along its bottom edge — directly
-       over the footer. */
+    /* A screen that can scroll horizontally grows a scrollbar docked along
+       its bottom edge, directly over the footer. */
     overflow-x: hidden;
 }
 
 
-/* -- .module --------------------------------------------------------------
+/* --- .module -------------------------------------------------------------
    The titled panel: the one container every island is built on.
 
    The border is ALWAYS present and only its colour changes on focus. A border
    occupies layout space, so adding one on `:focus` reflows the panel by two
-   cells — a wobble that reads as a rendering fault.
+   cells.
 
-   The title is set from Python and is a live data slot: the clock module writes
-   its elapsed time into the subtitle, which removes a whole summary row.
+   The title and subtitle are live data slots set from Python: the clock module
+   writes its elapsed time into the subtitle, which removes a summary row.
    ------------------------------------------------------------------------- */
 
 .module {
@@ -141,14 +138,14 @@ Screen {
     border-subtitle-color: $c-muted;
 }
 
-/* A module carrying a warning rather than an emphasis. */
+/* A module carrying a warning, not an emphasis. */
 .module.-warn {
     border: round $c-warning;
     border-title-color: $c-warning-lift;
 }
 
 
-/* -- .card ----------------------------------------------------------------
+/* --- .card ---------------------------------------------------------------
    A discrete repeated item inside a module. Quiet, relying on hover and focus
    to show it is interactive.
    ------------------------------------------------------------------------- */
@@ -165,7 +162,7 @@ Screen {
 }
 
 
-/* -- Type -----------------------------------------------------------------
+/* --- Type ----------------------------------------------------------------
    Five roles, and no sixth. Write `.overline` text in upper case in the source:
    terminal CSS has no text-transform.
    ------------------------------------------------------------------------- */
@@ -208,7 +205,7 @@ Screen {
 }
 
 
-/* -- .stat ----------------------------------------------------------------
+/* --- .stat ---------------------------------------------------------------
    Overline label, figure, optional caption. Width is left to the caller: a row
    of stats wants `1fr` each, a sidebar wants `auto`.
    ------------------------------------------------------------------------- */
@@ -229,7 +226,7 @@ Screen {
 }
 
 
-/* -- .pill ----------------------------------------------------------------
+/* --- .pill ---------------------------------------------------------------
    Inline state, one or two words. Never interactive — a pill reports, it does
    not act. Tone classes are mutually exclusive; `Pill.set_state()` swaps them.
    ------------------------------------------------------------------------- */
@@ -265,7 +262,7 @@ Screen {
 }
 
 
-/* -- .rule ----------------------------------------------------------------
+/* --- .rule ---------------------------------------------------------------
    A hairline, optionally labelled. This is how sections separate: whitespace
    and one line, never a box.
    ------------------------------------------------------------------------- */
@@ -284,7 +281,7 @@ Screen {
 }
 
 
-/* -- .kbd and KeyHint -----------------------------------------------------
+/* --- .kbd and KeyHint ----------------------------------------------------
    A key as it appears on a keyboard. Teal, because a key is the one thing on
    screen the reader is being asked to press.
    ------------------------------------------------------------------------- */
@@ -312,7 +309,7 @@ KeyHint {
 }
 
 
-/* -- Gauge ----------------------------------------------------------------
+/* --- Gauge ---------------------------------------------------------------
    A track, a fill, and a marker where the target sits. The wallet's allowance
    bars. Component classes are read by `Gauge.get_component_rich_style`.
    ------------------------------------------------------------------------- */
@@ -357,9 +354,9 @@ Gauge > .gauge--readout-only {
 }
 
 
-/* -- PunchStrip -----------------------------------------------------------
+/* --- PunchStrip ----------------------------------------------------------
    The signature. One row of cells across the working-day window, filled where
-   the wearer was on the clock. Colours are read through component classes so
+   the user was on the clock. Colours are read through component classes, so
    the same widget draws a table cell and a full-width expanded row.
    ------------------------------------------------------------------------- */
 
@@ -375,6 +372,10 @@ PunchStrip > .punch--off {
 PunchStrip > .punch--on {
     color: $c-accent;
 }
+PunchStrip > .punch--amended {
+    color: $c-accent;
+}
+
 
 PunchStrip > .punch--live {
     color: $c-accent-lift;
@@ -414,7 +415,7 @@ PunchStrip > .punch--other {
 }
 
 
-/* -- Chrome: header, nav, status bar, key strip ---------------------------
+/* --- Chrome: header, nav, status bar, key strip --------------------------
    Docked top and bottom on every screen. The wordmark never moves, so the
    application always looks like the same application; everything to its right
    is context.
@@ -428,7 +429,7 @@ AppHeader {
     border-bottom: solid $c-line;
 }
 
-Wordmark {
+Lockup {
     width: auto;
     height: 1;
 }
@@ -475,6 +476,34 @@ NavBar {
     text-align: right;
 }
 
+/* The installed version, and the one that supersedes it.
+
+   Cream, to pair with the wordmark at the other end of the header. Not
+   `$c-line`: that is a rule colour, 1.37:1 on the header ground, a hairline
+   and not text.
+
+   Superseded, the installed number steps back to the chrome grey. The emphasis
+   belongs on the version the user has not got, which is accented beside it. */
+.header-version {
+    width: auto;
+    height: 1;
+    padding: 0 0 0 2;
+    color: $c-cream;
+}
+
+.header-version.-outdated {
+    color: $c-muted;
+}
+
+.header-version > .version--arrow {
+    color: $c-muted;
+}
+
+.header-version > .version--latest {
+    color: $c-accent-lift;
+    text-style: bold;
+}
+
 /* Two rows and not one more: the status line and the key strip. */
 AppFooter {
     dock: bottom;
@@ -503,35 +532,35 @@ Footer {
     overflow-x: hidden;
 }
 
-FooterKey {
+BindingHint {
     background: $c-surface;
 }
 
-FooterKey:hover {
+BindingHint:hover {
     background: $c-raised;
 }
 
-FooterKey .footer-key--key {
+BindingHint .binding-hint--key {
     color: $c-accent-lift;
     background: $c-surface;
 }
 
-FooterKey .footer-key--description {
+BindingHint .binding-hint--description {
     color: $c-muted;
 }
 
-/* "+3 more". Ash rather than muted: it is a footnote about the strip, not one
-   of the things on it, and it must not read as a key that can be pressed. */
+/* "+3 more". Ash, not muted: it is a footnote about the strip and must not
+   read as a key that can be pressed. */
 OverflowLabel {
     color: $c-ash;
     background: $c-surface;
 }
 
 
-/* -- Controls -------------------------------------------------------------
-   Textual's own widgets, brought onto the palette. Inputs are ruled rather
-   than boxed; the focused one gains a teal underline, which is the only moving
-   accent on the screen.
+/* --- Controls ------------------------------------------------------------
+   Textual's own widgets, brought onto the palette. Inputs are ruled, not
+   boxed; the focused one gains a teal underline, the only moving accent on
+   the screen.
    ------------------------------------------------------------------------- */
 
 Input {
@@ -580,9 +609,8 @@ Button.-primary:hover {
     background: $c-accent-lift;
 }
 
-/* Quiet is quiet, not absent: `$c-line` is the hairline the rest of the
-   application is ruled with, so a quiet button has the same edge weight as a
-   rule and stays a step below the accent. */
+/* `$c-line` is the hairline the rest of the application is ruled with, so a
+   quiet button carries a rule's weight and stays a step below the accent. */
 Button.-quiet {
     background: $c-line;
     color: $c-paper;
@@ -678,9 +706,8 @@ DataTable > .datatable--header {
     text-style: bold;
 }
 
-/* Background only. A foreground here would win over the per-cell `Text` styles,
-   and the row under the cursor is exactly the row whose punch strip and signed
-   delta the reader is looking at — losing their colour is losing the row. */
+/* Background only: a foreground here wins over the per-cell `Text` styles, and
+   the row under the cursor would lose its punch strip and its signed delta. */
 DataTable > .datatable--cursor {
     background: $c-accent-deep;
 }
@@ -720,9 +747,8 @@ LoadingIndicator {
 }
 
 
-/* -- Empty states ---------------------------------------------------------
-   An empty screen is an invitation to act, not a blank. Hatched so it reads as
-   a region that has nothing in it rather than as a rendering failure.
+/* --- Empty states --------------------------------------------------------
+   Hatched, so an empty region reads as empty and not as a rendering failure.
    ------------------------------------------------------------------------- */
 
 .empty-indicator {
@@ -735,9 +761,9 @@ LoadingIndicator {
 }
 
 
-/* -- Scrollbars -----------------------------------------------------------
-   Present but nearly silent until the pointer is on them, because a bright
-   scrollbar competes with the accent and this application only has one.
+/* --- Scrollbars ----------------------------------------------------------
+   Nearly silent until the pointer is on them: a bright scrollbar competes
+   with the one accent this application has.
    ------------------------------------------------------------------------- */
 
 * {
@@ -751,13 +777,11 @@ LoadingIndicator {
     scrollbar-size-horizontal: 1;
 }
 
-/* The `*` above is an application stylesheet, and an application stylesheet
-   beats a widget's DEFAULT_CSS whatever the specificity — so it silently
-   re-enables the scrollbars these widgets turn off for themselves, each of
-   which is one row tall in the place the bar then lands. `Input` is the one
-   that matters: given a bar, it docks along the bottom of the widget's
-   scrollable region, which on a two-row input with a bottom rule is the same
-   row as the text. */
+/* An application stylesheet beats a widget's DEFAULT_CSS whatever the
+   specificity, so the `*` above re-enables the scrollbars these widgets turn
+   off for themselves. `Input` is the one that matters: its bar docks along the
+   bottom of the scrollable region, which on a two-row input with a bottom rule
+   is the row the text is on. */
 Input,
 Footer,
 Markdown {
@@ -765,8 +789,8 @@ Markdown {
 }
 
 
-/* -- Modals ---------------------------------------------------------------
-   The ground behind is dimmed rather than hidden, so the user keeps their place.
+/* --- Modals --------------------------------------------------------------
+   The ground behind is dimmed, not hidden, so the user keeps their place.
    ------------------------------------------------------------------------- */
 
 ModalScreen {
@@ -782,6 +806,19 @@ ModalScreen {
     background: $c-surface;
     border-left: wide $c-accent;
     padding: 1 2;
+}
+
+.modal.-tall {
+    height: 80%;
+}
+
+.modal-body {
+    height: auto;
+    scrollbar-size-vertical: 1;
+}
+
+.modal.-tall .modal-body {
+    height: 1fr;
 }
 
 .modal-title {
@@ -808,24 +845,42 @@ ModalScreen {
 }
 
 
-/* -- Jump mode ------------------------------------------------------------
+/* --- Jump mode -----------------------------------------------------------
    Press the key, land on the panel. The badges sit on their own layer above
-   everything, and the two bars at the bottom explain the mode without needing
-   to have been read before.
+   everything, and the two bars at the bottom explain the mode on sight.
    ------------------------------------------------------------------------- */
 
 JumpOverlay {
     background: $c-ink 55%;
 }
 
+/* Two shapes, for the two kinds of thing being marked.
+
+   A panel gets a box hung on its top-left corner: three rows, so the middle one
+   sits on the line the panel is drawn with, and an opaque ground so the border
+   underneath does not show through the key. `width: auto` sizes the box to its
+   contents, so a two-character key keeps its border.
+
+   A table row gets a chip one row tall. Rows are a single cell apart, so boxes
+   would stand on each other and only the last drawn would keep its corners. */
 .textual-jump-label {
     layer: textual-jump;
     dock: top;
     text-style: bold;
+    width: auto;
+    padding: 0 1;
+}
+
+.textual-jump-label.-corner {
+    color: $c-paper;
+    background: $c-ink;
+    border: round $c-accent-lift;
+    height: 3;
+}
+
+.textual-jump-label.-row {
     color: $c-ink;
     background: $c-accent-lift;
-    padding: 0 1;
-    width: auto;
     height: 1;
 }
 
@@ -851,3 +906,26 @@ JumpOverlay {
     background: transparent;
     color: $c-ash;
 }
+
+/* --- Plot ----------------------------------------------------------------
+   Bars and lines on one set of axes. The domain asks for a tone by name and
+   it is resolved here, which keeps the palette out of the arithmetic. */
+
+Plot {
+    height: 9;
+    min-height: 6;
+}
+
+Plot > .plot--axis { color: $c-ash; }
+Plot > .plot--legend { color: $c-muted; }
+
+Plot > .plot--series { color: $c-accent; }
+Plot > .plot--compare { color: $c-accent-deep; }
+Plot > .plot--target { color: $c-rule; }
+Plot > .plot--rule { color: $c-line; }
+
+Plot > .plot--annual { color: $c-annual; }
+Plot > .plot--sick { color: $c-sick; }
+Plot > .plot--toil { color: $c-toil; }
+Plot > .plot--unpaid { color: $c-unpaid; }
+Plot > .plot--other { color: $c-other; }

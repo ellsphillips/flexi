@@ -10,8 +10,10 @@ screen invalidates the ledger cache once, and only interested modules rebuild.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
-from typing import Any, ClassVar
+from types import MappingProxyType
+from typing import ClassVar, Final, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -24,7 +26,7 @@ from textual.timer import Timer
 from flexi import wallclock
 from flexi.components.chrome import AppFooter, AppHeader
 from flexi.components.common import TINY_COLUMNS, Tone, mark_width
-from flexi.components.expandable import ABSENCE, DAY, SESSION
+from flexi.components.expandable import RowKind, row_ident
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.balance import BalanceModule
 from flexi.components.modules.base import Module
@@ -32,39 +34,49 @@ from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.monthview import MonthView
 from flexi.components.modules.records import BookHere, DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
+from flexi.components.options import ScreenOptions
 from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Granularity
 from flexi.domain.format import clock as clock_time
 from flexi.domain.format import short_date
-from flexi.domain.period import Granularity, Period
-from flexi.messages import DataChanged, DateSelected, Scope
+from flexi.domain.period import Period
+from flexi.messages import DateSelected, Scope
 from flexi.screens.modals import (
     AbsenceBooking,
     AbsenceModal,
     ConfirmModal,
+    Correction,
+    CorrectionModal,
+    CorrectionsModal,
     GoToDateModal,
 )
-from flexi.services.registry import Services
+from flexi.services.absence import snapshot_booking
+from flexi.services.clock import ClockResult
+from flexi.services.outcome import Outcome
+from flexi.services.registry import (
+    Services,
+    available_toil_days,
+    invalidate_services,
+)
 
-GRANULARITY_KEYS = {
-    CONFIG.hotkeys.period_day: Granularity.DAY,
-    CONFIG.hotkeys.period_week: Granularity.WEEK,
-    CONFIG.hotkeys.period_month: Granularity.MONTH,
-    CONFIG.hotkeys.period_year: Granularity.YEAR,
-}
+__all__ = ("JUMP_TARGETS", "DashboardScreen", "with_time")
 
-JUMP_TARGETS = {
-    "clock-module": "c",
-    "balance-module": "b",
-    "wallet-module": "w",
-    "records-module": "r",
-    "month-view": "p",
-}
+JUMP_TARGETS: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "clock-module": "c",
+        "balance-module": "b",
+        "wallet-module": "w",
+        "records-module": "r",
+        "month-view": "p",
+    }
+)
 
 
 class DashboardScreen(Screen[None]):
     """Everything you need twice a day, on one screen."""
+
+    HELP_LABEL = "Dashboard"
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.today, "today", "Today", show=True),
@@ -76,9 +88,10 @@ class DashboardScreen(Screen[None]):
         Binding(CONFIG.hotkeys.period_year, "zoom('year')", "Year", show=False),
         Binding(CONFIG.hotkeys.period_cycle, "cycle", "Period", show=True),
         Binding(CONFIG.hotkeys.go_to_date, "go_to_date", "Go to date", show=False),
-        # Shifted, so they never collide with the record table's letters, and on
-        # the screen rather than the wallet so one keystroke books leave from
-        # anywhere on the dashboard.
+        Binding(CONFIG.hotkeys.new_session, "correct", "Record work", show=True),
+        Binding(CONFIG.hotkeys.corrections, "corrections", "Corrections", show=False),
+        # Shifted, so they never collide with the records table's letters, and
+        # bound on the screen so one keystroke books leave from anywhere.
         Binding(
             CONFIG.hotkeys.book_annual, "book('annual')", "Annual leave", show=False
         ),
@@ -96,25 +109,25 @@ class DashboardScreen(Screen[None]):
         """Open the booking modal, pre-filled with one type."""
         self.open_absence_modal(self.period.anchor, AbsenceType(kind))
 
-    def __init__(self, services: Services, **kwargs: Any) -> None:
+    def __init__(self, services: Services, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
         self._services = services
         self.period = Period.containing(
             wallclock.today(),
-            Granularity(CONFIG.defaults.period),
+            CONFIG.defaults.period,
             year_start=services.settings.get_leave_year_start(),
             first_weekday=CONFIG.defaults.first_day_of_week,
         )
         self.now = wallclock.now()
         self._tick: Timer | None = None
 
-    # -- composition -------------------------------------------------------
+    # ---- composition ----
 
     def compose(self) -> ComposeResult:
         yield AppHeader()
-        # Not docked. Two widgets docked to the same edge both land on the same
-        # row and the later one wins, so the rails simply flow: the header is
-        # docked above them and the footer below, which leaves exactly one row.
+        # Not docked: two widgets docked to the same edge land on the same row
+        # and the later one wins. The header docks above and the footer below,
+        # which leaves exactly one row for the rails to flow into.
         yield TimeProgress(id="time-progress")
         with Horizontal(id="dashboard-body"):
             with VerticalScroll(id="dashboard-controls"):
@@ -147,7 +160,7 @@ class DashboardScreen(Screen[None]):
             return {}
         return records.jump_row_targets()
 
-    # -- period ------------------------------------------------------------
+    # ---- period ----
 
     def set_period(self, period: Period) -> None:
         """Move the temporal view and redraw everything that depends on it."""
@@ -179,13 +192,18 @@ class DashboardScreen(Screen[None]):
         event.stop()
         self.set_period(self.period.go_to(event.date))
 
-    # -- redrawing ---------------------------------------------------------
+    # ---- redrawing ----
 
     def refresh_modules(self, scope: Scope) -> None:
         """Invalidate once, then redraw only the modules that care."""
         self.now = wallclock.now()
+        if scope & Scope.SETTINGS:
+            self.period = self.period.with_year_start(
+                self._services.settings.get_leave_year_start()
+            )
+            self._sync_header()
         if scope & (Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS):
-            self._services.invalidate()
+            invalidate_services(self._services)
         for module in self.query(Module):
             module.rebuild_if(scope)
         self._refresh_progress()
@@ -207,24 +225,14 @@ class DashboardScreen(Screen[None]):
                 compact=self.size.width < TINY_COLUMNS,
             )
 
-    def on_data_changed(self, event: DataChanged) -> None:
-        event.stop()
-        self.refresh_modules(event.scope)
-        self._start_tick_if_open()
-
     def _sync_header(self) -> None:
         for header in self.query(AppHeader):
-            header.context = f"{short_date(wallclock.today())} · {self.period.label}"
+            header.context = self.period.label
 
-    # -- the live tick -----------------------------------------------------
+    # ---- the live tick ----
 
     def _start_tick_if_open(self) -> None:
-        """Run a one-second timer only while a session is open.
-
-        A minute-grained readout would jump in sixty-second steps and look like a
-        hung process; a timer that ran when nothing was moving would redraw the
-        whole dashboard once a second for no reason.
-        """
+        """Run a one-second timer only while a session is open."""
         open_now = self._services.ledger.day(wallclock.today()).is_open
         if open_now and self._tick is None:
             self._tick = self.set_interval(CONFIG.defaults.tick_seconds, self._on_tick)
@@ -233,8 +241,13 @@ class DashboardScreen(Screen[None]):
             self._tick = None
 
     def _on_tick(self) -> None:
+        """A second passed. Redraw the two readouts that measure elapsed time.
+
+        No `invalidate()`: nothing was written, and `LedgerService.days` always
+        rebuilds today, whose length changes every second. Clearing the memo
+        would throw away every other day in the period with it.
+        """
         self.now = wallclock.now()
-        self._services.ledger.invalidate()
         for module in (ClockModule, BalanceModule):
             for widget in self.query(module):
                 widget.rebuild()
@@ -244,27 +257,31 @@ class DashboardScreen(Screen[None]):
         if self._tick is not None:
             self._tick.stop()
 
-    # -- clocking ----------------------------------------------------------
+    # ---- clocking ----
 
     def on_clock_module_toggle(self, event: ClockModule.Toggle) -> None:
         event.stop()
         self.toggle_clock()
 
-    def toggle_clock(self) -> None:
+    def toggle_clock(self) -> tuple[str, Tone]:
         """Clock in, or clock out. It never asks.
 
-        An earlier draft confirmed an early clock-out and fired at lunchtime every day,
-        because clocking out for lunch is the normal thing this application is for.
-        Clock events are immutable and a second `/` opens a new session, so a mistaken
-        press costs one visible break; the status bar is the receipt.
+        Clock events are immutable and a second `/` opens a new session, so a
+        mistaken press costs one visible break, and the status bar is the
+        receipt. That receipt is returned as well as shown: `/` is bound on the
+        application, and from Leave or Insights this screen's footer sits under
+        the one being read.
         """
         clock = self._services.clock
+        # A session left running overnight is drawn as closed the moment the
+        # date turns, and `sweep` makes that true in the database. It runs
+        # first, or the morning's `/` closes yesterday at this morning's time.
+        clock.sweep()
         if clock.is_clocked_in():
-            self._report(clock.clock_out())
-        else:
-            self._report(clock.clock_in())
+            return self._report(clock.clock_out())
+        return self._report(clock.clock_in())
 
-    # -- absence -----------------------------------------------------------
+    # ---- absence ----
 
     def on_book_requested(self, event: BookRequested) -> None:
         event.stop()
@@ -274,6 +291,44 @@ class DashboardScreen(Screen[None]):
         event.stop()
         when = date.fromisoformat(event.iso) if event.iso else self.period.anchor
         self.open_absence_modal(when, AbsenceType.ANNUAL)
+
+    def action_correct(self) -> None:
+        """Record work on the selected day that was not clocked at the time.
+
+        Opens on the day under the records cursor, and on the period anchor
+        when the table does not hold the cursor.
+        """
+
+        def record(correction: Correction | None) -> None:
+            if correction is None:
+                return
+            self._report(
+                self._services.clock.correct(
+                    correction.day, correction.opened, correction.closed
+                ),
+                scope=Scope.CLOCK,
+            )
+
+        self.app.push_screen(CorrectionModal(self._selected_day()), callback=record)
+
+    def _selected_day(self) -> date:
+        """The day the records cursor is on, or the anchor if it is elsewhere."""
+        for records in self.query(RecordsModule):
+            iso = records.selected_date() if records.has_focus_within else None
+            if iso is not None:
+                return date.fromisoformat(iso)
+        return self.period.anchor
+
+    def action_corrections(self) -> None:
+        """Read back every correction in the period, in one list."""
+        self.app.push_screen(
+            CorrectionsModal(
+                self.period.label,
+                self._services.clock.corrections_between(
+                    self.period.start, self.period.end
+                ),
+            )
+        )
 
     def open_absence_modal(self, when: date, kind: AbsenceType) -> None:
         """Ask what to book, pre-filled, with the allowances in view."""
@@ -286,7 +341,7 @@ class DashboardScreen(Screen[None]):
                 booking.kind,
                 booking.portion,
                 note=booking.note,
-                available_toil_days=self._services.toil_days(),
+                available_toil_days=available_toil_days(self._services),
             )
             self._report(result, scope=Scope.ABSENCE)
 
@@ -294,8 +349,8 @@ class DashboardScreen(Screen[None]):
             AbsenceModal(
                 when,
                 kind,
-                remaining=self._services.absence.get_remaining_annual_leave(),
-                toil_days=self._services.toil_days(),
+                remaining=self._services.absence.get_remaining_annual_leave(when),
+                toil_days=available_toil_days(self._services),
             ),
             callback=book,
         )
@@ -304,55 +359,58 @@ class DashboardScreen(Screen[None]):
         event.stop()
         if event.key is None:
             return
-        if event.key.startswith(ABSENCE):
-            self._delete_absence(int(event.key[len(ABSENCE) :]))
-        elif event.key.startswith((DAY, SESSION)):
-            self.status("Deleting sessions is not implemented yet", Tone.WARN)
+        absence = row_ident(RowKind.ABSENCE, event.key)
+        if absence is not None:
+            self._delete_absence(int(absence))
+        elif event.key.startswith((RowKind.DAY, RowKind.SESSION)):
+            self.status(
+                "Select an absence booking to remove; work records are kept", Tone.WARN
+            )
 
     def _delete_absence(self, absence_id: int) -> None:
-        found = next(
-            (
-                row
-                for row in self._services.absence.in_range(
-                    self.period.start, self.period.end
-                )
-                if row.id == absence_id
-            ),
-            None,
-        )
+        found = self._services.absence.by_id(absence_id)
         if found is None:
             self.status("That booking has already gone", Tone.WARN)
             return
-        when, portion = found.date, found.portion
+        booking = snapshot_booking(found)
 
-        def confirm(answer: bool | None) -> None:
+        def confirm(answer: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
             if answer:
                 self._report(
-                    self._services.absence.remove(when, portion), scope=Scope.ABSENCE
+                    self._services.absence.remove_booking(booking),
+                    scope=Scope.ABSENCE,
                 )
 
         self.app.push_screen(
             ConfirmModal(
-                f"Remove {found.absence_type.label.lower()} from {short_date(when)}?",
+                f"Remove {booking.absence_type.phrase} "
+                f"from {short_date(booking.date)}?",
                 title="Remove booking",
             ),
             callback=confirm,
         )
 
-    # -- reporting ---------------------------------------------------------
+    # ---- reporting ----
 
-    def _report(self, result: object, scope: Scope = Scope.CLOCK) -> None:
-        """Put a service result on the status bar, and redraw if it wrote."""
-        success = bool(getattr(result, "success", False))
-        message = _with_time(str(getattr(result, "message", "")), result)
-        warning = getattr(result, "warning", None)
-        if success and warning:
-            self.status(str(warning), Tone.WARN)
+    def _report(self, result: Outcome, scope: Scope = Scope.CLOCK) -> tuple[str, Tone]:
+        """Put a service result on the status bar, and redraw if it wrote.
+
+        Returns what was said, for a caller that has a second footer to say it
+        on.
+        """
+        success = result.success
+        if success and result.warning:
+            receipt = (result.warning, Tone.WARN)
         else:
-            self.status(message, Tone.OK if success else Tone.ERR)
+            receipt = (
+                with_time(result.message, result),
+                Tone.OK if success else Tone.ERR,
+            )
+        self.status(*receipt)
         if success:
             self.refresh_modules(scope)
             self._start_tick_if_open()
+        return receipt
 
     def status(self, message: str, tone: Tone = Tone.NEUTRAL) -> None:
         """Say what just happened."""
@@ -360,15 +418,12 @@ class DashboardScreen(Screen[None]):
             footer.set_status(message, tone)
 
 
-def _with_time(message: str, result: object) -> str:
-    """Stamp a clock result with the time it recorded.
+def with_time(message: str, result: Outcome) -> str:
+    """Stamp a clock result with the moment it recorded.
 
-    "Clocked out" is a fact about the past tense; "Clocked out at 12:04" is a
-    fact somebody can check against the clock on their wall, which is what makes
-    a mistaken keystroke visible the moment it happens.
+    The result carries the time, so rewording a service's message cannot drop
+    it.
     """
-    event = getattr(result, "event", None)
-    stamp = getattr(event, "timestamp", None)
-    if stamp is None or not message.startswith("Clocked"):
+    if not isinstance(result, ClockResult) or result.at is None:
         return message
-    return f"{message} at {clock_time(stamp.astimezone())}"
+    return f"{message} at {clock_time(result.at)}"

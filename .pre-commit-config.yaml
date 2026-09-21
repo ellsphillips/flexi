@@ -1,7 +1,7 @@
-# Every check here runs the same command CI runs, through the same project
-# environment. A hook that installs its own copy of a tool drifts from the one
-# in the lockfile, and then the hook and CI disagree about whether a tree is
-# clean -- which is worse than having no hook.
+# Every check here runs the command CI runs, through the project environment.
+# `--frozen` keeps it CI's environment: plain `uv run` re-resolves and rewrites
+# uv.lock when pyproject has changed, and then the lint hook fails for the
+# lockfile's reasons.
 #
 #   uv run pre-commit install
 #
@@ -29,14 +29,14 @@ repos:
     hooks:
       - id: ruff-check
         name: ruff
-        entry: uv run ruff check --fix --force-exclude
+        entry: uv run --frozen ruff check --fix --force-exclude
         language: system
         types_or: [python, pyi]
         require_serial: true
 
       - id: ruff-format
         name: ruff-format
-        entry: uv run ruff format --force-exclude
+        entry: uv run --frozen ruff format --force-exclude
         language: system
         types_or: [python, pyi]
         require_serial: true
@@ -45,7 +45,16 @@ repos:
         name: mypy
         # No filenames: mypy resolves imports across the whole package, and
         # checking one file at a time invents errors that are not there.
-        entry: uv run mypy
+        entry: uv run --frozen mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: mypy-win32
+        name: mypy (Windows view)
+        # The ctypes lease and the msvcrt prompt are behind `sys.platform`
+        # checks, so the pass above analyses neither.
+        entry: uv run --frozen mypy --platform win32 --no-warn-unreachable
         language: system
         types: [python]
         pass_filenames: false

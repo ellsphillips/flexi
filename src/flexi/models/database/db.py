@@ -5,29 +5,60 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from flexi.constants import AbsenceType, ClockAction, Portion
+from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
+from flexi.models.database.invariants import (
+    register_clock_event_immutability as _register_clock_event_immutability,
+)
+from flexi.models.database.invariants import (
+    register_work_session_action_invariants as _register_work_session_action_invariants,
+)
+
+__all__ = (
+    "DEFAULT_CONTRACTED_MINUTES",
+    "DEFAULT_WINDOW_END",
+    "DEFAULT_WINDOW_START",
+    "SETTINGS_SINGLETON_KEY",
+    "AbsenceDay",
+    "BalanceAdjustment",
+    "BankHolidayAttempt",
+    "BankHolidayCache",
+    "BankHolidayRefresh",
+    "Base",
+    "ClockEvent",
+    "LeaveEntitlement",
+    "Settings",
+    "WorkSession",
+)
 
 DEFAULT_CONTRACTED_MINUTES = 444
-"""7h24 — the standard day these figures are all measured against.
+"""7h24, the standard day these figures are all measured against.
 
-Minutes rather than hours because 7.4 is not representable in binary floating
-point, and a leave year of rounding it produces a balance that disagrees with
-the sum of its own rows.
+Minutes, because 7.4 hours is not representable in binary floating point and a
+leave year of rounding it gives a balance that disagrees with its own rows.
 """
 
 DEFAULT_WINDOW_START = "07:00"
 DEFAULT_WINDOW_END = "19:00"
+SETTINGS_SINGLETON_KEY = 1
+"""The single value accepted by :class:`Settings.singleton_key`.
+
+The unique constraint limits the table to one row; the check constraint stops a
+second row from choosing a different key.
+"""
 
 
 class Base(DeclarativeBase):
@@ -37,21 +68,36 @@ class Base(DeclarativeBase):
 class Settings(Base):
     """Application settings (single-row table).
 
-    Settings are what the balance *depends on* — how long a day is, when the
+    Settings are what the balance *depends on*: how long a day is, when the
     leave year turns over, which bank holidays apply. They live in the database
     beside the records they explain. Preferences (keybindings, default period)
     live in ``~/.config/flexi/config.yaml`` instead; see ``flexi/config.py``.
     """
 
     __tablename__ = "settings"
+    __table_args__ = (
+        CheckConstraint(
+            f"singleton_key = {SETTINGS_SINGLETON_KEY}",
+            name="ck_settings_singleton_key",
+        ),
+        UniqueConstraint("singleton_key", name="uq_settings_singleton_key"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    singleton_key: Mapped[int] = mapped_column(
+        Integer(),
+        default=SETTINGS_SINGLETON_KEY,
+        server_default=text(str(SETTINGS_SINGLETON_KEY)),
+    )
+    """Constant database key that makes this a true singleton table."""
     leave_year_start: Mapped[str] = mapped_column(String(5))  # "MM-DD"
     working_days: Mapped[str] = mapped_column(String(27))  # "0,1,2,3,4"
     bank_holiday_division: Mapped[str] = mapped_column(String(30))
     auto_close_time: Mapped[str] = mapped_column(String(5))  # "HH:MM"
     contracted_minutes: Mapped[int] = mapped_column(
-        Integer(), default=DEFAULT_CONTRACTED_MINUTES, server_default="444"
+        Integer(),
+        default=DEFAULT_CONTRACTED_MINUTES,
+        server_default=str(DEFAULT_CONTRACTED_MINUTES),
     )
     day_window_start: Mapped[str] = mapped_column(
         String(5), default=DEFAULT_WINDOW_START, server_default=DEFAULT_WINDOW_START
@@ -59,6 +105,15 @@ class Settings(Base):
     day_window_end: Mapped[str] = mapped_column(
         String(5), default=DEFAULT_WINDOW_END, server_default=DEFAULT_WINDOW_END
     )
+    tracking_since: Mapped[date_type | None] = mapped_column(Date(), nullable=True)
+    """The day setup was answered. Days before it expect no work.
+
+    Stamped once, when the row is first written, and left alone by every later
+    save: changing the leave year start moves which days are in the year, not
+    which of them Flexi was there for.
+
+    ``None`` on databases migrated from before ``0011``; every day then counts.
+    """
 
 
 class LeaveEntitlement(Base):
@@ -71,39 +126,122 @@ class LeaveEntitlement(Base):
     days: Mapped[float] = mapped_column(Float())
 
 
+class BankHolidayRefresh(Base):
+    """A complete cached division calendar, including an empty one.
+
+    Freshness belongs to the response as a whole, not to each event in it, so a
+    row records that one division was fetched successfully even when GOV.UK
+    returned no events. The division is the natural key, because only the latest
+    complete response is retained.
+    """
+
+    __tablename__ = "bank_holiday_refreshes"
+
+    division: Mapped[str] = mapped_column(String(30), primary_key=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime())
+    events: Mapped[list[BankHolidayCache]] = relationship(
+        back_populates="refresh",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class BankHolidayAttempt(Base):
+    """When a division was last asked for and answered with nothing usable.
+
+    Its own table: :class:`BankHolidayRefresh` records a complete calendar, and
+    a failed fetch written there would read as a year holding no holidays, with
+    every bank holiday a working day.
+    """
+
+    __tablename__ = "bank_holiday_attempts"
+
+    division: Mapped[str] = mapped_column(String(30), primary_key=True)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime())
+
+
 class BankHolidayCache(Base):
-    """Cached bank holiday entries from GOV.UK."""
+    """One event in a successfully fetched GOV.UK division calendar."""
 
     __tablename__ = "bank_holiday_cache"
     __table_args__ = (UniqueConstraint("division", "date", name="uq_division_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    division: Mapped[str] = mapped_column(String(30))
+    division: Mapped[str] = mapped_column(
+        ForeignKey(
+            "bank_holiday_refreshes.division",
+            name="fk_bank_holiday_cache_division_refresh",
+            ondelete="CASCADE",
+        )
+    )
     date: Mapped[date_type] = mapped_column(Date())
     title: Mapped[str] = mapped_column(String(100))
-    fetched_at: Mapped[datetime] = mapped_column(DateTime())
+    refresh: Mapped[BankHolidayRefresh] = relationship(back_populates="events")
 
 
 class ClockEvent(Base):
-    """An immutable clock-in or clock-out event."""
+    """An immutable clock-in or clock-out event.
+
+    Two columns, one reading. ``timestamp`` is the time on the wall as the user
+    read it, and it is naive: SQLite has no timestamp type, so
+    ``DateTime(timezone=True)`` stores the field values it is handed and drops
+    the offset. ``utc_offset_minutes`` is how far that wall reading was from
+    UTC, so the instant is the one minus the other.
+
+    Both halves are needed: the wall half gives the punch strip, the work date
+    and the midday split; the offset half is why 22:00 on 24 October to 06:00
+    on 25 October is nine hours and not eight.
+    """
 
     __tablename__ = "clock_events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     action: Mapped[ClockAction] = mapped_column(Enum(ClockAction))
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    source: Mapped[str] = mapped_column(String(20), default="user")
+    timestamp: Mapped[datetime] = mapped_column(DateTime())
+    utc_offset_minutes: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    """Minutes east of UTC when the clock was read; the instant is ``timestamp``
+    minus this. ``None`` on rows written before the column existed."""
+    source: Mapped[EventSource] = mapped_column(
+        Enum(
+            EventSource,
+            native_enum=False,
+            create_constraint=False,
+            values_callable=lambda members: [member.value for member in members],
+            length=20,
+        ),
+        default=EventSource.USER,
+        server_default=EventSource.USER.value,
+    )
+    """Whether a person punched this or the auto-close sweep did.
+
+    Stored as its value, in a plain `VARCHAR(20)` with no CHECK constraint,
+    which is the column migration 0004 wrote and `create_all` has to match.
+    Migration 0010 reads the value back to decide whose timestamps it may
+    rewrite."""
+
+
+_register_clock_event_immutability(ClockEvent.__table__)
 
 
 class WorkSession(Base):
     """A work session linking a clock-in to an optional clock-out.
 
     ``work_date`` is the *local* date of the clock-in, so a session that runs
-    past midnight belongs to the day it started — which is how a person thinks
-    about a late finish, and how a weekly total has to add up.
+    past midnight belongs to the day it started, which is how a late finish
+    reads and how a weekly total adds up.
     """
 
     __tablename__ = "work_sessions"
+    __table_args__ = (
+        UniqueConstraint("clock_in_id", name="uq_work_sessions_clock_in_id"),
+        UniqueConstraint("clock_out_id", name="uq_work_sessions_clock_out_id"),
+        Index(
+            "uq_work_sessions_one_open",
+            "voided",
+            unique=True,
+            sqlite_where=text("clock_out_id IS NULL AND voided = 0"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     clock_in_id: Mapped[int] = mapped_column(ForeignKey("clock_events.id"))
@@ -111,11 +249,13 @@ class WorkSession(Base):
         ForeignKey("clock_events.id"), nullable=True
     )
     work_date: Mapped[date_type] = mapped_column(Date())
-    auto_closed: Mapped[bool] = mapped_column(Boolean(), default=False)
+    auto_closed: Mapped[bool] = mapped_column(
+        Boolean(), default=False, server_default=text("0")
+    )
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     voided: Mapped[bool] = mapped_column(Boolean(), default=False, server_default="0")
     """A corrected session. Clock events are immutable, so a correction inserts
-    a replacement pair and marks the original voided rather than editing it."""
+    a replacement pair and marks the original voided instead of editing it."""
 
     clock_in_event: Mapped[ClockEvent] = relationship(foreign_keys=[clock_in_id])
     clock_out_event: Mapped[ClockEvent | None] = relationship(
@@ -123,18 +263,35 @@ class WorkSession(Base):
     )
 
 
+_register_work_session_action_invariants(WorkSession.__table__)
+
+
 class AbsenceDay(Base):
     """An absence covering a whole day, or one half of one.
 
-    Two half-days of *different* types may share a date — a sick morning and an
-    annual afternoon is a real thing that happens — so the uniqueness constraint
-    is on the pair. A full day cannot coexist with either half; that rule is
-    enforced in :class:`~flexi.services.absence.AbsenceService`, because SQLite
-    cannot express it as a constraint.
+    Two half-days of *different* types may share a date: a sick morning and an
+    annual afternoon is a real thing that happens. Two partial unique indexes
+    treat ``FULL`` as conflicting once with ``AM`` and once with ``PM``. This
+    admits the useful ``AM + PM`` pair while making every full/half collision a
+    database error, including writes that bypass the service layer.
     """
 
     __tablename__ = "absence_days"
-    __table_args__ = (UniqueConstraint("date", "portion", name="uq_date_portion"),)
+    __table_args__ = (
+        UniqueConstraint("date", "portion", name="uq_date_portion"),
+        Index(
+            "uq_absence_date_full_am",
+            "date",
+            unique=True,
+            sqlite_where=text("portion IN ('FULL', 'AM')"),
+        ),
+        Index(
+            "uq_absence_date_full_pm",
+            "date",
+            unique=True,
+            sqlite_where=text("portion IN ('FULL', 'PM')"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     date: Mapped[date_type] = mapped_column(Date())

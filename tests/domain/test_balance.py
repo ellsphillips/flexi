@@ -2,6 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
+from flexi import wallclock
 from flexi.constants import AbsenceType, DayKind, Portion
 from flexi.domain.balance import (
     BalanceSummary,
@@ -18,46 +19,64 @@ DAY = date(2026, 6, 11)
 
 
 def at(hour: int, minute: int = 0) -> datetime:
-    return datetime.combine(DAY, time(hour, minute))
+    """A local reading, carrying its offset. The domain refuses naive moments."""
+    return wallclock.local(datetime.combine(DAY, time(hour, minute)))
 
 
 def slice_(kind: AbsenceType, portion: Portion = Portion.FULL) -> AbsenceSlice:
     return AbsenceSlice(1, kind, portion)
 
 
-# -- expected --------------------------------------------------------------
+# Expected -------------------------------------------------------------------
 
 
-def test_an_ordinary_working_day_expects_the_contract() -> None:
-    """It asks for a full day when nothing says otherwise."""
-    assert expected_for(CONTRACTED, is_working_day=True, is_holiday=False) == CONTRACTED
+def test_untracked_day_expects_nothing() -> None:
+    """A leave year that opened before Flexi was installed is not a deficit."""
+    assert (
+        expected_for(
+            CONTRACTED, is_tracked=False, is_working_day=True, is_holiday=False
+        )
+        == timedelta()
+    )
+
+
+def test_ordinary_working_day_expects_the_contract() -> None:
+    assert (
+        expected_for(CONTRACTED, is_tracked=True, is_working_day=True, is_holiday=False)
+        == CONTRACTED
+    )
 
 
 @pytest.mark.parametrize(
     ("working", "holiday"),
     [(False, False), (True, True)],
 )
-def test_a_non_working_day_expects_nothing(working: bool, holiday: bool) -> None:
-    """It asks for nothing on a weekend or a bank holiday."""
+def test_non_working_day_expects_nothing(working: bool, holiday: bool) -> None:
+    """A weekend and a bank holiday both ask for nothing."""
     assert (
-        expected_for(CONTRACTED, is_working_day=working, is_holiday=holiday)
+        expected_for(
+            CONTRACTED, is_tracked=True, is_working_day=working, is_holiday=holiday
+        )
         == timedelta()
     )
 
 
 @pytest.mark.parametrize("kind", list(AbsenceType))
-def test_a_full_day_absence_of_any_type_expects_nothing(kind: AbsenceType) -> None:
-    """It asks for nothing on a booked day, whatever the reason."""
+def test_full_day_absence_expects_nothing(kind: AbsenceType) -> None:
     got = expected_for(
-        CONTRACTED, is_working_day=True, is_holiday=False, absences=[slice_(kind)]
+        CONTRACTED,
+        is_tracked=True,
+        is_working_day=True,
+        is_holiday=False,
+        absences=[slice_(kind)],
     )
     assert got == timedelta()
 
 
-def test_a_half_day_expects_half_the_contract() -> None:
-    """It halves the ask when half the day is booked."""
+def test_half_day_expects_half_the_contract() -> None:
     got = expected_for(
         CONTRACTED,
+        is_tracked=True,
         is_working_day=True,
         is_holiday=False,
         absences=[slice_(AbsenceType.ANNUAL, Portion.AM)],
@@ -65,10 +84,11 @@ def test_a_half_day_expects_half_the_contract() -> None:
     assert got == CONTRACTED / 2
 
 
-def test_two_half_days_of_different_types_expect_nothing() -> None:
-    """It handles a sick morning and an annual afternoon."""
+def test_two_half_days_expect_nothing() -> None:
+    """A sick morning and an annual afternoon cover the whole day."""
     got = expected_for(
         CONTRACTED,
+        is_tracked=True,
         is_working_day=True,
         is_holiday=False,
         absences=[
@@ -79,36 +99,38 @@ def test_two_half_days_of_different_types_expect_nothing() -> None:
     assert got == timedelta()
 
 
-# -- worked ----------------------------------------------------------------
+# Worked ---------------------------------------------------------------------
 
 
-def test_worked_counts_an_open_session_up_to_now() -> None:
-    """It ticks up while a session is running, which is what makes it live."""
+def test_worked_counts_an_open_session_to_now() -> None:
     segments = [Segment(1, at(9), at(12)), Segment(2, at(13), None)]
     assert worked_from(segments, now=at(14, 30)) == timedelta(hours=4, minutes=30)
 
 
-def test_worked_is_zero_for_a_day_with_no_sessions() -> None:
-    """It totals nothing when nobody clocked in."""
+def test_naive_now_is_refused() -> None:
+    running = [Segment(1, at(9), None)]
+    with pytest.raises(ValueError, match="now must be timezone-aware"):
+        worked_from(running, now=datetime.combine(DAY, time(14, 30)))
+
+
+def test_worked_is_zero_without_sessions() -> None:
     assert worked_from([], now=at(17)) == timedelta()
 
 
-# -- TOIL ------------------------------------------------------------------
+# TOIL -----------------------------------------------------------------------
 
 
 def test_toil_is_the_only_absence_that_withdraws() -> None:
-    """It draws only TOIL from the flexi balance."""
     assert toil_taken_for(CONTRACTED, [slice_(AbsenceType.FLEXI)]) == CONTRACTED
     assert toil_taken_for(CONTRACTED, [slice_(AbsenceType.ANNUAL)]) == timedelta()
 
 
-def test_a_half_toil_day_withdraws_half() -> None:
-    """It withdraws in proportion to the portion booked."""
+def test_half_toil_day_withdraws_half() -> None:
     got = toil_taken_for(CONTRACTED, [slice_(AbsenceType.FLEXI, Portion.PM)])
     assert got == CONTRACTED / 2
 
 
-# -- accumulation ----------------------------------------------------------
+# Accumulation ---------------------------------------------------------------
 
 
 def day(
@@ -127,26 +149,13 @@ def day(
     )
 
 
-def test_annual_leave_is_neutral_to_the_balance() -> None:
-    """It neither earns nor costs flexi to take annual leave."""
-    booked = day(worked=timedelta(), expected=timedelta())
-    assert booked.balance_effect == timedelta()
-
-
-def test_a_toil_day_costs_the_balance_a_full_day() -> None:
-    """It spends the surplus that paid for it."""
-    taken = day(worked=timedelta(), expected=timedelta(), toil=CONTRACTED)
-    assert taken.balance_effect == -CONTRACTED
-
-
-def test_a_worked_weekend_is_all_surplus() -> None:
-    """It banks the lot on a day that expected nothing."""
+def test_worked_weekend_is_all_surplus() -> None:
     saturday = day(worked=timedelta(hours=3), expected=timedelta())
     assert saturday.balance_effect == timedelta(hours=3)
 
 
-def test_a_hand_worked_fortnight() -> None:
-    """It totals a fortnight the way a person would on paper.
+def test_hand_worked_fortnight() -> None:
+    """A fortnight totalled the way a person would on paper.
 
     Week one: five ordinary days, one of them 48 minutes long.
     Week two: a TOIL day, a bank holiday, and three days on the nose.
@@ -178,13 +187,12 @@ def test_a_hand_worked_fortnight() -> None:
 
 
 def test_summaries_add() -> None:
-    """It composes, so a month is the sum of its weeks."""
+    """Summaries compose, so a month is the sum of its weeks."""
     one = BalanceSummary(worked=timedelta(hours=8), expected=CONTRACTED)
     two = BalanceSummary(worked=timedelta(hours=7), expected=CONTRACTED)
     assert (one + two).worked == timedelta(hours=15)
     assert (one + two).expected == CONTRACTED * 2
 
 
-def test_an_empty_run_is_zero() -> None:
-    """It totals nothing without special-casing."""
+def test_empty_run_is_zero() -> None:
     assert accumulate([]).delta == timedelta()

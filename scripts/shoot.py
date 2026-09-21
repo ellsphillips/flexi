@@ -1,8 +1,7 @@
 """Drive the real application headlessly and export SVG screenshots.
 
-Snapshots (``tests/snapshot/``) are for regression; this is for "show me what it
-looks like". Same seed either way, so a reviewer and a failing test are looking
-at the same six weeks.
+Uses the same demo seed and frozen clock as the regression snapshots in
+``tests/snapshot/``.
 
     uv run python scripts/shoot.py
 """
@@ -10,28 +9,61 @@ at the same six weeks.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+import tempfile
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+import httpx
 import time_machine
 from sqlalchemy.orm import Session
+from textual.pilot import Pilot
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+# Set before `flexi.config` is imported: CONFIG resolves at import and every
+# BINDINGS list reads it at class-definition time, so a local hotkey or opening
+# period would be baked into the committed shots.
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="flexi-config-")
+# Documentation captures show the product palette even in a monochrome shell.
+os.environ.pop("NO_COLOR", None)
+
+from flexi import wallclock  # noqa: E402
 from flexi.app import FlexiApp  # noqa: E402
-from flexi.models.database.app import create_db_engine, get_session  # noqa: E402
 from flexi.models.database.db import Base  # noqa: E402
-from flexi.services.samples import NOW, seed_demo  # noqa: E402
+from flexi.models.database.engine import create_db_engine, get_session  # noqa: E402
+from flexi.services.samples import NOW, TIMEZONE, seed_demo  # noqa: E402
+
+# Pinned to the demo timezone, through the same seam the snapshot suite uses.
+# Unpinned, a capture carries the local offset.
+PINNED = wallclock.pinned(ZoneInfo(TIMEZONE))
+
+
+def refuse_the_network() -> None:
+    """Block outbound HTTP so a shot never depends on the network.
+
+    At mount the application fills an empty bank holiday cache from GOV.UK and
+    asks PyPI for a newer version, both in worker threads.
+    """
+
+    def refused(*_args: object, **_kwargs: object) -> None:
+        msg = "the shots do not make network requests"
+        raise httpx.ConnectError(msg)
+
+    httpx.Client.send = refused  # type: ignore[method-assign]
+
+
+refuse_the_network()
 
 SHOTS = ROOT / "docs" / "shots"
 
 WIDE = (120, 36)
 NARROW = (84, 28)
-TINY = (64, 22)
+TINY = (63, 22)  # one column under TINY_COLUMNS, so the -tiny rules apply
 
-# The shots the README points at. Wider and taller than the regression set, so
-# each one has room to show the whole feature rather than a corner of it.
+# The shots the README points at, sized to hold a whole feature.
 SHOWCASE = (128, 40)
 SHOWCASE_TALL = (128, 46)
 
@@ -68,29 +100,44 @@ def build_database(path: Path) -> Session:
 
 async def shoot(name: str, size: tuple[int, int], keys: list[str], db: Path) -> None:
     app = FlexiApp(db_path=db)
-    # A capture that lands mid-tween is a capture nobody can reproduce, and
-    # these are what the snapshot tests compare against. Per-instance, because
-    # textual reads TEXTUAL_ANIMATIONS at import time and pytest has already
-    # imported it by the time any conftest runs.
+    # Set per instance: textual reads TEXTUAL_ANIMATIONS at import time. A
+    # capture landing mid-tween cannot be reproduced.
     app.animation_level = "none"
     async with app.run_test(size=size) as pilot:
-        await pilot.pause()
+        await settled(pilot, app)
         for key in keys:
             await pilot.press(key)
             await pilot.pause()
-        await pilot.pause()
+        await settled(pilot, app)
         app.save_screenshot(str(SHOTS / f"{name}.svg"))
-        # A plain-text twin. An SVG has to be rendered before it can be read,
-        # and a font without box-drawing coverage turns every strip into a row
-        # of tofu — which looks like a Flexi bug and is not one. The text dump
-        # is what alignment is actually checked against.
+        # A plain-text twin: alignment is checked against this, and reading an
+        # SVG needs a renderer with box-drawing coverage.
         (SHOTS / f"{name}.txt").write_text(screen_text(app), encoding="utf-8")
 
     print(f"  {name}.svg  {size[0]}x{size[1]}")
 
 
+SETTLE_PASSES = 20
+"""How many pumps to give a screen before accepting that it has stopped."""
+
+
+async def settled(pilot: Pilot[None], app: FlexiApp) -> None:
+    """Pump until two passes running render the same thing.
+
+    A module that measures itself after its first layout redraws when that
+    measurement lands, so a single `pause` can capture an intermediate frame.
+    """
+    previous = ""
+    for _ in range(SETTLE_PASSES):
+        await pilot.pause()
+        current = screen_text(app)
+        if current == previous:
+            return
+        previous = current
+
+
 def screen_text(app: FlexiApp) -> str:
-    """Whatever the compositor would put on the terminal, as characters."""
+    """Return what the compositor would put on the terminal, as characters."""
     strips = app.screen._compositor.render_strips()  # noqa: SLF001
     return "\n".join(
         "".join(segment.text for segment in strip).rstrip() for strip in strips
@@ -101,12 +148,16 @@ async def main() -> None:
     SHOTS.mkdir(parents=True, exist_ok=True)
     db = ROOT / ".demo.db"
     db.unlink(missing_ok=True)
-    build_database(db).close()
 
-    with time_machine.travel(NOW, tick=False):
-        for name, size, keys in SHOOTS:
-            await shoot(name, size, keys, db)
-    db.unlink(missing_ok=True)
+    # Seeded under the frozen clock as well as captured under it; the two have
+    # to match.
+    try:
+        with PINNED, time_machine.travel(NOW, tick=False):
+            build_database(db).close()
+            for name, size, keys in SHOOTS:
+                await shoot(name, size, keys, db)
+    finally:
+        db.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

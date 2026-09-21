@@ -1,8 +1,8 @@
 """The day ledger: the one view model every widget reads.
 
-A widget asking "was Thursday a short day?" should not have to know that the
-answer involves a bank-holiday cache, a settings row, two absence rows and a
-list of clock events. It asks for a :class:`DayLedger` and reads a field.
+A widget asks for a :class:`DayLedger` and reads a field, without knowing that
+the answer involves a bank-holiday cache, a settings row, absence rows and a
+list of clock events.
 
 Everything here is frozen and computed. ``flexi.services.ledger`` builds these
 from the database; nothing in this module touches one.
@@ -11,10 +11,14 @@ from the database; nothing in this module touches one.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 
+from flexi import wallclock
 from flexi.constants import AbsenceType, DayKind, Portion
+from flexi.domain.format import plural
+
+__all__ = ("MIDDAY_HOUR", "AbsenceSlice", "DayLedger", "Segment")
 
 MIDDAY_HOUR = 12
 
@@ -24,16 +28,24 @@ class Segment:
     """One stretch of being on the clock.
 
     ``end`` is ``None`` while the session is open, which is why every duration
-    here takes a ``now``: a widget that redraws on a timer must be able to say
-    what the elapsed time is *at the moment it is drawing*, and a segment that
-    reached for the wall clock itself would make its own tests flaky.
+    here takes a ``now``: a widget that redraws on a timer needs the elapsed
+    time *at the moment it is drawing*, and nothing in ``flexi.domain`` reads
+    the clock itself.
     """
 
     session_id: int
     start: datetime
     end: datetime | None = None
     auto_closed: bool = False
+    amended: bool = False
+    """True when the stretch was typed in as a correction, not punched."""
     note: str | None = None
+
+    def __post_init__(self) -> None:
+        """Require each recorded endpoint to identify a real instant."""
+        wallclock.require_aware(self.start, name="start")
+        if self.end is not None:
+            wallclock.require_aware(self.end, name="end")
 
     @property
     def is_open(self) -> bool:
@@ -42,11 +54,17 @@ class Segment:
 
     def finish(self, now: datetime) -> datetime:
         """The end of this segment, or ``now`` while it is still running."""
-        return self.end if self.end is not None else now
+        if self.end is not None:
+            return self.end
+        return wallclock.require_aware(now, name="now")
 
     def duration(self, now: datetime) -> timedelta:
-        """How long this segment has lasted, as at ``now``."""
-        return max(timedelta(), self.finish(now) - self.start)
+        """How long this segment has lasted, as at ``now``.
+
+        Not clamped at zero: a negative span means the two ends disagree, and
+        the caller has to see that.
+        """
+        return wallclock.elapsed(self.start, self.finish(now))
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +108,7 @@ class DayLedger:
     absences: tuple[AbsenceSlice, ...] = ()
     segments: tuple[Segment, ...] = ()
 
-    # -- derived -----------------------------------------------------------
+    # Derived ---------------------------------------------------------------
 
     @property
     def delta(self) -> timedelta:
@@ -119,44 +137,59 @@ class DayLedger:
     @property
     def first_in(self) -> datetime | None:
         """The earliest clock-in on this day."""
-        return min((s.start for s in self.segments), default=None)
+        if not self.segments:
+            return None
+        return min(
+            (segment.start for segment in self.segments),
+            key=lambda moment: moment.astimezone(UTC),
+        )
 
     def last_out(self, now: datetime) -> datetime | None:
         """The latest clock-out, or ``now`` if a session is still open."""
         if not self.segments:
             return None
-        return max(segment.finish(now) for segment in self.segments)
+        return max(
+            (segment.finish(now) for segment in self.segments),
+            key=lambda moment: moment.astimezone(UTC),
+        )
 
+    @property
     def breaks(self) -> tuple[tuple[datetime, datetime], ...]:
         """The gaps between consecutive closed sessions.
 
-        Only gaps *between* sessions count. Time before the first clock-in and
-        after the last clock-out is not a break, it is not being at work.
+        Only gaps *between* sessions count: time before the first clock-in and
+        after the last clock-out is not a break.
         """
-        ordered = sorted(self.segments, key=lambda s: s.start)
+        ordered = sorted(
+            self.segments, key=lambda segment: segment.start.astimezone(UTC)
+        )
         gaps: list[tuple[datetime, datetime]] = []
         for earlier, later in pairwise(ordered):
-            if earlier.end is not None and earlier.end < later.start:
-                gaps.append((earlier.end, later.start))
+            finish = earlier.end
+            if finish is not None and finish.astimezone(UTC) < later.start.astimezone(
+                UTC
+            ):
+                gaps.append((finish, later.start))
         return tuple(gaps)
 
+    @property
     def break_total(self) -> timedelta:
         """How long this day's breaks lasted in total."""
         return sum(
-            (end - start for start, end in self.breaks()),
+            (wallclock.elapsed(start, end) for start, end in self.breaks),
             start=timedelta(),
         )
 
+    @property
     def leave_at(self) -> datetime | None:
         """When contracted hours will have been met, given today's breaks.
 
-        ``None`` when the day expects nothing or nobody has clocked in — there
-        is no meaningful answer to "when can I go?" before you have arrived.
+        ``None`` when the day expects nothing, and before the first clock-in.
         """
         first = self.first_in
         if first is None or self.expected <= timedelta():
-            return first
-        return first + self.expected + self.break_total()
+            return None
+        return wallclock.advance(first, self.expected + self.break_total)
 
     @property
     def summary(self) -> str:
@@ -170,7 +203,7 @@ class DayLedger:
             return f"{booked} · worked"
         if self.segments:
             count = len(self.segments)
-            return "1 session" if count == 1 else f"{count} sessions"
+            return f"{count} {plural(count, 'session')}"
         if not self.is_working_day:
             return ""
         return "—"

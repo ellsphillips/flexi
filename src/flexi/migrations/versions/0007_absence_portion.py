@@ -1,21 +1,20 @@
-"""half-day absences, notes, and the two new absence types
+"""Half-day absences, notes, and the two new absence types.
 
 Three changes that have to happen together:
 
-* ``portion`` — an absence now covers a full day, a morning or an afternoon.
-* ``note`` — required for ``OTHER``, optional elsewhere.
+* ``portion``: an absence now covers a full day, a morning or an afternoon.
+* ``note``: required for ``OTHER``, optional elsewhere.
 * the uniqueness rule moves from ``date`` to ``(date, portion)``, so a sick
   morning and an annual afternoon can share a date.
 
-The table is rebuilt rather than altered because the v1 schema put ``UNIQUE`` on
-the ``date`` column itself, and SQLite cannot drop a column constraint in place.
-Every existing row becomes a ``FULL`` day, which is what it already was.
+The table is rebuilt, not altered: the v1 schema put ``UNIQUE`` on the ``date``
+column itself, and SQLite cannot drop a column constraint in place. Every
+existing row becomes a ``FULL`` day, which is what it already was.
 
 ``UNPAID`` and ``OTHER`` join the ``absence_type`` enum. SQLAlchemy renders an
 ``Enum`` on SQLite as a plain ``VARCHAR`` with no check constraint, so widening
-it needs no storage change — but the rebuild below writes the new column
-definition out anyway, so the schema and the model agree on paper as well as in
-practice.
+it needs no storage change; the rebuild below writes the new column definition
+out anyway, so the schema and the model agree on paper too.
 
 Revision ID: 0007
 Revises: 0006
@@ -23,15 +22,17 @@ Create Date: 2026-08-08
 
 """
 
-from typing import Sequence, Union
+from __future__ import annotations
+
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0007"
-down_revision: Union[str, None] = "0006"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "0006"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 ABSENCE_TYPES = ("ANNUAL", "SICK", "FLEXI", "UNPAID", "OTHER")
 LEGACY_TYPES = ("ANNUAL", "SICK", "FLEXI")
@@ -68,10 +69,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Rebuild the v1 table, keeping only what it can represent.
 
-    Half days and the two new types have nowhere to go in the old schema. They
-    are dropped rather than coerced, because a morning of sickness silently
-    becoming a whole day off is a worse outcome than losing the row — and a
-    downgrade is a deliberate act, not an accident.
+    Half days and the two new types have nowhere to go in the old schema, so
+    those rows are dropped, not coerced into whole days of a legacy type.
     """
     op.rename_table("absence_days", "absence_days_new")
     op.create_table(

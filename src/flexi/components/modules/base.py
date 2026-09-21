@@ -1,4 +1,4 @@
-"""What every dashboard module has in common.
+"""Shared behaviour for every dashboard module.
 
 A module is a titled, focusable panel that knows how to redraw itself and which
 kinds of change are worth redrawing for. It never calls another module's
@@ -7,29 +7,36 @@ kinds of change are worth redrawing for. It never calls another module's
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from datetime import datetime
+from typing import ClassVar, Unpack
 
 from textual.widget import Widget
 from textual.widgets import Static
 
-from flexi import wallclock
-from flexi.domain.period import Granularity, Period
-from flexi.messages import DataChanged, Scope
+from flexi.components.options import ModuleOptions
+from flexi.context import ServiceRegistry, module_host, service_app
+from flexi.domain.period import Period
+from flexi.messages import Scope
 
-if TYPE_CHECKING:
-    from flexi.services.registry import Services
+__all__ = ("Module",)
 
 
 class Module(Static):
     """A titled panel on the dashboard.
 
     Subclasses set :attr:`WATCHES` to the scopes they care about and implement
-    :meth:`rebuild`. Everything else — the border title, the focus behaviour, the
-    route to the services — is here so five modules do not each invent it.
+    :meth:`rebuild`. The border title, the focus behaviour and the route to the
+    services are here.
     """
 
     WATCHES: ClassVar[Scope] = Scope.ALL
+
+    BENTO: ClassVar[str] = ""
+    """Extra classes saying how much of a grid this island needs.
+
+    Declared by the module, not by the screen laying it out: how wide it has to
+    be to read is a fact about the module.
+    """
 
     can_focus = True
 
@@ -39,60 +46,50 @@ class Module(Static):
         id: str,  # noqa: A002 - Textual's own parameter name
         title: str,
         subtitle: str = "",
-        **kwargs: Any,
+        **kwargs: Unpack[ModuleOptions],
     ) -> None:
-        super().__init__(id=id, classes="module", **kwargs)
+        super().__init__(id=id, classes=f"module {self.BENTO}".strip(), **kwargs)
         # Plain assignment routes through Static's reactive machinery before the
         # widget is mounted, and the title is silently lost.
         super().__setattr__("border_title", title)
         super().__setattr__("border_subtitle", subtitle)
 
-    # -- context -----------------------------------------------------------
+    # context ---------------------------------------------------------------
 
     @property
-    def services(self) -> Services:
+    def services(self) -> ServiceRegistry:
         """The application's service registry."""
-        return cast("Services", self.app.services)  # type: ignore[attr-defined]
+        return service_app(self.app).services
 
     @property
     def period(self) -> Period:
-        """The span the dashboard is currently showing."""
-        fallback = Period.containing(wallclock.today(), Granularity.WEEK)
-        return cast(Period, getattr(self.screen, "period", fallback))
-
-    @property
-    def selected(self) -> date:
-        """The date the dashboard is anchored on."""
-        return self.period.anchor
+        """The span the screen below is currently showing."""
+        return module_host(self.screen).period
 
     @property
     def now(self) -> datetime:
-        """The moment this redraw is drawing, in one place so tests can fix it."""
-        return cast(datetime, getattr(self.screen, "now", wallclock.now()))
+        """The moment this redraw is drawing."""
+        return module_host(self.screen).now
 
-    # -- redrawing ---------------------------------------------------------
+    # redrawing -------------------------------------------------------------
 
     def rebuild(self) -> None:
         """Redraw from the current data. Overridden by every module."""
+        raise NotImplementedError
 
     def rebuild_if(self, scope: Scope) -> None:
         """Redraw only when the change was one this module cares about."""
         if scope & self.WATCHES:
             self.rebuild()
 
-    def announce(self, scope: Scope) -> None:
-        """Tell the screen that something was written."""
-        self.post_message(DataChanged(scope))
-
     def focus_target(self) -> Widget:
         """The widget a jump to this module should focus.
 
-        Usually the module itself. A module whose content is a table wants the
-        table — landing on the panel and then needing a second key to get into
-        the rows is exactly the friction jump mode exists to remove.
+        Usually the module itself; a module whose content is a table overrides
+        this to return the table, so a jump lands in the rows.
         """
         return self
 
     def set_subtitle(self, text: str) -> None:
-        """Write into the border subtitle — the module's live data slot."""
+        """Write into the border subtitle, the module's live data slot."""
         self.border_subtitle = text

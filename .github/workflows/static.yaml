@@ -1,0 +1,53 @@
+name: Static
+
+# Everything that can be decided without running the application: the linter,
+# the formatter, the type checker, and whether the lockfile still describes
+# what pyproject asks for.
+#
+# One job, because these are readings of the same checkout and splitting them
+# would mean a `uv sync` each to save nothing. They fail with the tool's own
+# message, which already names the file and the line.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.9.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --locked --dev
+
+      - name: uv.lock matches pyproject
+        run: uv lock --check
+
+      - name: ruff
+        run: uv run ruff check --output-format=github
+
+      - name: ruff format
+        run: uv run ruff format --check
+
+      - name: mypy
+        run: uv run mypy
+
+      # mypy follows `sys.platform`, so the ctypes lease and the msvcrt prompt
+      # are analysed on no runner without this. `--no-warn-unreachable` because
+      # the POSIX code after a win32 early return is unreachable in this view.
+      - name: mypy, the Windows view
+        run: uv run mypy --platform win32 --no-warn-unreachable
+
+      - name: Audit locked runtime and development dependencies
+        run: |
+          uv export --locked --no-emit-project --group dev --output-file audit-requirements.txt --quiet
+          uvx --from pip-audit==2.10.1 pip-audit --disable-pip --no-deps --progress-spinner off --requirement audit-requirements.txt

@@ -7,19 +7,92 @@ domain, the services and the widgets without a cycle.
 from __future__ import annotations
 
 import enum
-from enum import StrEnum, auto
+from collections.abc import Mapping
+from dataclasses import dataclass
+from enum import StrEnum
+from types import MappingProxyType
+from typing import Final
+
+__all__ = (
+    "CANCEL_WORD",
+    "DEFAULT_DIVISION",
+    "AbsenceType",
+    "ClockAction",
+    "DayKind",
+    "Division",
+    "EventSource",
+    "Granularity",
+    "Portion",
+    "Verdict",
+    "absence_from_word",
+)
 
 
-class StatusOption(StrEnum):
-    """Actions for clocking in or out."""
+class EventSource(StrEnum):
+    """Who punched the clock.
 
-    ARRIVE = auto()
-    DEPART = auto()
+    Migration 0010 tells these values apart to decide whose timestamps it may
+    rewrite, so a wrong one is a silent data conversion, not an error.
+    """
+
+    USER = "user"
+    """The user pressed a key."""
+
+    SYSTEM = "system"
+    """Flexi closed a session the user left open."""
+
+    AMENDED = "amended"
+    """The user recorded work after the fact. It counts for everything a
+    punched session counts for, and is drawn apart from one."""
+
+
+class Granularity(StrEnum):
+    """The span a period covers."""
+
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+
+    @property
+    def label(self) -> str:
+        """The name shown to a reader."""
+        return self.value.capitalize()
+
+    def next(self) -> Granularity:
+        """The next granularity in the cycle ``day → week → month → year → day``."""
+        order: list[Granularity] = list(Granularity)
+        return order[(order.index(self) + 1) % len(order)]
+
+
+class Division(StrEnum):
+    """A GOV.UK bank holiday division, as the GOV.UK index keys it."""
+
+    ENGLAND_AND_WALES = "england-and-wales"
+    SCOTLAND = "scotland"
+    NORTHERN_IRELAND = "northern-ireland"
+
+    @property
+    def label(self) -> str:
+        """The name shown to a reader."""
+        return _DIVISION_LABELS[self]
 
     @classmethod
-    def from_str(cls, action: str) -> StatusOption:
-        """The option named by a word or by its initial."""
-        return cls.ARRIVE if action.lower().startswith("a") else cls.DEPART
+    def choices(cls) -> tuple[tuple[str, str], ...]:
+        """Label and value, for a Select or a click.Choice."""
+        return tuple((member.label, member.value) for member in cls)
+
+
+_DIVISION_LABELS: Final[Mapping[Division, str]] = MappingProxyType(
+    {
+        Division.ENGLAND_AND_WALES: "England & Wales",
+        Division.SCOTLAND: "Scotland",
+        Division.NORTHERN_IRELAND: "Northern Ireland",
+    }
+)
+
+DEFAULT_DIVISION = Division.ENGLAND_AND_WALES
+"""The division assumed until the user chooses one."""
 
 
 class ClockAction(enum.Enum):
@@ -32,9 +105,8 @@ class ClockAction(enum.Enum):
 class AbsenceType(enum.Enum):
     """A reason a working day was not worked.
 
-    A bank holiday is deliberately absent: it is a property of the date rather
-    than something a person books, it comes from GOV.UK, and it cannot be
-    created or removed from the interface.
+    A bank holiday is not one of these: it is a property of the date, it comes
+    from GOV.UK, and it cannot be created or removed from the interface.
     """
 
     ANNUAL = "annual"
@@ -46,21 +118,30 @@ class AbsenceType(enum.Enum):
     @property
     def label(self) -> str:
         """The name shown to a reader."""
-        return _ABSENCE_LABELS[self]
+        return _DETAILS[self].label
+
+    @property
+    def phrase(self) -> str:
+        """The name as it reads inside a sentence, e.g. "Book annual leave?".
+
+        Not ``label.lower()``: an acronym such as TOIL stays upper case in a
+        sentence.
+        """
+        return _DETAILS[self].phrase
 
     @property
     def short(self) -> str:
-        """A one-word name, for a gauge label in a narrow sidebar.
-
-        "Sickness" truncated to fit is "Sicknes", which reads as a typo rather
-        than as an abbreviation.
-        """
-        return _ABSENCE_SHORT[self]
+        """A one-word name, for a gauge label in a narrow sidebar."""
+        return _DETAILS[self].short
 
     @property
     def token(self) -> str:
-        """The stem of this type's CSS colour tokens, e.g. ``annual``."""
-        return _ABSENCE_TOKENS[self]
+        """The stem of this type's CSS colour tokens, e.g. ``annual``.
+
+        ``flexi`` is the value stored in the database and ``toil`` is its
+        token.
+        """
+        return _DETAILS[self].token
 
     @property
     def draws_down_entitlement(self) -> bool:
@@ -78,31 +159,87 @@ class AbsenceType(enum.Enum):
         return self is AbsenceType.OTHER
 
 
-_ABSENCE_LABELS: dict[AbsenceType, str] = {
-    AbsenceType.ANNUAL: "Annual leave",
-    AbsenceType.SICK: "Sickness",
-    AbsenceType.FLEXI: "TOIL",
-    AbsenceType.UNPAID: "Unpaid leave",
-    AbsenceType.OTHER: "Other",
-}
+CANCEL_WORD = "cancel"
 
-_ABSENCE_SHORT: dict[AbsenceType, str] = {
-    AbsenceType.ANNUAL: "ANNUAL",
-    AbsenceType.SICK: "SICK",
-    AbsenceType.FLEXI: "TOIL",
-    AbsenceType.UNPAID: "UNPAID",
-    AbsenceType.OTHER: "OTHER",
-}
 
-# `flexi` is stored, `toil` is displayed and themed: the database value is
-# historical, and the colour token reads better beside the other four.
-_ABSENCE_TOKENS: dict[AbsenceType, str] = {
-    AbsenceType.ANNUAL: "annual",
-    AbsenceType.SICK: "sick",
-    AbsenceType.FLEXI: "toil",
-    AbsenceType.UNPAID: "unpaid",
-    AbsenceType.OTHER: "other",
-}
+def absence_from_word(word: str) -> AbsenceType | None:
+    """Return the type a spoken word names, or ``None``.
+
+    ``toil`` is the spoken name for the stored ``flexi`` value.
+    """
+    return _SPOKEN.get(word.strip().lower())
+
+
+@dataclass(frozen=True, slots=True)
+class _Details:
+    """Everything an absence type carries besides its stored value."""
+
+    label: str
+    phrase: str
+    short: str
+    token: str
+
+
+_DETAILS: Final[Mapping[AbsenceType, _Details]] = MappingProxyType(
+    {
+        AbsenceType.ANNUAL: _Details(
+            "Annual leave", "annual leave", "ANNUAL", "annual"
+        ),
+        AbsenceType.SICK: _Details("Sickness", "sickness", "SICK", "sick"),
+        AbsenceType.FLEXI: _Details("TOIL", "TOIL", "TOIL", "toil"),
+        AbsenceType.UNPAID: _Details(
+            "Unpaid leave", "unpaid leave", "UNPAID", "unpaid"
+        ),
+        AbsenceType.OTHER: _Details("Other", "other leave", "OTHER", "other"),
+    }
+)
+"""One table keyed by member, behind the `AbsenceType` properties.
+
+Carrying the same data on the members through `__new__` makes
+`AbsenceType("annual")`, the way a stored value is read back, look like a
+four-argument constructor to a type checker.
+"""
+
+
+class Verdict(enum.Enum):
+    """The outcome of planning a booking for one date.
+
+    Typed, so no caller has to tell a skip from a refusal by reading the words
+    in a message written for a status bar.
+    """
+
+    BOOK = "book"
+    NON_WORKING = "non-working"
+    BANK_HOLIDAY = "bank-holiday"
+    NO_CALENDAR = "no-calendar"
+    CLASH = "clash"
+    NO_ENTITLEMENT = "no-entitlement"
+    NEEDS_NOTE = "needs-note"
+
+    @property
+    def is_refusal(self) -> bool:
+        """True when the day was asked for and could not be had.
+
+        A weekend or a bank holiday is a skip, not a refusal: counting them as
+        failures would make every fortnight partial.
+        """
+        return self not in {Verdict.BOOK, Verdict.NON_WORKING, Verdict.BANK_HOLIDAY}
+
+    @property
+    def is_skip(self) -> bool:
+        """True when the date was passed over, not refused."""
+        return self in {Verdict.NON_WORKING, Verdict.BANK_HOLIDAY}
+
+
+_SPOKEN: Final[Mapping[str, AbsenceType]] = MappingProxyType(
+    {
+        **{kind.token: kind for kind in AbsenceType},
+        "flexi": AbsenceType.FLEXI,
+        "holiday": AbsenceType.ANNUAL,
+        "al": AbsenceType.ANNUAL,
+        "leave": AbsenceType.ANNUAL,
+    }
+)
 
 
 class Portion(enum.Enum):
@@ -120,22 +257,34 @@ class Portion(enum.Enum):
     @property
     def label(self) -> str:
         """The name shown to a reader."""
-        return _PORTION_LABELS[self]
+        return _PORTION_LABELS[self].label
+
+    @property
+    def noun(self) -> str:
+        """The lower-case name this portion takes when counted, e.g. "morning"."""
+        return _PORTION_LABELS[self].noun
 
 
-_PORTION_LABELS: dict[Portion, str] = {
-    Portion.FULL: "Full day",
-    Portion.AM: "Morning",
-    Portion.PM: "Afternoon",
-}
+@dataclass(frozen=True, slots=True)
+class _PortionNames:
+    label: str
+    noun: str
+
+
+_PORTION_LABELS: Final[Mapping[Portion, _PortionNames]] = MappingProxyType(
+    {
+        Portion.FULL: _PortionNames("Full day", "day"),
+        Portion.AM: _PortionNames("Morning", "morning"),
+        Portion.PM: _PortionNames("Afternoon", "afternoon"),
+    }
+)
 
 
 class DayKind(StrEnum):
     """What a date is, at a glance.
 
-    ``PARTIAL`` is the case a one-status-per-day table gets wrong: a half-day
-    absence with work in the other half. It is why the records table has
-    expandable rows.
+    ``PARTIAL`` is a half-day absence with work in the other half, which one
+    status per day cannot express: the records table expands such a row.
     """
 
     WORKING = "working"
@@ -143,3 +292,9 @@ class DayKind(StrEnum):
     HOLIDAY = "holiday"
     ABSENT = "absent"
     PARTIAL = "partial"
+    UNTRACKED = "untracked"
+    """A date before Flexi was set up, so nothing is expected of it.
+
+    A leave year usually starts months before Flexi is installed; counted as
+    ordinary days, each untracked working day reads as a full day of deficit.
+    """

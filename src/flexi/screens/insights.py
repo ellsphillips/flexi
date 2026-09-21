@@ -1,18 +1,17 @@
 """Insights: how the balance and the allowances actually moved.
 
-Four questions, four forms, and each form was chosen because the data has that
-job. Nothing here is a chart for the sake of having one — the dashboard already
-answers "where am I"; this answers "how did I get here".
+The dashboard answers "where am I"; this screen answers "how did I get here",
+with a form per question chosen to suit the data behind it.
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, ClassVar
+from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.screen import Screen
 
 from flexi import wallclock
@@ -21,21 +20,35 @@ from flexi.components.charts import (
     DivergingBars,
     WeekRibbon,
     YearHeatmap,
+    running_balance,
     week_columns,
 )
 from flexi.components.chrome import AppFooter, AppHeader
-from flexi.components.common import Tone, mark_width
+from flexi.components.common import mark_width
 from flexi.components.modules.base import Module
+from flexi.components.options import ModuleOptions, ScreenOptions
+from flexi.components.plot import Plot
 from flexi.config import CONFIG
-from flexi.constants import AbsenceType
-from flexi.domain.format import day_month, delta, hm, short_date
-from flexi.domain.period import Granularity, Period
+from flexi.constants import AbsenceType, Granularity
+from flexi.context import service_app
+from flexi.domain.format import day_month, delta, hm, stamp
+from flexi.domain.period import Period
+from flexi.domain.plot import Mark, Series
 from flexi.messages import Scope
-from flexi.services.registry import Services
+
+__all__ = (
+    "RIBBON_DAYS",
+    "BalanceHistory",
+    "InsightsScreen",
+    "LeaveBurndown",
+    "RunningBalance",
+    "ShapeOfTheWeeks",
+    "YearAtAGlance",
+)
 
 RIBBON_DAYS = 21
-"""Three weeks of strips. Enough to see a pattern, few enough to fit above the
-fold beside three other panels."""
+"""Three weeks of strips: enough to see a pattern, few enough to fit beside
+three other panels."""
 
 
 class BalanceHistory(Module):
@@ -43,7 +56,7 @@ class BalanceHistory(Module):
 
     WATCHES: ClassVar[Scope] = Scope.ALL
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="balance-history", title="Balance by week", **kwargs)
 
     def compose(self) -> ComposeResult:
@@ -54,18 +67,70 @@ class BalanceHistory(Module):
 
     def rebuild(self) -> None:
         period = self.period
-        # Stop at today. Every working day after it expects hours and has none
-        # recorded, so charting the rest of a leave year draws a cliff of
-        # deficits for days nobody has lived yet.
+        # Stop at today: a working day in the future expects hours and has none
+        # recorded, so charting past it draws a cliff of deficits.
         end = min(period.end, self.now.date())
         if end < period.start:
             self.query_one("#balance-bars", DivergingBars).show([])
             self.set_subtitle("not started")
             return
         ledgers = self.services.ledger.days(period.start, end, now=self.now)
-        self.query_one("#balance-bars", DivergingBars).show(week_columns(ledgers))
+        self.query_one("#balance-bars", DivergingBars).show(
+            week_columns(ledgers, first_weekday=period.first_weekday)
+        )
         total = self.services.ledger.summary(period.start, end, now=self.now)
         self.set_subtitle(f"{delta(total.delta)} to {day_month(end)}")
+
+
+class RunningBalance(Module):
+    """The flexi balance, day by day, and which side of zero it has been.
+
+    The balance accumulates the daily differences, so it moves where a weekly
+    total does not. Zero is drawn as a rule, not a series: it is the line the
+    readings sit one side of, and it turns a wandering line into "ahead" and
+    "behind".
+    """
+
+    WATCHES: ClassVar[Scope] = Scope.ALL
+
+    BENTO = "bento--wide"
+    """A time axis: every column it loses is days of it."""
+
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
+        super().__init__(id="running-balance", title="Running balance", **kwargs)
+
+    def compose(self) -> ComposeResult:
+        yield Plot(id="balance-plot")
+
+    def on_mount(self) -> None:
+        self.rebuild()
+
+    def rebuild(self) -> None:
+        period = self.period
+        # Stop at today: a working day in the future expects hours and has none
+        # recorded, so carrying on draws a cliff into a debt no one has run up.
+        end = min(period.end, self.now.date())
+        chart = self.query_one("#balance-plot", Plot)
+        if end < period.start:
+            chart.show([], empty_message="Not started")
+            self.set_subtitle("not started")
+            return
+
+        ledgers = self.services.ledger.days(period.start, end, now=self.now)
+        running = running_balance(ledgers)
+        chart.show(
+            [Series("balance", running, Mark.LINE, "series")],
+            rule=0.0,
+            empty_message="Nothing recorded yet",
+        )
+        # The line starts at zero on the period's first day: over the leave year
+        # that is the balance, over a month only the drift within the month, so
+        # the two are captioned differently.
+        total = delta(timedelta(hours=running[-1]))
+        if period.granularity is Granularity.YEAR:
+            self.set_subtitle(f"{total} on {day_month(end)}")
+        else:
+            self.set_subtitle(f"{total} this period")
 
 
 class LeaveBurndown(Module):
@@ -73,7 +138,7 @@ class LeaveBurndown(Module):
 
     WATCHES: ClassVar[Scope] = Scope.ABSENCE | Scope.SETTINGS | Scope.PERIOD
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="leave-burndown", title="Annual leave", **kwargs)
 
     def compose(self) -> ComposeResult:
@@ -92,7 +157,9 @@ class LeaveBurndown(Module):
             annual.remaining, annual.total or 0.0, annual.pace
         )
         start, end = data.leave_year
-        self.set_subtitle(f"{start.strftime('%b %y')}–{end.strftime('%b %y')}")
+        # The same span the dashboard's Balance panel names, said the same way:
+        # a leave year that starts on the 6th is not "Apr 26".
+        self.set_subtitle(f"{stamp(start, '%-d %b %y')}–{stamp(end, '%-d %b %y')}")
 
 
 class ShapeOfTheWeeks(Module):
@@ -100,11 +167,11 @@ class ShapeOfTheWeeks(Module):
 
     WATCHES: ClassVar[Scope] = Scope.ALL
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="week-ribbon", title="Shape of the days", **kwargs)
 
     def compose(self) -> ComposeResult:
-        yield WeekRibbon(id="ribbon")
+        yield WeekRibbon(id="ribbon", now=self.now)
 
     def on_mount(self) -> None:
         self.rebuild()
@@ -118,7 +185,7 @@ class ShapeOfTheWeeks(Module):
             if item.is_working_day or item.segments
         ]
         self.query_one("#ribbon", WeekRibbon).show(
-            ledgers[-RIBBON_DAYS:], self.services.ledger.window
+            ledgers[-RIBBON_DAYS:], self.services.ledger.window, now=self.now
         )
         self.set_subtitle(f"to {day_month(end)}")
 
@@ -128,7 +195,7 @@ class YearAtAGlance(Module):
 
     WATCHES: ClassVar[Scope] = Scope.ALL
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="year-heatmap", title="The leave year", **kwargs)
 
     def compose(self) -> ComposeResult:
@@ -138,16 +205,25 @@ class YearAtAGlance(Module):
         self.rebuild()
 
     def rebuild(self) -> None:
-        today = self.now.date()
-        start, _ = self.services.absence.leave_year_bounds(today)
-        ledgers = self.services.ledger.days(start, today, now=self.now)
-        self.query_one("#heatmap", YearHeatmap).show(ledgers)
+        # The leave year the period is in, whatever the period has been zoomed
+        # to, so the panel and the header name the same year.
+        year = self.period.zoom(Granularity.YEAR)
+        end = min(year.end, self.now.date())
+        heatmap = self.query_one("#heatmap", YearHeatmap)
+        if end < year.start:
+            heatmap.show([], first_weekday=self.period.first_weekday)
+            self.set_subtitle("not started")
+            return
+        ledgers = self.services.ledger.days(year.start, end, now=self.now)
+        heatmap.show(ledgers, first_weekday=self.period.first_weekday)
         worked = sum((item.worked for item in ledgers), start=timedelta())
         self.set_subtitle(f"{hm(worked)} worked")
 
 
 class InsightsScreen(Screen[None]):
-    """The four questions the dashboard does not answer."""
+    """The five questions the dashboard does not answer."""
+
+    HELP_LABEL = "Insights"
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.today, "today", "Today", show=True),
@@ -157,50 +233,67 @@ class InsightsScreen(Screen[None]):
         Binding("escape", "back", "Back", show=True),
     ]
 
-    def __init__(self, services: Services, period: Period, **kwargs: Any) -> None:
+    def __init__(self, period: Period, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
-        self._services = services
-        # Opens on the leave year rather than inheriting a week: a chart of one
-        # week's four bars is a worse answer than the table it came from.
+        # Opens on the leave year, not the period it inherits: one week is four
+        # bars, which the table it came from already showed better.
         self.period = period.zoom(Granularity.YEAR)
         self.now = wallclock.now()
 
     def compose(self) -> ComposeResult:
         yield AppHeader()
         with VerticalScroll(id="insights-body"):
-            with Horizontal(classes="insights-row"):
-                yield BalanceHistory()
-                yield LeaveBurndown()
-            with Vertical(classes="insights-row"):
-                yield ShapeOfTheWeeks()
-                yield YearAtAGlance()
+            # Order is layout as well as emphasis: one island reads across the
+            # full width and the other four pair off, so no grid cell is left
+            # empty. A row is as tall as its tallest island, so each sits beside
+            # one of about its own height.
+            yield RunningBalance()
+            yield ShapeOfTheWeeks()
+            yield BalanceHistory()
+            yield YearAtAGlance()
+            yield LeaveBurndown()
         yield AppFooter()
 
     def on_mount(self) -> None:
         for header in self.query(AppHeader):
             header.set_active("insights")
-            header.context = f"{short_date(wallclock.today())} · {self.period.label}"
+            header.context = self.period.label
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)
 
     def jump_targets(self) -> dict[str, str]:
+        """The jump key for every panel on this screen."""
         return {
+            "running-balance": "r",
             "balance-history": "b",
             "leave-burndown": "l",
             "week-ribbon": "s",
             "year-heatmap": "y",
         }
 
-    # -- period ------------------------------------------------------------
+    # period ----------------------------------------------------------------
+
+    def refresh_modules(self, scope: Scope) -> None:
+        """Redraw on an external change, so the app can treat every screen alike."""
+        if scope & Scope.SETTINGS:
+            self.period = self.period.with_year_start(
+                service_app(self.app).services.settings.get_leave_year_start()
+            )
+            for header in self.query(AppHeader):
+                header.context = self.period.label
+        for module in self.query(Module):
+            module.rebuild_if(scope)
 
     def set_period(self, period: Period) -> None:
         self.period = period
         for header in self.query(AppHeader):
-            header.context = f"{short_date(wallclock.today())} · {period.label}"
-        self._services.invalidate()
+            header.context = period.label
+        # No `invalidate()`: `Scope.PERIOD` means the temporal view moved, which
+        # changes no rows, and the ledger cache is what stops a leave year being
+        # re-derived from scratch on every keypress.
         for module in self.query(Module):
-            module.rebuild()
+            module.rebuild_if(Scope.PERIOD)
 
     def action_today(self) -> None:
         self.set_period(self.period.go_to(wallclock.today()))
@@ -212,14 +305,9 @@ class InsightsScreen(Screen[None]):
         self.set_period(self.period.zoom(self.period.granularity.next()))
 
     def action_back(self) -> None:
-        """Dismiss, rather than pop.
+        """Dismiss the screen.
 
-        `pop_screen` removes the screen without running the callback that
-        `push_screen` was given, so the nav bar would keep pointing at Insights
-        after the user had left it.
+        `pop_screen` would remove it without running the callback `push_screen`
+        was given, leaving the nav bar pointing at Insights.
         """
         self.dismiss(None)
-
-    def status(self, message: str, tone: Tone = Tone.NEUTRAL) -> None:
-        for footer in self.query(AppFooter):
-            footer.set_status(message, tone)

@@ -1,10 +1,8 @@
-"""The layering rule, enforced.
+"""The layering rules, enforced by walking the AST of every module in `src`.
 
-``flexi.domain`` may not import Textual or SQLAlchemy, and ``flexi.components``
-may not import SQLAlchemy. Both rules are what keep the arithmetic testable
-without a terminal and the widgets testable without a database, and both are the
-kind of rule that decays silently the first time someone needs one import "just
-here". Twenty lines of AST walking is cheaper than the decay.
+``flexi.domain`` may not import Textual or SQLAlchemy and ``flexi.components``
+may not import SQLAlchemy, which is what keeps the arithmetic testable without
+a terminal and the widgets testable without a database.
 """
 
 from __future__ import annotations
@@ -15,13 +13,40 @@ from pathlib import Path
 
 import pytest
 
+from flexi.config import Hotkeys
+
 SRC = Path(__file__).resolve().parent.parent / "src" / "flexi"
 
 FORBIDDEN: dict[str, frozenset[str]] = {
     "domain": frozenset({"textual", "sqlalchemy", "flexi.services", "flexi.models"}),
-    "components": frozenset({"sqlalchemy", "flexi.models"}),
+    "components": frozenset({"sqlalchemy", "flexi.models", "flexi.services.wallet"}),
     "screens": frozenset({"sqlalchemy"}),
+    "services": frozenset(
+        {"textual", "flexi.app", "flexi.screens", "flexi.components", "flexi.cli"}
+    ),
+    "cli": frozenset({"flexi.app", "flexi.screens", "flexi.components"}),
+    "models": frozenset(
+        {
+            "textual",
+            "httpx",
+            "flexi.app",
+            "flexi.screens",
+            "flexi.components",
+            "flexi.services",
+            "flexi.cli",
+        }
+    ),
 }
+"""Which packages may not reach which.
+
+`models` is the layer every other one sits on, so a single upward import there
+makes the whole graph a cycle. `flexi.domain` is left off its list: nothing
+reaches for it, and forbidding it would pre-judge a move that may be right.
+
+`components` forbids `sqlalchemy` and permits `flexi.services`, so
+`flexi.services.wallet` is named too: importing a value object from there drags
+SQLAlchemy in behind it. Those values live in `flexi.domain.wallet`.
+"""
 
 
 def imported_modules(source: Path) -> Iterator[str]:
@@ -35,13 +60,44 @@ def imported_modules(source: Path) -> Iterator[str]:
             yield node.module
 
 
+def module_scope_imports(source: Path) -> Iterator[str]:
+    """Only the imports that run when the file is imported.
+
+    `imported_modules` walks the whole tree, which is the right question for a
+    layering rule and the wrong one for a startup cost.
+    """
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            yield node.module
+
+
 def python_files(package: str) -> list[Path]:
     return sorted((SRC / package).rglob("*.py"))
 
 
+def first_banned(module: str, banned: frozenset[str]) -> str | None:
+    """The rule an imported module name offends, if it offends one.
+
+    Matched on the whole name, not the root package, so a rule naming one module
+    such as `flexi.services.wallet` covers that module and everything under it.
+    """
+    return next(
+        (
+            rule
+            for rule in sorted(banned)
+            if module == rule or module.startswith(f"{rule}.")
+        ),
+        None,
+    )
+
+
 @pytest.mark.parametrize("package", sorted(FORBIDDEN))
 def test_package_exists(package: str) -> None:
-    """It fails loudly if a package is renamed and the rule is left behind."""
+    """A renamed package must not leave its rule behind unnoticed."""
     assert (SRC / package).is_dir(), f"flexi/{package}/ is missing"
 
 
@@ -56,15 +112,238 @@ def test_package_exists(package: str) -> None:
     ids=lambda value: value.name if isinstance(value, Path) else str(value),
 )
 def test_layer_imports(package: str, path: Path) -> None:
-    """It keeps each layer inside the imports it is allowed."""
+    """Each layer stays inside the imports it is allowed."""
     banned = FORBIDDEN[package]
     for module in imported_modules(path):
-        root = module.split(".")[0]
-        offending = next(
-            (rule for rule in banned if root == rule or module.startswith(f"{rule}.")),
-            None,
-        )
+        offending = first_banned(module, banned)
         assert offending is None, (
             f"{path.relative_to(SRC)} imports {module!r}; "
             f"flexi/{package}/ may not depend on {offending!r}"
         )
+
+
+@pytest.mark.parametrize(
+    ("package", "module", "rule"),
+    [
+        ("cli", "flexi.app", "flexi.app"),
+        ("components", "flexi.services.wallet", "flexi.services.wallet"),
+        ("domain", "textual", "textual"),
+        ("domain", "flexi.services.registry", "flexi.services"),
+        ("models", "flexi.cli.balance", "flexi.cli"),
+        ("screens", "sqlalchemy.orm", "sqlalchemy"),
+    ],
+)
+def test_importing_the_banned_name_itself_offends(
+    package: str, module: str, rule: str
+) -> None:
+    """Asked of the matcher: `src` obeys the rules, so it has nothing to catch."""
+    assert first_banned(module, FORBIDDEN[package]) == rule
+
+
+@pytest.mark.parametrize(
+    ("package", "module"),
+    [
+        ("components", "flexi.services.absence"),
+        ("domain", "flexi.constants"),
+        ("cli", "flexi.app_state"),
+        ("models", "textualize"),
+    ],
+)
+def test_name_that_only_starts_like_a_rule_is_free(package: str, module: str) -> None:
+    """A rule ends at a dot, so `flexi.app_state` is not `flexi.app`."""
+    assert first_banned(module, FORBIDDEN[package]) is None
+
+
+EXPENSIVE = frozenset(
+    {
+        "textual",
+        "sqlalchemy",
+        "alembic",
+        "httpx",
+        "rich",
+        "flexi.app",
+        "flexi.screens",
+        "flexi.components",
+        "flexi.models",
+        "flexi.services.registry",
+        "flexi.services.startup",
+    }
+)
+"""What `flexi --version` must not pay for.
+
+The `flexi` entries matter as much as the third-party ones and are easier to
+miss, because their root package is the cheap one: `from flexi.app import App`
+pulls in the whole of Textual while looking local.
+"""
+
+
+def test_entry_point_stays_cheap_to_import() -> None:
+    """The application is imported by the commands that open it, and no others.
+
+    An AST check, not `'textual' not in sys.modules`: a worker that has already
+    run a Textual test has it loaded whatever this module does.
+    """
+    entry = SRC / "__main__.py"
+    for module in module_scope_imports(entry):
+        offending = first_banned(module, EXPENSIVE)
+        assert offending is None, (
+            f"__main__.py imports {module!r} at module scope, so every command "
+            f"pays for it. Move it into the function that uses it."
+        )
+
+
+def test_type_checking_block_is_not_a_loophole() -> None:
+    """`TYPE_CHECKING` imports are free, but only under the future import.
+
+    Without `from __future__ import annotations` the annotations they type are
+    evaluated at runtime, and the name is not there.
+    """
+    entry = SRC / "__main__.py"
+    tree = ast.parse(entry.read_text(encoding="utf-8"), filename=str(entry))
+    futures = {
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__"
+        for alias in node.names
+    }
+    assert "annotations" in futures
+
+
+def declares_bindings(tree: ast.Module) -> Iterator[ast.ClassDef]:
+    """Every class in a module whose body assigns ``BINDINGS``."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        assigned = {
+            target.id
+            for statement in node.body
+            for target in _targets(statement)
+            if isinstance(target, ast.Name)
+        }
+        if "BINDINGS" in assigned:
+            yield node
+
+
+def _targets(statement: ast.stmt) -> Iterator[ast.expr]:
+    if isinstance(statement, ast.AnnAssign):
+        yield statement.target
+    elif isinstance(statement, ast.Assign):
+        yield from statement.targets
+
+
+@pytest.mark.parametrize("path", sorted(SRC.rglob("*.py")), ids=lambda p: p.name)
+def test_every_class_with_keys_has_a_help_label(path: Path) -> None:
+    """A binding is filed in the help modal under its owner's `HELP_LABEL`.
+
+    `label_for` falls back to the class name, which reads as an answer, so a
+    class with keys and no label has to fail here instead.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in declares_bindings(tree):
+        labelled = {
+            target.id
+            for statement in node.body
+            for target in _targets(statement)
+            if isinstance(target, ast.Name)
+        }
+        assert "HELP_LABEL" in labelled, (
+            f"{node.name} declares BINDINGS but no HELP_LABEL, so the help "
+            f"modal would file its keys under {node.name!r}."
+        )
+
+
+PREFERRED_KEYS: frozenset[str] = frozenset(
+    str(getattr(Hotkeys(), name)) for name in Hotkeys.model_fields
+)
+"""Every key a `config.yaml` can move."""
+
+SPELLED_OUT_ANYWAY: frozenset[tuple[str, str]] = frozenset({("leave.py", "space")})
+"""Bindings that write one of those keys out again, and why.
+
+`LeaveScreen`'s `space` cycles the portion under the cursor and has no `Hotkeys`
+field. One cannot be added while `hotkeys.expand` holds `space`, because
+`Hotkeys.reject_keys_bound_twice` refuses a key two fields name.
+"""
+
+
+def binding_keys(node: ast.ClassDef) -> Iterator[str]:
+    """Every key a class writes out as a literal in a `Binding(...)`."""
+    for call in ast.walk(node):
+        if not isinstance(call, ast.Call):
+            continue
+        named = call.func
+        if not isinstance(named, ast.Name) or named.id != "Binding" or not call.args:
+            continue
+        first = call.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            yield first.value
+
+
+@pytest.mark.parametrize("path", sorted(SRC.rglob("*.py")), ids=lambda p: p.name)
+def test_configurable_keys_are_not_spelled_out(path: Path) -> None:
+    """A binding that spells out a configurable key ignores the config file.
+
+    Rebinding then moves the entry in the help modal and nothing else: the
+    widget goes on answering to the literal, and the chosen key does nothing.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in declares_bindings(tree):
+        for key in binding_keys(node):
+            assert (
+                key not in PREFERRED_KEYS or (path.name, key) in SPELLED_OUT_ANYWAY
+            ), (
+                f"{path.name} binds {key!r} as a literal, and `config.yaml` can "
+                f"move it. Read it from `CONFIG.hotkeys`."
+            )
+
+
+CLOCK_READS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("date", "today"),
+        ("datetime", "now"),
+        ("datetime", "utcnow"),
+        ("time", "time"),
+        ("time", "time_ns"),
+    }
+)
+"""Ways of asking the machine what time it is, as `(object, attribute)` pairs.
+
+Only `flexi/wallclock.py` may use one. Everything else goes through it, which
+keeps the arithmetic independent of the machine and lets the suite pin the
+clock in one place.
+"""
+
+
+def clock_reads(source: Path) -> Iterator[str]:
+    """Every direct reading of the system clock in a file."""
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        called = node.func
+        if (
+            isinstance(called, ast.Attribute)
+            and isinstance(called.value, ast.Name)
+            and (called.value.id, called.attr) in CLOCK_READS
+        ):
+            yield f"{called.value.id}.{called.attr}()"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for path in sorted(SRC.rglob("*.py")) if path.name != "wallclock.py"],
+    ids=str,
+)
+def test_only_wallclock_reads_the_system_clock(path: Path) -> None:
+    """The invariant the README and CONTRIBUTING both state, enforced.
+
+    Migrations included. `DTZ005` and `DTZ011` catch the naive spellings, but
+    `date.today()` behind a `noqa` and `datetime.now(tz=UTC)` are invisible to
+    them.
+    """
+    found = sorted(set(clock_reads(path)))
+    assert found == [], (
+        f"{path.relative_to(SRC)} reads the system clock directly "
+        f"({', '.join(found)}); every reading goes through flexi.wallclock, "
+        f"so that one pin moves them all"
+    )

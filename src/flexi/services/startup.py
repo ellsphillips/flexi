@@ -1,16 +1,26 @@
-"""Startup routines that run before any clock action or app launch."""
+"""Closing sessions left open on an earlier work date.
+
+One half of the sweep `ClockService.sweep` runs; the other half, voiding
+sessions too short to have been real, belongs to the clock service. Keeping
+them apart keeps the import between them one-way.
+"""
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import ClockAction
-from flexi.models.database.db import ClockEvent, WorkSession
-from flexi.services.settings import SettingsService
+from flexi.constants import EventSource
+from flexi.domain.format import short_date
+from flexi.models.database.db import WorkSession
+from flexi.models.database.moment import moment_of
+from flexi.services.transactions import write_transaction
+from flexi.services.work_sessions import first_absence_overlap, stage_clock_out
+
+__all__ = ("close_stale_sessions",)
 
 
 def close_stale_sessions(
@@ -21,59 +31,58 @@ def close_stale_sessions(
 ) -> list[WorkSession]:
     """Auto-close open sessions from previous work dates.
 
-    If auto_close_time is before the session's clock-in time,
-    close at 23:59 instead. Creates system-sourced ClockEvents
-    and marks sessions auto_closed.
+    If auto_close_time precedes clock-in, use the day's final minute without
+    moving before clock-in. Booked leave caps the inferred interval and adds
+    a note. The resulting ClockEvents are system-sourced.
     """
     if today is None:
         today = wallclock.today()
 
     stmt = select(WorkSession).where(
         WorkSession.clock_out_id.is_(None),
+        WorkSession.voided.is_(False),
         WorkSession.work_date < today,
     )
     stale = list(session.execute(stmt).scalars())
 
+    if not stale:
+        return []
+
     closed: list[WorkSession] = []
-    for ws in stale:
-        clock_in_time = ws.clock_in_event.timestamp.replace(tzinfo=None).time()
+    with write_transaction(session):
+        for ws in stale:
+            opened = moment_of(ws.clock_in_event)
 
-        # If configured close is before clock-in, use 23:59
-        effective_close = auto_close_time
-        if effective_close <= clock_in_time:
-            effective_close = time(23, 59)
+            # A close before its own clock-in is a negative segment, which the
+            # ledger subtracts instead of clamping, so fall back to 23:59, or
+            # to the clock-in itself on the half minute later than that.
+            effective_close = auto_close_time
+            if effective_close < opened.time():
+                effective_close = max(time(23, 59), opened.time())
 
-        close_dt = datetime.combine(ws.work_date, effective_close, tzinfo=UTC)
-        event = ClockEvent(
-            action=ClockAction.OUT,
-            timestamp=close_dt,
-            source="system",
-        )
-        session.add(event)
-        session.flush()
-        ws.clock_out_id = event.id
-        ws.auto_closed = True
-        closed.append(ws)
+            wall_close = datetime.combine(ws.work_date, effective_close)
+            closed_at = wallclock.local(wall_close)
+            if closed_at < opened:
+                # The first occurrence of a repeated hour may precede a clock-in
+                # in its second occurrence. A changed machine timezone can make
+                # both readings earlier, in which case retain a zero-length span.
+                closed_at = max(opened, wallclock.local(wall_close.replace(fold=1)))
+            clash = first_absence_overlap(session, opened, closed_at)
+            if clash is not None:
+                booking, closed_at = clash
+            if stage_clock_out(
+                session,
+                ws.id,
+                closed_at,
+                source=EventSource.SYSTEM,
+                auto_closed=True,
+            ):
+                if clash is not None:
+                    explanation = (
+                        f"Auto-closed at booked {booking.portion.noun} "
+                        f"on {short_date(booking.date)}"
+                    )
+                    ws.note = " · ".join(filter(None, (ws.note, explanation)))
+                closed.append(ws)
 
-    if closed:
-        session.commit()
-
-    return closed
-
-
-def run_startup_cleanup(session: Session) -> list[WorkSession]:
-    """Run all startup-time cleanup. Called before app launch and clock actions.
-
-    Two sweeps. Sessions left running overnight are closed at the configured
-    time, and sessions so short they can only have been a slip of the finger are
-    voided — which also cleans up databases that predate the threshold.
-    """
-    from flexi.config import CONFIG
-    from flexi.services.clock import ClockService
-
-    settings = SettingsService(session)
-    closed = close_stale_sessions(session, settings.get_auto_close_time())
-    ClockService(
-        session, timedelta(seconds=CONFIG.defaults.minimum_session_seconds)
-    ).discard_short_sessions()
     return closed

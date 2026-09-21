@@ -1,16 +1,19 @@
 """A scrolling year of days, with a cursor you can book leave on.
 
-Drawn with the Line API rather than a widget per day: a leave year is 365 days,
-and 365 widgets would cost a layout pass on every arrow key.
+Drawn with the Line API, not a widget per day: a leave year is 365 days, and
+365 widgets cost a layout pass on every arrow key.
 
-Colour carries the type of a booking and the glyph carries its portion, so the
-two never compete for a cell -- and the panel beside spells out what is booked,
-so nothing here is colour alone.
+Colour carries the type of a booking and the glyph its portion, so the two
+never compete for a cell, and the panel beside spells out what is booked.
 """
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from bisect import bisect_right
+from collections.abc import Mapping
+from datetime import date
+from itertools import accumulate
+from types import MappingProxyType
 from typing import ClassVar, Final
 
 from rich.segment import Segment
@@ -23,14 +26,33 @@ from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
 from flexi import wallclock
-from flexi.constants import Portion
+from flexi.config import CONFIG
+from flexi.constants import AbsenceType, Portion
+from flexi.domain.dates import DAYS_IN_WEEK, SUPPORTED_FIRST, SUPPORTED_LAST, add_months
 from flexi.domain.ledger import DayLedger
 from flexi.domain.stitch import (
-    DAYS_IN_WEEK,
     MonthBlock,
     Selection,
     stitch,
     weekday_initials,
+)
+
+__all__ = (
+    "AFTERNOON",
+    "BLANK",
+    "FULL",
+    "HEADING_ROW",
+    "HOLIDAY",
+    "LABELLED_CELL",
+    "MIN_CELL",
+    "MORNING",
+    "PORTION_GLYPH",
+    "SPLIT",
+    "TITLE_ROW",
+    "TOKEN",
+    "YearCalendar",
+    "legend",
+    "units_column",
 )
 
 TOKEN: Final = 3
@@ -43,17 +65,16 @@ TITLE_ROW: Final = -1
 """A month name. Every other row index is a week within its block."""
 
 LABELLED_CELL: Final = 9
-"""From here a tile has room to say what is booked on it, not just that
-something is. Below it the type is carried by the tile's colour alone — which is
-why the panel beside the grid always spells the selected day out."""
+"""The width from which a tile has room to name what is booked on it.
+
+Below it the type is carried by the tile's colour alone, which is why the panel
+beside the grid always spells the selected day out."""
 
 MIN_CELL: Final = 4
 """Two columns for the number, one for the marker, one of gutter.
 
-There is no maximum. An earlier draft capped the cell and centred the grid in
-the leftover, which left slabs of unpainted panel down both sides and read as a
-rendering fault. A day is a *tile* instead: it takes an equal share of the full
-width and paints its own ground, so there is no leftover to look wrong.
+There is no maximum: a day is a tile, taking an equal share of the full width
+and painting its own ground, so no panel is left unpainted.
 """
 
 FULL: Final = "●"
@@ -63,15 +84,35 @@ SPLIT: Final = "◆"
 HOLIDAY: Final = "·"
 BLANK: Final = " "
 
-PORTION_GLYPH: Final[dict[Portion, str]] = {
-    Portion.FULL: FULL,
-    Portion.AM: MORNING,
-    Portion.PM: AFTERNOON,
-}
+
+def units_column(width: int) -> int:
+    """Where the day's units digit sits inside a cell of this width.
+
+    One answer for the tile that draws the number and for the heading that has
+    to stand over it, so the initials line up with the dates.
+
+    Examples:
+        >>> units_column(12)  # " 13 annual"
+        2
+        >>> units_column(6)  # "  13 "
+        3
+    """
+    return 2 if width >= LABELLED_CELL else width - 3
+
+
+PORTION_GLYPH: Final[Mapping[Portion, str]] = MappingProxyType(
+    {
+        Portion.FULL: FULL,
+        Portion.AM: MORNING,
+        Portion.PM: AFTERNOON,
+    }
+)
 
 
 class YearCalendar(ScrollView, can_focus=True):
     """Months stitched into one scrolling grid, with a movable selection."""
+
+    HELP_LABEL = "Leave calendar"
 
     COMPONENT_CLASSES: ClassVar[set[str]] = {
         "cal--month",
@@ -101,8 +142,8 @@ class YearCalendar(ScrollView, can_focus=True):
         Binding("shift+up", "extend(-7)", "Extend", show=False),
         Binding("shift+down", "extend(7)", "Extend", show=False),
         Binding("escape", "collapse", "One day", show=False),
-        Binding("left_square_bracket", "month(-1)", "Previous month", show=False),
-        Binding("right_square_bracket", "month(1)", "Next month", show=False),
+        Binding(CONFIG.hotkeys.period_prev, "month(-1)", "Previous month", show=False),
+        Binding(CONFIG.hotkeys.period_next, "month(1)", "Next month", show=False),
         Binding("home", "first", "Start", show=False),
         Binding("end", "last", "End", show=False),
     ]
@@ -114,9 +155,19 @@ class YearCalendar(ScrollView, can_focus=True):
             super().__init__()
             self.selection = selection
 
-    def __init__(self, **kwargs: object) -> None:
-        super().__init__(**kwargs)  # type: ignore[arg-type]
+    def __init__(
+        self,
+        *,
+        name: str | None = None,
+        id: str | None = None,  # noqa: A002 - Textual's parameter name
+        classes: str | None = None,
+        disabled: bool = False,
+    ) -> None:
+        super().__init__(name=name, id=id, classes=classes, disabled=disabled)
         self.blocks: tuple[MonthBlock, ...] = ()
+        self._span: tuple[date, date] | None = None
+        """The first and last day of the shown period, which the grid draws
+        whole months around."""
         self.ledgers: dict[date, DayLedger] = {}
         self.selection = Selection.at(wallclock.today())
         self.first_weekday = 0
@@ -133,19 +184,13 @@ class YearCalendar(ScrollView, can_focus=True):
     def columns(self) -> tuple[int, ...]:
         """The width of each of the seven columns.
 
-        The remainder is spread one column at a time rather than dumped on the
-        last, so the grid fills the panel exactly and no column is more than a
-        cell wider than its neighbour.
+        The remainder is spread a column at a time, so the grid fills the panel
+        exactly and no column is more than a cell wider than its neighbour.
         """
         base, extra = divmod(self._available, DAYS_IN_WEEK)
         return tuple(
             base + (1 if index < extra else 0) for index in range(DAYS_IN_WEEK)
         )
-
-    @property
-    def cell(self) -> int:
-        """The narrowest column, for anything that has to fit in all of them."""
-        return min(self.columns)
 
     @property
     def grid_width(self) -> int:
@@ -156,7 +201,7 @@ class YearCalendar(ScrollView, can_focus=True):
         self._relayout()
         self.refresh()
 
-    # -- content -----------------------------------------------------------
+    # --- content ----------------------------------------------------------
 
     def show(
         self,
@@ -169,6 +214,7 @@ class YearCalendar(ScrollView, can_focus=True):
     ) -> None:
         """Lay out a span and draw what is booked on it."""
         self.first_weekday = first_weekday
+        self._span = (start, end)
         self.blocks = tuple(stitch(start, end, first_weekday=first_weekday))
         self.ledgers = ledgers
         self._today = today or wallclock.today()
@@ -183,14 +229,16 @@ class YearCalendar(ScrollView, can_focus=True):
         self._rows = rows
         self.virtual_size = Size(self.grid_width, len(rows))
 
-    # -- the selection -----------------------------------------------------
+    # --- the selection ----------------------------------------------------
 
-    def set_selection(self, selection: Selection, *, notify: bool = True) -> None:
+    def set_selection(self, selection: Selection) -> None:
+        """Move the cursor, keep it on screen, and say so."""
+        if not SUPPORTED_FIRST <= selection.head <= SUPPORTED_LAST:
+            return
         self.selection = selection
         self.scroll_to_day(selection.head)
         self.refresh()
-        if notify:
-            self.post_message(self.SelectionChanged(selection))
+        self.post_message(self.SelectionChanged(selection))
 
     def action_move(self, days: int) -> None:
         self.set_selection(self.selection.move(days))
@@ -201,9 +249,8 @@ class YearCalendar(ScrollView, can_focus=True):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Stand `escape` down when there is nothing to collapse.
 
-        The screen also binds `escape`, to leave. A focused widget is asked
-        first, so a calendar that always handled it would trap somebody on the
-        screen; returning False skips the binding and lets the key bubble.
+        The screen binds `escape` too, to leave, and Textual asks the focused
+        widget first; returning False skips the binding and lets the key bubble.
         """
         del parameters
         if action == "collapse":
@@ -217,28 +264,29 @@ class YearCalendar(ScrollView, can_focus=True):
         """A month at a time, keeping the day of the month where it can.
 
         Clamped to the length of the target month, so stepping from the 31st
-        lands on the 30th rather than refusing to move.
+        lands on the 30th.
         """
-        head = self.selection.head
-        total = head.year * 12 + head.month - 1 + offset
-        year, month = total // 12, total % 12 + 1
-        import calendar
-
-        day = min(head.day, calendar.monthrange(year, month)[1])
-        self.set_selection(self.selection.go_to(date(year, month, day)))
+        self.set_selection(
+            self.selection.go_to(add_months(self.selection.head, offset))
+        )
 
     def action_first(self) -> None:
-        if self.blocks:
-            self.set_selection(self.selection.go_to(self.blocks[0].first))
+        """The first day of the period, not of the month it starts in.
+
+        A leave year opens mid-month and the grid draws the whole month around
+        it, so the earliest drawn day is outside the year the screen is on.
+        """
+        if self._span is not None:
+            self.set_selection(self.selection.go_to(self._span[0]))
 
     def action_last(self) -> None:
-        if self.blocks:
-            self.set_selection(self.selection.go_to(self.blocks[-1].last))
+        if self._span is not None:
+            self.set_selection(self.selection.go_to(self._span[1]))
 
     def go_to(self, when: date) -> None:
         self.set_selection(self.selection.go_to(when))
 
-    # -- geometry ----------------------------------------------------------
+    # --- geometry ---------------------------------------------------------
 
     def row_of(self, when: date) -> int | None:
         """Which drawn line a date sits on."""
@@ -249,24 +297,6 @@ class YearCalendar(ScrollView, can_focus=True):
                 return index
         return None
 
-    def month_rows(self) -> list[tuple[MonthBlock, int]]:
-        """Every month title on the drawn surface, with its line."""
-        return [
-            (block, index)
-            for index, (block, row) in enumerate(self._rows)
-            if block is not None and row == TITLE_ROW
-        ]
-
-    def visible_months(self) -> list[tuple[MonthBlock, int]]:
-        """The month titles currently on screen, for jump targets."""
-        top = int(self.scroll_offset.y)
-        bottom = top + self.size.height
-        return [
-            (block, line - top)
-            for block, line in self.month_rows()
-            if top <= line < bottom
-        ]
-
     def scroll_to_day(self, when: date) -> None:
         """Keep the cursor on screen, with a row of context either side."""
         line = self.row_of(when)
@@ -276,36 +306,44 @@ class YearCalendar(ScrollView, can_focus=True):
             Region(0, max(0, line - 1), self.grid_width, 3), animate=False
         )
 
-    # -- drawing -----------------------------------------------------------
+    # --- drawing ----------------------------------------------------------
 
     def render_line(self, y: int) -> Strip:
         line = y + int(self.scroll_offset.y)
         if line >= len(self._rows):
-            return Strip.blank(self.size.width)
+            return Strip.blank(self.size.width, self.visual_style.rich_style)
         block, row = self._rows[line]
 
         if row == HEADING_ROW:
             return self._heading_strip()
-        if block is None:
-            return Strip.blank(self.size.width)
+        # Unreachable: `_relayout` is the only writer of `self._rows`, and the
+        # one `None` block it produces is paired with `HEADING_ROW`, which
+        # returns two lines above. Kept because `_rows` is typed to allow it.
+        if block is None:  # pragma: no cover
+            return Strip.blank(self.size.width, self.visual_style.rich_style)
         if row == TITLE_ROW:
             return self._title_strip(block)
         return self._week_strip(block, row)
 
     def _heading_strip(self) -> Strip:
+        """The weekday initials, each standing over its own column of dates.
+
+        Placed on `units_column`, not centred in the cell: a date is
+        right-aligned near the left of its tile so a label can follow it.
+        """
         style = self.get_component_rich_style("cal--weekday")
         initials = weekday_initials(self.first_weekday)
         text = "".join(
-            initial.center(width)
+            initial.rjust(units_column(width) + 1).ljust(width)
             for initial, width in zip(initials, self.columns, strict=False)
         )
         return Strip([Segment(text, style)], self.grid_width)
 
     def _title_strip(self, block: MonthBlock) -> Strip:
-        """A seam. Ruled rather than boxed, like every other divider here."""
+        """A month seam: a rule reaching the same right edge the weeks do."""
         style = self.get_component_rich_style("cal--month")
         label = f" {block.title} "
-        rule = "─" * max(0, self.grid_width - len(label) - 1)
+        rule = "─" * max(0, self.grid_width - len(label))
         return Strip([Segment(f"{label}{rule}", style)], self.grid_width)
 
     def _week_strip(self, block: MonthBlock, row: int) -> Strip:
@@ -321,8 +359,8 @@ class YearCalendar(ScrollView, can_focus=True):
     def _day_segment(self, when: date, width: int) -> Segment:
         """A tile: the day, what is on it, and the whole cell painted.
 
-        Every column is emitted with a style, including the blanks at a seam. Left
-        unstyled they take the widget's own ground and read as slabs down the grid.
+        Every column is emitted with a style, the blanks at a seam included;
+        left unstyled they take the widget's own ground and read as slabs.
         """
         ledger = self.ledgers.get(when)
         style = self._day_style(when, ledger)
@@ -365,13 +403,11 @@ class YearCalendar(ScrollView, can_focus=True):
         return PORTION_GLYPH[ledger.absences[0].portion]
 
     def _day_style(self, when: date, ledger: DayLedger | None) -> Style:
-        """One style per tile, in order of what the reader needs most.
+        """Pick one style per tile, in the order the reader needs.
 
-        The cursor and the selection win outright: where you are is more urgent
-        than what is booked there, and the selection panel spells the booking
-        out anyway. Under them, a booked day takes its type's ground and a
-        bank holiday takes its own; today is underlined on top of whatever it
-        landed on, because it can coincide with any of them.
+        Cursor and selection win outright. Under them a booked day takes its
+        type's ground and a bank holiday its own; today is underlined on top,
+        because it can coincide with any of them.
         """
         if when == self.selection.head:
             return self.get_component_rich_style("cal--cursor")
@@ -395,26 +431,23 @@ class YearCalendar(ScrollView, can_focus=True):
             base += self.get_component_rich_style("cal--today")
         return base
 
-    # -- the pointer -------------------------------------------------------
+    # --- the pointer ------------------------------------------------------
 
     def on_click(self, event: object) -> None:
-        """Move the cursor to the day that was clicked.
-
-        The keys are the fast path, but a calendar you cannot click is a
-        calendar that looks broken.
-        """
+        """Move the cursor to the day that was clicked."""
         offset = getattr(event, "offset", None)
         if offset is None:
             return
+        # The grid starts inside the panel's border and padding, and the event
+        # measures from the panel's own corner.
+        offset -= self.gutter.top_left
         line = int(offset.y) + int(self.scroll_offset.y)
-        column, edge = 0, 0
-        for index, width in enumerate(self.columns):
-            edge += width
-            if int(offset.x) < edge:
-                column = index
-                break
-        else:
-            column = DAYS_IN_WEEK - 1
+        # The columns are uneven (the remainder is spread over the first few),
+        # so the edges are their running total and the column hit is where the
+        # click falls in it. Clamped, so a click past the grid lands on the
+        # last column.
+        edges = list(accumulate(self.columns))
+        column = min(bisect_right(edges, int(offset.x)), DAYS_IN_WEEK - 1)
         if not (0 <= line < len(self._rows)) or not (0 <= column < DAYS_IN_WEEK):
             return
         block, row = self._rows[line]
@@ -428,15 +461,19 @@ class YearCalendar(ScrollView, can_focus=True):
 def legend() -> Text:
     """What the keys do, and what the glyphs mean.
 
-    The key strip carries seven entries and this screen has eleven direct
-    actions, so the rest live here — where somebody deciding what to book is
-    already looking.
+    The key strip has no room for every action on this screen, so the rest are
+    named here, beside the grid they act on.
     """
     text = Text(no_wrap=False, end="")
+    booking = [(CONFIG.hotkeys.book(kind), kind.token) for kind in AbsenceType]
     for row in (
-        [("A", "annual"), ("S", "sick"), ("T", "toil")],
-        [("U", "unpaid"), ("O", "other"), ("x", "remove")],
-        [("␣", "half"), ("e", "edit"), ("g", "go to")],
+        booking[:3],
+        [*booking[3:], (CONFIG.hotkeys.delete, "remove")],
+        [
+            ("␣", "half"),
+            (CONFIG.hotkeys.edit, "edit"),
+            (CONFIG.hotkeys.go_to_date, "go to"),
+        ],
     ):
         for index, (key, what) in enumerate(row):
             if index:
@@ -446,8 +483,3 @@ def legend() -> Text:
         text.append("\n")
     text.append(f"{MORNING}{AFTERNOON} half day   {SPLIT} split")
     return text
-
-
-def days_between(start: date, end: date) -> list[date]:
-    """Every date in a span, inclusive."""
-    return [start + timedelta(days=n) for n in range((end - start).days + 1)]

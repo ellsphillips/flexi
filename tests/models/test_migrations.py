@@ -1,27 +1,250 @@
 """Migrations, forward and back, against a populated database.
 
-`0007` rebuilds `absence_days` rather than altering it, because the v1 schema put
-`UNIQUE` on the `date` column itself and SQLite cannot drop a column constraint
-in place. A table rebuild that silently loses rows is the kind of bug that is
-only discovered by the person whose leave records it ate, so it is checked here.
+`0007` rebuilds `absence_days` because the v1 schema puts `UNIQUE` on the `date`
+column itself, and SQLite cannot drop a column constraint in place.
 """
 
 from __future__ import annotations
 
-from datetime import date
+import os
+import sqlite3
+from argparse import Namespace
+from configparser import ConfigParser
+from contextlib import closing
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+import time_machine
 from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from alembic.util.exc import CommandError
+from sqlalchemy.exc import DatabaseError
 
+import flexi
 from flexi.constants import AbsenceType, Portion
-from flexi.models.database.app import create_db_engine, get_session
-from flexi.models.database.db import AbsenceDay, Settings
-from flexi.models.database.migrate import _get_alembic_config
+from flexi.locations import backups_directory, ensure
+from flexi.models.database.db import (
+    AbsenceDay,
+    BankHolidayCache,
+    BankHolidayRefresh,
+    Base,
+    Settings,
+    WorkSession,
+)
+from flexi.models.database.engine import create_db_engine, database_scope, get_session
+from flexi.models.database.lease import DatabaseBusyError
+from flexi.models.database.migrate import HEAD as RECORDED_HEAD
+from flexi.models.database.migrate import (
+    MAX_BACKUPS,
+    DatabaseRevision,
+    MigrationRefusedError,
+    RevisionState,
+    alembic_config,
+    current_revision,
+    run_migrations,
+)
+from flexi.services.registry import build_services
+from tests.conftest import session_at
 
 BEFORE_HALF_DAYS = "0006"
+BEFORE_OFFSETS = "0009"
+BEFORE_INVARIANTS = "0010"
+BEFORE_BANK_HOLIDAY_REFRESHES = "0012"
+BEFORE_CLOCK_SESSION_INVARIANTS = "0013"
 HEAD = "head"
+
+# ---- ambiguous legacy rows, as SQL ----
+#
+# Named, not inlined in the `parametrize` lists below: ruff refuses implicit
+# string concatenation inside a collection, where a missing comma would join
+# two statements into one.
+
+TWO_SETTINGS_ROWS = (
+    "INSERT INTO settings"
+    " (id, leave_year_start, working_days, bank_holiday_division,"
+    " auto_close_time) VALUES"
+    " (1, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00'),"
+    " (2, '01-01', '0,1,2,3,4', 'england-and-wales', '18:00')"
+)
+
+TWO_IN_EVENTS = (
+    "INSERT INTO clock_events"
+    " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+    " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+    " (2, 'IN', '2026-06-10 10:00:00', 'user', 0)"
+)
+
+TWO_OUT_EVENTS = (
+    "INSERT INTO clock_events"
+    " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+    " (1, 'OUT', '2026-06-10 09:00:00', 'user', 0),"
+    " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0)"
+)
+
+IN_OUT_OUT_EVENTS = (
+    "INSERT INTO clock_events"
+    " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+    " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+    " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0),"
+    " (3, 'OUT', '2026-06-10 11:00:00', 'user', 0)"
+)
+
+IN_IN_OUT_EVENTS = (
+    "INSERT INTO clock_events"
+    " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+    " (1, 'IN', '2026-06-10 08:00:00', 'user', 0),"
+    " (2, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+    " (3, 'OUT', '2026-06-10 10:00:00', 'user', 0)"
+)
+
+TWO_OPEN_SESSIONS = (
+    "INSERT INTO work_sessions"
+    " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+    " VALUES"
+    " (1, 1, NULL, '2026-06-10', 0, 0),"
+    " (2, 2, NULL, '2026-06-10', 0, 0)"
+)
+
+TWO_SESSIONS_SHARING_A_CLOCK_OUT = (
+    "INSERT INTO work_sessions"
+    " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+    " VALUES"
+    " (11, 1, 2, '2026-06-10', 0, 0),"
+    " (12, 1, 3, '2026-06-11', 0, 0)"
+)
+
+TWO_SESSIONS_SHARING_A_CLOCK_IN = (
+    "INSERT INTO work_sessions"
+    " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+    " VALUES"
+    " (11, 1, 3, '2026-06-10', 0, 0),"
+    " (12, 2, 3, '2026-06-11', 0, 0)"
+)
+
+ONE_SESSION_ON_EVENTS_1_AND_2 = (
+    "INSERT INTO work_sessions"
+    " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+    " VALUES (11, 1, 2, '2026-06-10', 0, 0)"
+)
+
+A_FULL_DAY_AND_A_HALF = (
+    "INSERT INTO absence_days (id, date, absence_type, portion)"
+    " VALUES"
+    " (1, '2026-06-10', 'ANNUAL', 'FULL'),"
+    " (2, '2026-06-10', 'SICK', 'AM')"
+)
+
+
+def test_revision_result_rejects_contradictory_states() -> None:
+    with pytest.raises(ValueError, match="must carry a revision"):
+        DatabaseRevision(RevisionState.STAMPED)
+    with pytest.raises(ValueError, match="cannot carry a revision"):
+        DatabaseRevision(RevisionState.ABSENT, "0001")
+
+
+def test_inspection_distinguishes_missing_from_empty(db: Path) -> None:
+    assert current_revision(db) == DatabaseRevision(RevisionState.ABSENT)
+
+    sqlite3.connect(db).close()
+
+    assert current_revision(db) == DatabaseRevision(RevisionState.EMPTY)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "CREATE TABLE records (id INTEGER PRIMARY KEY)",
+        "CREATE VIEW records AS SELECT 1 AS id",
+    ],
+)
+def test_inspection_identifies_unstamped_schema(db: Path, schema: str) -> None:
+    with closing(sqlite3.connect(db)) as connection:
+        connection.execute(schema)
+        connection.commit()
+
+    assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
+
+
+def test_empty_stamp_table_reads_unstamped(db: Path) -> None:
+    with closing(sqlite3.connect(db)) as connection:
+        connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+        connection.commit()
+
+    assert current_revision(db) == DatabaseRevision(RevisionState.UNSTAMPED)
+
+
+def test_inspection_carries_the_database_stamp(db: Path) -> None:
+    upgrade(db, BEFORE_HALF_DAYS)
+
+    assert current_revision(db) == DatabaseRevision(
+        RevisionState.STAMPED, BEFORE_HALF_DAYS
+    )
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        (("0001", "0002"), "multiple migration revisions"),
+        ((None,), "invalid migration revision"),
+    ],
+)
+def test_inspection_refuses_ambiguous_stamps(
+    db: Path, rows: tuple[str | None, ...], message: str
+) -> None:
+    with closing(sqlite3.connect(db)) as connection:
+        connection.execute("CREATE TABLE alembic_version (version_num TEXT)")
+        connection.executemany(
+            "INSERT INTO alembic_version VALUES (?)", ((row,) for row in rows)
+        )
+        connection.commit()
+
+    with pytest.raises(RuntimeError, match=message):
+        current_revision(db)
+
+
+def test_corrupt_database_is_not_fresh(db: Path) -> None:
+    db.write_bytes(b"not a sqlite database")
+
+    with pytest.raises(DatabaseError, match="not a database"):
+        run_migrations(db)
+
+    assert db.read_bytes() == b"not a sqlite database"
+
+
+def test_unstamped_schema_is_refused(db: Path) -> None:
+    with closing(sqlite3.connect(db)) as connection:
+        connection.execute("CREATE TABLE somebody_elses_data (value TEXT)")
+        connection.execute("INSERT INTO somebody_elses_data VALUES ('kept')")
+        connection.commit()
+
+    with pytest.raises(RuntimeError, match="unstamped schema"):
+        run_migrations(db)
+
+    with closing(sqlite3.connect(db)) as connection:
+        assert connection.execute(
+            "SELECT value FROM somebody_elses_data"
+        ).fetchone() == ("kept",)
+
+
+def test_recorded_head_matches_alembic(db: Path) -> None:
+    """`HEAD` is written down to avoid the Alembic import, so it can drift."""
+    with alembic_config(db) as cfg:
+        assert ScriptDirectory.from_config(cfg).get_current_head() == RECORDED_HEAD
+
+
+def test_empty_file_is_migrated(db: Path) -> None:
+    """An existing but schema-empty file is fresh, so it takes no backup."""
+    db.touch()
+
+    run_migrations(db)
+
+    assert revision_of(db) == RECORDED_HEAD
+    assert not list(backups_directory().glob("*.bak"))
 
 
 @pytest.fixture
@@ -30,11 +253,25 @@ def db(tmp_path: Path) -> Path:
 
 
 def upgrade(db: Path, revision: str) -> None:
-    command.upgrade(_get_alembic_config(db), revision)
+    with alembic_config(db) as cfg:
+        command.upgrade(cfg, revision)
 
 
 def downgrade(db: Path, revision: str) -> None:
-    command.downgrade(_get_alembic_config(db), revision)
+    with alembic_config(db) as cfg:
+        command.downgrade(cfg, revision)
+
+
+def revision_of(db: Path) -> str:
+    """The schema version stamped on a database file, read without Alembic."""
+    connection = sqlite3.connect(f"{db.absolute().as_uri()}?mode=ro", uri=True)
+    try:
+        stamped = connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone()
+    finally:
+        connection.close()
+    return str(stamped[0])
 
 
 def rows(db: Path, table: str) -> list[tuple[object, ...]]:
@@ -48,8 +285,7 @@ def rows(db: Path, table: str) -> list[tuple[object, ...]]:
         engine.dispose()
 
 
-def test_a_fresh_database_reaches_head(db: Path) -> None:
-    """It builds the whole schema from nothing."""
+def test_fresh_database_reaches_head(db: Path) -> None:
     upgrade(db, HEAD)
     engine = create_db_engine(db)
     try:
@@ -59,8 +295,44 @@ def test_a_fresh_database_reaches_head(db: Path) -> None:
     assert {"settings", "clock_events", "work_sessions", "absence_days"} <= names
 
 
+@pytest.mark.parametrize("initial_revision", [None, "0006", "0015"])
+def test_failed_migration_rolls_back_schema_and_can_be_retried(
+    db: Path, initial_revision: str | None
+) -> None:
+    if initial_revision is not None:
+        upgrade(db, initial_revision)
+    with closing(sqlite3.connect(db)) as connection:
+        before = tuple(connection.iterdump())
+
+    with alembic_config(db) as cfg:
+        engine = cfg.attributes["engine"]
+        assert isinstance(engine, sa.Engine)
+
+        def interrupt_after_ddl(
+            _connection: object,
+            _cursor: object,
+            statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            if statement.lstrip().startswith("CREATE TABLE bank_holiday_attempts"):
+                message = "migration interrupted after DDL"
+                raise RuntimeError(message)
+
+        sa.event.listen(engine, "after_cursor_execute", interrupt_after_ddl)
+        with pytest.raises(RuntimeError, match="interrupted after DDL"):
+            command.upgrade(cfg, HEAD)
+
+    with closing(sqlite3.connect(db)) as connection:
+        assert tuple(connection.iterdump()) == before
+
+    upgrade(db, HEAD)
+    assert revision_of(db) == RECORDED_HEAD
+
+
 def test_existing_absences_survive_the_rebuild(db: Path) -> None:
-    """It carries every v1 row across, as a full day, which is what it was."""
+    """Every v1 row crosses as a full day, which is all v1 could record."""
     upgrade(db, BEFORE_HALF_DAYS)
     engine = create_db_engine(db)
     with engine.connect() as connection:
@@ -75,18 +347,14 @@ def test_existing_absences_survive_the_rebuild(db: Path) -> None:
 
     upgrade(db, HEAD)
 
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         booked = session.query(AbsenceDay).order_by(AbsenceDay.date).all()
         assert [item.date for item in booked] == [date(2026, 6, 10), date(2026, 6, 11)]
         assert all(item.portion is Portion.FULL for item in booked)
         assert booked[0].absence_type is AbsenceType.ANNUAL
-    finally:
-        session.close()
 
 
-def test_the_new_columns_are_backfilled(db: Path) -> None:
-    """It gives an existing settings row the contracted day the code assumed."""
+def test_new_columns_are_backfilled(db: Path) -> None:
     upgrade(db, "0005")
     engine = create_db_engine(db)
     with engine.connect() as connection:
@@ -103,21 +371,59 @@ def test_the_new_columns_are_backfilled(db: Path) -> None:
 
     upgrade(db, HEAD)
 
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         settings = session.query(Settings).one()
         assert settings.contracted_minutes == 444
         assert settings.day_window_start == "07:00"
         assert settings.day_window_end == "19:00"
+
+
+def test_bank_holiday_refresh_metadata_is_backfilled(db: Path) -> None:
+    """Each division keeps the latest `fetched_at` of its cached rows."""
+    upgrade(db, BEFORE_BANK_HOLIDAY_REFRESHES)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO bank_holiday_cache"
+                " (id, division, date, title, fetched_at) VALUES"
+                " (1, 'england-and-wales', '2026-01-01', 'New Year',"
+                "  '2026-01-02 09:00:00'),"
+                " (2, 'england-and-wales', '2026-12-25', 'Christmas',"
+                "  '2026-01-03 09:00:00'),"
+                " (3, 'scotland', '2026-11-30', 'St Andrew',"
+                "  '2026-02-01 10:30:00')"
+            )
+        )
+        connection.commit()
+    engine.dispose()
+
+    upgrade(db, HEAD)
+
+    engine = create_db_engine(db)
+    session = get_session(engine)
+    try:
+        refreshes = session.query(BankHolidayRefresh).order_by(
+            BankHolidayRefresh.division
+        )
+        assert [(refresh.division, refresh.fetched_at) for refresh in refreshes] == [
+            ("england-and-wales", datetime(2026, 1, 3, 9, 0)),
+            ("scotland", datetime(2026, 2, 1, 10, 30)),
+        ]
+        assert session.query(BankHolidayCache).count() == 3
+        assert "fetched_at" not in {
+            column["name"]
+            for column in sa.inspect(engine).get_columns("bank_holiday_cache")
+        }
     finally:
         session.close()
+        engine.dispose()
 
 
 def test_half_days_of_different_types_share_a_date(db: Path) -> None:
-    """It moves uniqueness from the date to the pair, which is the point of 0007."""
+    """0007 moves uniqueness from the date to the date-and-portion pair."""
     upgrade(db, HEAD)
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         session.add_all(
             [
                 AbsenceDay(
@@ -134,17 +440,11 @@ def test_half_days_of_different_types_share_a_date(db: Path) -> None:
         )
         session.commit()
         assert session.query(AbsenceDay).count() == 2
-    finally:
-        session.close()
 
 
-def test_a_second_booking_of_the_same_portion_is_refused_by_the_database(
-    db: Path,
-) -> None:
-    """The constraint is real, not just an application rule."""
+def test_repeated_portion_is_refused_by_the_database(db: Path) -> None:
     upgrade(db, HEAD)
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         session.add(
             AbsenceDay(
                 date=date(2026, 6, 10),
@@ -162,17 +462,12 @@ def test_a_second_booking_of_the_same_portion_is_refused_by_the_database(
         )
         with pytest.raises(sa.exc.IntegrityError):
             session.commit()
-    finally:
-        session.rollback()
-        session.close()
 
 
 def test_work_sessions_keep_their_events_across_the_upgrade(db: Path) -> None:
-    """It does not touch the tables it did not mean to."""
     upgrade(db, BEFORE_HALF_DAYS)
     # Raw SQL, not the ORM: the model has `note` and `voided`, and 0008 is what
-    # adds them. Writing through the model here would be testing the schema
-    # against itself rather than against what is on disk.
+    # adds them, so the ORM would test the schema against itself.
     engine = create_db_engine(db)
     with engine.connect() as connection:
         connection.execute(
@@ -196,16 +491,238 @@ def test_work_sessions_keep_their_events_across_the_upgrade(db: Path) -> None:
     assert len(rows(db, "clock_events")) == 1
 
 
-def test_head_downgrades_and_upgrades_again(db: Path) -> None:
-    """A downgrade is a deliberate act, and it has to be survivable.
+def test_valid_legacy_states_survive_the_invariant_upgrade(db: Path) -> None:
+    """0011 adds enforcement without rewriting a valid record."""
+    upgrade(db, BEFORE_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO settings"
+                " (id, leave_year_start, working_days, bank_holiday_division,"
+                "  auto_close_time)"
+                " VALUES (41, '04-06', '0,1,2,3,4',"
+                " 'england-and-wales', '18:00')"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes)"
+                " VALUES (51, 'IN', '2026-06-10 09:00:00', 'user', 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (61, 51, NULL, '2026-06-10', 0, 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO absence_days (id, date, absence_type, portion)"
+                " VALUES"
+                " (71, '2026-06-11', 'SICK', 'AM'),"
+                " (72, '2026-06-11', 'ANNUAL', 'PM')"
+            )
+        )
+        connection.commit()
+    engine.dispose()
 
-    Half days and the two new types have nowhere to go in the v1 schema, so 0007
-    drops them rather than coercing a sick morning into a whole day off. What is
-    representable comes back.
-    """
     upgrade(db, HEAD)
-    session = get_session(create_db_engine(db))
+
+    with session_at(db) as session:
+        settings = session.query(Settings).one()
+        assert settings.id == 41
+        assert settings.singleton_key == 1
+        assert session.query(WorkSession).one().id == 61
+        assert [
+            item.id for item in session.query(AbsenceDay).order_by(AbsenceDay.id)
+        ] == [
+            71,
+            72,
+        ]
+
+
+@pytest.mark.parametrize(
+    ("statements", "expected"),
+    [
+        ((TWO_SETTINGS_ROWS,), "settings has 2 rows"),
+        (
+            (TWO_IN_EVENTS, TWO_OPEN_SESSIONS),
+            "work_sessions has 2 non-voided open rows",
+        ),
+        (
+            (A_FULL_DAY_AND_A_HALF,),
+            "absence_days mixes FULL with a half on: 2026-06-10",
+        ),
+    ],
+)
+def test_ambiguous_legacy_states_stop_the_upgrade(
+    db: Path,
+    statements: tuple[str, ...],
+    expected: str,
+) -> None:
+    upgrade(db, BEFORE_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        for statement in statements:
+            connection.execute(sa.text(statement))
+        connection.commit()
+    engine.dispose()
+
+    with pytest.raises(RuntimeError, match=expected):
+        upgrade(db, HEAD)
+
+    assert revision_of(db) == BEFORE_INVARIANTS
+
+
+def columns_of(db: Path, table: str) -> set[str]:
+    """The column names a table has on disk."""
+    engine = create_db_engine(db)
     try:
+        return {column["name"] for column in sa.inspect(engine).get_columns(table)}
+    finally:
+        engine.dispose()
+
+
+def test_unknown_legacy_zone_stops_the_upgrade(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SQLite autocommits `ALTER TABLE`, so 0010 reads `FLEXI_LEGACY_TZ` first.
+
+    A zone refused after the column is added leaves the stamp behind the schema
+    it describes, and every later run fails on a duplicate column.
+    """
+    upgrade(db, BEFORE_OFFSETS)
+    monkeypatch.setenv("FLEXI_LEGACY_TZ", "Bogus/Zone")
+
+    with pytest.raises(RuntimeError, match="not a timezone"):
+        upgrade(db, HEAD)
+
+    assert revision_of(db) == BEFORE_OFFSETS
+    assert "utc_offset_minutes" not in columns_of(db, "clock_events")
+
+    monkeypatch.delenv("FLEXI_LEGACY_TZ")
+    upgrade(db, HEAD)
+
+    assert revision_of(db) == RECORDED_HEAD
+
+
+@pytest.mark.parametrize(
+    ("statements", "expected"),
+    [
+        (
+            (IN_OUT_OUT_EVENTS, TWO_SESSIONS_SHARING_A_CLOCK_OUT),
+            "work_sessions reuses clock_in_id values: 1",
+        ),
+        (
+            (IN_IN_OUT_EVENTS, TWO_SESSIONS_SHARING_A_CLOCK_IN),
+            "work_sessions reuses clock_out_id values: 3",
+        ),
+        (
+            (TWO_OUT_EVENTS, ONE_SESSION_ON_EVENTS_1_AND_2),
+            "work_sessions has non-IN clock_in rows: 11",
+        ),
+        (
+            (TWO_IN_EVENTS, ONE_SESSION_ON_EVENTS_1_AND_2),
+            "work_sessions has non-OUT clock_out rows: 11",
+        ),
+    ],
+    ids=("duplicate-in", "duplicate-out", "wrong-in-role", "wrong-out-role"),
+)
+def test_clock_session_conflicts_stop_0014(
+    db: Path,
+    statements: tuple[str, ...],
+    expected: str,
+) -> None:
+    """0014 reports ambiguous history and leaves rows and schema untouched."""
+    upgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(sa.text(statement))
+    engine.dispose()
+    before = rows(db, "work_sessions")
+
+    with pytest.raises(RuntimeError, match=expected):
+        upgrade(db, HEAD)
+
+    assert revision_of(db) == BEFORE_CLOCK_SESSION_INVARIANTS
+    assert rows(db, "work_sessions") == before
+    with closing(sqlite3.connect(db)) as connection:
+        indexes = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        triggers = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+    assert "uq_work_sessions_clock_in_id" not in indexes
+    assert "uq_work_sessions_clock_out_id" not in indexes
+    assert "trg_work_sessions_clock_actions_insert" not in triggers
+    assert "trg_work_sessions_clock_actions_update" not in triggers
+
+
+def test_clock_session_invariant_downgrade_preserves_history(db: Path) -> None:
+    upgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
+    engine = create_db_engine(db)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO clock_events"
+                " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                " (1, 'IN', '2026-06-10 09:00:00', 'user', 0),"
+                " (2, 'OUT', '2026-06-10 10:00:00', 'user', 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO work_sessions"
+                " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                " VALUES (11, 1, 2, '2026-06-10', 0, 0)"
+            )
+        )
+    engine.dispose()
+    before = rows(db, "work_sessions")
+
+    upgrade(db, HEAD)
+    downgrade(db, BEFORE_CLOCK_SESSION_INVARIANTS)
+
+    assert revision_of(db) == BEFORE_CLOCK_SESSION_INVARIANTS
+    assert rows(db, "work_sessions") == before
+    with closing(sqlite3.connect(db)) as connection:
+        indexes = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            )
+        }
+        triggers = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+    assert "uq_work_sessions_clock_in_id" not in indexes
+    assert "uq_work_sessions_clock_out_id" not in indexes
+    assert "trg_work_sessions_clock_actions_insert" not in triggers
+    assert "trg_work_sessions_clock_actions_update" not in triggers
+
+    upgrade(db, HEAD)
+    assert rows(db, "work_sessions") == before
+
+
+def test_head_downgrades_and_upgrades_again(db: Path) -> None:
+    """Half days and the two newer types have no place in the v1 schema."""
+    upgrade(db, HEAD)
+    with session_at(db) as session:
         session.add_all(
             [
                 AbsenceDay(
@@ -226,16 +743,428 @@ def test_head_downgrades_and_upgrades_again(db: Path) -> None:
             ]
         )
         session.commit()
-    finally:
-        session.close()
 
     downgrade(db, BEFORE_HALF_DAYS)
     surviving = rows(db, "absence_days")
     assert len(surviving) == 1, "only the representable full day should remain"
 
     upgrade(db, HEAD)
-    session = get_session(create_db_engine(db))
-    try:
+    with session_at(db) as session:
         assert session.query(AbsenceDay).count() == 1
+
+
+def test_upgrade_snapshots_the_old_schema(db: Path) -> None:
+    """The snapshot carries the revision the database had before the upgrade."""
+    upgrade(db, BEFORE_HALF_DAYS)
+
+    run_migrations(db)
+
+    snapshots = list(backups_directory().glob("*.bak"))
+    assert len(snapshots) == 1
+    assert revision_of(snapshots[0]) == BEFORE_HALF_DAYS
+    with alembic_config(db) as cfg:
+        head = ScriptDirectory.from_config(cfg).get_current_head()
+    assert revision_of(db) == head
+
+
+def test_migration_refuses_a_database_in_use(db: Path) -> None:
+    """DDL cannot run beneath an engine whose mappings assume the old schema."""
+    upgrade(db, BEFORE_HALF_DAYS)
+
+    with (
+        database_scope(db),
+        pytest.raises(DatabaseBusyError, match="in use"),
+    ):
+        run_migrations(db)
+
+    assert revision_of(db) == BEFORE_HALF_DAYS
+    run_migrations(db)
+    assert revision_of(db) == RECORDED_HEAD
+
+
+def test_upgrade_refuses_an_unverified_backup(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    upgrade(db, BEFORE_HALF_DAYS)
+    monkeypatch.setattr("flexi.models.database.migrate.verify", lambda _path: False)
+
+    with pytest.raises(RuntimeError, match="backup did not verify"):
+        run_migrations(db)
+
+    assert revision_of(db) == BEFORE_HALF_DAYS
+    assert len(list(backups_directory().glob("*.bak"))) == 1
+
+
+def test_upgrade_backup_ages_out_the_oldest(db: Path) -> None:
+    upgrade(db, BEFORE_HALF_DAYS)
+    directory = ensure(backups_directory())
+    for n in range(MAX_BACKUPS):
+        earlier = directory / f"flexi_2026{n:04d}T000000Z.bak"
+        earlier.write_bytes(b"an earlier upgrade")
+        os.utime(earlier, (1_000_000 + n, 1_000_000 + n))
+    oldest = directory / "flexi_20260000T000000Z.bak"
+
+    run_migrations(db)
+
+    assert len(list(directory.glob("*.bak"))) == MAX_BACKUPS
+    assert not oldest.exists(), "the newest snapshot did not age out the oldest"
+
+
+def stamped_as(db: Path, revision: str) -> None:
+    """Rewrite the migration stamp, leaving the schema where it is."""
+    with closing(sqlite3.connect(db)) as connection:
+        connection.execute("UPDATE alembic_version SET version_num = ?", (revision,))
+        connection.commit()
+
+
+def test_newer_database_is_refused_before_copying(db: Path) -> None:
+    """Alembic fails inside the upgrade, having already taken a snapshot."""
+    upgrade(db, HEAD)
+    stamped_as(db, "0017")
+
+    with pytest.raises(MigrationRefusedError, match="written by a newer Flexi"):
+        run_migrations(db)
+
+    assert revision_of(db) == "0017"
+    assert not list(backups_directory().glob("*.bak"))
+
+
+def test_fresh_snapshot_outlives_the_older_ones(db: Path) -> None:
+    """Modification times come from the filesystem and can put the fresh copy oldest."""
+    upgrade(db, BEFORE_HALF_DAYS)
+    directory = ensure(backups_directory())
+    for n in range(MAX_BACKUPS):
+        earlier = directory / f"flexi_2026{n:04d}T000000Z.bak"
+        earlier.write_bytes(b"an earlier upgrade")
+        os.utime(earlier, (2_000_000_000 + n, 2_000_000_000 + n))
+    before = set(directory.glob("*.bak"))
+
+    run_migrations(db)
+
+    fresh = set(directory.glob("*.bak")) - before
+    assert len(fresh) == 1, "the snapshot the upgrade depends on was pruned"
+    assert len(list(directory.glob("*.bak"))) == MAX_BACKUPS
+
+
+def test_migrations_match_the_models(db: Path) -> None:
+    """Fixtures call `Base.metadata.create_all`; an install gets `run_migrations`.
+
+    Server defaults are compared too, which Alembic leaves off by default: 0004
+    `DEFAULT`s `clock_events.source` and `work_sessions.auto_closed`.
+    """
+    upgrade(db, HEAD)
+
+    engine = create_db_engine(db)
+    try:
+        with engine.connect() as connection:
+            context = MigrationContext.configure(
+                connection, opts={"compare_server_default": True}
+            )
+            differences = compare_metadata(context, Base.metadata)
+    finally:
+        engine.dispose()
+
+    # Alembic reports the version table it owns; the models do not describe it.
+    real = [
+        difference
+        for difference in differences
+        if "alembic_version" not in str(difference)
+    ]
+    assert real == [], f"the migrations and the models disagree: {real}"
+
+
+# ---- the gap between the shared check and the exclusive one ----
+
+
+def _answers(monkeypatch: pytest.MonkeyPatch, *revisions: DatabaseRevision) -> None:
+    """Make successive revision reads disagree."""
+    replies = iter(revisions)
+    monkeypatch.setattr(
+        "flexi.models.database.migrate.current_revision",
+        lambda _path: next(replies),
+    )
+
+
+def test_migration_done_in_the_gap_is_not_repeated(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cheap check runs shared; the authoritative one runs exclusive.
+
+    Two applications starting together both see work to do. The one that gets the
+    lease second finds head on its re-read and stops, taking no backup.
+    """
+    upgrade(db, BEFORE_HALF_DAYS)
+    before = sorted(backups_directory().glob("*.bak"))
+    _answers(
+        monkeypatch,
+        DatabaseRevision(RevisionState.STAMPED, BEFORE_HALF_DAYS),
+        DatabaseRevision(RevisionState.STAMPED, RECORDED_HEAD),
+    )
+
+    run_migrations(db)
+
+    assert revision_of(db) == BEFORE_HALF_DAYS, "it did not migrate"
+    assert sorted(backups_directory().glob("*.bak")) == before, "nor back up"
+
+
+def test_exclusive_re_read_is_the_authority(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A schema is migrated only on the read taken under the exclusive lease."""
+    upgrade(db, BEFORE_HALF_DAYS)
+    _answers(
+        monkeypatch,
+        DatabaseRevision(RevisionState.STAMPED, BEFORE_HALF_DAYS),
+        DatabaseRevision(RevisionState.UNSTAMPED),
+    )
+
+    with pytest.raises(RuntimeError, match="unstamped schema"):
+        run_migrations(db)
+
+
+# ---- 0015: tracking_since ----
+
+BEFORE_TRACKING = "0014"
+
+
+def tracking_since_of(db: Path) -> date | None:
+    """Read `tracking_since` back through the model.
+
+    SQLite has no date type, so only the model shows whether the column round
+    trips as a `date`.
+    """
+    with session_at(db) as session:
+        return session.query(Settings).one().tracking_since
+
+
+def configured(db: Path, leave_year_start: str = "04-06") -> None:
+    """Insert a settings row as 0014 knows it.
+
+    Raw SQL, because the model has `tracking_since` and 0015 is what adds it.
+    """
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO settings (id, singleton_key, leave_year_start,"
+                " working_days, bank_holiday_division, auto_close_time,"
+                " contracted_minutes, day_window_start, day_window_end)"
+                " VALUES (1, 1, :leave_year_start, '0,1,2,3,4',"
+                " 'england-and-wales', '18:00', 444, '07:00', '19:00')"
+            ),
+            {"leave_year_start": leave_year_start},
+        )
+        connection.commit()
+    engine.dispose()
+
+
+def test_database_with_records_dates_from_the_earliest(db: Path) -> None:
+    """The earliest record is the earliest day Flexi can be shown to have run."""
+    upgrade(db, BEFORE_TRACKING)
+    configured(db)
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO clock_events (id, action, timestamp, source)"
+                " VALUES (1, 'IN', '2026-05-04 09:00:00', 'user')"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO work_sessions (id, clock_in_id, work_date, auto_closed)"
+                " VALUES (1, 1, '2026-05-04', 0)"
+            )
+        )
+        connection.commit()
+    engine.dispose()
+
+    upgrade(db, HEAD)
+
+    assert tracking_since_of(db) == date(2026, 5, 4)
+
+
+def test_empty_database_dates_from_the_upgrade(db: Path) -> None:
+    """A settings row with no sessions has no real deficit to preserve."""
+    upgrade(db, BEFORE_TRACKING)
+    configured(db)
+
+    with time_machine.travel(date(2026, 8, 26), tick=False):
+        upgrade(db, HEAD)
+
+    assert tracking_since_of(db) == date(2026, 8, 26)
+
+
+def sessions_worth(db: Path, days: tuple[date, ...], minutes: int) -> None:
+    """Punch a full day's work on each date, without the ORM."""
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        for index, when in enumerate(days):
+            opened = index * 2 + 1
+            closed = opened + 1
+            start = datetime.combine(when, time(9, 0))
+            end = start + timedelta(minutes=minutes)
+            connection.execute(
+                sa.text(
+                    "INSERT INTO clock_events"
+                    " (id, action, timestamp, source, utc_offset_minutes) VALUES"
+                    " (:opened, 'IN', :start, 'user', 0),"
+                    " (:closed, 'OUT', :end, 'user', 0)"
+                ),
+                {
+                    "opened": opened,
+                    "closed": closed,
+                    "start": start.isoformat(sep=" "),
+                    "end": end.isoformat(sep=" "),
+                },
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO work_sessions"
+                    " (id, clock_in_id, clock_out_id, work_date, auto_closed, voided)"
+                    " VALUES (:id, :opened, :closed, :work_date, 0, 0)"
+                ),
+                {
+                    "id": index + 1,
+                    "opened": opened,
+                    "closed": closed,
+                    "work_date": when.isoformat(),
+                },
+            )
+        connection.commit()
+    engine.dispose()
+
+
+def line_drawn(db: Path, when: date, minutes: int) -> None:
+    """The row `flexi balance zero` writes: one signed correction, one date."""
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO balance_adjustments"
+                " (id, date, minutes, reason, created_at)"
+                " VALUES (1, :when, :minutes, 'opening balance',"
+                " '2026-08-02 18:00:00')"
+            ),
+            {"when": when.isoformat(), "minutes": minutes},
+        )
+        connection.commit()
+    engine.dispose()
+
+
+def balance_on(db: Path, when: date) -> timedelta:
+    """The running balance the application reads, through the real services."""
+    engine = create_db_engine(db)
+    session = get_session(engine)
+    try:
+        return build_services(session).ledger.balance(when).delta
     finally:
         session.close()
+        engine.dispose()
+
+
+def untracked(db: Path) -> None:
+    """Clear `tracking_since`, which is how the column reads before 0015."""
+    engine = create_db_engine(db)
+    with engine.connect() as connection:
+        connection.execute(sa.text("UPDATE settings SET tracking_since = NULL"))
+        connection.commit()
+    engine.dispose()
+
+
+def test_settled_balance_survives_the_upgrade(db: Path) -> None:
+    """A drawn line absorbed a deficit dated from the leave year.
+
+    Untracking any day it paid for leaves the correction standing against a deficit
+    nothing charges, and a settled balance reads as a large surplus.
+    """
+    upgrade(db, BEFORE_TRACKING)
+    configured(db)
+    sessions_worth(db, (date(2026, 8, 3), date(2026, 8, 4), date(2026, 8, 5)), 444)
+    line_drawn(db, date(2026, 8, 2), 39_072)
+
+    upgrade(db, HEAD)
+
+    assert tracking_since_of(db) == date(2026, 4, 6)
+    with time_machine.travel(date(2026, 8, 14), tick=False):
+        settled = balance_on(db, date(2026, 8, 14))
+        untracked(db)
+        assert balance_on(db, date(2026, 8, 14)) == settled
+
+
+@pytest.mark.parametrize(
+    ("drawn", "opening"),
+    [(date(2026, 8, 2), date(2026, 4, 6)), (date(2026, 2, 10), date(2025, 4, 6))],
+    ids=("after-the-anniversary", "before-it"),
+)
+def test_settled_database_dates_from_its_leave_year(
+    db: Path, drawn: date, opening: date
+) -> None:
+    """The line covers its whole leave year, so tracking starts where that did."""
+    upgrade(db, BEFORE_TRACKING)
+    configured(db)
+    sessions_worth(db, (date(2026, 8, 3),), 444)
+    line_drawn(db, drawn, 39_072)
+
+    upgrade(db, HEAD)
+
+    assert tracking_since_of(db) == opening
+
+
+def test_leap_day_leave_year_settles_in_february(db: Path) -> None:
+    """A leave year opening on the 29th opens on the 28th three years in four."""
+    upgrade(db, BEFORE_TRACKING)
+    configured(db, leave_year_start="02-29")
+    sessions_worth(db, (date(2026, 8, 3),), 444)
+    line_drawn(db, date(2026, 8, 2), 39_072)
+
+    upgrade(db, HEAD)
+
+    assert tracking_since_of(db) == date(2026, 2, 28)
+
+
+# ---- alembic from the command line ----
+
+SHIPPED_CONFIG = Path(__file__).resolve().parents[2] / "alembic.ini"
+
+
+def command_line_config() -> Config:
+    """Build what `alembic` builds, minus the file's own logging setup.
+
+    The script directory is absolute: the shipped `alembic.ini` names it
+    relative to the checkout, and these tests run from elsewhere.
+    """
+    cfg = Config()
+    migrations = Path(flexi.__file__).resolve().parent / "migrations"
+    cfg.set_main_option("script_location", str(migrations))
+    return cfg
+
+
+def test_shipped_config_names_no_database() -> None:
+    """A URL in the file would be a second answer to where the database is."""
+    parser = ConfigParser()
+    parser.read(SHIPPED_CONFIG)
+
+    assert parser.get("alembic", "sqlalchemy.url", fallback="") == ""
+
+
+def test_run_without_a_database_writes_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(CommandError, match="No database given"):
+        command.upgrade(command_line_config(), HEAD)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_run_migrates_the_database_it_is_given(tmp_path: Path) -> None:
+    """The `-x db=` a contributor needs for `revision --autogenerate`."""
+    scratch = tmp_path / "scratch.db"
+    cfg = command_line_config()
+    cfg.cmd_opts = Namespace(x=[f"db={scratch}"])
+
+    command.upgrade(cfg, HEAD)
+
+    assert revision_of(scratch) == RECORDED_HEAD
