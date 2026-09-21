@@ -1,7 +1,8 @@
 """How a clock reading maps onto two columns, in one place.
 
-Nothing outside this module touches ``timestamp`` or ``utc_offset_minutes``
-directly.
+This module converts ``timestamp`` and ``utc_offset_minutes`` to and from
+instants. Queries may filter wall timestamps conservatively; final comparisons
+use :func:`moment_of` so recorded offsets are respected.
 """
 
 from __future__ import annotations

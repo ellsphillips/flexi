@@ -266,3 +266,23 @@ async def test_key_after_midnight_starts_today(
 
                 tuesday = sessions_on(app._session, TUESDAY_TEN.date())
                 assert len(tuesday) == 1, "the key should have started a new day"
+
+
+async def test_rollback_refusal_keeps_the_dashboard_off_the_clock(
+    app_factory: AppFactory,
+) -> None:
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("slash")
+        await pilot.pause()
+        assert not app.services.clock.is_clocked_in()
+        before = app.services.clock.segments_on(date(2026, 6, 11))
+
+        with time_machine.travel(datetime(2026, 6, 11, 14, 2, tzinfo=UTC), tick=False):
+            await pilot.press("slash")
+            await pilot.pause()
+            assert "check your system clock" in status_text(app)
+            assert not app.services.clock.is_clocked_in()
+            assert not app.screen.query_one("#clock-switch", Switch).value
+            assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
+            assert app.services.clock.segments_on(date(2026, 6, 11)) == before

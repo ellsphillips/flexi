@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -10,11 +10,11 @@ from flexi import wallclock
 from flexi.constants import EventSource, Portion
 from flexi.domain.format import hm, long_date, short_date, spoken
 from flexi.domain.ledger import MIDDAY_HOUR, Segment
-from flexi.models.database.db import AbsenceDay, WorkSession
+from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
 from flexi.services.bank_holidays import BankHolidayService
-from flexi.services.ledger import end_of_day, segment_of
+from flexi.services.ledger import segment_of
 from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
 from flexi.services.transactions import write_transaction
@@ -84,6 +84,24 @@ class ClockService:
     def is_clocked_in(self) -> bool:
         return self.get_open_session() is not None
 
+    def _has_later_work(self, moment: datetime) -> bool:
+        """Normal punches advance beyond recorded work; corrections can fill gaps."""
+        utc = moment.astimezone(UTC)
+        # An offset is strictly less than a day. Older wall readings cannot
+        # represent a later instant, even after a timezone change or DST fold.
+        cutoff = (
+            utc - min(timedelta(days=1), utc - datetime.min.replace(tzinfo=UTC))
+        ).replace(tzinfo=None)
+        stmt = (
+            select(ClockEvent)
+            .join(WorkSession, WorkSession.clock_out_id == ClockEvent.id)
+            .where(
+                WorkSession.voided.is_(False),
+                ClockEvent.timestamp >= cutoff,
+            )
+        )
+        return any(moment_of(event) > moment for event in self._session.scalars(stmt))
+
     def _booked_over(
         self, work_date: date, opened_at: datetime, closed_at: datetime
     ) -> Portion | None:
@@ -135,6 +153,15 @@ class ClockService:
 
             moment = wallclock.local(now) if now is not None else wallclock.now()
             work_date = moment.date()
+
+            if self._has_later_work(moment):
+                return ClockResult(
+                    success=False,
+                    message=(
+                        "Cannot clock in before work already recorded; "
+                        "check your system clock or use a correction"
+                    ),
+                )
 
             # A known bank holiday blocks clocking in; an unknown calendar
             # answers `None` here and does not.
@@ -399,11 +426,8 @@ through it.
 def overlapping(first: Segment, start: datetime, end: datetime) -> bool:
     """Whether an existing stretch shares any time with a proposed one.
 
-    An open session is worth the rest of its own day, the reading
-    `ledger.end_of_day` gives it everywhere else. Not `wallclock.now()`, which
-    would admit a correction for later this afternoon: while a session runs, any
-    correction after its start on that date is refused.
+    An open session claims time after its start until it closes, including
+    subsequent dates. Capping it at midnight or now would admit corrections
+    that a later clock-out could also claim.
     """
-    return bool(
-        first.start < end and start < first.finish(end_of_day(first.start.date()))
-    )
+    return first.start < end and (first.end is None or start < first.end)

@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from unittest.mock import Mock
 
 import pytest
+import time_machine
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -393,3 +394,65 @@ class TestConcurrentWriters:
         assert result.success is False
         assert result.message == "Not clocked in"
         assert len(session.execute(select(ClockEvent)).scalars().all()) == 2
+
+
+@pytest.mark.parametrize(
+    "rewound",
+    [
+        datetime(2026, 8, 10, 9, 30, tzinfo=UTC),
+        datetime(2026, 8, 10, 9, tzinfo=UTC),
+        datetime(2026, 8, 10, 8, tzinfo=UTC),
+        datetime(2026, 8, 9, 12, tzinfo=UTC),
+    ],
+)
+def test_clock_rollback_cannot_reopen_recorded_time(
+    svc: ClockService, session: Session, rewound: datetime
+) -> None:
+    assert svc.clock_in(now=datetime(2026, 8, 10, 9, tzinfo=UTC)).success
+    assert svc.clock_out(now=datetime(2026, 8, 10, 10, tzinfo=UTC)).success
+
+    result = svc.clock_in(now=rewound)
+
+    assert not result.success
+    assert "check your system clock" in result.message
+    assert result.session is None
+    assert result.at is None
+    assert svc.get_open_session() is None
+    assert len(session.scalars(select(ClockEvent)).all()) == 2
+    assert len(session.scalars(select(WorkSession)).all()) == 1
+
+
+def test_clock_can_start_exactly_when_recorded_work_ends(svc: ClockService) -> None:
+    boundary = datetime(2026, 8, 10, 10, tzinfo=UTC)
+    assert svc.clock_in(now=boundary - timedelta(hours=1)).success
+    assert svc.clock_out(now=boundary).success
+    assert svc.clock_in(now=boundary).success
+    assert svc.clock_out(now=boundary + timedelta(minutes=30)).success
+    assert len(svc.segments_on(boundary.date())) == 2
+
+
+def test_discarded_session_does_not_block_an_earlier_clock_in(
+    svc: ClockService,
+) -> None:
+    started = datetime(2026, 8, 10, 10, tzinfo=UTC)
+    assert svc.clock_in(now=started).success
+    assert svc.clock_out(now=started + timedelta(seconds=1)).success
+    assert svc.clock_in(now=started - timedelta(minutes=30)).success
+
+
+def test_clock_rollback_cannot_overlap_a_corrected_session(svc: ClockService) -> None:
+    with time_machine.travel(datetime(2026, 8, 10, 12, tzinfo=UTC), tick=False):
+        assert svc.correct(date(2026, 8, 10), time(9), time(10)).success
+    assert not svc.clock_in(now=datetime(2026, 8, 10, 9, 30, tzinfo=UTC)).success
+    assert svc.clock_in(now=datetime(2026, 8, 10, 10, tzinfo=UTC)).success
+
+
+@pytest.mark.usefixtures("in_london")
+def test_dst_fallback_can_start_a_later_session_at_an_earlier_wall_time(
+    svc: ClockService,
+) -> None:
+    # 01:30-01:50 BST precedes 01:10-01:30 GMT despite the displayed readings.
+    assert svc.clock_in(now=datetime(2026, 10, 25, 0, 30, tzinfo=UTC)).success
+    assert svc.clock_out(now=datetime(2026, 10, 25, 0, 50, tzinfo=UTC)).success
+    assert svc.clock_in(now=datetime(2026, 10, 25, 1, 10, tzinfo=UTC)).success
+    assert svc.clock_out(now=datetime(2026, 10, 25, 1, 30, tzinfo=UTC)).success

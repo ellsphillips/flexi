@@ -306,3 +306,24 @@ def test_the_balance_is_quiet_with_a_calendar(
     balance_cli.show(stocked, NOON)
 
     assert capsys.readouterr().err == ""
+
+
+def test_clock_rollback_reports_a_refusal_and_keeps_the_ledger_unchanged(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with time_machine.travel(datetime(2026, 6, 10, 9), tick=False):
+        assert clock_cli.clock_in(services) == 0
+    with time_machine.travel(datetime(2026, 6, 10, 10), tick=False):
+        assert clock_cli.clock_out(services) == 0
+    capsys.readouterr()
+
+    with time_machine.travel(datetime(2026, 6, 10, 9, 30), tick=False):
+        assert clock_cli.clock_in(services) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "check your system clock" in captured.err
+    with time_machine.travel(datetime(2026, 6, 10, 10, 30), tick=False):
+        assert clock_cli.clock_out(services) == 1
+    day = services.ledger.day(NOON)
+    assert len(day.segments) == 1
+    assert day.worked == timedelta(hours=1)

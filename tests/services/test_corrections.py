@@ -354,3 +354,44 @@ def test_review_is_ordered_and_bounded_by_period(clock: ClockService) -> None:
         TUESDAY,
     ]
     assert clock.corrections_between(TODAY, TODAY) == []
+
+
+def test_open_overnight_session_refuses_next_day_correction(
+    clock: ClockService, session: Session
+) -> None:
+    assert clock.clock_in(now=datetime(2026, 6, 7, 22, tzinfo=UTC)).success
+
+    result = clock.correct(MONDAY, time(1), time(2))
+
+    assert not result.success
+    assert "overlaps" in result.message
+    assert clock.is_clocked_in()
+    assert session.query(ClockEvent).count() == 1
+    assert clock.clock_out(now=datetime(2026, 6, 8, 3, tzinfo=UTC)).success
+    assert build_services(session).ledger.day(SUNDAY).worked == timedelta(hours=5)
+
+
+def test_correction_can_end_at_an_open_overnight_sessions_start(
+    clock: ClockService,
+) -> None:
+    assert clock.clock_in(now=datetime(2026, 6, 7, 22, tzinfo=UTC)).success
+    assert clock.correct(SUNDAY, time(21), time(22)).success
+    assert clock.is_clocked_in()
+    assert clock.clock_out(now=datetime(2026, 6, 8, 3, tzinfo=UTC)).success
+    assert len(clock.segments_on(SUNDAY)) == 2
+
+
+@pytest.mark.usefixtures("in_london")
+def test_open_session_correction_guard_distinguishes_repeated_dst_hour(
+    clock: ClockService,
+) -> None:
+    day = date(2026, 10, 25)
+    with time_machine.travel(datetime(2026, 10, 25, 3, tzinfo=UTC), tick=False):
+        # The running session starts during the second 01:00 hour (GMT).
+        assert clock.clock_in(now=datetime(2026, 10, 25, 1, 30, tzinfo=UTC)).success
+        # The first 01:45 (BST) precedes that start despite its wall reading.
+        assert clock.correct(day, time(1, 0), time(1, 45)).success
+        result = clock.correct(day, time(1, 35, fold=1), time(1, 45, fold=1))
+        assert not result.success
+        assert "overlaps" in result.message
+        assert clock.is_clocked_in()
