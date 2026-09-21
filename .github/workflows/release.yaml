@@ -114,7 +114,7 @@ jobs:
           name: test-dist
           path: dist
 
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.9.26"
           enable-cache: false
@@ -176,7 +176,7 @@ jobs:
       # repository out, so setup-uv would fall back to whatever uv is newest
       # that day for the one command that holds a PyPI credential. Keep it in
       # step with the verification workflows.
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.9.26"
           enable-cache: false
