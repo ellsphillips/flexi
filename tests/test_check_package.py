@@ -15,6 +15,7 @@ from scripts import check_package as package
 from scripts.release_status import Registry
 
 VERSION = "1.2.3"
+STAGING_VERSION = f"{VERSION}.dev1"
 
 
 def artifacts(
@@ -22,13 +23,14 @@ def artifacts(
 ) -> None:
     directory.mkdir()
     name = registry.package.replace("-", "_")
-    with ZipFile(directory / f"{name}-{VERSION}-py3-none-any.whl", "w") as wheel:
+    version = VERSION if registry is Registry.PYPI else STAGING_VERSION
+    with ZipFile(directory / f"{name}-{version}-py3-none-any.whl", "w") as wheel:
         wheel.writestr("flexi/__init__.py", payload)
         wheel.writestr(
-            f"{name}-{VERSION}.dist-info/METADATA",
-            f"Metadata-Version: 2.3\nName: {registry.package}\nVersion: {VERSION}\n\n",
+            f"{name}-{version}.dist-info/METADATA",
+            f"Metadata-Version: 2.3\nName: {registry.package}\nVersion: {version}\n\n",
         )
-    (directory / f"{name}-{VERSION}.tar.gz").write_bytes(b"source archive")
+    (directory / f"{name}-{version}.tar.gz").write_bytes(b"source archive")
 
 
 @dataclass(frozen=True)
@@ -71,7 +73,8 @@ class Commands:
             )
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    def staging(self, source: Path, output: Path) -> str:
+    def staging(self, source: Path, output: Path, *, run_id: str | None = None) -> str:
+        assert run_id == "1"
         assert (source / f"flexi-{VERSION}.tar.gz").read_bytes() == b"source archive"
         self.staging_sources.append(source)
         artifacts(output, Registry.TESTPYPI, self.staging_payload)
@@ -137,8 +140,8 @@ def test_both_built_wheels_are_checked_without_touching_the_checkout(
     assert {
         Path(value).name for value in twine if value.endswith((".whl", ".tar.gz"))
     } == {
-        f"{name}-{VERSION}{suffix}"
-        for name in ("flexi", "flexi_test")
+        f"{name}-{version}{suffix}"
+        for name, version in (("flexi", VERSION), ("flexi_test", STAGING_VERSION))
         for suffix in ("-py3-none-any.whl", ".tar.gz")
     }
     export = next(call.command for call in commands.calls if "export" in call.command)
@@ -170,6 +173,16 @@ def test_both_built_wheels_are_checked_without_touching_the_checkout(
         assert all(
             command[command.index("--python") + 1] == str(interpreter)
             for command in installs
+        )
+        identity = next(
+            other.command
+            for other in commands.calls
+            if other.cwd == call.cwd and release_probe.INSTALLED_CHECK in other.command
+        )
+        assert identity[-4:-2] == (
+            ["flexi", VERSION]
+            if call.cwd.name == "dist"
+            else ["flexi-test", STAGING_VERSION]
         )
     for call in commands.calls:
         assert call.cwd.is_relative_to(scratch)
@@ -215,7 +228,10 @@ def test_main_reports_success(
 ) -> None:
     monkeypatch.setattr(package, "ROOT", project)
     assert package.main([]) == 0
-    assert f"Passed: flexi and flexi-test {VERSION}" in capsys.readouterr().out
+    assert (
+        f"Passed: flexi {VERSION} and flexi-test {STAGING_VERSION}"
+        in capsys.readouterr().out
+    )
 
 
 def test_main_returns_failure_with_diagnostics(

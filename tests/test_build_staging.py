@@ -15,6 +15,8 @@ import pytest
 from scripts import build_staging as build
 
 VERSION = "1.2.3"
+RUN_ID = "35591136993"
+PREVIEW = f"{VERSION}.dev{RUN_ID}"
 PROJECT = (
     b'# flexi remains the application name\n[project]\nname = "flexi" # distribution\n'
     b'version = "1.2.3"\nauthors = [{name = "flexi"}]\n'
@@ -54,7 +56,7 @@ def write_wheel(
         for name, content in application.items():
             archive.writestr(name, content)
         archive.writestr(
-            f"{package.replace('-', '_')}-{VERSION}.dist-info/METADATA",
+            f"{package.replace('-', '_')}-{version}.dist-info/METADATA",
             metadata(package, version),
         )
 
@@ -71,6 +73,8 @@ class Backend:
         self.sources.append(source)
         files = {name: (source / name).read_bytes() for name in SOURCE}
         self.inputs.append(dict(files))
+        target = tomllib.loads(files["pyproject.toml"].decode())["project"]["version"]
+        assert isinstance(target, str)
         if self.tamper == "failure":
             message = "backend failed"
             raise build.BuildError(message)
@@ -85,20 +89,28 @@ class Backend:
             files["src/flexi/__init__.py"] = b"changed source"
         elif self.tamper == "source-extra":
             files["unreviewed.py"] = b"extra source"
+        elif self.tamper == "source-project-version":
+            files["pyproject.toml"] = files["pyproject.toml"].replace(
+                target.encode(), b"9.9.9"
+            )
         output.mkdir()
         package = "other" if self.tamper == "wheel-name" else build.STAGING
-        version = "9.9.9" if self.tamper == "wheel-version" else VERSION
+        version = "9.9.9" if self.tamper == "wheel-version" else target
+        filename_version = "9.9.9" if self.tamper == "wheel-filename" else target
         write_wheel(
-            output / f"flexi_test-{VERSION}-py3-none-any.whl",
+            output / f"flexi_test-{filename_version}-py3-none-any.whl",
             package,
             application,
             version=version,
         )
         package = "other" if self.tamper == "source-name" else build.STAGING
-        version = "9.9.9" if self.tamper == "source-version" else VERSION
+        version = "9.9.9" if self.tamper == "source-version" else target
+        filename_version = "9.9.9" if self.tamper == "source-filename" else target
         files["PKG-INFO"] = metadata(package, version)
         write_source(
-            output / f"flexi_test-{VERSION}.tar.gz", f"flexi_test-{VERSION}", files
+            output / f"flexi_test-{filename_version}.tar.gz",
+            f"flexi_test-{target}",
+            files,
         )
 
 
@@ -147,6 +159,36 @@ def test_build_uses_only_canonical_source_and_preserves_production_bytes(
     assert not backend.sources[0].parent.exists()
 
 
+def test_preview_build_has_its_own_identity_and_preserves_the_production_artifacts(
+    production: Path, backend: Backend, tmp_path: Path
+) -> None:
+    before = {path.name: path.read_bytes() for path in production.iterdir()}
+    output = tmp_path / "preview"
+    assert build.build_staging(production, output, run_id=RUN_ID) == VERSION
+    assert {path.name for path in output.iterdir()} == {
+        f"flexi_test-{PREVIEW}.tar.gz",
+        f"flexi_test-{PREVIEW}-py3-none-any.whl",
+    }
+    assert {path.name: path.read_bytes() for path in production.iterdir()} == before
+    expected_project = PROJECT.replace(
+        b'name = "flexi"', b'name = "flexi-test"', 1
+    ).replace(b'version = "1.2.3"', f'version = "{PREVIEW}"'.encode())
+    assert backend.inputs == [{**SOURCE, "pyproject.toml": expected_project}]
+    source = build.source_files(
+        output / f"flexi_test-{PREVIEW}.tar.gz", f"flexi_test-{PREVIEW}"
+    )
+    assert source == {
+        **SOURCE,
+        "pyproject.toml": expected_project,
+        "PKG-INFO": metadata(build.STAGING, PREVIEW),
+    }
+    wheel = build.wheel_files(output / f"flexi_test-{PREVIEW}-py3-none-any.whl")
+    assert wheel == {
+        **APPLICATION,
+        f"flexi_test-{PREVIEW}.dist-info/METADATA": metadata(build.STAGING, PREVIEW),
+    }
+
+
 @pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
 @pytest.mark.parametrize("quote", [b'"', b"'"])
 def test_only_project_name_changes_with_comments_quotes_and_line_endings(
@@ -160,6 +202,41 @@ def test_only_project_name_changes_with_comments_quotes_and_line_endings(
     after = tomllib.loads(result.decode())
     before["project"]["name"] = build.STAGING
     assert before == after
+
+
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+@pytest.mark.parametrize("quote", [b'"', b"'"])
+def test_preview_edits_only_name_and_version_and_preserves_formatting(
+    newline: bytes, quote: bytes
+) -> None:
+    source = PROJECT.replace(b'"1.2.3"', quote + b"1.2.3" + quote + b" # release")
+    source = source.replace(b"\n", newline)
+    result = build.rename_project(source, VERSION, PREVIEW)
+    assert result == source.replace(
+        b'name = "flexi"', b'name = "flexi-test"', 1
+    ).replace(quote + b"1.2.3" + quote, quote + PREVIEW.encode() + quote)
+    expected = tomllib.loads(source.decode())
+    expected["project"].update(name=build.STAGING, version=PREVIEW)
+    assert tomllib.loads(result.decode()) == expected
+
+
+@pytest.mark.parametrize("target", ["", "9.9.9.dev1", "1.2.3.dev01", "1.2.3+local"])
+def test_preview_version_must_be_canonical_and_match_the_production_base(
+    target: str,
+) -> None:
+    with pytest.raises(build.BuildError):
+        build.rename_project(PROJECT, VERSION, target)
+
+
+@pytest.mark.parametrize("run_id", ["", "0", "01", " 12", "12\n", "１２", "1" * 21])
+def test_invalid_preview_run_does_not_reach_the_backend(
+    production: Path, backend: Backend, tmp_path: Path, run_id: str
+) -> None:
+    output = tmp_path / "preview"
+    with pytest.raises(build.BuildError):
+        build.build_staging(production, output, run_id=run_id)
+    assert not output.exists()
+    assert backend.sources == []
 
 
 @pytest.mark.parametrize(
@@ -185,19 +262,23 @@ def test_malformed_or_mismatched_project_metadata_is_rejected(source: bytes) -> 
         "wheel-missing",
         "wheel-name",
         "wheel-version",
+        "wheel-filename",
         "source-content",
         "source-extra",
         "source-name",
         "source-version",
+        "source-filename",
+        "source-project-version",
     ],
 )
+@pytest.mark.parametrize("run_id", [None, RUN_ID])
 def test_failed_or_changed_build_has_no_published_output(
-    production: Path, backend: Backend, tmp_path: Path, tamper: str
+    production: Path, backend: Backend, tmp_path: Path, tamper: str, run_id: str | None
 ) -> None:
     backend.tamper = tamper
     output = tmp_path / "test-dist"
     with pytest.raises(build.BuildError):
-        build.build_staging(production, output)
+        build.build_staging(production, output, run_id=run_id)
     assert not output.exists()
     assert backend.sources
     assert not backend.sources[0].parent.exists()
@@ -359,3 +440,31 @@ def test_cli_uses_the_requested_directories(
     )
     assert build.main() == 0
     assert output.is_dir()
+
+
+def test_cli_reports_the_preview_and_production_versions(
+    production: Path,
+    backend: Backend,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output = tmp_path / "preview"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_staging",
+            "--dist",
+            str(production),
+            "--out",
+            str(output),
+            "--run-id",
+            RUN_ID,
+        ],
+    )
+    assert build.main() == 0
+    assert (
+        f"Built flexi-test {PREVIEW}; application payload matches flexi {VERSION}."
+        in capsys.readouterr().out
+    )

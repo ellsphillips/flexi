@@ -3,16 +3,133 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from email.message import Message
 from pathlib import Path
+from threading import Event
 from typing import Literal
+from urllib.error import HTTPError
+from urllib.request import Request
 
 import pytest
 from scripts import release_pr as release
 
 HEAD, BASE, TREE, CREATED = (letter * 40 for letter in "abcd")
 TITLE = "chore(release): 0.2.0"
+
+
+@pytest.fixture(autouse=True)
+def no_registry_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        message = "Release preparation tests must not make network requests"
+        raise OSError(message)
+
+    monkeypatch.setattr(release, "urlopen", refuse)
+
+
+@dataclass
+class Registry:
+    result: bool | Exception
+    requests: list[release.Version] = field(default_factory=list)
+
+    def version_exists(self, version: release.Version) -> bool:
+        self.requests.append(version)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+class RegistryResponse(io.BytesIO):
+    status = 200
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"urls": []}',
+        b'{"urls": [{"filename": "partial.whl"}]}',
+        b"null",
+        b"malformed JSON",
+        b"",
+    ],
+)
+def test_any_successful_production_endpoint_reserves_the_version(
+    prepared: tuple[Remote, release.ReleaseBundle],
+    monkeypatch: pytest.MonkeyPatch,
+    body: bytes,
+) -> None:
+    remote, _bundle = prepared
+    remote.main = remote.main.replace(b"0.1.0", b"0.2.0")
+    response = RegistryResponse(body)
+
+    def answer(request: Request, *, timeout: float) -> RegistryResponse:
+        assert request.full_url == "https://pypi.org/pypi/flexi/0.2.0/json"
+        assert request.get_header("Authorization") is None
+        assert timeout == release.REQUEST_TIMEOUT
+        return response
+
+    monkeypatch.setattr(release, "urlopen", answer)
+    with pytest.raises(release.ReleaseError, match="already exists on PyPI"):
+        release.plan(remote, 12)
+    assert response.closed
+    assert remote.writes == []
+
+
+@pytest.mark.parametrize("status", [404, 403, 429, 500])
+def test_only_an_explicit_production_404_is_absent(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    def answer(request: Request, *, timeout: float) -> RegistryResponse:
+        raise HTTPError(request.full_url, status, "test response", Message(), None)
+
+    monkeypatch.setattr(release, "urlopen", answer)
+    registry = release.PyPIClient()
+    if status == 404:
+        assert not registry.version_exists(release.Version("0.2.0"))
+    else:
+        with pytest.raises(release.ReleaseError, match="Could not confirm"):
+            registry.version_exists(release.Version("0.2.0"))
+
+
+def test_a_redirected_404_cannot_authorize_version_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def answer(request: Request, *, timeout: float) -> RegistryResponse:
+        redirected = "https://other.example/"
+        raise HTTPError(redirected, 404, "missing", Message(), None)
+
+    monkeypatch.setattr(release, "urlopen", answer)
+    with pytest.raises(release.ReleaseError, match="Could not confirm"):
+        release.PyPIClient().version_exists(release.Version("0.2.0"))
+
+
+def test_registry_network_failures_cannot_authorize_version_reuse() -> None:
+    with pytest.raises(release.ReleaseError, match="Could not confirm"):
+        release.PyPIClient().version_exists(release.Version("0.2.0"))
+
+
+def test_production_lookup_has_a_deadline_even_when_dns_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unblock, completed = Event(), Event()
+
+    def answer(request: Request, *, timeout: float) -> RegistryResponse:
+        try:
+            assert unblock.wait(timeout=5)
+            return RegistryResponse(b"{}")
+        finally:
+            completed.set()
+
+    monkeypatch.setattr(release, "urlopen", answer)
+    monkeypatch.setattr(release, "REQUEST_BUDGET", 0.01)
+    try:
+        with pytest.raises(release.ReleaseError, match="Could not confirm"):
+            release.PyPIClient().version_exists(release.Version("0.2.0"))
+    finally:
+        unblock.set()
+        assert completed.wait(timeout=5)
 
 
 @dataclass(frozen=True)
@@ -188,8 +305,8 @@ def test_github_boundary_refuses_ineligible_pull_requests(
         release.GitHubClient("owner/flexi").pull_request(12)
 
 
-@pytest.mark.parametrize("version", ["0.1.0", "0.0.9"])
-def test_plan_requires_a_version_newer_than_main(
+@pytest.mark.parametrize("version", ["0.0.9"])
+def test_plan_refuses_a_version_older_than_main(
     prepared: tuple[Remote, release.ReleaseBundle], version: str
 ) -> None:
     remote, _bundle = prepared
@@ -204,14 +321,46 @@ def test_plan_requires_a_version_newer_than_main(
     assert remote.writes == []
 
 
+@pytest.mark.parametrize("exists", [False, True])
+def test_same_version_is_allowed_only_when_production_is_unpublished(
+    prepared: tuple[Remote, release.ReleaseBundle], exists: bool
+) -> None:
+    remote, _bundle = prepared
+    version = release.Version.parse("0.1.0")
+    remote.snapshot = replace(
+        remote.snapshot, request=replace(remote.snapshot.request, version=version)
+    )
+    registry = Registry(exists)
+    if exists:
+        with pytest.raises(release.ReleaseError, match="already exists on PyPI"):
+            release.plan(remote, 12, registry=registry)
+    else:
+        assert release.plan(remote, 12, registry=registry) == remote.snapshot.request
+    assert registry.requests == [version]
+    assert remote.writes == []
+
+
+def test_same_version_lookup_failure_cannot_authorize_preparation(
+    prepared: tuple[Remote, release.ReleaseBundle],
+) -> None:
+    remote, _bundle = prepared
+    remote.main = remote.main.replace(b"0.1.0", b"0.2.0")
+    registry = Registry(release.ReleaseError("PyPI unavailable"))
+    with pytest.raises(release.ReleaseError, match="PyPI unavailable"):
+        release.plan(remote, 12, registry=registry)
+    assert remote.writes == []
+
+
 def test_plan_returns_the_validated_request_without_writing(
     prepared: tuple[Remote, release.ReleaseBundle],
 ) -> None:
     remote, _bundle = prepared
-    request = release.plan(remote, 12)
+    registry = Registry(release.ReleaseError("PyPI must not be queried"))
+    request = release.plan(remote, 12, registry=registry)
     assert request == remote.snapshot.request
     assert str(request.version) == "0.2.0"
     assert request.version.title == TITLE
+    assert registry.requests == []
     assert remote.writes == []
 
 

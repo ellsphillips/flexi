@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import io
 import sys
+from collections.abc import Callable
 from email.message import Message
 from pathlib import Path
 from threading import Event
@@ -18,6 +19,8 @@ import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "release_status.py"
 VERSION = "1.2.3"
+RUN_ID = "35540218395"
+PREVIEW = f"{VERSION}.dev{RUN_ID}"
 SHA = "a" * 40
 OTHER_SHA = "b" * 40
 REPOSITORY = "example/flexi"
@@ -79,6 +82,7 @@ class Remote:
         self.writes: list[str] = []
         self.reads: list[str] = []
         self.race: str | None = None
+        self.test_version = VERSION
 
     def request(
         self,
@@ -90,7 +94,8 @@ class Remote:
     ) -> object:
         if payload is None:
             self.reads.append(url)
-        if url in {PYPI, TESTPYPI}:
+        test_url = f"https://test.pypi.org/pypi/flexi-test/{self.test_version}/json"
+        if url in {PYPI, test_url}:
             assert token == "", "GitHub credentials must never reach PyPI"
             files = self.files if url == PYPI else self.test_files
             return {
@@ -166,6 +171,64 @@ def test_non_stable_versions_are_refused(
 @pytest.mark.parametrize("version", ["0.0.0", "0.3.0", "10.22.333"])
 def test_stable_versions_are_accepted(release_script: ModuleType, version: str) -> None:
     assert release_script.validate_version(version) == version
+
+
+@pytest.mark.parametrize("run_id", ["1", RUN_ID, "9" * 20])
+def test_preview_versions_identify_the_workflow_run(
+    release_script: ModuleType, run_id: str
+) -> None:
+    version = f"{VERSION}.dev{run_id}"
+    assert release_script.preview_version(VERSION, run_id) == version
+    assert release_script.validate_staging_version(version, VERSION) == version
+    assert release_script.validate_staging_version(VERSION, VERSION) == VERSION
+
+
+@pytest.mark.parametrize(
+    "run_id", ["", "0", "01", "-1", "+1", "1.0", "١", "1\n", "9" * 21]
+)
+def test_preview_run_ids_must_be_canonical_and_bounded(
+    release_script: ModuleType, run_id: str
+) -> None:
+    with pytest.raises(release_script.ReleaseError, match="GITHUB_RUN_ID"):
+        release_script.preview_version(VERSION, run_id)
+    with pytest.raises(release_script.ReleaseError, match="staging version"):
+        release_script.validate_staging_version(f"{VERSION}.dev{run_id}")
+
+
+@pytest.mark.parametrize(
+    "version", [None, "01.2.3", "1.2.3rc1", "1.2.3.dev1+local", "1.2.3.dev1.dev2"]
+)
+def test_staging_rejects_other_version_forms(
+    release_script: ModuleType, version: object
+) -> None:
+    with pytest.raises(release_script.ReleaseError, match="staging version"):
+        release_script.validate_staging_version(version)
+
+
+@pytest.mark.parametrize("staging", [VERSION, PREVIEW])
+def test_staging_version_must_match_the_production_base(
+    release_script: ModuleType, staging: str
+) -> None:
+    with pytest.raises(release_script.ReleaseError, match="based on production"):
+        release_script.validate_staging_version(staging, "1.2.4")
+
+
+def test_preview_versions_cannot_be_used_as_production_versions(
+    release_script: ModuleType, remote: Remote, github: Any
+) -> None:
+    operations: tuple[Callable[[], object], ...] = (
+        lambda: release_script.validate_version(PREVIEW),
+        lambda: release_script.preview_version(PREVIEW, RUN_ID),
+        lambda: release_script.validate_staging_version(PREVIEW, PREVIEW),
+        lambda: release_script.filenames(PREVIEW),
+        lambda: release_script.published_files(PREVIEW),
+        lambda: github.tag_sha(PREVIEW),
+        lambda: github.has_release(PREVIEW),
+    )
+    for operation in operations:
+        with pytest.raises(release_script.ReleaseError, match=r"stable X\.Y\.Z"):
+            operation()
+    assert remote.reads == []
 
 
 @pytest.mark.parametrize("files", [0, 1, 2])
@@ -410,12 +473,34 @@ def test_guard_cli_emits_only_action_outputs(
     monkeypatch.setattr(sys, "argv", [str(SCRIPT), "guard", "--project", str(project)])
     monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
     monkeypatch.setenv("GITHUB_SHA", SHA)
+    monkeypatch.setenv("GITHUB_RUN_ID", RUN_ID)
     monkeypatch.setenv("GH_TOKEN", TEST_CREDENTIAL)
 
     assert release_script.main() == 0
     output = capsys.readouterr()
-    assert output.out == f"version={VERSION}\npublish=true\n"
+    assert output.out == (f"version={VERSION}\ntest_version={PREVIEW}\npublish=true\n")
     assert output.err == ""
+
+
+def test_guard_requires_a_valid_workflow_run_before_remote_reads(
+    release_script: ModuleType,
+    remote: Remote,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project = tmp_path / "pyproject.toml"
+    project.write_text(f'[project]\nname="flexi"\nversion="{VERSION}"\n')
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "guard", "--project", str(project)])
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("GITHUB_SHA", SHA)
+    monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
+
+    assert release_script.main() == 1
+    output = capsys.readouterr()
+    assert "GITHUB_RUN_ID" in output.err
+    assert output.out == ""
+    assert remote.reads == []
 
 
 def test_cli_failure_does_not_print_credentials(
@@ -543,6 +628,65 @@ def test_verify_cli_honors_registry_and_completeness(
     assert output.out == ""
     assert ("both distributions" in output.err) is complete
     assert remote.reads[-1] == (PYPI if registry == "pypi" else TESTPYPI)
+    assert remote.writes == []
+
+
+@pytest.mark.parametrize("tag", [SHA, OTHER_SHA])
+def test_preview_cli_verifies_staging_bytes_against_the_stable_production_tag(
+    release_script: ModuleType,
+    remote: Remote,
+    staging_artifacts: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tag: str,
+) -> None:
+    remote.tag = tag
+    remote.test_version = PREVIEW
+    remote.test_files = {
+        name.replace(VERSION, PREVIEW): digest
+        for name, digest in remote.test_files.items()
+    }
+    for path in staging_artifacts.iterdir():
+        path.rename(path.with_name(path.name.replace(VERSION, PREVIEW)))
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPOSITORY)
+    monkeypatch.setenv("GITHUB_SHA", SHA)
+    monkeypatch.setenv("GH_TOKEN", TEST_CREDENTIAL)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "verify",
+            "--version",
+            PREVIEW,
+            "--registry",
+            "testpypi",
+            "--dist",
+            str(staging_artifacts),
+            "--complete",
+        ],
+    )
+
+    assert release_script.main() == int(tag != SHA)
+    assert remote.reads[0] == f"{GITHUB}/git/ref/tags/v{VERSION}"
+    if tag == SHA:
+        assert remote.reads[-1] == (
+            f"https://test.pypi.org/pypi/flexi-test/{PREVIEW}/json"
+        )
+    else:
+        assert len(remote.reads) == 1
+    assert remote.writes == []
+
+
+@pytest.mark.parametrize("command", ["verify", "finalize"])
+def test_preview_cli_cannot_publish_or_tag_a_production_preview(
+    release_script: ModuleType,
+    remote: Remote,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), command, "--version", PREVIEW])
+    assert release_script.main() == 1
+    assert remote.reads == []
     assert remote.writes == []
 
 

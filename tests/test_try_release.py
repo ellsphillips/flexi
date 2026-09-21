@@ -76,6 +76,8 @@ class Remote(trial.GitHub):
         }
         self.requests: list[tuple[str, object]] = []
         self.commands: list[tuple[str, ...]] = []
+        self.staging_version = VERSION
+        self.extra_staging_file: str | None = None
 
     def api(self, path: str, *, payload: object = None) -> object:
         self.requests.append((path, payload))
@@ -88,12 +90,13 @@ class Remote(trial.GitHub):
         assert payload is None
         directory = Path(args[args.index("--dir") + 1])
         directory.mkdir(parents=True)
-        package = (
-            "flexi_test" if args[args.index("--name") + 1] == "test-dist" else "flexi"
-        )
-        (directory / f"{package}-{VERSION}-py3-none-any.whl").write_bytes(
-            b"run artifact"
-        )
+        staging = args[args.index("--name") + 1] == "test-dist"
+        package = "flexi_test" if staging else "flexi"
+        version = self.staging_version if staging else VERSION
+        for suffix in ("-py3-none-any.whl", ".tar.gz"):
+            (directory / f"{package}-{version}{suffix}").write_bytes(b"run artifact")
+        if staging and self.extra_staging_file is not None:
+            (directory / self.extra_staging_file).write_bytes(b"unexpected")
         return ""
 
 
@@ -349,22 +352,36 @@ def test_rerun_before_or_during_download_cannot_reach_the_probe(
 
 @pytest.mark.parametrize("resume", [False, True])
 @pytest.mark.parametrize("fail_probe", [False, True])
+@pytest.mark.parametrize("preview", [False, True])
 def test_cli_probes_both_temporary_artifacts_and_always_cleans_up(
     remote: Remote,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     resume: bool,
     fail_probe: bool,
+    preview: bool,
 ) -> None:
     artifact_directories: list[Path] = []
+    remote.staging_version = f"{VERSION}.dev{RUN_ID}" if preview else VERSION
 
-    def probe(version: str, production: Path, staging: Path, *, demo: bool) -> None:
+    def probe(
+        version: str,
+        production: Path,
+        staging: Path,
+        *,
+        staging_version: str,
+        demo: bool,
+    ) -> None:
         assert version == VERSION
+        assert staging_version == remote.staging_version
         assert not demo
-        for directory, package in ((production, "flexi"), (staging, "flexi_test")):
+        for directory, package, expected in (
+            (production, "flexi", VERSION),
+            (staging, "flexi_test", staging_version),
+        ):
             assert directory.is_dir()
             assert (
-                directory / f"{package}-{VERSION}-py3-none-any.whl"
+                directory / f"{package}-{expected}-py3-none-any.whl"
             ).read_bytes() == b"run artifact"
             artifact_directories.append(directory)
         if fail_probe:
@@ -390,6 +407,7 @@ def test_cli_probes_both_temporary_artifacts_and_always_cleans_up(
         )
     output = capsys.readouterr()
     assert f"--run {RUN_ID}" in output.out
+    assert f"TestPyPI: flexi-test {remote.staging_version}" in output.out
     if fail_probe:
         assert "isolated package smoke failed" in output.err
     else:
@@ -465,3 +483,63 @@ def test_github_command_fixes_host_and_decodes_utf8_on_every_platform(
     monkeypatch.setenv("GH_HOST", "elsewhere.example")
     monkeypatch.setenv("GH_DEBUG", "api")
     assert trial.GitHub().command("api", "example") == '{"name": "🌟"}'
+
+
+@pytest.mark.parametrize(
+    ("staging_version", "extra"),
+    [
+        (f"{VERSION}.dev{RUN_ID + 1}", None),
+        (f"0.2.1.dev{RUN_ID}", None),
+        (f"{VERSION}.dev0{RUN_ID}", None),
+        (VERSION, "unexpected.whl"),
+        (f"{VERSION}.dev{RUN_ID}", f"flexi_test-{VERSION}.tar.gz"),
+    ],
+)
+def test_cli_rejects_other_run_versions_and_mixed_artifacts_before_the_probe(
+    remote: Remote,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    staging_version: str,
+    extra: str | None,
+) -> None:
+    remote.staging_version = staging_version
+    remote.extra_staging_file = extra
+    probes: list[object] = []
+
+    def probe(*args: object, **kwargs: object) -> None:
+        probes.append((args, kwargs))
+
+    monkeypatch.setattr(trial, "probe_release", probe)
+    monkeypatch.setattr(sys, "argv", ["try_release", "--run", str(RUN_ID)])
+    assert trial.main() == 1
+    assert "exactly" in capsys.readouterr().err
+    assert probes == []
+    assert len(remote.commands) == 2
+    for command in remote.commands:
+        assert not Path(command[command.index("--dir") + 1]).exists()
+
+
+def test_preview_probe_failure_cannot_retry_as_a_legacy_release(
+    remote: Remote, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    remote.staging_version = f"{VERSION}.dev{RUN_ID}"
+    selected: list[str] = []
+
+    def probe(
+        _version: str,
+        _production: Path,
+        _staging: Path,
+        *,
+        staging_version: str,
+        demo: bool,
+    ) -> None:
+        selected.append(staging_version)
+        message = "TestPyPI preview metadata unavailable"
+        raise ProbeError(message)
+
+    monkeypatch.setattr(trial, "probe_release", probe)
+    monkeypatch.setattr(sys, "argv", ["try_release", "--run", str(RUN_ID)])
+    assert trial.main() == 1
+    assert "preview metadata unavailable" in capsys.readouterr().err
+    assert selected == [remote.staging_version]
+    assert len(remote.commands) == 2

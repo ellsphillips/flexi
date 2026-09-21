@@ -11,10 +11,11 @@ from pathlib import Path
 from zipfile import BadZipFile
 
 from scripts import build_staging, release_probe
-from scripts.release_status import Registry
+from scripts.release_status import Registry, preview_version
 
 ROOT = Path(__file__).resolve().parent.parent
 INDEX = "https://pypi.org/simple/"
+PREVIEW_RUN_ID = "1"
 
 
 def test_installed_package(
@@ -118,10 +119,16 @@ def check_package(project: Path) -> str:
             env=env,
             operation="Building the production wheel and source archive",
         )
-        version = build_staging.build_staging(production, staging)
+        version = build_staging.build_staging(
+            production, staging, run_id=PREVIEW_RUN_ID
+        )
+        versions = {
+            Registry.PYPI: version,
+            Registry.TESTPYPI: preview_version(version, PREVIEW_RUN_ID),
+        }
         pairs = {
             registry: build_staging.distribution_pair(
-                directory, registry.package, version
+                directory, registry.package, versions[registry]
             )
             for registry, directory in (
                 (Registry.PYPI, production),
@@ -129,7 +136,7 @@ def check_package(project: Path) -> str:
             )
         }
         for registry, (wheel, _) in pairs.items():
-            release_probe.check_metadata(wheel, version, registry)
+            release_probe.check_metadata(wheel, versions[registry], registry)
         build_staging.require_same_payload(
             pairs[Registry.PYPI][0], pairs[Registry.TESTPYPI][0]
         )
@@ -177,7 +184,7 @@ def check_package(project: Path) -> str:
         for registry, (wheel, _) in pairs.items():
             isolated = release_probe.environment(wheel.parent)
             python = release_probe.exercise_wheel(
-                wheel, version, registry, uv=uv, env=isolated
+                wheel, versions[registry], registry, uv=uv, env=isolated
             )
             test_installed_package(
                 python, wheel, requirements, project, uv=uv, env=isolated
@@ -199,7 +206,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Package check failed: {error}", file=sys.stderr)
         return 1
     print(
-        f"Passed: flexi and flexi-test {version}. "
+        f"Passed: flexi {version} and flexi-test "
+        f"{preview_version(version, PREVIEW_RUN_ID)}. "
         "Temporary builds and installs removed."
     )
     return 0

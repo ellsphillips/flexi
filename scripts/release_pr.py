@@ -14,8 +14,12 @@ import tempfile
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from http import HTTPStatus
 from pathlib import Path
+from threading import Thread
 from typing import Literal, Protocol
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 METADATA = ("pyproject.toml", "uv.lock", "README.md", "CHANGELOG.md")
 STABLE_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
@@ -23,6 +27,8 @@ SHOT = re.compile(r"docs/shots/[a-z0-9-]+\.(svg|txt)", re.ASCII)
 SHA = re.compile(r"[0-9a-f]{40}", re.ASCII)
 MAX_BUNDLE = 20 * 1024 * 1024
 MAX_FILE = 2 * 1024 * 1024
+REQUEST_TIMEOUT = 15.0
+REQUEST_BUDGET = 30.0
 
 
 class ReleaseError(ValueError):
@@ -234,6 +240,48 @@ class GitHub(Protocol):
     def advance_dev(self, head: str) -> None: ...
 
 
+class ProductionRegistry(Protocol):
+    def version_exists(self, version: Version) -> bool: ...
+
+
+class PyPIClient:
+    """Only an explicit missing production endpoint permits version reuse."""
+
+    def version_exists(self, version: Version) -> bool:
+        url = f"https://pypi.org/pypi/flexi/{version}/json"
+        request = Request(
+            url, headers={"Accept": "application/json", "User-Agent": "flexi-release"}
+        )
+        results: list[bool] = []
+        errors: list[Exception] = []
+
+        def read() -> None:
+            try:
+                with urlopen(request, timeout=REQUEST_TIMEOUT) as response:  # noqa: S310
+                    if response.status != HTTPStatus.OK:
+                        message = "Unexpected production registry response"
+                        raise ReleaseError(message)
+                    # The status reserves the version even if files are missing
+                    # or the JSON body is malformed; do not download the body.
+                    results.append(True)
+            except HTTPError as error:
+                error.close()
+                if error.code == HTTPStatus.NOT_FOUND and error.url == url:
+                    results.append(False)
+                else:
+                    errors.append(error)
+            except (OSError, ValueError) as error:
+                errors.append(error)
+
+        worker = Thread(target=read, daemon=True)
+        worker.start()
+        worker.join(REQUEST_BUDGET)
+        if worker.is_alive() or errors:
+            message = "Could not confirm whether this version exists on PyPI; retry"
+            raise ReleaseError(message) from (errors[0] if errors else None)
+        return results[0]
+
+
 class GitHubClient:
     """Validate GitHub responses before they enter the release workflow."""
 
@@ -428,17 +476,24 @@ def metadata(
     subprocess.run(args, check=True, timeout=30)  # noqa: S603 - trusted sibling script
 
 
-def plan(client: GitHub, number: int) -> ReleaseRequest:
+def plan(
+    client: GitHub, number: int, *, registry: ProductionRegistry | None = None
+) -> ReleaseRequest:
     snapshot = client.pull_request(number)
     project = fields(
         tomllib.loads(client.file_at("pyproject.toml", snapshot.base).decode()),
         "pyproject.toml",
     )
     before = Version.parse(fields(project.get("project"), "project").get("version"))
-    if snapshot.request.version.key <= before.key:
+    if snapshot.request.version.key < before.key:
         message = (
             f"Release {snapshot.request.version} must be newer than main's {before}"
         )
+        raise ReleaseError(message)
+    if snapshot.request.version == before and (registry or PyPIClient()).version_exists(
+        before
+    ):
+        message = f"Release {before} already exists on PyPI; choose a newer version"
         raise ReleaseError(message)
     return snapshot.request
 

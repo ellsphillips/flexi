@@ -34,6 +34,7 @@ WHEEL_URL = f"https://test-files.pythonhosted.org/packages/example/{WHEEL}"
 def wheel_bytes(
     *,
     version: str = VERSION,
+    identity_version: str = VERSION,
     dependency: str = "httpx>=0.27",
     package: str = "flexi-test",
     payload: bytes = b"application code",
@@ -42,7 +43,7 @@ def wheel_bytes(
     output = io.BytesIO()
     with ZipFile(output, "w") as archive:
         archive.writestr(
-            f"{package.replace('-', '_')}-{VERSION}.dist-info/METADATA",
+            f"{package.replace('-', '_')}-{identity_version}.dist-info/METADATA",
             f"Metadata-Version: 2.3\nName: {package}\nVersion: {version}\n"
             f"Requires-Dist: {dependency}\n{extra_metadata}\n",
         )
@@ -66,6 +67,7 @@ class Harness:
         (production / PRODUCTION_WHEEL).write_bytes(wheel_bytes(package="flexi"))
         (production / f"flexi-{VERSION}.tar.gz").write_bytes(b"production source")
         self.body = b""
+        self.staging_version = VERSION
         self.entries: list[dict[str, object]] = []
         self.url = WHEEL_URL
         self.calls: list[Invocation] = []
@@ -76,8 +78,12 @@ class Harness:
 
     def set_wheel(self, body: bytes) -> None:
         self.body = body
-        (self.artifacts / WHEEL).write_bytes(body)
-        (self.artifacts / SDIST).write_bytes(b"source archive")
+        for filename in release_status.filenames(
+            self.staging_version, release_status.Registry.TESTPYPI
+        ):
+            (self.artifacts / filename).write_bytes(
+                body if filename.endswith(".whl") else b"source archive"
+            )
         self.entries = [
             {
                 "filename": path.name,
@@ -87,9 +93,25 @@ class Harness:
             for path in self.artifacts.iterdir()
         ]
 
+    def use_preview(self) -> None:
+        self.staging_version = f"{VERSION}.dev42"
+        for path in self.artifacts.iterdir():
+            path.unlink()
+        filename = probe.wheel_filename(
+            self.staging_version, release_status.Registry.TESTPYPI
+        )
+        self.url = f"https://test-files.pythonhosted.org/packages/example/{filename}"
+        self.set_wheel(
+            wheel_bytes(
+                version=self.staging_version, identity_version=self.staging_version
+            )
+        )
+
     def metadata(self, url: str, **kwargs: object) -> object:
         self.requests.append(url)
-        assert url == JSON_URL
+        assert url == (
+            f"https://test.pypi.org/pypi/flexi-test/{self.staging_version}/json"
+        )
         assert not kwargs.get("token")
         return {"urls": self.entries}
 
@@ -99,7 +121,7 @@ class Harness:
 
     def open(self, request: Request, *, timeout: float) -> io.BytesIO:
         self.requests.append(request.full_url)
-        assert request.full_url == WHEEL_URL
+        assert request.full_url == self.url
         assert timeout == probe.SOCKET_TIMEOUT
         assert request.get_header("Authorization") is None
         return io.BytesIO(self.body)
@@ -145,9 +167,12 @@ def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Harness:
 
 
 @pytest.mark.parametrize("platform", ["darwin", "win32"])
+@pytest.mark.parametrize("preview", [False, True])
 def test_probe_uses_verified_wheel_and_isolated_paths(
-    harness: Harness, monkeypatch: pytest.MonkeyPatch, platform: str
+    harness: Harness, monkeypatch: pytest.MonkeyPatch, platform: str, preview: bool
 ) -> None:
+    if preview:
+        harness.use_preview()
     monkeypatch.setattr(sys, "platform", platform)
     for key in (
         "GH_TOKEN",
@@ -163,7 +188,12 @@ def test_probe_uses_verified_wheel_and_isolated_paths(
         monkeypatch.setenv(key, "must-not-travel")
     monkeypatch.setenv("SystemRoot", "C:\\Windows")
 
-    probe.probe_release(VERSION, harness.production, harness.artifacts)
+    probe.probe_release(
+        VERSION,
+        harness.production,
+        harness.artifacts,
+        staging_version=harness.staging_version,
+    )
 
     assert len(harness.calls) == 14
     staging_root = harness.calls[0].root
@@ -173,12 +203,15 @@ def test_probe_uses_verified_wheel_and_isolated_paths(
     assert not staging_root.parent.exists()
     assert harness.artifacts.is_dir()
     assert harness.production.is_dir()
-    assert (harness.artifacts / WHEEL).read_bytes() != (
+    staged_wheel = probe.wheel_filename(
+        harness.staging_version, release_status.Registry.TESTPYPI
+    )
+    assert (harness.artifacts / staged_wheel).read_bytes() != (
         harness.production / PRODUCTION_WHEEL
     ).read_bytes()
-    for offset, root, filename, package in (
-        (0, staging_root, WHEEL, "flexi-test"),
-        (7, production_root, PRODUCTION_WHEEL, "flexi"),
+    for offset, root, filename, package, version in (
+        (0, staging_root, staged_wheel, "flexi-test", harness.staging_version),
+        (7, production_root, PRODUCTION_WHEEL, "flexi", VERSION),
     ):
         python = (
             root
@@ -209,11 +242,14 @@ def test_probe_uses_verified_wheel_and_isolated_paths(
             assert call.captured
             assert call.timeout == probe.COMMAND_TIMEOUT
         assert calls[3].command[:3] == [str(python), "-I", "-c"]
-        assert calls[3].command[-4:-2] == [package, VERSION]
+        assert calls[3].command[-4:-2] == [package, version]
         assert calls[4].command[-1] == "--version"
         assert calls[5].command[-1] == "--help"
         assert calls[6].command == [str(python), "-I", str(probe.SMOKE)]
-    assert harness.requests == [JSON_URL, JSON_URL, WHEEL_URL]
+    metadata_url = (
+        f"https://test.pypi.org/pypi/flexi-test/{harness.staging_version}/json"
+    )
+    assert harness.requests == [metadata_url, metadata_url, harness.url]
 
 
 def test_download_hash_is_checked_before_any_installation(harness: Harness) -> None:
@@ -318,12 +354,21 @@ def test_demo_requires_a_terminal_before_any_network_or_install(
     assert harness.calls == []
 
 
+@pytest.mark.parametrize("preview", [False, True])
 def test_demo_uses_production_after_both_temporary_installs_pass(
-    harness: Harness, monkeypatch: pytest.MonkeyPatch
+    harness: Harness, monkeypatch: pytest.MonkeyPatch, preview: bool
 ) -> None:
+    if preview:
+        harness.use_preview()
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    probe.probe_release(VERSION, harness.production, harness.artifacts, demo=True)
+    probe.probe_release(
+        VERSION,
+        harness.production,
+        harness.artifacts,
+        staging_version=harness.staging_version,
+        demo=True,
+    )
     demo = harness.calls[-1]
     assert demo.command[1:] == ["-I", "-m", "flexi", "--demo"]
     assert not demo.captured
@@ -492,3 +537,67 @@ def test_duplicate_metadata_identity_is_rejected_before_installation(
     with pytest.raises(probe.ProbeError, match="requested Flexi release"):
         probe.probe_release(VERSION, harness.production, harness.artifacts)
     assert harness.calls == []
+
+
+@pytest.mark.parametrize("staging_version", ["1.2.4.dev42", "1.2.4", "1.2.3.dev042"])
+def test_staging_identity_must_be_canonical_and_share_the_production_base(
+    harness: Harness, staging_version: str
+) -> None:
+    with pytest.raises(probe.ProbeError):
+        probe.probe_release(
+            VERSION,
+            harness.production,
+            harness.artifacts,
+            staging_version=staging_version,
+        )
+    assert harness.requests == []
+    assert harness.calls == []
+
+
+def test_missing_preview_registry_files_never_fall_back_to_stable(
+    harness: Harness,
+) -> None:
+    harness.use_preview()
+    harness.entries = []
+    with pytest.raises(probe.ProbeError, match="both distributions"):
+        probe.probe_release(
+            VERSION,
+            harness.production,
+            harness.artifacts,
+            staging_version=harness.staging_version,
+        )
+    assert harness.requests == [
+        f"https://test.pypi.org/pypi/flexi-test/{harness.staging_version}/json"
+    ]
+    assert harness.calls == []
+
+
+def test_preview_metadata_must_identify_the_expected_preview(harness: Harness) -> None:
+    harness.use_preview()
+    harness.set_wheel(
+        wheel_bytes(version=VERSION, identity_version=harness.staging_version)
+    )
+    with pytest.raises(probe.ProbeError, match="requested Flexi release"):
+        probe.probe_release(
+            VERSION,
+            harness.production,
+            harness.artifacts,
+            staging_version=harness.staging_version,
+        )
+    assert harness.calls == []
+
+
+def test_failed_preview_install_cleans_up_without_starting_production(
+    harness: Harness,
+) -> None:
+    harness.use_preview()
+    harness.fail_at = 2
+    with pytest.raises(probe.ProbeError, match=r"Installing.*flexi-test"):
+        probe.probe_release(
+            VERSION,
+            harness.production,
+            harness.artifacts,
+            staging_version=harness.staging_version,
+        )
+    assert len(harness.calls) == 2
+    assert not harness.calls[0].root.parent.exists()

@@ -21,6 +21,9 @@ from scripts.release_probe import ProbeError, probe_release
 from scripts.release_status import (
     Registry,
     ReleaseError,
+    filenames,
+    preview_version,
+    validate_artifacts,
     validate_sha,
     validate_version,
 )
@@ -325,13 +328,24 @@ def require_terminal() -> None:
         raise TrialError(message)
 
 
+def staging_version_for(directory: Path, production: str, run: ReleaseRun) -> str:
+    """Only exact legacy artifacts may replace this run's expected preview identity."""
+    expected = preview_version(production, str(run.id))
+    names = {path.name for path in directory.iterdir()}
+    selected = (
+        production if names == filenames(production, Registry.TESTPYPI) else expected
+    )
+    validate_artifacts(directory, selected, registry=Registry.TESTPYPI)
+    return selected
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--run", type=int, metavar="RUN_ID", help="resume a specific release run ID"
     )
     parser.add_argument(
-        "--demo", action="store_true", help="open the staged app after checks"
+        "--demo", action="store_true", help="open the production demo after checks"
     )
     args = parser.parse_args()
     try:
@@ -358,9 +372,14 @@ def main() -> int:
             staging = Path(temporary) / "test-dist"
             github.download(run, production, Registry.PYPI)
             github.download(run, staging, Registry.TESTPYPI)
-            probe_release(version, production, staging, demo=args.demo)
+            staged = staging_version_for(staging, version, run)
+            print(f"TestPyPI: flexi-test {staged}", flush=True)
+            probe_release(
+                version, production, staging, staging_version=staged, demo=args.demo
+            )
         print(
-            f"Passed: flexi-test and flexi {version}. Temporary installations removed."
+            f"Passed: flexi {version} and flexi-test {staged}. "
+            "Temporary installations removed."
         )
         print("Production approval remains yours in GitHub Actions.")
     except KeyboardInterrupt:
