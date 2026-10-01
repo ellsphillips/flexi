@@ -219,6 +219,18 @@ async def test_declining_new_hours_writes_nothing_and_keeps_the_form(
         assert app.services.settings.get_contracted() == timedelta(minutes=444)
 
 
+async def test_the_same_hours_written_another_way_ask_nothing(
+    app_factory: AppFactory,
+) -> None:
+    """`7.4` is 7:24, so no tracked day moves and there is nothing to ask."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await change_hours(app, pilot, "7.4")
+
+        showing(app, DashboardScreen)
+        assert app.services.settings.get_contracted() == timedelta(minutes=444)
+
+
 async def test_settlements_are_named_before_they_stop_matching(
     app_factory: AppFactory,
 ) -> None:
