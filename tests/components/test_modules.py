@@ -779,7 +779,8 @@ async def test_day_column_adds_up_to_the_period_under_it(
     invalidate_services(flexi)
 
     module = RecordsModule()
-    async with showing(module, flexi) as (_pilot, _panel):
+    saturday = datetime(2026, 6, 13, 10, 0)
+    async with showing(module, flexi, now=saturday) as (_pilot, _panel):
         rows = module.table.visible_rows()
         days = [row for row in rows if row.key.startswith(RowKind.DAY)]
         total = next(row for row in rows if row.key == row_key(RowKind.TOTAL, "period"))
@@ -792,6 +793,26 @@ async def test_day_column_adds_up_to_the_period_under_it(
         assert sum(
             (as_delta(cell(row.cells[3])) for row in days), timedelta()
         ) == as_delta(cell(total.cells[3]))
+
+
+async def test_days_not_yet_lived_owe_nothing(flexi: Services) -> None:
+    """Friday has not happened: no −7:24 beside it, and none in the week's total.
+
+    The subtitle still measures the whole week, which is a target, not a debt.
+    """
+    module = RecordsModule()
+    async with showing(module, flexi) as (_pilot, _panel):
+        rows = module.table.visible_rows()
+        days = [row for row in rows if row.key.startswith(RowKind.DAY)]
+        total = next(row for row in rows if row.key == row_key(RowKind.TOTAL, "period"))
+        friday = next(row for row in days if row.key == row_key(RowKind.DAY, FRIDAY))
+
+        assert str(cell(friday.cells[3])) == ""
+        assert as_delta(cell(total.cells[3])) == timedelta(minutes=96) - CONTRACTED
+        assert sum(
+            (as_delta(cell(row.cells[3])) for row in days), timedelta()
+        ) == as_delta(cell(total.cells[3]))
+        assert str(module.border_subtitle) == "16:24 of 37:00"
 
 
 async def test_sign_column_reads_the_cells_beside_it(

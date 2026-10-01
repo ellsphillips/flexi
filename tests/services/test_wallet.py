@@ -200,6 +200,17 @@ def test_the_period_figures_cover_only_the_shown_span(services: Services) -> Non
     assert data.balance.worked == timedelta(hours=20)
 
 
+def test_this_period_stops_at_today(services: Services) -> None:
+    """Thursday and Friday expect hours and have none yet, which is no deficit."""
+    work(services, MONDAY, hours=8)
+    wednesday = date(2026, 6, 10)
+    data = services.wallet.compute(
+        MONDAY, SUNDAY, today=wednesday, now=datetime(2026, 6, 10, 8, tzinfo=UTC)
+    )
+    assert data.period.delta == timedelta(hours=8) - CONTRACTED * 2
+    assert data.period.expected == CONTRACTED * 2
+
+
 def test_the_leave_year_bounds_a_year(services: Services) -> None:
     start, end = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY).leave_year
     assert (start, end) == (date(2026, 6, 8), date(2027, 6, 7))

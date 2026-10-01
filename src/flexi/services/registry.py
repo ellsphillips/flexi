@@ -112,11 +112,9 @@ def zero_balance(
 ) -> AdjustmentResult:
     """Settle the balance so that it reads zero as at the end of ``as_of``.
 
-    A date that has not finished is refused. The balance is derived from a
-    projection in which every day between now and then was worked zero hours,
-    so the correction absorbs hours not yet worked, and the row stays invisible
-    (`LedgerService._adjustments` filters on `date <= end`) until its date
-    arrives, when the week's real hours read as pure surplus.
+    A date that has not finished is refused. The balance cannot see its hours
+    yet: it counts nothing after today and holds back what today has still to
+    work, so a line sized now would not read zero once the date was over.
 
     A date earlier than a line already drawn in the same leave year is refused
     too: the correction is sized from the balance up to ``as_of``, which cannot

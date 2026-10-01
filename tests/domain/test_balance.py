@@ -258,3 +258,11 @@ def test_today_counts_its_toil_and_corrections_at_once() -> None:
 def test_a_day_once_over_counts_its_shortfall() -> None:
     short = day(worked=timedelta(hours=5))
     assert standing([short], TOMORROW).delta == timedelta(hours=5) - CONTRACTED
+
+
+def test_a_day_after_today_counts_nothing() -> None:
+    """Not its hours, and not the TOIL booked on it until it comes."""
+    booked = day(expected=timedelta(), toil=CONTRACTED, when=TOMORROW)
+    unworked = day(when=TOMORROW)
+
+    assert standing([booked, unworked], DAY) == BalanceSummary()

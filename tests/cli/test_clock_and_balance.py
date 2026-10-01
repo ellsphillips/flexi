@@ -215,7 +215,7 @@ def test_the_balance_agrees_with_its_rows(
 def test_a_balance_for_a_future_day_is_refused(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Every future working day would be charged as a full unworked day."""
+    """Nothing after today counts, so a later date would only repeat today's."""
     with time_machine.travel(datetime(2026, 6, 10, 12, 0), tick=False):
         assert balance_cli.show(services, date(2026, 6, 11)) == 1
 

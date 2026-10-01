@@ -334,15 +334,17 @@ class RecordsModule(Module):
         Hours against expected is only part of it: a TOIL day spends the
         surplus that paid for it, and a correction moves the balance on its own.
         A column without them does not add up to the figure printed under it.
-        Today's hours still to work are not a shortfall until it ends.
+        Today's hours still to work are not a shortfall until it ends, and a
+        day still to come has done nothing yet.
         """
-        if not (
+        today = self.now.date()
+        if ledger.date > today or not (
             ledger.expected or ledger.worked or ledger.toil_taken or ledger.adjustment
         ):
             return Text("")
         # From the figures the table prints, not the exact ones, so the column
         # adds up to the total under it on a day carrying seconds.
-        return self._signed(standing((ledger,), self.now.date()).as_shown().delta)
+        return self._signed(standing((ledger,), today).as_shown().delta)
 
     def _signed(self, value: timedelta) -> Text:
         if value > timedelta():

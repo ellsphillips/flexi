@@ -257,9 +257,9 @@ def test_zeroing_defaults_to_yesterday(services: Services) -> None:
 def test_zeroing_an_unfinished_day_is_refused(services: Services, ahead: int) -> None:
     """Today included: `settlement_date`'s rule is yesterday or earlier.
 
-    A future correction is sized against a projection where every day until then
-    was worked zero hours, and the ledger hides it (`date <= end`) until its date
-    arrives. The week's real hours then read as pure surplus.
+    The balance cannot see an unfinished date's hours: it counts nothing after
+    today and holds back what today has still to work, so a line sized now
+    would not read zero once the date was over.
     """
     work(services, MONDAY, hours=2)
     invalidate_services(services)

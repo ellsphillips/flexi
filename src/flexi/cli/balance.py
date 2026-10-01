@@ -41,8 +41,8 @@ def show(services: Services, as_of: date | None = None) -> int:
     now = wallclock.today()
     today = as_of or now
     if today > now:
-        # A future date charges every working day between now and then as
-        # unworked, so the figure would be a deficit of days not yet lived.
+        # Nothing after today counts, so a later date would only print
+        # today's balance under a date it has not reached.
         click.secho(
             f"{long_date(today)} has not happened; the balance runs to today",
             fg="yellow",
@@ -90,8 +90,8 @@ def zero(
     """
     when = settlement_date(as_of)
     if when >= wallclock.today():
-        # `zero_balance` refuses a future date, and the standing it would be
-        # sized from counts every day between now and then as unworked.
+        # `zero_balance` refuses a date that has not finished, and the standing
+        # it would be sized from cannot see that date's hours yet.
         return report(zero_balance(services, when, reason=reason or SETTLED))
 
     standing = services.ledger.balance(when).as_shown().delta

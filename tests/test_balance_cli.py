@@ -136,10 +136,9 @@ def test_settlement_question_is_asked_on_stderr(home: Path) -> None:
 def test_unfinished_day_is_refused_with_no_figure(
     home: Path,
 ) -> None:
-    """The standing it would be sized from is a projection.
+    """The standing it would be sized from cannot see that date's hours yet.
 
-    Every day between now and the date counts as zero hours worked, so printing
-    it first would offer several hundred hours as a reading.
+    Printing it first would offer a reading the line could not hold to.
     """
     result = CliRunner().invoke(cli, ["balance", "zero", "--as-of", "today", "--yes"])
 

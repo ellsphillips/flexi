@@ -159,10 +159,12 @@ def standing(ledgers: Iterable[DayLedger], today: date) -> BalanceSummary:
     are still to be worked, so a morning opens on the balance the evening
     before closed on, and a day cut short counts its shortfall once it ends.
     The rest of it counts at once: a surplus, TOIL taken and a correction.
+    A day after today has not happened, and counts nothing.
     """
     return accumulate(
         replace(ledger, expected=min(ledger.expected, ledger.worked))
         if ledger.date == today
         else ledger
         for ledger in ledgers
+        if ledger.date <= today
     )
