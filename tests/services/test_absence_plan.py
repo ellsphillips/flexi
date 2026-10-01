@@ -8,7 +8,7 @@ question and not a receipt.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 import time_machine
@@ -19,7 +19,7 @@ from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.models.database.db import AbsenceDay, BankHolidayRefresh
 from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import Services, invalidate_services
-from tests.services.conftest import Configured, work
+from tests.services.conftest import CONTRACTED, Configured, work
 
 MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
@@ -332,24 +332,30 @@ def test_span_charges_only_the_days_still_to_come(
     assert plan.warning is None
 
 
-def test_toil_before_tracking_began_matches_the_untracked_ledger(
+def test_toil_preview_on_a_day_corrected_before_tracking_matches_the_ledger(
     configure: Configured,
 ) -> None:
-    """A day Flexi was not watching expects nothing and withdraws no TOIL.
+    """Recorded work tracks the day, so TOIL on its other half relabels a shortfall.
 
-    Hours recorded after the fact are a memory of the day, not proof Flexi was
-    there for it, and that is the distinction the ledger draws.
+    The preview says the balance stays where it is, and the ledger agrees.
     """
-    services = configure(entitlement=(2025, 25.0), tracking_since=FRIDAY)
-    assert services.clock.correct(MONDAY, time(13, 0), time(17, 0)).success
+    with time_machine.travel(AFTER_THE_SPAN, tick=False):
+        services = configure(entitlement=(2025, 25.0), tracking_since=FRIDAY)
+        assert services.clock.correct(MONDAY, time(13, 0), time(17, 0)).success
+        before = services.ledger.day(MONDAY).balance_effect
 
-    plan = services.absence.plan(
-        MONDAY, MONDAY, AbsenceType.FLEXI, Portion.AM, available_toil_days=0.0
-    )
+        plan = services.absence.plan(
+            MONDAY, MONDAY, AbsenceType.FLEXI, Portion.AM, available_toil_days=0.0
+        )
+        assert len(plan.bookable) == 1
+        assert plan.toil_after == 0.0
+        assert plan.warning is None
+        assert services.absence.book_plan(plan).success
+        invalidate_services(services)
 
-    assert len(plan.bookable) == 1
-    assert plan.toil_after == 0.0
-    assert plan.warning is None
+        day = services.ledger.day(MONDAY)
+        assert day.toil_taken == CONTRACTED / 2
+        assert day.balance_effect == before == timedelta(hours=4) - CONTRACTED
 
 
 def test_punched_day_before_tracking_is_counted(

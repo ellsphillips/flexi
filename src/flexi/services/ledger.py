@@ -191,10 +191,12 @@ class LedgerService:
             )
             title = holidays.get(when)
             is_working = when.weekday() in working_days
-            # A real punch tracks the day whatever `tracking_since` says; an
-            # amended one cannot, since nothing was clocking at the time.
-            punched = any(not segment.amended for segment in segments)
-            is_tracked = tracking_since is None or when >= tracking_since or punched
+            # Recorded work tracks the day whatever `tracking_since` says, a
+            # correction as much as a punch: expecting nothing of a worked day
+            # would bank every hour of it as surplus.
+            is_tracked = (
+                tracking_since is None or when >= tracking_since or bool(segments)
+            )
 
             worked = worked_from(
                 segments, now=moment if when >= today else end_of_day(when)
@@ -214,9 +216,7 @@ class LedgerService:
                     slices,
                     segments,
                     is_working=is_working,
-                    # Broader than the test `expected` uses: a corrected
-                    # pre-setup day asks for nothing but is still known about.
-                    is_tracked=is_tracked or bool(segments),
+                    is_tracked=is_tracked,
                 ),
                 is_working_day=is_working,
                 contracted=contracted,

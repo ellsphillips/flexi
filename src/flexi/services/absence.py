@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import AbsenceType, EventSource, Portion, Verdict
+from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain import leaveyear
 from flexi.domain.dates import days_between
 from flexi.domain.format import days as fmt_days
@@ -224,7 +224,7 @@ class DayFacts:
     worked: tuple[Span, ...]
     is_tracked: bool = True
     """Whether the ledger expects anything of this date. False before tracking
-    started, unless the clock was punched on it; `LedgerService` reads the same
+    started, unless work is recorded on it; `LedgerService` reads the same
     rule, and a TOIL booking's arithmetic turns on it."""
 
     @property
@@ -809,7 +809,7 @@ class AbsenceService:
         # disagree about when now is.
         moment = wallclock.now()
         worked: defaultdict[date, list[Span]] = defaultdict(list)
-        punched: set[date] = set()
+        recorded: set[date] = set()
         for session in sessions_touching(self._session, start, end):
             span = span_of(session, now=moment)
             last = max(session.work_date, span[1].date())
@@ -817,11 +817,10 @@ class AbsenceService:
                 midnight = wallclock.local(datetime.combine(when, time.min))
                 if when == session.work_date or span[1] > midnight:
                     worked[when].append(span)
-            # A punch means Flexi was there that day, whatever the tracking
-            # stamp says; amended hours cannot vouch for it the same way, and
-            # `LedgerService` draws the same distinction.
-            if session.clock_in_event.source is not EventSource.AMENDED:
-                punched.add(session.work_date)
+            # Work recorded on a day tracks it whatever the tracking stamp
+            # says, punched or corrected, as it does in `LedgerService`: by the
+            # date the session is filed under, not every date it reaches.
+            recorded.add(session.work_date)
 
         return [
             DayFacts(
@@ -832,7 +831,7 @@ class AbsenceService:
                 booked=tuple(booked[when]),
                 worked=tuple(worked[when]),
                 is_tracked=(
-                    tracking_since is None or when >= tracking_since or when in punched
+                    tracking_since is None or when >= tracking_since or when in recorded
                 ),
             )
             for when in days_between(start, end)
