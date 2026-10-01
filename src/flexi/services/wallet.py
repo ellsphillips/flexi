@@ -42,16 +42,20 @@ class WalletService:
         now: datetime | None = None,
     ) -> WalletData:
         """The wallet as at ``today``, with ``start``–``end`` as the shown period."""
-        today = today or wallclock.today()
+        moment = wallclock.local(now) if now is not None else wallclock.now()
+        today = today or moment.date()
         year_start, year_end = self._absence.leave_year_bounds(today)
         elapsed = leaveyear.fraction_elapsed(year_start, year_end, today)
         contracted = self._settings.get_contracted()
 
         # In the whole minutes the headline and the records print, so the TOIL
         # row and "this period" cannot round the same seconds another way, and
-        # with today's hours still to work held back as the records hold them.
+        # with the same day's hours still to work held back: the day `now` falls
+        # on, which is the one the ledger counts as today.
         balance = self._ledger.balance(today, now=now).as_shown()
-        period = standing(self._ledger.days(start, end, now=now), today).as_shown()
+        period = standing(
+            self._ledger.days(start, end, now=now), moment.date()
+        ).as_shown()
         balance_days = balance.delta / contracted if contracted else 0.0
 
         return WalletData(

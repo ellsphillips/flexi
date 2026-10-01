@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+import time_machine
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
@@ -209,6 +210,19 @@ def test_this_period_stops_at_today(services: Services) -> None:
     )
     assert data.period.delta == timedelta(hours=8) - CONTRACTED * 2
     assert data.period.expected == CONTRACTED * 2
+
+
+def test_this_period_holds_back_the_day_the_toil_row_does(services: Services) -> None:
+    """Asked about Thursday on the Friday, both figures count Thursday in full.
+
+    The leave year opens on the Monday, so the two cover the same days.
+    """
+    work(services, MONDAY, hours=8)
+    with time_machine.travel(datetime(2026, 6, 12, 12, tzinfo=UTC), tick=False):
+        data = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY)
+
+    assert data.balance.delta == timedelta(hours=8) - CONTRACTED * 4
+    assert data.period.delta == data.balance.delta
 
 
 def test_the_leave_year_bounds_a_year(services: Services) -> None:
