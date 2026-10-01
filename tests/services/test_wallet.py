@@ -149,9 +149,8 @@ def test_available_toil_is_the_balance_in_days(services: Services) -> None:
 def test_toil_free_to_book_is_the_balance_as_shown(services: Services) -> None:
     """The booking dialog's days come from the figure the headline shows.
 
-    A sick morning off a 7:25 day leaves the afternoon owing 3:42:30. Read from
-    the exact balance, that half minute can carry the days over a tenth that
-    the headline does not cross.
+    A sick morning off a 7:25 day leaves the afternoon owing 3:42, so 13:00 to
+    16:59 banks the +0:17 the headline shows, and 17/445 of a day.
     """
     services.settings.save_settings(
         parse_settings(

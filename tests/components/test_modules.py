@@ -364,7 +364,7 @@ def reading(printed: str) -> str:
 
 
 def on_the_clock_since_nine(services: Services) -> datetime:
-    """In at 09:00:40 and still on at 12:00:30, so the running day has seconds."""
+    """In at 09:00:40 and still on at 12:00:30, both partway through a minute."""
     services.clock.clock_in(now=datetime(2026, 6, 11, 9, 0, 40, tzinfo=UTC))
     invalidate_services(services)
     return datetime(2026, 6, 11, 12, 0, 30, tzinfo=UTC)
@@ -386,8 +386,8 @@ def a_longer_day(services: Services) -> None:
 def half_of_a_longer_day(services: Services) -> datetime:
     """A sick morning off a 7:25 day leaves the afternoon owing half of it.
 
-    Half is 3:42:30, and that half minute is in what the day expects, not in a
-    punch, so no reading of the clock removes it.
+    Half is 3:42, floored where the day's expectation is worked out, so 13:00 to
+    16:59 is +0:17 wherever it is read.
     """
     a_longer_day(services)
     booked = services.absence.book(THURSDAY, AbsenceType.SICK, Portion.AM)
@@ -430,10 +430,12 @@ async def test_every_surface_reads_the_balance_alike(
     configure: Configured,  # noqa: F811 - the imported fixture
     arrange: Callable[[Services], datetime],
 ) -> None:
-    """The headline floors each term, so every other copy of it has to.
+    """Every surface that draws the balance reads it alike.
 
-    Cut towards zero instead, a balance carrying seconds can read a minute
-    short of it. Tracked from one day, that day is the balance, the period,
+    Each case is a way seconds once reached a day: a session open mid-minute,
+    half of an odd-minute day, a session left running overnight. Each now counts
+    in whole minutes, and on top of that every surface floors each term as the
+    headline does. Tracked from one day, that day is the balance, the period,
     the chart and its one week alike.
     """
     services = configure(entitlement=(2026, 25.0), tracking_since=THURSDAY)
@@ -839,7 +841,7 @@ async def test_two_half_days_off_a_longer_day_add_up(
 ) -> None:
     """Two TOIL mornings off a 7:25 day, and the ± column adds up to its total.
 
-    Half of 7:25 is 3:42:30, expected and withdrawn alike. Each row floored its
+    Half of 7:25 was 3:42:30, expected and withdrawn alike. Each row floored its
     own half minutes away and the total floored the pair's whole minutes once,
     so the column read two minutes over the total under it.
     """

@@ -296,8 +296,7 @@ def stocked(services: Services, session: Session) -> Services:
 def longer_day(stocked: Services, session: Session) -> Services:
     """A 7:25 day, tracked from NOON, with NOON's morning booked off sick.
 
-    Its afternoon then owes 3:42:30, half a minute that no punch carries and
-    that every printed balance floors the same way.
+    Its afternoon then owes half of 7:25 to the minute below, 3:42.
     """
     tracked = tracking_from(session, NOON)
     tracked.settings.save_settings(
@@ -321,7 +320,7 @@ def balance_word(printed: str) -> str:
 def test_the_running_session_reads_the_balance_balance_show_does(
     longer_day: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Four hours since one against 3:42:30 is +0:17:30, shown as +0:18."""
+    """Four hours since one against the 3:42 the afternoon owes is +0:18 in both."""
     with time_machine.travel(datetime(2026, 6, 10, 13, 0), tick=False):
         clock_cli.clock_in(longer_day)
     with time_machine.travel(datetime(2026, 6, 10, 17, 0), tick=False):
@@ -329,7 +328,7 @@ def test_the_running_session_reads_the_balance_balance_show_does(
         running = capsys.readouterr().out
         assert balance_cli.show(longer_day, NOON) == 0
 
-    assert balance_word(running) == balance_word(capsys.readouterr().out)
+    assert balance_word(running) == balance_word(capsys.readouterr().out) == "+0:18"
 
 
 def test_settling_draws_the_line_it_names(
@@ -337,9 +336,9 @@ def test_settling_draws_the_line_it_names(
 ) -> None:
     """The balance it asks about, the adjustment and what is left agree.
 
-    The afternoon is +0:16:30, shown +0:17. Sized from the exact figure, the
-    line misses by a minute; printed exact, a long Thursday reads a minute
-    short beside `balance show`.
+    The afternoon's 3:59 against the 3:42 it owes is +0:17, which a line of
+    −0:17 settles to 0:00. Thursday's 7:30 against 7:25 then leaves the +0:05
+    that `balance show` reads.
     """
     for start, end in (
         (datetime(2026, 6, 10, 13, 0), datetime(2026, 6, 10, 16, 59)),
@@ -364,6 +363,7 @@ def test_settling_draws_the_line_it_names(
     assert f"adjusted by {MINUS}0:17" in settling
     assert figure(settled, "balance") == timedelta()
     assert figure(settling, "balance now") == figure(today, "balance")
+    assert figure(today, "balance") == timedelta(minutes=5)
 
 
 def test_toil_taken_is_shown_on_its_own_line(
