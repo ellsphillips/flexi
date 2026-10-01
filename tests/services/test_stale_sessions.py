@@ -227,6 +227,65 @@ class TestHalfDayOff:
         assert closed.clock_out_event.timestamp.time() == time(12, 42)
         assert build_services(session).ledger.day(YESTERDAY).delta == timedelta()
 
+    def test_work_dated_the_day_before_is_not_counted(
+        self, services: Services, session: Session
+    ) -> None:
+        """A late night belongs to the day it started, as it does in the ledger."""
+        assert services.absence.book(YESTERDAY, AbsenceType.ANNUAL, Portion.PM).success
+        late = datetime.combine(YESTERDAY - timedelta(days=1), time(22), tzinfo=UTC)
+        assert services.clock.clock_in(now=late).success
+        assert services.clock.clock_out(now=late + timedelta(hours=4)).success
+        opened = datetime.combine(YESTERDAY, time(9), tzinfo=UTC)
+        assert services.clock.clock_in(now=opened).success
+
+        [closed] = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
+
+        assert closed.clock_out_event is not None
+        assert closed.clock_out_event.timestamp.time() == time(12, 42)
+        assert build_services(session).ledger.day(YESTERDAY).delta == timedelta()
+
+    def test_voided_work_is_not_counted(
+        self, services: Services, session: Session
+    ) -> None:
+        """An hour struck off earlier that day leaves the whole half to work."""
+        assert services.absence.book(YESTERDAY, AbsenceType.ANNUAL, Portion.PM).success
+        seven, nine = (
+            datetime.combine(YESTERDAY, time(hour), tzinfo=UTC) for hour in (7, 9)
+        )
+        assert services.clock.clock_in(now=seven).success
+        struck = services.clock.clock_out(now=seven + timedelta(hours=1)).session
+        assert struck is not None
+        struck.voided = True
+        session.commit()
+        assert services.clock.clock_in(now=nine).success
+
+        [closed] = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
+
+        assert closed.clock_out_event is not None
+        assert closed.clock_out_event.timestamp.time() == time(12, 42)
+
+    def test_half_worked_already_closes_at_the_clock_in(
+        self, services: Services, session: Session
+    ) -> None:
+        """More than half the day worked already leaves nothing owed, not less.
+
+        A close before its own clock-in is a negative segment, which the ledger
+        subtracts instead of clamping.
+        """
+        assert services.absence.book(YESTERDAY, AbsenceType.ANNUAL, Portion.PM).success
+        eight, half_twelve, one = (
+            datetime.combine(YESTERDAY, at, tzinfo=UTC)
+            for at in (time(8), time(12, 30), time(13))
+        )
+        assert services.clock.clock_in(now=eight).success
+        assert services.clock.clock_out(now=half_twelve).success
+        assert services.clock.clock_in(now=one).success
+
+        [closed] = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
+
+        assert closed.clock_out_event is not None
+        assert moment_of(closed.clock_out_event) == one
+
     def test_never_closes_later_than_the_auto_close_time(
         self, services: Services, session: Session
     ) -> None:
