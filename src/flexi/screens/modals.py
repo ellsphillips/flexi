@@ -19,7 +19,7 @@ from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
 
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.dates import parse_date
-from flexi.domain.format import clock, hm, plural, short_date
+from flexi.domain.format import clock, hm, plural, short_date, stamp
 from flexi.domain.format import days as fmt_days
 from flexi.domain.ledger import Segment
 from flexi.services.settings import parse_clock_time
@@ -334,9 +334,19 @@ class CorrectionModal(FlexiModal[Correction]):
     title_text: ClassVar[str] = "Record work"
     confirm_label: ClassVar[str] = "Record"
 
-    def __init__(self, day: date) -> None:
+    def __init__(
+        self,
+        day: date,
+        *,
+        tracking_since: date | None,
+        contracted: timedelta,
+        expects_work: bool,
+    ) -> None:
         super().__init__()
         self._day = day
+        self._tracking_since = tracking_since
+        self._contracted = contracted
+        self._expects_work = expects_work
 
     @property
     def modal_title(self) -> str:
@@ -347,10 +357,25 @@ class CorrectionModal(FlexiModal[Correction]):
         yield Input("", id="correction-from", placeholder="9:00")
         yield Label("To", classes="overline")
         yield Input("", id="correction-to", placeholder="17:00")
-        yield Static(
-            "For a day you worked and did not clock. It counts for everything a "
-            "punched session counts for, and is drawn apart from one.",
-            classes="caption",
+        yield Static(self._caption(), classes="caption")
+
+    def _caption(self) -> str:
+        """What the work counts for, said plainly where it surprises.
+
+        A working day before setup expects nothing until work is recorded on
+        it, and then the whole contracted day, so a morning shows a shortfall.
+        A weekend or a bank holiday expects nothing either way.
+        """
+        since = self._tracking_since
+        if since is None or self._day >= since or not self._expects_work:
+            return (
+                "For a day you worked and did not clock. It counts for everything "
+                "a punched session counts for, and is drawn apart from one."
+            )
+        return (
+            f"Flexi started tracking on {short_date(since)}. Work recorded here "
+            f"counts {stamp(self._day, '%a %-d')} against your "
+            f"{hm(self._contracted)} day."
         )
 
     def on_mount(self) -> None:

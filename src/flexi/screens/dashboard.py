@@ -309,7 +309,17 @@ class DashboardScreen(Screen[None]):
                 scope=Scope.CLOCK,
             )
 
-        self.app.push_screen(CorrectionModal(self._selected_day()), callback=record)
+        day = self._selected_day()
+        ledger = self._services.ledger.day(day)
+        self.app.push_screen(
+            CorrectionModal(
+                day,
+                tracking_since=self._services.settings.resolved().tracking_since,
+                contracted=ledger.contracted,
+                expects_work=ledger.is_working_day and not ledger.is_holiday,
+            ),
+            callback=record,
+        )
 
     def _selected_day(self) -> date:
         """The day the records cursor is on, or the anchor if it is elsewhere."""
