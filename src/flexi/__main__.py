@@ -486,7 +486,8 @@ def balance() -> None:
 
 @balance.command(name="show")
 @as_of_option(
-    "Report the balance as at the end of this date, which may not be in the "
+    "Report the balance as at the end of this date, or as it stands today, "
+    "before the hours still to work are owed. The date may not be in the "
     "future. Defaults to today."
 )
 @requires_setup()

@@ -270,12 +270,11 @@ that prefix, so a key is self-describing.
 Children of a day row, in order:
 
 ```
-  Thu 11 Jun                    ────█████▌            3:10  −4:14
+  Thu 11 Jun                    ────█████▌            3:10   0:00
     ├ 09:12 → 12:04  worked                           2:52
     ├ 12:04 → 13:30  break                            1:26
     ├ 13:30 → open   worked (running)                 0:18
-    ├ expected                                        7:24
-    └ delta                                          −4:14
+    └ expected                                        7:24   0:00
 ```
 
 ## 7. Jump mode
