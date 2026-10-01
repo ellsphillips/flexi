@@ -232,12 +232,13 @@ forms, and pressing the key of the destination underneath closes it. Asking for 
 destination before setup is answered is refused with a notification.
 
 `FlexiApp.COMMANDS = {FlexiCommands}` replaces Textual's stock providers, so the
-palette carries Flexi's commands and nothing else. `commands(app)` builds the
-catalogue: clock in or out, help, go to each screen, a period per granularity, go
-to today, go to a date, book leave, adjust the balance, book each absence type on
-the selected day, and refresh bank holidays. On the setup screen, where there is
-no dashboard, only the first two appear — every other entry is drawn from the
-period the dashboard holds.
+palette carries Flexi's commands and nothing else — including its own Quit, the
+way out when a terminal keeps `ctrl+q` for itself. `commands(app)` builds the
+catalogue: clock in or out, help, quit, go to each screen, a period per
+granularity, go to today, go to a date, book leave, adjust the balance, book each
+absence type on the selected day, and refresh bank holidays. On the setup screen,
+where there is no dashboard, only the first three appear — every other entry is
+drawn from the period the dashboard holds.
 
 ## 6. The records table
 

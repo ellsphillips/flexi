@@ -99,6 +99,7 @@ async def test_palette_offers_every_keyless_action(
         assert [command.title for command in catalogue] == offered
         assert "Clock in or out" in offered
         assert "Help" in offered
+        assert "Quit" in offered
         assert "Go to Leave" in offered
         for granularity in Granularity:
             assert f"Period: {granularity.label.lower()}" in offered
@@ -133,6 +134,7 @@ async def test_palette_hides_commands_needing_a_missing_screen(
 
         assert "Clock in or out" in offered
         assert "Help" in offered
+        assert "Quit" in offered
         assert not [title for title in offered if title.startswith("Go to")]
         assert not [title for title in offered if title.startswith("Period:")]
         assert "Refresh bank holidays" not in offered
@@ -159,6 +161,7 @@ async def test_palette_hides_commands_for_a_hidden_screen(
 
         assert "Go to Dashboard" in offered
         assert "Clock in or out" in offered
+        assert "Quit" in offered
         assert "Refresh bank holidays" in offered
         assert not [title for title in offered if title.startswith("Period:")]
         assert "Go to today" not in offered
@@ -275,6 +278,25 @@ async def test_choosing_adjust_balance_opens_the_prompt(
 
         modal = showing(app, AdjustmentModal)
         assert app.focused is modal.query_one("#adjustment-amount", Input)
+
+
+async def test_choosing_quit_closes_flexi_during_setup(unconfigured: Path) -> None:
+    """`COMMANDS` replaces Textual's providers, Quit included, so Flexi has its own.
+
+    Driven through the palette and not `run_command`: `action_quit` is a
+    coroutine, and the palette is what awaits it.
+    """
+    app = FlexiApp(db_path=unconfigured)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        showing(app, SetupScreen)
+
+        await pilot.press("ctrl+p", *"quit")
+        await app.workers.wait_for_complete()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert not app.is_running
 
 
 async def test_choosing_clock_in_or_out_clocks(app_factory: AppFactory) -> None:

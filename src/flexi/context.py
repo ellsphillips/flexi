@@ -95,6 +95,10 @@ class CommandApplication(Protocol):
         """Open the binding reference."""
         ...
 
+    async def action_quit(self) -> None:
+        """Close the application."""
+        ...
+
     def action_go_to(self, name: str) -> None:
         """Navigate to a named destination."""
         ...
