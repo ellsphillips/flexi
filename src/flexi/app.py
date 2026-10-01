@@ -370,14 +370,15 @@ class FlexiApp(TextualApp[None]):
 
         `_pushed` is cleared before the dismissal, so the callback can tell "this
         screen was replaced" from "the user left it". Settings is closed first,
-        because it sits on top and `Screen.dismiss` pops whatever is on top of
-        the stack, not the screen it was called on.
+        because it sits on top and is held apart: popped with anything else left
+        over the destination, it would still be held, and `f4` could not open
+        another.
         """
         self._close_settings()
         if self._pushed is None:
             return
         leaving, self._pushed = self._pushed, None
-        leaving.dismiss(None)
+        self._dismiss(leaving, None)
 
     def _close_settings(self) -> None:
         """Dismiss the settings form if one is open, clearing `_settings` first.
