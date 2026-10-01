@@ -321,15 +321,37 @@ def test_toil_on_a_past_day_leaves_the_balance_alone(
 def test_span_charges_only_the_days_still_to_come(
     services: Services,
 ) -> None:
-    """Wednesday's preview of the whole week is about Thursday and Friday."""
+    """Wednesday's preview of the whole week is about Wednesday to Friday.
+
+    Monday and Tuesday have counted their shortfall already; Wednesday's waits
+    for the evening, so taking it off spends the balance as Friday does.
+    """
     with time_machine.travel(MID_SPAN, tick=False):
         plan = services.absence.plan(
-            MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=2.0
+            MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=3.0
         )
 
     assert len(plan.bookable) == 5
     assert plan.toil_after == 0.0
     assert plan.warning is None
+
+
+def test_toil_today_spends_the_balance(services: Services) -> None:
+    """Free, a day off today would spend what the balance has banked twice."""
+    today = MID_SPAN.date()
+    with time_machine.travel(MID_SPAN, tick=False):
+        plan = services.absence.plan(
+            today, today, AbsenceType.FLEXI, available_toil_days=0.5
+        )
+        booked = services.absence.book(
+            today, AbsenceType.FLEXI, available_toil_days=0.5
+        )
+
+    assert plan.toil_cost == 1.0
+    assert plan.warning == "This takes the flexi balance 0.5 days into deficit"
+    assert booked.warning == (
+        "Booked, but this takes the flexi balance 0.5 days into deficit"
+    )
 
 
 def test_toil_preview_on_a_day_corrected_before_tracking_matches_the_ledger(
