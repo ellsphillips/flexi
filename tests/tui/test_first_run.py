@@ -1,8 +1,8 @@
-"""Install, launch, answer five questions, and get to the dashboard."""
+"""Install, launch, answer six questions, and get to the dashboard."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +15,7 @@ from flexi.app import FlexiApp
 from flexi.components.wordmark import Wordmark
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
-from flexi.screens.settings import NO_DIVISION
+from flexi.screens.settings import ALL_REQUIRED, NO_DIVISION
 from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
 from flexi.services.settings import SettingsService
 from flexi.theme import MARK_LIVE, TAIL, colour
@@ -231,6 +231,68 @@ async def test_what_was_answered_is_what_was_saved(fresh_db: Path) -> None:
         assert stored.auto_close_time == "18:30"
         assert settings.get_working_day_indices() == [1, 2, 3]
         assert settings.get_active_entitlement_days(None) == 28.0
+
+
+async def test_hours_a_day_are_what_every_day_expects(fresh_db: Path) -> None:
+    """7:24 is offered, and a decimal is hours: 7.5 is half past, not 7:05."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        field = screen.query_one("#input-hours", Input)
+        assert field.value == "7:24"
+        field.value = "7.5"
+        await pilot.pause()
+
+        screen.action_save()
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert "0:00 of 7:30" in screen_text(app), "today expects the answer"
+
+    with session_at(fresh_db) as session:
+        assert SettingsService(session).get_contracted() == timedelta(minutes=450)
+
+
+@pytest.mark.parametrize(
+    ("typed", "said"),
+    [
+        ("", ALL_REQUIRED),
+        ("0", "more than 0:00"),
+        ("25", "no more than 24:00"),
+        ("seven", "not a length of time"),
+        ("7.24", "not a whole number of minutes"),
+    ],
+)
+async def test_hours_a_day_that_cannot_be_used_are_refused(
+    fresh_db: Path, typed: str, said: str
+) -> None:
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-hours", Input).value = typed
+
+        screen.action_save()
+        await pilot.pause()
+
+        assert any(said in notice for notice in notices(app))
+        showing(app, SetupScreen)
+
+    with session_at(fresh_db) as session:
+        assert SettingsService(session).get_settings() is None
+
+
+async def test_heading_counts_the_questions(fresh_db: Path) -> None:
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await revealed(pilot)
+        screen = showing(app, SetupScreen)
+        assert len(screen.query(Question)) == 6
+        assert "Six questions" in screen_text(app)
 
 
 # ---- the year the allowance is filed under ----

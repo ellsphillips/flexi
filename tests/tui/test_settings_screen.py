@@ -7,7 +7,7 @@ branches: the service round-trips underneath them are covered by
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -63,6 +63,7 @@ async def test_fields_arrive_holding_what_is_stored(
             row.leave_year_start
         )
         assert screen.query_one("#input-working-days", Input).value == "Mon-Fri"
+        assert screen.query_one("#input-hours", Input).value == "7:24"
         assert screen.query_one("#input-auto-close", Input).value == row.auto_close_time
         assert screen.query_one("#select-division", Select).value == (
             row.bank_holiday_division
@@ -83,6 +84,7 @@ async def test_screen_opens_before_any_settings_exist(tmp_path: Path) -> None:
         screen = showing(app, SettingsScreen)
         assert screen.query_one("#input-leave-start", Input).value == "01-01"
         assert screen.query_one("#input-working-days", Input).value == "Mon-Fri"
+        assert screen.query_one("#input-hours", Input).value == "7:24"
         assert screen.query_one("#input-auto-close", Input).value == "18:00"
 
 
@@ -143,6 +145,21 @@ async def test_unreadable_time_is_refused(app_factory: AppFactory) -> None:
         row = app.services.settings.get_settings()
         assert row is not None
         assert row.auto_close_time != "half past six"
+
+
+async def test_unusable_hours_a_day_are_refused(app_factory: AppFactory) -> None:
+    """The setup form's parser, so the two forms refuse in the same words."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        screen = showing(app, SettingsScreen)
+        screen.query_one("#input-hours", Input).value = "0"
+
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        showing(app, SettingsScreen)
+        assert app.services.settings.get_contracted() == timedelta(minutes=444)
 
 
 # entitlements
@@ -451,17 +468,17 @@ async def test_every_entitlement_year_can_be_reached(app_factory: AppFactory) ->
             app.services.settings.save_entitlement(year, days)
 
         await open_settings(pilot)
-        assert "2026" in screen_text(app)
 
-        field = showing(app, SettingsScreen).query_one("#ent-2028", Input)
-        field.focus()
-        await pilot.pause()
-        await settled(pilot)
-        await pilot.wait_for_scheduled_animations()
-        await pilot.pause()
+        for year in (2026, 2027, 2028):
+            field = showing(app, SettingsScreen).query_one(f"#ent-{year}", Input)
+            field.focus()
+            await pilot.pause()
+            await settled(pilot)
+            await pilot.wait_for_scheduled_animations()
+            await pilot.pause()
 
-        assert field.has_focus
-        assert "2028" in screen_text(app), "the field holding focus is drawn"
+            assert field.has_focus
+            assert str(year) in screen_text(app), "the field holding focus is drawn"
 
 
 async def test_short_terminal_can_reach_the_whole_form(

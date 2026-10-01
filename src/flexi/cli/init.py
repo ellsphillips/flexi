@@ -1,6 +1,6 @@
 """Set Flexi up, and start again when that is what is meant.
 
-``flexi init`` creates the database and asks the five questions; where there
+``flexi init`` creates the database and asks the six questions; where there
 are already records it shows what is there first.
 
 Erasing is a line on the menu, not a flag. It appears only when there is

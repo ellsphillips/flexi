@@ -29,6 +29,7 @@ from flexi.components.options import ScreenOptions, StaticOptions, WidgetOptions
 from flexi.components.wordmark import Wordmark
 from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
+from flexi.domain.format import hm
 from flexi.screens.settings import ALL_REQUIRED, parse_answers
 from flexi.services.registry import Services
 from flexi.services.settings import (
@@ -291,6 +292,16 @@ class SetupScreen(Screen[bool]):
                 id="ask-working-days",
             ),
             Question(
+                "Hours a day",
+                Input(
+                    hm(self._settings_svc.get_contracted()),
+                    id="input-hours",
+                    placeholder="H:MM",
+                ),
+                "7:30 or 7.5 for 37.5 a week",
+                id="ask-hours",
+            ),
+            Question(
                 "Bank holidays",
                 Select(
                     Division.choices(),
@@ -316,7 +327,7 @@ class SetupScreen(Screen[bool]):
                 yield Rail(form_rows(len(asks)), id="setup-rail")
                 with Vertical(id="setup-asks"):
                     yield Static(
-                        "Five questions, then it gets out of the way",
+                        "Six questions, then it gets out of the way",
                         id="setup-heading",
                     )
                     yield from asks

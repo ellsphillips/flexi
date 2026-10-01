@@ -1,6 +1,6 @@
-"""Changing the four answers given at setup, and the leave for each year.
+"""Changing the five answers given at setup, and the leave for each year.
 
-The first-run form asks the same four questions of the same four widget ids, so
+The first-run form asks the same five questions of the same five widget ids, so
 parsing them lives in :func:`parse_answers` and both screens refuse in the same
 words.
 """
@@ -20,10 +20,12 @@ from textual.widgets import Button, Footer, Input, Label, Select, Static
 from flexi.components.options import ScreenOptions
 from flexi.constants import Division
 from flexi.domain.dates import DAY_NAMES
+from flexi.domain.format import hm
 from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
     SettingsUpdate,
+    parse_contracted_minutes,
     parse_entitlement_days,
     parse_settings,
 )
@@ -41,7 +43,7 @@ NO_DIVISION = "Select a bank holiday region"
 
 
 def parse_answers(node: Widget) -> SettingsUpdate:
-    """Parse the four answers shared by setup and settings forms.
+    """Parse the five answers shared by setup and settings forms.
 
     Nothing is persisted here, so both forms can validate all their other
     fields before opening one settings transaction.
@@ -52,10 +54,11 @@ def parse_answers(node: Widget) -> SettingsUpdate:
     """
     leave_start = node.query_one("#input-leave-start", Input).value.strip()
     working_days = node.query_one("#input-working-days", Input).value.strip()
+    hours = node.query_one("#input-hours", Input).value.strip()
     division = node.query_one("#select-division", Select).value
     auto_close = node.query_one("#input-auto-close", Input).value.strip()
 
-    if not all([leave_start, working_days, auto_close]):
+    if not all([leave_start, working_days, hours, auto_close]):
         raise ValueError(ALL_REQUIRED)
     if not isinstance(division, str):
         raise ValueError(NO_DIVISION)  # noqa: TRY004 - invalid user selection
@@ -64,6 +67,7 @@ def parse_answers(node: Widget) -> SettingsUpdate:
         working_days=working_days,
         bank_holiday_division=division,
         auto_close_time=auto_close,
+        contracted_minutes=parse_contracted_minutes(hours),
     )
 
 
@@ -149,6 +153,7 @@ class SettingsScreen(Screen[bool]):
         month, day = self._svc.get_leave_year_start()
         leave_start = f"{month:02d}-{day:02d}"
         working = describe_working_days(self._svc.get_working_day_indices())
+        hours = hm(self._svc.get_contracted())
         division = self._svc.get_division().value
         auto_close = f"{self._svc.get_auto_close_time():%H:%M}"
 
@@ -163,6 +168,10 @@ class SettingsScreen(Screen[bool]):
                 with Horizontal(classes="settings-row"):
                     yield Label("Working days")
                     yield Input(working, id="input-working-days", placeholder="Mon-Fri")
+
+                with Horizontal(classes="settings-row"):
+                    yield Label("Hours a day")
+                    yield Input(hours, id="input-hours", placeholder="H:MM")
 
                 with Horizontal(classes="settings-row"):
                     yield Label("Bank holiday region")

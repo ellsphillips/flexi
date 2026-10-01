@@ -43,7 +43,7 @@ calendar has to answer `False` and not `None`.
 
 
 def set_up(db_path: Path) -> None:
-    """Answer the five questions against an already-migrated database."""
+    """Answer the six questions against an already-migrated database."""
     engine = create_db_engine(db_path)
     session = get_session(engine)
     services = build_services(session)
@@ -768,7 +768,7 @@ def test_migration_that_completes_setup_asks_nothing(
 
     assert result.exit_code == 0, result.output
     assert "Flexi is set up." in result.output
-    assert opened == [], "the five questions are not asked over existing answers"
+    assert opened == [], "the six questions are not asked over existing answers"
 
 
 # `flexi init` on a machine that already has records
