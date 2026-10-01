@@ -302,7 +302,7 @@ def test_two_halves_off_cannot_also_be_corrected(
 def test_booked_afternoon_leaves_the_morning_correctable(
     services: Services, clock: ClockService
 ) -> None:
-    """Stopping at twelve is the other half of the same boundary."""
+    """A booked afternoon and a worked morning is an ordinary day."""
     assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.PM).success
 
     assert clock.correct(MONDAY, time(9, 0), time(12, 0), now=TODAY).success is True

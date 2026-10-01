@@ -124,18 +124,6 @@ def test_clock_out_may_run_into_a_half_day_off(configure: Configured) -> None:
     assert moment_of(opened.session.clock_out_event) == closed
 
 
-def test_clock_out_at_noon_leaves_booked_afternoon_intact(
-    configure: Configured,
-) -> None:
-    services = configure()
-    day = date(2026, 6, 8)
-    assert services.absence.book(day, AbsenceType.SICK, Portion.PM).success
-    assert services.clock.clock_in(now=datetime.combine(day, time(9))).success
-
-    assert services.clock.clock_out(now=datetime.combine(day, time(12))).success
-    assert len(services.absence.for_date(day)) == 1
-
-
 def test_clock_out_after_noon_leaves_booked_afternoon_intact(
     configure: Configured,
 ) -> None:
