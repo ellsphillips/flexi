@@ -250,7 +250,7 @@ def test_punch_before_setup_makes_a_working_day(
 def test_correction_after_setup_meets_the_contract(
     configure: Configured,
 ) -> None:
-    """The carve-out stops at the stamp: past it, a half-day is a half-day."""
+    """A day the stamp covers measures a correction against the contract too."""
     tracked_day = INSTALLED - timedelta(days=1)
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=tracked_day)
@@ -286,7 +286,7 @@ def test_toil_day_from_before_setup_withdraws_nothing(
 def test_toil_day_the_stamp_covers_still_costs_a_day(
     configure: Configured,
 ) -> None:
-    """The carve-out stops at the stamp, exactly as it does for a correction."""
+    """Only an untracked day is spared: TOIL on one the stamp covers costs a day."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=LEAVE_YEAR_OPENED)
 
