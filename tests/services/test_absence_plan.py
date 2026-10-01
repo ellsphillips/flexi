@@ -19,6 +19,7 @@ from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.models.database.db import AbsenceDay, BankHolidayRefresh
 from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import Services, invalidate_services
+from flexi.services.settings import parse_settings
 from tests.services.conftest import CONTRACTED, Configured, work
 
 MONDAY = date(2026, 8, 10)
@@ -408,6 +409,28 @@ def test_a_night_begun_the_day_before_does_not_pay_for_today(
 
     assert len(plan.bookable) == 1
     assert plan.toil_cost == 0.5
+
+
+def test_toil_today_on_a_zero_contract_does_not_divide_by_zero(
+    services: Services,
+) -> None:
+    """A day that asks for nothing leaves a booking on it nothing to spend."""
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="10-20",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+            contracted_minutes=0,
+        )
+    )
+    today = MID_SPAN.date()
+    with time_machine.travel(MID_SPAN, tick=False):
+        plan = services.absence.plan(
+            today, today, AbsenceType.FLEXI, available_toil_days=0.0
+        )
+
+    assert plan.toil_cost == 0.0
 
 
 def test_toil_preview_on_a_day_corrected_before_tracking_matches_the_ledger(
