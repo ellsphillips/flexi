@@ -270,7 +270,7 @@ async def test_seconds_leave_the_table_and_the_wallet_alone(
 ) -> None:
     """Both print whole minutes, so only a minute turning over redraws them.
 
-    In a year view a records rebuild takes as long as eight ticks. The
+    In a year view a records rebuild takes some fifty milliseconds. The
     balance still redraws on every tick, and the calendar on neither.
     """
     app = app_factory()

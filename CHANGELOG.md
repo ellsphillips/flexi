@@ -28,6 +28,10 @@ forward on launch, with a backup taken first.
   opens on last night's balance and a banked day can be booked as TOIL before the
   first punch. Days still to come count nothing, so a month is not a column of
   red −7:24s.
+- **A dashboard that keeps up.** While you are on the clock, today's row, the
+  period's total and the wallet move with the balance a minute at a time. Left
+  open overnight, it closes a forgotten session at the auto-close time and moves
+  on to the new day.
 - **Work you never clocked.** `n` records a stretch after the fact — a site
   visit, a morning the laptop stayed shut. It counts for everything a punched
   session counts for, and is drawn apart from one. An overlapping stretch is

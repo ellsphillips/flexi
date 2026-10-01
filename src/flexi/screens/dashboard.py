@@ -254,8 +254,8 @@ class DashboardScreen(Screen[None]):
         """A second passed. Redraw the two readouts that measure elapsed time.
 
         Everything else that moves with the clock prints whole minutes, and a
-        year of records takes eight ticks' worth of time to build, so it
-        waits for `TIME`: a figure on screen reaching its next minute.
+        year of records takes some fifty milliseconds to build, so it waits
+        for `TIME`: a figure on screen reaching its next minute.
 
         No `invalidate()`: nothing was written, and `LedgerService.days` always
         rebuilds today, which an open session lengthens a minute at a time.

@@ -171,9 +171,9 @@ A module never writes. It posts a message the screen handles — `BookHere`,
 `DeleteHere`, `BookRequested` — and the screen does the writing, the reporting
 and the redraw.
 
-`Scope` is a flag set (`CLOCK | ABSENCE | SETTINGS | PERIOD`) so clocking in does
-not rebuild the calendar's bank-holiday markers. Modules declare what they care
-about:
+`Scope` is a flag set (`CLOCK | ABSENCE | SETTINGS | PERIOD | TIME`) so clocking
+in does not rebuild the calendar's bank-holiday markers. Modules declare what
+they care about:
 
 ```python
 class BalanceModule(Module):
@@ -190,10 +190,21 @@ on clock-out and on unmount. The interval is `defaults.tick_seconds`, one second
 by default: the clock module's subtitle is a running duration, and a
 minute-grained clock that jumps in 60-second steps looks broken.
 
-The tick redraws the clock module, the balance module and the two progress
-rails, and calls no `invalidate()` — nothing was written, and `LedgerService`
+Every tick redraws the clock module, the balance module and the two progress
+rails. The records table and the wallet print whole minutes, and a year of
+records takes some fifty milliseconds to build, so they declare `Scope.TIME` and
+redraw only on the tick where today, the period or the balance reaches its next
+whole minute. That is not the wall clock's minute: each figure turns over at the
+seconds its own sessions add up to.
+
+The tick calls no `invalidate()` — nothing was written, and `LedgerService`
 rebuilds today on every call anyway, so clearing the memo would throw away the
 other thirty days of a month view once a second.
+
+The tick also watches the date. The first tick after midnight runs the clock
+sweep, which closes a session left running at the auto-close time, as a launch
+or `/` would; moves a period that showed the old date onto the new one; redraws
+everything; and stops the tick if nothing is left on the clock.
 
 ## 5. Screens, navigation and the command palette
 
@@ -231,7 +242,7 @@ period the dashboard holds.
 ## 6. The records table
 
 Requirements: a row per day in the period, expandable to the day's breakdown,
-responsive, and fast enough to redraw on a one-second tick.
+responsive, and cheap enough to redraw every minute a session is open.
 
 **Do not fork `DataTable`.** Vendoring it to add a `style_name` argument for
 per-row styling costs 2,700 lines. Flexi gets the same effect by passing
@@ -262,6 +273,9 @@ A `RowGroup` is a parent row plus its children; `set_groups` flattens it
 according to `expanded`, preserving the cursor by key and not by index — an
 expansion above the cursor must not move it. Expansion state is pruned to the
 groups currently loaded, so `expanded` answers "open now" and not "ever opened".
+When the rows and the column widths are the ones already on screen, the cells
+are rewritten in place: clearing the table would scroll it back to the cursor,
+once a minute, under whoever was reading further down.
 
 Row keys are typed by prefix: `d-<iso>` for a day, `s-<id>` for a session,
 `a-<id>` for an absence slice, `t-<iso>` for a total. Every handler switches on
