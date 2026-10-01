@@ -21,6 +21,7 @@ from flexi.messages import Scope
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
 from flexi.services.absence import PLAN_CHANGED
+from flexi.services.registry import adjust_balance, zero_balance
 from tests.conftest import sessions_on, settled
 from tests.tui.conftest import (
     WIDE,
@@ -390,7 +391,7 @@ async def test_booking_changed_under_the_modal_is_kept(
         assert status_text(app) == PLAN_CHANGED
 
 
-async def test_x_on_a_worked_day_explains_that_work_records_are_kept(
+async def test_x_on_a_worked_day_points_at_what_it_can_act_on(
     app_factory: AppFactory,
 ) -> None:
     """The key is offered on every row, so every row owes it an answer."""
@@ -405,9 +406,7 @@ async def test_x_on_a_worked_day_explains_that_work_records_are_kept(
         await pilot.press("x")
         await pilot.pause()
 
-        assert status_text(app) == (
-            "Select an absence booking to remove; work records are kept"
-        )
+        assert status_text(app) == "Select a session to void or a booking to remove"
         assert sessions_on(app._session, date(2026, 6, 10))
 
 
@@ -449,4 +448,189 @@ async def test_x_on_a_booking_already_gone_says_so(
         await pilot.pause()
 
         assert status_text(app) == "That booking has already gone"
+        showing(app, DashboardScreen)
+
+
+# --- voiding a session from a row -------------------------------------------
+
+MONDAY = date(2026, 6, 8)
+"""The seed's Monday: 08:01 to 12:30, then 13:10 to 16:54."""
+
+DAY = timedelta(hours=7, minutes=24)
+
+
+async def on_session(app: FlexiApp, pilot: Pilot[None], key: str) -> None:
+    """Open the day a session row belongs to, and put the cursor on the row."""
+    widget = table(app)
+    widget.focus()
+    widget.toggle(f"{RowKind.DAY}{MONDAY}")
+    await pilot.pause()
+    widget.focus_key(key)
+    await pilot.pause()
+
+
+def morning(app: FlexiApp) -> str:
+    """The row key of Monday's first session, looked up by id like a booking."""
+    first = min(app.services.clock.segments_on(MONDAY), key=lambda found: found.start)
+    return f"{RowKind.SESSION}{first.session_id}"
+
+
+async def test_x_on_a_session_asks_before_it_voids_it(
+    app_factory: AppFactory,
+) -> None:
+    """The question names the stretch, its day and its length, and the way back."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        key = morning(app)
+        await on_session(app, pilot, key)
+        worked = app.services.ledger.day(MONDAY).worked
+
+        await pilot.press("x")
+        await pilot.pause()
+        assert showing(app, ConfirmModal)._question == (
+            "Void 08:01 → 12:30 on Mon 8 Jun (4:29)? It stops counting; the clock "
+            "record is kept. Add the real hours with n."
+        )
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert status_text(app) == "Voided 08:01 → 12:30 on Mon 8 Jun"
+        after = app.services.ledger.day(MONDAY).worked
+        assert after == worked - timedelta(hours=4, minutes=29)
+        assert key not in [row.key for row in table(app).visible_rows()]
+
+
+async def test_declining_the_question_leaves_the_session_alone(
+    app_factory: AppFactory,
+) -> None:
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await on_session(app, pilot, morning(app))
+        before = app.services.clock.segments_on(MONDAY)
+
+        await pilot.press("x")
+        await pilot.pause()
+        showing(app, ConfirmModal)
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert app.services.clock.segments_on(MONDAY) == before
+
+
+async def test_the_question_warns_when_the_day_is_settled(
+    app_factory: AppFactory,
+) -> None:
+    """A settlement is a fixed amount: voiding a day under it moves it off zero."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        assert zero_balance(app.services, MONDAY).success
+        await on_session(app, pilot, morning(app))
+
+        await pilot.press("x")
+        await pilot.pause()
+
+        assert showing(app, ConfirmModal)._question.endswith(
+            "Add the real hours with n. The balance you settled to zero on or "
+            "after this day will no longer read zero."
+        )
+
+
+async def test_a_day_no_settlement_covers_carries_no_warning(
+    app_factory: AppFactory,
+) -> None:
+    """One drawn the day before, and one in the next leave year, which starts afresh."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        assert zero_balance(app.services, MONDAY - timedelta(days=1)).success
+        next_year = date(2027, 4, 6)
+        assert app.services.adjustments.record(next_year, -DAY, "next year").success
+        await on_session(app, pilot, morning(app))
+
+        await pilot.press("x")
+        await pilot.pause()
+
+        assert "settled" not in showing(app, ConfirmModal)._question
+
+
+async def test_a_balance_brought_in_today_carries_no_warning(
+    app_factory: AppFactory,
+) -> None:
+    """Dated the day it was made, an adjustment settled nothing.
+
+    Only a finished day is settled, so an opening balance brought in today is a
+    later row in the leave year that voiding Monday cannot move off zero.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        brought = timedelta(hours=5, minutes=30)
+        assert adjust_balance(app.services, brought, "Brought forward").success
+        await on_session(app, pilot, morning(app))
+
+        await pilot.press("x")
+        await pilot.pause()
+
+        assert "settled" not in showing(app, ConfirmModal)._question
+
+
+async def test_x_on_the_running_session_says_to_clock_out_first(
+    app_factory: AppFactory,
+) -> None:
+    """Its end is not known yet, so there is nothing to ask about."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        running = app.services.clock.get_open_session()
+        assert running is not None, "the seed leaves this afternoon running"
+        widget = table(app)
+        widget.focus()
+        widget.toggle(f"{RowKind.DAY}{running.work_date}")
+        await pilot.pause()
+        widget.focus_key(f"{RowKind.SESSION}{running.id}")
+        await pilot.pause()
+
+        await pilot.press("x")
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert status_text(app) == "Clock out first; a running session cannot be voided"
+        assert app.services.clock.is_clocked_in()
+
+
+async def test_x_on_a_break_points_at_what_it_can_act_on(
+    app_factory: AppFactory,
+) -> None:
+    """A break is keyed after the session before it, and is not that session."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        before = app.services.clock.segments_on(MONDAY)
+        await on_session(app, pilot, f"{morning(app)}-break")
+
+        await pilot.press("x")
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert status_text(app) == "Select a session to void or a booking to remove"
+        assert app.services.clock.segments_on(MONDAY) == before
+
+
+async def test_x_on_a_session_already_gone_says_so(
+    app_factory: AppFactory,
+) -> None:
+    """The row is a snapshot: the session it names can be voided elsewhere."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        app.screen.query_one(RecordsModule).post_message(
+            DeleteHere(f"{RowKind.SESSION}9999")
+        )
+        await pilot.pause()
+
+        assert status_text(app) == "That session has already gone"
         showing(app, DashboardScreen)

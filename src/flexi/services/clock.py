@@ -416,6 +416,24 @@ class ClockService:
         """Every stretch already recorded on a date, punched or corrected."""
         return self._segments_dated(day, day)
 
+    def segment(self, session_id: int) -> Segment | None:
+        """A stretch that still counts, by the id its records row carries.
+
+        Read past the identity map, where a session another copy of Flexi has
+        since closed or voided still holds the values it was loaded with.
+        """
+        stmt = (
+            select(WorkSession)
+            .execution_options(populate_existing=True)
+            .options(
+                selectinload(WorkSession.clock_in_event),
+                selectinload(WorkSession.clock_out_event),
+            )
+            .where(WorkSession.id == session_id, WorkSession.voided.is_(False))
+        )
+        found = self._session.scalars(stmt).one_or_none()
+        return None if found is None else segment_of(found)
+
     def _segments_touching(self, day: date) -> list[Segment]:
         """Every stretch that can claim time on a date, whenever it opened.
 

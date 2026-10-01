@@ -11,7 +11,7 @@ screen invalidates the ledger cache once, and only interested modules rebuild.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, timedelta
 from types import MappingProxyType
 from typing import ClassVar, Final, Unpack
 
@@ -40,7 +40,7 @@ from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
 from flexi.domain.balance import BalanceSummary, expected_for
 from flexi.domain.format import clock as clock_time
-from flexi.domain.format import short_date
+from flexi.domain.format import hm, short_date
 from flexi.domain.period import Period
 from flexi.messages import DateSelected, Scope
 from flexi.screens.modals import (
@@ -430,12 +430,51 @@ class DashboardScreen(Screen[None]):
         if event.key is None:
             return
         absence = row_ident(RowKind.ABSENCE, event.key)
+        session = row_ident(RowKind.SESSION, event.key)
         if absence is not None:
             self._delete_absence(int(absence))
+        elif session is not None and session.isdigit():
+            # Not a break, which is keyed after the session before it.
+            self._void_session(int(session))
         elif event.key.startswith((RowKind.DAY, RowKind.SESSION)):
+            self.status("Select a session to void or a booking to remove", Tone.WARN)
+
+    def _void_session(self, session_id: int) -> None:
+        """Ask before voiding a session, naming it and the way back."""
+        segment = self._services.clock.segment(session_id)
+        if segment is None:
+            self.status("That session has already gone", Tone.WARN)
+            return
+        if segment.end is None:
             self.status(
-                "Select an absence booking to remove; work records are kept", Tone.WARN
+                "Clock out first; a running session cannot be voided", Tone.WARN
             )
+            return
+        day = segment.start.date()
+        question = (
+            f"Void {clock_time(segment.start)} → {clock_time(segment.end)} on "
+            f"{short_date(day)} ({hm(segment.duration(self.now))})? It stops "
+            "counting; the clock record is kept. Add the real hours with n."
+        )
+        # A settlement is a fixed amount, sized to zero the balance at its date,
+        # and `first_line_after` is exclusive: a line drawn on the day covers it.
+        _, year_end = self._services.absence.leave_year_bounds(day)
+        line = self._services.adjustments.first_line_after(
+            day - timedelta(days=1), year_end
+        )
+        if line is not None:
+            question += (
+                " The balance you settled to zero on or after this day will no "
+                "longer read zero."
+            )
+
+        def confirm(answer: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
+            if answer:
+                self._report(self._services.clock.void(session_id))
+
+        self.app.push_screen(
+            ConfirmModal(question, title="Void session"), callback=confirm
+        )
 
     def _delete_absence(self, absence_id: int) -> None:
         found = self._services.absence.by_id(absence_id)

@@ -86,7 +86,7 @@ class BookHere(Message):
 
 
 class DeleteHere(Message):
-    """Ask to remove the absence booking under the cursor."""
+    """Ask to remove the booking, or void the session, under the cursor."""
 
     def __init__(self, key: str | None) -> None:
         super().__init__()
@@ -113,7 +113,7 @@ class RecordsModule(Module):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.book_absence, "book_here", "Book absence", show=True),
-        Binding(CONFIG.hotkeys.delete, "delete_here", "Remove booking", show=False),
+        Binding(CONFIG.hotkeys.delete, "delete_here", "Remove or void", show=False),
     ]
 
     def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:

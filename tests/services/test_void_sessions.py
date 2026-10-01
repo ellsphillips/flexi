@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.models.database.engine import get_session
-from flexi.services.registry import Services
+from flexi.services.registry import Services, build_services
 from tests.services.conftest import Configured
 
 MONDAY = date(2026, 9, 28)
@@ -218,3 +218,45 @@ def test_void_then_correct_gives_the_true_balance(services: Services) -> None:
 
     worked = timedelta(hours=2, minutes=40) - DAY
     assert services.ledger.balance(WEDNESDAY).delta == worked
+
+
+# Finding one -----------------------------------------------------------------
+
+
+def test_a_session_is_found_by_the_id_its_row_carries(services: Services) -> None:
+    found = punch(services, MONDAY, time(9), time(17))
+
+    segment = services.clock.segment(found)
+
+    assert segment is not None
+    assert (segment.session_id, segment.start, segment.end) == (
+        found,
+        at(MONDAY, 9),
+        at(MONDAY, 17),
+    )
+
+
+def test_a_voided_or_unknown_session_is_not_found(services: Services) -> None:
+    voided = punch(services, MONDAY, time(9), time(17))
+    services.clock.void(voided)
+
+    assert services.clock.segment(voided) is None
+    assert services.clock.segment(9999) is None
+
+
+def test_a_session_closed_elsewhere_is_found_closed(
+    services: Services, engine: Engine
+) -> None:
+    """Another copy of Flexi can close it after this one has read it."""
+    running = services.clock.clock_in(now=at(TODAY, 9)).session
+    assert running is not None
+    read = services.clock.segment(running.id)
+    assert read is not None
+    assert read.end is None
+
+    with get_session(engine) as elsewhere:
+        assert build_services(elsewhere).clock.clock_out(now=at(TODAY, 9, 30)).success
+
+    found = services.clock.segment(running.id)
+    assert found is not None
+    assert found.end == at(TODAY, 9, 30)
