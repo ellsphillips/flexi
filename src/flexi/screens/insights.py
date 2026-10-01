@@ -236,6 +236,8 @@ class InsightsScreen(Screen[None]):
         Binding(CONFIG.hotkeys.period_next, "shift(1)", "Next", show=False),
         Binding(CONFIG.hotkeys.period_cycle, "cycle", "Period", show=True),
         Binding("escape", "back", "Back", show=True),
+        # On the destinations, not the app, as on the dashboard.
+        Binding("q", "app.quit", "Quit", show=True),
     ]
 
     def __init__(self, period: Period, **kwargs: Unpack[ScreenOptions]) -> None:

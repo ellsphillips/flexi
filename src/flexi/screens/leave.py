@@ -94,6 +94,8 @@ class LeaveScreen(Screen[None]):
         Binding(CONFIG.hotkeys.today, "today", "Today", show=False),
         Binding(CONFIG.hotkeys.go_to_date, "go_to_date", "Go to date", show=False),
         Binding("escape", "back", "Back", show=False),
+        # On the destinations, not the app, as on the dashboard.
+        Binding("q", "app.quit", "Quit", show=True),
     ]
 
     def __init__(

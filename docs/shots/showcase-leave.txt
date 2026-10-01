@@ -37,4 +37,4 @@
  │                                                                                       ▏  │
  ╰──────────────────────────────────────────────────────────────────────── 6.5 days booked ─╯
 
-A Annual S Sick T TOIL x Remove space Half day / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings
+A Annual S Sick T TOIL x Remove space Half day q Quit / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings

@@ -107,6 +107,9 @@ class DashboardScreen(Screen[None]):
         Binding(
             CONFIG.hotkeys.book_other, "book('other')", "Other absence", show=False
         ),
+        # On the destinations, not the app: a q from a button on the settings
+        # or setup form would throw away what had been typed into it.
+        Binding("q", "app.quit", "Quit", show=True),
     ]
 
     def action_book(self, kind: str) -> None:

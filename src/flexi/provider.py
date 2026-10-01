@@ -49,7 +49,7 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
             app.action_clock_toggle,
         ),
         Command("Help", "Every binding on this screen", app.action_help),
-        Command("Quit", "Close Flexi. Bound to ctrl+q", app.action_quit),
+        Command("Quit", "Close Flexi. Bound to q and ctrl+q", app.action_quit),
     ]
 
     if screen is None:

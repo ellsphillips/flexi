@@ -388,6 +388,23 @@ async def test_quit_key_quits_during_the_animation(
         assert not app.is_running
 
 
+async def test_q_is_typed_into_an_answer(fresh_db: Path) -> None:
+    """The dashboard quits on q; a question takes it as a letter."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await revealed(pilot)
+        field = showing(app, SetupScreen).query_one("#input-working-days", Input)
+        field.focus()
+        field.value = ""
+
+        await pilot.press("q")
+        await pilot.pause()
+
+        assert app.is_running
+        assert field.value == "q"
+
+
 async def test_tab_moves_between_the_questions_once_they_are_up(
     fresh_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

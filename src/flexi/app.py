@@ -477,6 +477,15 @@ class FlexiApp(TextualApp[None]):
     def action_help(self) -> None:
         self.push_screen(HelpScreen(collect_bindings(self.screen)))
 
+    def action_help_quit(self) -> None:
+        """Answer ctrl+c with every key that quits from here, not only the first."""
+        keys = [
+            key
+            for key, active in self.active_bindings.items()
+            if active.binding.action in {"quit", "app.quit"}
+        ]
+        self.notify(f"Press {' or '.join(keys)} to quit", title="Do you want to quit?")
+
     # jump mode ---------------------------------------------------------------
 
     def action_toggle_jump_mode(self) -> None:

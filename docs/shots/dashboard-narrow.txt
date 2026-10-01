@@ -25,4 +25,4 @@
  │                                                                                │
  ╰─────────────────────────────────────────────────────────────── 24:47 of 25:54 ─╯
 
-t Today p Period n Record work / Clock v Jump ? Help f1 Dashboard f2 Leave +2 more
+t Today p Period n Record work q Quit / Clock v Jump ? Help f1 Dashboard +3 more

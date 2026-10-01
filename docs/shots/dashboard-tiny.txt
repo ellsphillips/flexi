@@ -19,4 +19,4 @@
  │  Thu 11   ───████████████▌───┊────     5:08    0:00       │
  ╰────────────────────────────────────────── 24:47 of 25:54 ─╯
 
-t Today p Period n Record work / Clock v Jump ? Help +4 more
+t Today p Period n Record work q Quit / Clock v Jump +5 more

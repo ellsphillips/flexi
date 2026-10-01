@@ -41,4 +41,4 @@
  │                                                        │
  ╰──────────────────────────────────────── 315:30 worked ─╯
 
-t Today p Period esc Back / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings
+t Today p Period esc Back q Quit / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings
