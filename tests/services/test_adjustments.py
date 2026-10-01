@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.models.database.db import BalanceAdjustment
 from flexi.models.database.engine import get_session
-from flexi.services.adjustments import OPENING_BALANCE
+from flexi.services.adjustments import SETTLED
 from flexi.services.registry import (
     Services,
     build_services,
@@ -337,7 +337,7 @@ def test_zeroing_records_why(services: Services) -> None:
     work(services, MONDAY, hours=2)
     result = zero_balance(services, MONDAY)
     assert result.adjustment is not None
-    assert result.adjustment.reason == OPENING_BALANCE
+    assert result.adjustment.reason == SETTLED
 
 
 def test_zeroing_without_a_reason_writes_nothing(services: Services) -> None:

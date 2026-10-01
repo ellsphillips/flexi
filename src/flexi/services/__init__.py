@@ -55,7 +55,7 @@ if TYPE_CHECKING:
         verdict_for,
     )
     from flexi.services.adjustments import (
-        OPENING_BALANCE,
+        SETTLED,
         AdjustmentResult,
         AdjustmentService,
     )
@@ -213,7 +213,7 @@ _EXPORTS: Final = MappingProxyType(
         "still_bookable": ("absence", "still_bookable"),
         "verdict_for": ("absence", "verdict_for"),
         "PLAN_CHANGED": ("absence", "PLAN_CHANGED"),
-        "OPENING_BALANCE": ("adjustments", "OPENING_BALANCE"),
+        "SETTLED": ("adjustments", "SETTLED"),
         "AdjustmentResult": ("adjustments", "AdjustmentResult"),
         "AdjustmentService": ("adjustments", "AdjustmentService"),
         "CACHE_MAX_AGE": ("bank_holidays", "CACHE_MAX_AGE"),
@@ -352,7 +352,7 @@ __all__ = (  # noqa: RUF022
     "still_bookable",
     "verdict_for",
     "PLAN_CHANGED",
-    "OPENING_BALANCE",
+    "SETTLED",
     "AdjustmentResult",
     "AdjustmentService",
     "CACHE_MAX_AGE",

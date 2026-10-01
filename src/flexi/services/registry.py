@@ -18,7 +18,7 @@ from flexi import wallclock
 from flexi.domain.format import long_date
 from flexi.services.absence import AbsenceService
 from flexi.services.adjustments import (
-    OPENING_BALANCE,
+    SETTLED,
     AdjustmentResult,
     AdjustmentService,
 )
@@ -106,7 +106,7 @@ def zero_balance(
     services: Services,
     as_of: date | None = None,
     *,
-    reason: str = OPENING_BALANCE,
+    reason: str = SETTLED,
 ) -> AdjustmentResult:
     """Settle the balance so that it reads zero as at the end of ``as_of``.
 

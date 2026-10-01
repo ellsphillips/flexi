@@ -13,7 +13,7 @@ import click
 from flexi import wallclock
 from flexi.cli import report
 from flexi.domain.format import delta, hm, long_date, printable, stamp
-from flexi.services.adjustments import OPENING_BALANCE
+from flexi.services.adjustments import SETTLED
 from flexi.services.registry import Services, settlement_date, zero_balance
 
 __all__ = ("NO_CALENDAR", "log", "show", "undo", "zero")
@@ -86,7 +86,7 @@ def zero(
     if when >= wallclock.today():
         # `zero_balance` refuses a future date, and the standing it would be
         # sized from counts every day between now and then as unworked.
-        return report(zero_balance(services, when, reason=reason or OPENING_BALANCE))
+        return report(zero_balance(services, when, reason=reason or SETTLED))
 
     standing = services.ledger.balance(when).delta
 
@@ -97,7 +97,7 @@ def zero(
         click.echo("Left alone.", err=True)
         return 1
 
-    result = zero_balance(services, when, reason=reason or OPENING_BALANCE)
+    result = zero_balance(services, when, reason=reason or SETTLED)
     if report(result):
         return 1
 

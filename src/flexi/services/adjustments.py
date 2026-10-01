@@ -18,10 +18,13 @@ from flexi.domain.format import delta, stamp
 from flexi.models.database.db import BalanceAdjustment
 from flexi.services.transactions import atomic, write_transaction
 
-__all__ = ("OPENING_BALANCE", "AdjustmentResult", "AdjustmentService")
+__all__ = ("SETTLED", "AdjustmentResult", "AdjustmentService")
 
-OPENING_BALANCE = "opening balance"
-"""The reason a zeroing adjustment is recorded under."""
+SETTLED = "settled"
+"""The reason a zeroing adjustment is recorded under when none is given.
+
+Not "opening balance": that is what a balance brought in from elsewhere is, and
+`flexi balance log` has to tell the two apart."""
 
 
 @dataclass(frozen=True)

@@ -166,12 +166,17 @@ def test_zero_is_refused_twice(home: Path) -> None:
 
 
 def test_settlement_can_be_taken_back(home: Path) -> None:
-    """Log names the row, undo removes it, and the balance returns."""
+    """Log names the row, undo removes it, and the balance returns.
+
+    Named a settlement, so it reads apart from an opening balance brought in
+    with `flexi balance adjust`.
+    """
     runner = CliRunner()
     runner.invoke(cli, ["balance", "zero", "--yes"])
 
     log = runner.invoke(cli, ["balance", "log"])
-    assert "opening balance" in log.output
+    assert "settled" in log.output
+    assert "opening balance" not in log.output
     row_id = log.output.split()[0]
 
     undone = runner.invoke(cli, ["balance", "undo", row_id])
