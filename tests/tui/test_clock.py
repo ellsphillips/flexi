@@ -515,3 +515,42 @@ async def test_each_figure_turns_its_minute_on_its_own_second(
                     hm(period.done),
                     f"{hm(period.done)} of {hm(period.total)}",
                 ), f"behind the rails at {moment:%H:%M:%S}"
+
+
+TUESDAY_FIVE = datetime(2026, 6, 9, 17, 0, tzinfo=UTC)
+
+
+async def test_a_surplus_reaches_every_balance_on_the_same_tick(
+    pressed_on_the_second: Path,
+) -> None:
+    """Past its hours, today's next minute moves every balance on screen at once.
+
+    A surplus counts as soon as it is worked, so the headline and the TOIL row,
+    redrawn every tick, and the period's total and the wallet's, redrawn on
+    `TIME`, all gain the minute on the tick the wall clock's minute turns.
+    """
+    app = FlexiApp(db_path=pressed_on_the_second)
+    with time_machine.travel(TUESDAY_FIVE - timedelta(seconds=30), tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await settled(pilot)
+            screen = dashboard(app)
+            assert screen._tick is not None
+            screen._tick.pause()  # Each tick below is the test's own.
+            records = screen.query_one(RecordsModule)
+            wallet = screen.query_one(WalletModule)
+
+            drawn: list[tuple[str, str]] = []
+            for second in range(-30, 31):
+                moment = TUESDAY_FIVE + timedelta(seconds=second)
+                with time_machine.travel(moment, tick=False):
+                    screen._on_tick()
+                total = records.table.get_row(row_key(RowKind.TOTAL, "period"))
+                balance = screen.query_one("#balance-digits", Digits).value
+                toil = screen.query_one("#gauge-toil", Gauge).readout
+                assert (str(wallet.border_subtitle), toil.split()[0]) == (
+                    f"{total[3]} this period",
+                    balance,
+                ), f"a minute apart at {moment:%H:%M:%S}"
+                drawn.append((str(total[3]), balance))
+
+    assert drawn[0] == drawn[29] != drawn[30] == drawn[-1], "turned at 17:00:00"
