@@ -19,6 +19,10 @@ forward on launch, with a backup taken first.
   met. Seven on one axis is a week's shape at a glance.
 - **Records that open.** `space` on a day shows the sessions behind the figure,
   the breaks between them, and how the total compares to what the day expected.
+- **Figures that add up.** A punch keeps its seconds but counts as the minute it
+  shows: in at 09:00 and out at 17:00 is 8:00, every column adds up to the total
+  under it, and a balance reads the same in the headline, the wallet, Insights
+  and the command line.
 - **Work you never clocked.** `n` records a stretch after the fact — a site
   visit, a morning the laptop stayed shut. It counts for everything a punched
   session counts for, and is drawn apart from one. An overlapping stretch is

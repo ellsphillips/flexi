@@ -83,6 +83,14 @@ Hours only appear at the formatting boundary. Never store or compare a float of
 hours; `7.4` is not representable and a week of rounding it produces a balance
 that disagrees with the sum of its own rows.
 
+**Minutes.** A punch is stored as the clock read it, seconds and all, and read
+to the minute it shows. A session runs between the minutes of its two punches,
+and an open one to the current minute, so in at 09:00:40 and out at 17:00:20 is
+the 8:00 that `09:00 → 17:00` says. Every figure is drawn in whole minutes,
+each term floored before it is subtracted (`BalanceSummary.as_shown`), so a
+column adds up to the total under it and a balance reads the same wherever it
+is drawn.
+
 ---
 
 ## 2. Tables
@@ -144,7 +152,9 @@ in and straight back out is a slip of the finger, and it is voided, not
 deleted — the events stay, because they are immutable and the audit trail is the
 point, but the session is absent from the table and from every figure derived
 from it. The preference is bounded to 0–3600 seconds and is evaluated only when
-the session is closed, so a later config change never rewrites history.
+the session is closed, so a later config change never rewrites history. It
+measures the punches themselves, not the minutes they show, so thirty seconds
+across a minute boundary is still a slip.
 
 ### `absence_days`
 
