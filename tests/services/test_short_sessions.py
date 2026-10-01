@@ -103,6 +103,20 @@ def test_threshold_is_configurable(session: Session) -> None:
     )
 
 
+def test_mis_press_across_a_minute_is_still_discarded(
+    services: Services, session: Session
+) -> None:
+    """09:00:50 to 09:01:20 reads as 09:00 to 09:01 and lasted thirty seconds.
+
+    The rule measures the punches, not the minutes they show.
+    """
+    services.clock.clock_in(now=NINE + timedelta(seconds=50))
+    result = services.clock.clock_out(now=NINE + timedelta(minutes=1, seconds=20))
+
+    assert "Discarded" in result.message
+    assert sessions_on(session, DAY) == []
+
+
 def test_discard_message_names_the_minute(services: Services) -> None:
     services.clock.clock_in(now=NINE)
     result = services.clock.clock_out(now=NINE + timedelta(seconds=1))

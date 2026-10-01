@@ -13,6 +13,7 @@ from rich.console import Console
 from flexi import wallclock
 from flexi.cli import report
 from flexi.cli.ui.onclock import on_the_clock
+from flexi.domain.format import to_the_minute
 from flexi.models.database.moment import moment_of
 from flexi.services.registry import Services
 
@@ -23,7 +24,8 @@ def clock_in(services: Services) -> int:
     """Start a work session."""
     result = services.clock.clock_in()
     if not result.success and result.session is not None:
-        return already_on(services, moment_of(result.session.clock_in_event))
+        since = to_the_minute(moment_of(result.session.clock_in_event))
+        return already_on(services, since)
     return report(result)
 
 

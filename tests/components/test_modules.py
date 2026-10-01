@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 from rich.text import Text
@@ -240,6 +240,24 @@ async def test_flipping_the_switch_asks_the_screen_to_clock_in(
         await pilot.pause()
 
         assert only(panel, ClockModule.Toggle)
+
+
+async def test_running_time_ticks_on_from_the_minute_shown(
+    configure: Configured,  # noqa: F811 - the imported fixture
+) -> None:
+    """In at 09:00:30, at 12:00:45 the readout says 3:00:45 beside "since 09:00".
+
+    The figures count an open session to the minute; the readout keeps its
+    seconds, so it still moves every second, from the minute the punch shows.
+    """
+    services = configure(entitlement=(2026, 25.0))
+    services.clock.clock_in(now=datetime(2026, 6, 11, 9, 0, 30, tzinfo=UTC))
+    invalidate_services(services)
+
+    module = ClockModule()
+    later = datetime(2026, 6, 11, 12, 0, 45, tzinfo=UTC)
+    async with showing(module, services, now=later):
+        assert str(module.border_subtitle) == "3:00:45 · 11/06/2026"
 
 
 # ---------- what every module has in common ----------
@@ -689,6 +707,79 @@ async def test_sign_column_reads_the_cells_beside_it(
         assert str(cell(day.cells[2])) == "2:00"
         assert str(cell(day.cells[3])) == "−5:24"
         assert as_delta(cell(total.cells[3])) == as_delta(cell(day.cells[3]))
+
+
+async def test_a_day_reads_between_the_minutes_it_shows(
+    configure: Configured,  # noqa: F811 - the imported fixture
+) -> None:
+    """09:00:40 to 17:00:20 is 8:00 on the session, on the day and in the total."""
+    services = configure(entitlement=(2026, 25.0))
+    services.clock.clock_in(now=datetime(2026, 6, 11, 9, 0, 40, tzinfo=UTC))
+    services.clock.clock_out(now=datetime(2026, 6, 11, 17, 0, 20, tzinfo=UTC))
+    invalidate_services(services)
+
+    module = RecordsModule()
+    async with showing(module, services, granularity=Granularity.DAY) as (pilot, _):
+        module.table.toggle(row_key(RowKind.DAY, THURSDAY))
+        await pilot.pause()
+        rows = module.table.visible_rows()
+        worked = next(row for row in rows if row.key.startswith(RowKind.SESSION))
+        day = next(row for row in rows if row.key == row_key(RowKind.DAY, THURSDAY))
+        total = next(row for row in rows if row.key == row_key(RowKind.TOTAL, "period"))
+
+        assert "09:00 → 17:00" in cell(worked.cells[1]).plain
+        assert [str(cell(row.cells[2])) for row in (worked, day, total)] == ["8:00"] * 3
+        assert [str(cell(row.cells[3])) for row in (day, total)] == ["+0:36"] * 2
+
+
+def worked_cell(text: Text) -> timedelta:
+    """A Worked cell read back, a dash being a day with nothing worked."""
+    return as_delta(text) if ":" in str(text) else timedelta()
+
+
+async def test_a_month_of_punches_with_seconds_adds_up(
+    configure: Configured,  # noqa: F811 - the imported fixture
+) -> None:
+    """Four punches a working day, each at its own second, and both columns add up.
+
+    Floored only once totalled, the seconds cost each day a minute here and
+    there that the total row, floored once, keeps.
+    """
+    services = configure(entitlement=(2026, 25.0))
+    june = Period.containing(THURSDAY, Granularity.MONTH)
+    for day in june.days():
+        if day.weekday() >= DAYS_IN_WEEK - 2:
+            continue
+        punches = (time(8, 30), time(12, 30), time(13, 15), time(17, 5))
+        for index, at in enumerate(punches):
+            second = (7 * day.day + 13 * index) % 60
+            moment = datetime.combine(day, at.replace(second=second), tzinfo=UTC)
+            if index % 2:
+                services.clock.clock_out(now=moment)
+            else:
+                services.clock.clock_in(now=moment)
+    invalidate_services(services)
+
+    module = RecordsModule()
+    month_end = datetime(2026, 6, 30, 18, 0, tzinfo=UTC)
+    async with showing(
+        module,
+        services,
+        granularity=Granularity.MONTH,
+        now=month_end,
+        size=(90, 40),
+    ):
+        rows = module.table.visible_rows()
+        days = [row for row in rows if row.key.startswith(RowKind.DAY)]
+        total = next(row for row in rows if row.key == row_key(RowKind.TOTAL, "period"))
+
+        assert len(days) == 30
+        assert sum(
+            (worked_cell(cell(row.cells[2])) for row in days), timedelta()
+        ) == worked_cell(cell(total.cells[2]))
+        assert sum(
+            (as_delta(cell(row.cells[3])) for row in days), timedelta()
+        ) == as_delta(cell(total.cells[3]))
 
 
 async def test_hidden_records_panel_offers_no_badges(

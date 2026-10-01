@@ -77,6 +77,21 @@ def test_clocking_in_twice_reports_the_session(
     assert "hours met at" in printed, "the finish time is the useful half of it"
 
 
+def test_running_session_counts_from_the_minute_it_shows(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """In at 09:00:30, by noon it has run the 3:00 that "in at 09:00" implies."""
+    with time_machine.travel(datetime(2026, 6, 10, 9, 0, 30), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 10, 12, 0), tick=False):
+        clock_cli.clock_in(services)
+
+    printed = capsys.readouterr().out
+    assert "in at 09:00" in printed
+    assert "3:00 on this session" in printed
+    assert "3:00 of 7:24 today" in printed
+
+
 def test_day_past_its_hours_says_hours_met(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -69,6 +69,17 @@ def test_open_session_today_still_runs_live(
     assert tuesday.worked == timedelta(hours=2, minutes=30)
 
 
+def test_open_session_runs_to_the_minute_on_the_clock(
+    services: Services, session: Session
+) -> None:
+    """In at 09:00:30 and watched at 12:00:45, the day has the 3:00 it shows."""
+    _leave_open(session, TUESDAY_NINE.replace(second=30))
+    invalidate_services(services)
+
+    watching = TUESDAY_NINE.replace(hour=12, second=45)
+    assert services.ledger.day(TUESDAY, now=watching).worked == timedelta(hours=3)
+
+
 def test_a_cached_open_session_reaches_its_cutoff_after_midnight(
     services: Services, session: Session
 ) -> None:

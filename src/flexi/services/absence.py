@@ -29,7 +29,7 @@ from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain import leaveyear
 from flexi.domain.dates import days_between
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import plural, short_date
+from flexi.domain.format import plural, short_date, to_the_minute
 from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
@@ -1101,7 +1101,7 @@ class AbsenceService:
 
 
 def span_of(session: WorkSession, *, now: datetime | None = None) -> Span:
-    """When a session ran, resolved.
+    """When a session ran, resolved, to the minutes the records table shows.
 
     A session still open on its own day is worth what it has run so far, the
     value `LedgerService` and the punch strip use; valued to the end of the day
@@ -1109,10 +1109,10 @@ def span_of(session: WorkSession, *, now: datetime | None = None) -> Span:
     open on an earlier day is worth the rest of that day and no more, so a
     clock-out that never came cannot make every evening since look worked.
     """
-    start = moment_of(session.clock_in_event)
+    start = to_the_minute(moment_of(session.clock_in_event))
     if session.clock_out_event is not None:
-        return start, moment_of(session.clock_out_event)
+        return start, to_the_minute(moment_of(session.clock_out_event))
     moment = wallclock.now() if now is None else now
     if session.work_date >= moment.date():
-        return start, moment
+        return start, to_the_minute(moment)
     return start, wallclock.local(datetime.combine(session.work_date, time.max))

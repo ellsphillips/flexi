@@ -220,6 +220,20 @@ class TestRejections:
         the_other_half = absence.book(d, AbsenceType.SICK, portion=allowed)
         assert the_other_half.success is True, the_other_half.message
 
+    def test_afternoon_is_free_after_leaving_in_the_noon_minute(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """Out at 12:00:30 is the 12:00 the records show: the afternoon is free."""
+        d = _next_weekday(date(2026, 7, 6), 0)
+        clock = build_services(session).clock
+        midnight = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
+        clock.clock_in(now=midnight.replace(hour=9))
+        clock.clock_out(now=midnight.replace(hour=12, second=30))
+
+        result = absence.book(d, AbsenceType.SICK, portion=Portion.PM)
+
+        assert result.success is True, result.message
+
     def test_other_leave_needs_a_note(
         self, absence: AbsenceService, session: Session
     ) -> None:
@@ -452,6 +466,21 @@ class TestOpenSessions:
         _started, ended = span_of(running)
 
         assert ended == wallclock.now()
+
+    def test_span_of_reads_both_ends_to_the_minute(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """A verdict sees the minutes the records table shows, open or not."""
+        clock = build_services(session).clock
+        clock.clock_in(now=datetime(2026, 6, 10, 8, 30, 30, tzinfo=UTC))
+        running = sessions_on(session, MIDSUMMER.date())[0]
+
+        span = span_of(running, now=datetime(2026, 6, 10, 12, 0, 30, tzinfo=UTC))
+
+        assert span == (
+            datetime(2026, 6, 10, 8, 30, tzinfo=UTC),
+            datetime(2026, 6, 10, 12, 0, tzinfo=UTC),
+        )
 
 
 # ---------- what a TOIL booking costs ----------

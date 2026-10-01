@@ -26,6 +26,7 @@ from flexi.domain.balance import (
     worked_from,
 )
 from flexi.domain.dates import days_between
+from flexi.domain.format import to_the_minute
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.punch import Window
 from flexi.models.database.db import (
@@ -133,7 +134,11 @@ class LedgerService:
         session valued yesterday must reach its day-end cutoff after midnight.
         """
         self.refresh_revision()
-        moment = wallclock.local(now) if now is not None else wallclock.now()
+        # To the minute, as `segment_of` reads a punch: an open session is worth
+        # the minutes the clock shows, so its day stays in whole minutes.
+        moment = to_the_minute(
+            wallclock.local(now) if now is not None else wallclock.now()
+        )
         today = moment.date()
 
         wanted = days_between(start, end)
@@ -297,8 +302,17 @@ def end_of_day(day: date) -> datetime:
 
 
 def segment_of(row: WorkSession) -> Segment:
-    start = moment_of(row.clock_in_event)
-    end = moment_of(row.clock_out_event) if row.clock_out_event is not None else None
+    """A session as a segment, between the minutes its punches show.
+
+    The events keep their seconds for the audit trail and the under-a-minute
+    rule; every figure drawn from a segment is in the minutes printed beside it.
+    """
+    start = to_the_minute(moment_of(row.clock_in_event))
+    end = (
+        to_the_minute(moment_of(row.clock_out_event))
+        if row.clock_out_event is not None
+        else None
+    )
     return Segment(
         session_id=row.id,
         start=start,

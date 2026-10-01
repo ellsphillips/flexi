@@ -155,6 +155,21 @@ def test_corrections_may_touch_end_to_end(clock: ClockService) -> None:
     assert clock.correct(MONDAY, time(13, 0), time(17, 0), now=TODAY).success
 
 
+def test_correction_may_start_where_a_session_reads_as_ending(
+    clock: ClockService,
+) -> None:
+    """Out at 12:30:10 is the 12:30 the records show, so 12:30 is free.
+
+    Read to the second, the session claimed the correction's first ten seconds.
+    """
+    clock.clock_in(now=datetime.combine(MONDAY, time(9, 0), tzinfo=UTC))
+    clock.clock_out(now=datetime.combine(MONDAY, time(12, 30, 10), tzinfo=UTC))
+
+    result = clock.correct(MONDAY, time(12, 30), time(12, 45), now=TODAY)
+
+    assert result.success, result.message
+
+
 def test_past_day_correction_leaves_an_open_session(
     clock: ClockService,
 ) -> None:
