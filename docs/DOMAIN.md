@@ -37,14 +37,15 @@ like unearned overtime.
 
 `tracking_since` on the settings row is the other half of the same problem: days
 before the day Flexi was set up expect nothing, so installing in November does
-not open on seven months of deficit. It is `None` on databases migrated from
-before `0015`, and `None` means every day counts.
+not open on seven months of deficit. Work recorded on one of them, punched or
+added with `n`, tracks it like any later day. It is `None` on databases migrated
+from before `0015`, and `None` means every day counts.
 
 `expected_hours(d)` is the crux:
 
 | Day | expected |
 |---|---|
-| Before `tracking_since`, with no punched session on it | `0` |
+| Before `tracking_since`, with no recorded work on it | `0` |
 | Not a working day (per `working_days`) | `0` |
 | Bank holiday in the configured division | `0` |
 | Whole-day absence of any type | `0` |
@@ -85,7 +86,7 @@ that disagrees with the sum of its own rows.
 | `contracted_minutes` | `int` | Minutes in a standard working day. Default `444` (7h 24m). |
 | `day_window_start` | `str` "HH:MM" | Left edge of the punch strip. Default `07:00`. |
 | `day_window_end` | `str` "HH:MM" | Right edge of the punch strip. Default `19:00`. |
-| `tracking_since` | `date \| None` | The day setup was answered. Days before it expect no work. `None` (pre-`0015` databases) means every day counts. |
+| `tracking_since` | `date \| None` | The day setup was answered. Days before it expect no work unless some is recorded on them. `None` (pre-`0015` databases) means every day counts. |
 
 A `CHECK` and a `UNIQUE` on `singleton_key` make this a true single-row table.
 

@@ -77,6 +77,8 @@ there and offers to open Flexi, change settings, or start over.
   session.
 - **Flexi stamps the day you set it up** and expects nothing of the days before
   it, so installing in November does not open you on seven months of deficit.
+  Fill one in with `n` and it counts against your contracted day, as a punched
+  day would.
 - **Entitlement is per leave year.** `f4` lists the years, edits any of them and
   adds the next.
 

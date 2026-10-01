@@ -61,7 +61,8 @@ uv run flexi
 
 Flexi asks for your leave-year start, annual entitlement, working days,
 UK bank-holiday division, and the time to close sessions left running overnight.
-Tracking starts that day; earlier days do not create a deficit.
+Tracking starts that day; earlier days do not create a deficit. Work you record
+on one counts it against your contracted day.
 
 Press `f4` to change settings or set each leave year's entitlement.
 A new leave year needs its own allowance.
