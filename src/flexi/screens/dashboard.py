@@ -248,8 +248,8 @@ class DashboardScreen(Screen[None]):
         """A second passed. Redraw the two readouts that measure elapsed time.
 
         No `invalidate()`: nothing was written, and `LedgerService.days` always
-        rebuilds today, whose length changes every second. Clearing the memo
-        would throw away every other day in the period with it.
+        rebuilds today, which an open session lengthens a minute at a time.
+        Clearing the memo would throw away every other day in the period with it.
         """
         self.now = wallclock.now()
         for module in (ClockModule, BalanceModule):
