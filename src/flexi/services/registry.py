@@ -121,7 +121,10 @@ def zero_balance(
     A date earlier than a line already drawn in the same leave year is refused
     too: the correction is sized from the balance up to ``as_of``, which cannot
     see the later row, so the period they share is absorbed twice. A previous
-    leave year is fair game, since each accumulates from its own start.
+    leave year is fair game, since each accumulates from its own start. Any
+    later row counts as a line, an opening balance or a correction as much as a
+    settlement: a reason is free text, `--reason` included, and cannot tell
+    them apart.
 
     Here, not in `flexi/cli/balance.py`, so the TUI and any embedder hold the
     same line.
@@ -142,7 +145,8 @@ def zero_balance(
         if standing_line is not None:
             return AdjustmentResult(
                 False,
-                f"A line was already drawn at {long_date(standing_line.date)};"
+                "An adjustment is already recorded on"
+                f" {long_date(standing_line.date)};"
                 f" undo it with `flexi balance undo {standing_line.id}`"
                 " or settle on or after that date",
             )

@@ -306,6 +306,36 @@ def test_zeroing_behind_an_existing_line_is_refused(
     assert services.ledger.balance(FRIDAY).delta == settled
 
 
+def test_zeroing_settles_an_adjustment_dated_inside_it(services: Services) -> None:
+    """Zero means zero: an opening balance before the line is settled with the rest."""
+    work(services, MONDAY, hours=2)
+    services.adjustments.record(MONDAY, BROUGHT_FORWARD, "Brought forward")
+
+    assert zero_balance(services, TUESDAY).success
+    assert services.ledger.balance(TUESDAY).delta == timedelta()
+
+
+def test_zeroing_behind_a_manual_adjustment_is_refused(services: Services) -> None:
+    """A later correction stops a settlement as a later settlement does.
+
+    A reason is free text, `zero --reason` included, so a correction cannot be
+    told from a settlement, and a line drawn behind a settlement absorbs the
+    period the two share twice. The refusal names an adjustment, not a line,
+    because that much is certain.
+    """
+    work(services, MONDAY, hours=2)
+    later = services.adjustments.record(FRIDAY, timedelta(hours=1), "Missed meeting")
+    assert later.adjustment is not None
+
+    behind = zero_balance(services, MONDAY)
+
+    assert not behind.success
+    assert "An adjustment" in behind.message
+    assert "Fri 12 Jun 2026" in behind.message
+    assert f"flexi balance undo {later.adjustment.id}" in behind.message
+    assert zero_balance(services, FRIDAY).success, "on its date it is settled too"
+
+
 def test_zeroing_an_earlier_leave_year_is_allowed(services: Services) -> None:
     """Each leave year accumulates from its own start, so the two cannot overlap."""
     work(services, MONDAY, hours=2)
