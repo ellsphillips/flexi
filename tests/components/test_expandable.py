@@ -263,6 +263,44 @@ async def test_expand_all_takes_a_direction() -> None:
         assert table.expanded == set()
 
 
+async def test_redrawing_the_same_rows_leaves_the_view_alone() -> None:
+    """A redraw that only moves the figures, a clock-out or a minute later.
+
+    Clearing the table to refill it scrolls it back to the cursor, under
+    whoever was reading further down.
+    """
+    table = ExpandableTable()
+    async with mounted(table) as pilot:
+        days = [f"2026-06-{number:02d}" for number in range(1, 31)]
+        await table_of(pilot, *(day(iso) for iso in days))
+        table.scroll_to(y=8, animate=False)
+        await pilot.pause()
+
+        table.set_groups(
+            RowGroup(Row(row_key(RowKind.DAY, iso), (f"{iso} later",))) for iso in days
+        )
+        await pilot.pause()
+
+        assert table.scroll_y == 8
+        assert table.cursor_key == row_key(RowKind.DAY, days[0])
+        last = table.get_row(row_key(RowKind.DAY, days[-1]))
+        assert last == [f"{days[-1]} later"], "the figures were not redrawn"
+
+
+async def test_a_column_that_changed_width_lays_the_rows_out_again() -> None:
+    """The records table widens its strip column itself, on a resize."""
+    table = ExpandableTable()
+    async with mounted(table) as pilot:
+        await table_of(pilot, day(MONDAY), day(TUESDAY))
+        column = table.ordered_columns[0]
+        column.width = 20
+
+        table.set_groups([day(MONDAY), day(TUESDAY)])
+        await pilot.pause()
+
+        assert table.virtual_size.width == column.get_render_width(table)
+
+
 async def test_table_groups_are_readable_back() -> None:
     """The table is the only place the run of groups is kept."""
     table = ExpandableTable()
