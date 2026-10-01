@@ -6,8 +6,7 @@ raises before the theme is registered, and the setup screen can be pushed before
 
 ``/`` is bound with ``priority=True`` so it works from any screen, and stood
 down by :meth:`check_action` inside a text field, where a date being typed is
-allowed to contain one. ``:``, the palette's second key, is stood down there
-too, so a time keeps its colon.
+allowed to contain one.
 """
 
 from __future__ import annotations
@@ -91,9 +90,9 @@ class FlexiApp(TextualApp[None]):
         ),
         Binding(CONFIG.hotkeys.toggle_jump_mode, "toggle_jump_mode", "Jump", show=True),
         Binding(CONFIG.hotkeys.help, "help", "Help", show=True),
-        # A second key for the palette: Textual's ctrl+p is Quick Open in VS
-        # Code and Cursor on Windows and Linux. Not priority, unlike ctrl+p, so
-        # a field or a dialog in front keeps the colon.
+        # A second key for the palette, as VS Code and Cursor keep ctrl+p on
+        # Windows and Linux. Not priority, unlike ctrl+p, so a colon that misses
+        # its time field cannot open the palette over a dialog.
         Binding("colon", "palette", "Command palette", show=False),
         *[
             Binding(item.key, f"go_to('{item.screen}')", item.label, show=True)
@@ -451,14 +450,15 @@ class FlexiApp(TextualApp[None]):
     # clocking ----------------------------------------------------------------
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Stand `/` and `:` down while an Input or TextArea has focus.
+        """Stand `/` down while an Input or TextArea has focus.
 
-        `/` is `priority=True`, so it runs before the focused widget and would
-        otherwise eat the slash out of a date being typed. `:` is not, and is
-        stood down as well: a colon typed into a time never opens the palette.
+        The binding is `priority=True`, so it runs before the focused widget and
+        would otherwise eat the slash out of a date being typed. `:` needs none:
+        a focused field withholds the keys it types from every binding, priority
+        or not, and Textual recognises `colon` as one of them but not `slash`.
         """
         del parameters
-        if action not in {"clock_toggle", "palette"}:
+        if action != "clock_toggle":
             return True
         return not isinstance(self.focused, Input | TextArea)
 
@@ -487,8 +487,7 @@ class FlexiApp(TextualApp[None]):
         """Open the command palette from `:`.
 
         Its own action, not a second key for `command_palette`: binding one
-        stops Textual adding ctrl+p, and :meth:`check_action` could not stand
-        `:` down in a field without standing ctrl+p down with it.
+        stops Textual adding ctrl+p.
         """
         self.action_command_palette()
 
