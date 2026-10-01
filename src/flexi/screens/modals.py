@@ -247,14 +247,18 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         yield Static(self._allowance_hint(), classes="caption")
 
     def _allowance_hint(self) -> str:
-        """What is left of the annual allowance and of banked TOIL."""
+        """What is left of the annual allowance, and the TOIL free to book.
+
+        Not "banked", the dashboard's word for the balance: TOIL booked ahead
+        is already spoken for, so this figure is that one less those days.
+        """
         parts: list[str] = []
         if self._remaining is not None:
             left = self._remaining
             parts.append(f"{fmt_days(left)} {plural(left, 'day')} annual leave left")
         if self._toil_days is not None:
-            banked = round(self._toil_days, 1)
-            parts.append(f"{fmt_days(banked)} {plural(banked, 'day')} of TOIL banked")
+            free = round(self._toil_days, 1)
+            parts.append(f"{fmt_days(free)} {plural(free, 'day')} of TOIL free to book")
         return " · ".join(parts)
 
     def result(self) -> AbsenceBooking:

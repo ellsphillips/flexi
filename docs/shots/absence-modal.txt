@@ -24,7 +24,7 @@
  │ ━━━━━━━━━━━━━━━━━━━━━━━━━▎  ▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎                             │
  │ SICK         1d · 1 occas▎  Note                                                                                   │
  ╰────────── −8:31 this peri▎   Required for Other                                       ▇                            │
- ╭─ Calendar ───────────────▎  20.5 days annual leave left · 1.1 days of TOIL banked                                  │
+ ╭─ Calendar ───────────────▎  20.5 days annual leave left · 1.1 days of TOIL free to book                            │
  │  ‹       June 2026       ▎                                                                                         │
  │  M   T   W   T   F   S   ▎                                                                                         │
  │   1   2   3   4   5   6  ▎                                                                                         │

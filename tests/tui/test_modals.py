@@ -178,7 +178,7 @@ def test_modal_told_one_figure_says_one() -> None:
     toil_only = AbsenceModal(FREE_MONDAY, toil_days=1.0)
 
     assert remaining_only._allowance_hint() == "3.5 days annual leave left"
-    assert toil_only._allowance_hint() == "1 day of TOIL banked"
+    assert toil_only._allowance_hint() == "1 day of TOIL free to book"
 
 
 # ---- the help modal ----
