@@ -46,11 +46,12 @@ The balance those days left behind is brought in by hand.
 same kind of row as a settlement: an opening balance carried from a spreadsheet,
 or a correction. It is dated today unless `--on` names an earlier day of the
 current leave year, since a row dated in an earlier year is never counted, and
-it lands after the latest row dated before today. That row may be a settlement,
-which a row behind it would reopen, and a reason is free text, so nothing tells
-a settlement from a correction. A row dated today never is one: only a finished
-day is settled. For the same reason a settlement is refused behind any later
-row.
+it lands after the latest row made after its own date. That row may be a
+settlement, which a row behind it would reopen: a reason is free text, so only
+the dates can tell. Only a finished day is settled, so a settlement is always
+made after its date, and a row dated the day it was made, as an opening balance
+brought in today is, never is one. For the same reason a settlement is refused
+behind any later row made after its date.
 
 `expected_hours(d)` is the crux:
 
@@ -182,7 +183,9 @@ it" — every holiday a working day, quietly.
 `date` (when the correction takes effect), `minutes` (signed), `reason`,
 `created_at`. Written by `flexi balance zero`, with the reason `settled` unless
 one is given, and by `flexi balance adjust` or the palette's *Adjust balance…*;
-removable by id through `flexi balance undo`.
+removable by id through `flexi balance undo`. `created_at` is UTC; read on the
+local clock against `date`, it is what tells a possible settlement from a
+correction.
 
 ---
 

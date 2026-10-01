@@ -62,8 +62,10 @@ not happened yet.
   yesterday by default, because today is not over.
 - `flexi balance log` lists every correction, and `flexi balance undo <id>`
   removes one.
-- A settlement behind a correction already recorded is refused, not
-  double-counted, and a correction cannot be dated behind a settlement.
+- A settlement dated before one already recorded is refused, not
+  double-counted, and a correction cannot be dated on or before a settlement.
+  Both rules treat an adjustment given an earlier day with `--on` as a
+  settlement, since Flexi cannot tell the two apart.
 
 ### The command line
 

@@ -126,9 +126,11 @@ Leave commands show a plan and ask before writing. `--dry-run` previews it;
 `--yes` skips confirmation. Declining exits with status 1.
 
 `balance adjust` moves the balance by a signed amount, such as `+5:30` or
-`-1:30`, from today or an earlier day of the leave year given with `--on`. It
-shows the balance before and after and asks first, as `balance zero` does;
-`--yes` skips the question, and is needed where there is no terminal to ask on.
+`-1:30`, from today or an earlier day of the leave year given with `--on`.
+That day has to come after any settlement, and after any adjustment that was
+itself given an earlier day, since Flexi cannot tell the two apart. It shows
+the balance before and after and asks first, as `balance zero` does; `--yes`
+skips the question, and is needed where there is no terminal to ask on.
 `balance log` lists every adjustment, and `balance undo` removes one.
 
 `balance zero` settles through yesterday by default. If work overlaps booked
