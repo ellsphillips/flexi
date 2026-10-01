@@ -534,7 +534,11 @@ def test_adjustment_behind_a_settlement_is_refused(services: Services) -> None:
 
 @pytest.mark.usefixtures("on_wednesday")
 def test_settlement_under_any_reason_holds_its_line(services: Services) -> None:
-    """`zero --reason` is free text, so every row before today is a possible line."""
+    """`zero --reason` is free text, so every row before today is a possible line.
+
+    The refusal says adjustment, not settlement: the row in the way may be a
+    correction recorded a day late.
+    """
     work(services, MONDAY, hours=2)
     assert zero_balance(services, MONDAY, reason="Agreed with my manager").success
     services.adjustments.record(TUESDAY, timedelta(minutes=15), "Missed meeting")
@@ -542,7 +546,9 @@ def test_settlement_under_any_reason_holds_its_line(services: Services) -> None:
     refused = adjust_balance(services, timedelta(hours=1), "Late claim", MONDAY)
 
     assert not refused.success
-    assert "Tue 9 Jun 2026" in refused.message, "the latest line, not the first"
+    assert "An adjustment is already recorded on Tue 9 Jun 2026" in refused.message, (
+        "the latest line, not the first"
+    )
 
 
 @pytest.mark.usefixtures("on_wednesday")

@@ -185,8 +185,8 @@ def adjustment_refusal(services: Services, when: date) -> str | None:
     line = services.adjustments.last_before(today)
     if line is not None and when <= line.date:
         return (
-            f"The adjustment dated {long_date(line.date)} may have settled the"
-            " balance, and one dated on or before it would reopen what it closed;"
+            f"An adjustment is already recorded on {long_date(line.date)}, and"
+            " one dated on or before it could reopen a balance settled there;"
             " date this one after that day, or undo that one with"
             f" `flexi balance undo {line.id}`"
         )
