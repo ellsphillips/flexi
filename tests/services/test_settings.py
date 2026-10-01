@@ -394,6 +394,8 @@ def test_impossible_meridiem_hour_is_refused(typed: str) -> None:
         ("7.5", 450),
         ("7.5h", 450),
         ("7.4", 444),
+        ("7.75", 465),
+        ("8.00", 480),
         ("8h", 480),
         ("8", 480),
         (" 6 hrs ", 360),
@@ -438,6 +440,29 @@ def test_part_of_a_minute_is_refused_not_rounded(typed: str) -> None:
     """`7.24` hours is 7:14 and a fraction; whoever typed it likely meant 7:24."""
     with pytest.raises(ValueError, match="not a whole number of minutes"):
         parse_contracted_minutes(typed)
+
+
+@pytest.mark.parametrize(
+    ("typed", "clock", "hours"),
+    [
+        ("7.30", "7:30", "7:18"),
+        ("7.50", "7:50", "7:30"),
+        ("7.40", "7:40", "7:24"),
+        ("7.25h", "7:25", "7:15"),
+    ],
+)
+def test_a_decimal_that_reads_as_a_clock_is_refused(
+    typed: str, clock: str, hours: str
+) -> None:
+    """`7.30` is 7:30 to whoever wrote it, and 7.3 hours as a decimal.
+
+    The clock parser reads `9.30` as 9:30, so neither reading is safe to pick,
+    and a day misread by twelve minutes is an hour a week off.
+    """
+    with pytest.raises(ValueError, match="could mean") as refused:
+        parse_contracted_minutes(typed)
+    assert clock in str(refused.value)
+    assert hours in str(refused.value)
 
 
 # ---- reading settings that are not there ----

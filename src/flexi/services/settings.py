@@ -19,6 +19,7 @@ from flexi.domain.dates import (
     MONTHS_IN_YEAR,
     weekday_index,
 )
+from flexi.domain.format import hm
 from flexi.domain.punch import Window
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
@@ -501,6 +502,9 @@ _DAY_LENGTH = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+_CLOCK_LIKE = re.compile(r"(?P<hours>\d+)\.(?P<minutes>[0-5]\d)")
+"""A decimal that also reads as a clock, the way `parse_clock_time` reads 9.30."""
+
 
 def parse_contracted_minutes(raw: str) -> int:
     """Minutes in a working day, from whatever the user typed.
@@ -508,7 +512,9 @@ def parse_contracted_minutes(raw: str) -> int:
     A field labelled "hours a day" invites `7.5` as readily as `7:30`, and a
     decimal there is hours: :func:`parse_clock_time` would read `7.5` as 7:05.
     A decimal that is not a whole number of minutes is refused, not rounded:
-    `7.24` is far more often 7:24 mistyped than 7:14 and a fraction.
+    `7.24` is far more often 7:24 mistyped than 7:14 and a fraction. A decimal
+    a clock reads differently is refused too: `7.30` is 7:30 to whoever wrote
+    it, and 7:18 as hours.
 
     Examples:
         >>> parse_contracted_minutes("7:24")
@@ -531,6 +537,14 @@ def parse_contracted_minutes(raw: str) -> int:
             msg = f"'{raw}' is not a whole number of minutes: use H:MM, like 7:24"
             raise ValueError(msg)
         minutes = int(exact)
+        clock = _CLOCK_LIKE.fullmatch(found["decimal"])
+        if clock and int(clock["minutes"]) != minutes % MINUTES_IN_HOUR:
+            msg = (
+                f"'{raw}' could mean {clock['hours']}:{clock['minutes']}, or "
+                f"{found['decimal']} hours ({hm(timedelta(minutes=minutes))}): "
+                "use H:MM"
+            )
+            raise ValueError(msg)
     else:
         past = int(found["minutes"])
         if past >= MINUTES_IN_HOUR:

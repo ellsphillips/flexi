@@ -264,6 +264,7 @@ async def test_hours_a_day_are_what_every_day_expects(fresh_db: Path) -> None:
         ("25", "no more than 24:00"),
         ("seven", "not a length of time"),
         ("7.24", "not a whole number of minutes"),
+        ("7.30", "could mean 7:30"),
     ],
 )
 async def test_hours_a_day_that_cannot_be_used_are_refused(

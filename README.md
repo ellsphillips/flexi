@@ -64,8 +64,9 @@ a day, UK bank-holiday division, and the time to close sessions left running
 overnight. Tracking starts that day; earlier days do not create a deficit. Record
 work on one of them and it counts against your contracted day.
 
-Hours a day default to 7:24 and accept `7:30`, `7h30` or `7.5`; a decimal is
-hours, so `7.5` is 7:30. One figure applies to every working day.
+Hours a day default to 7:24 and accept `7:30`, `7h30` or `7.5`. A decimal is
+hours, so `7.5` is 7:30; `7.30`, which reads either way, is refused. One figure
+applies to every working day.
 
 Starting with a balance? Run `flexi balance adjust +5:30 --reason "Brought forward"`,
 or choose **Adjust balance…** from the command palette (`ctrl+p`).
