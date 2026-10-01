@@ -420,3 +420,70 @@ async def test_rollback_refusal_keeps_the_dashboard_off_the_clock(
             assert not app.screen.query_one("#clock-switch", Switch).value
             assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
             assert app.services.clock.segments_on(date(2026, 6, 11)) == before
+
+
+# ---- the live tick, on presses that carry seconds ----
+
+
+@pytest.fixture
+def pressed_on_the_second(tmp_path: Path) -> Path:
+    """Monday worked and Tuesday on the clock, punched as a person punches.
+
+    A press lands on any second. The demo seed punches on the minute, where
+    every figure turns over with the wall clock.
+    """
+    path = tmp_path / "flexi.db"
+    engine = create_db_engine(path)
+    create_schema(engine)
+    session = get_session(engine)
+
+    services = build_services(session)
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
+    )
+    services.clock.clock_in(now=datetime(2026, 6, 8, 9, 0, 13, tzinfo=UTC))
+    services.clock.clock_out(now=datetime(2026, 6, 8, 17, 0, 51, tzinfo=UTC))
+    services.clock.clock_in(now=datetime(2026, 6, 9, 9, 0, 37, tzinfo=UTC))
+    session.close()
+    engine.dispose()
+    return path
+
+
+async def test_each_figure_turns_its_minute_on_its_own_second(
+    pressed_on_the_second: Path,
+) -> None:
+    """Today's row and the period's total keep step with the rails above them.
+
+    Today reaches its next minute at the second Tuesday was clocked in on, and
+    the week at the seconds Monday adds to that. Redrawn when the wall clock's
+    minute turns, the table would read a minute behind the rails for part of
+    each one.
+    """
+    app = FlexiApp(db_path=pressed_on_the_second)
+    with time_machine.travel(TUESDAY_TEN, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await settled(pilot)
+            screen = dashboard(app)
+            assert screen._tick is not None
+            screen._tick.pause()  # Each tick below is the test's own.
+            records = screen.query_one(RecordsModule)
+            day = screen.query_one("#rail-day", ProgressRail)
+            period = screen.query_one("#rail-period", ProgressRail)
+
+            for second in range(61):
+                moment = TUESDAY_TEN + timedelta(seconds=second)
+                with time_machine.travel(moment, tick=False):
+                    screen._on_tick()
+                today = records.table.get_row(row_key(RowKind.DAY, moment.date()))
+                total = records.table.get_row(row_key(RowKind.TOTAL, "period"))
+                drawn = (str(today[2]), str(total[2]), str(records.border_subtitle))
+                assert drawn == (
+                    hm(day.done),
+                    hm(period.done),
+                    f"{hm(period.done)} of {hm(period.total)}",
+                ), f"behind the rails at {moment:%H:%M:%S}"
