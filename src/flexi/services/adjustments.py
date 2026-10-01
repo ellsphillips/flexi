@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -67,6 +67,18 @@ class AdjustmentResult:
     warning: str | None = None
 
 
+def _may_settle(row: BalanceAdjustment) -> bool:
+    """Whether ``row`` may be a settlement, which its reason cannot say.
+
+    `zero_balance` settles finished days only, so a settlement is always dated
+    before the day it was made, and a row dated on or after that day, as an
+    adjustment from today is, never is one. ``created_at`` is UTC; the day it
+    was made is read on the local clock, as `zero_balance` reads today.
+    """
+    made = wallclock.local(row.created_at.replace(tzinfo=UTC)).date()
+    return row.date < made
+
+
 class AdjustmentService:
     """Read and write stored corrections to the flexi balance."""
 
@@ -82,8 +94,8 @@ class AdjustmentService:
         )
         return list(self._session.execute(stmt).scalars())
 
-    def first_after(self, when: date, until: date) -> BalanceAdjustment | None:
-        """The earliest correction dated after ``when`` and no later than ``until``.
+    def first_line_after(self, when: date, until: date) -> BalanceAdjustment | None:
+        """The earliest row after ``when``, up to ``until``, that may be a settlement.
 
         A settlement is sized from the balance up to its own date, so a line
         drawn earlier than one already standing cannot see it and counts the
@@ -93,15 +105,14 @@ class AdjustmentService:
             select(BalanceAdjustment)
             .where(BalanceAdjustment.date > when, BalanceAdjustment.date <= until)
             .order_by(BalanceAdjustment.date, BalanceAdjustment.id)
-            .limit(1)
         )
-        return self._session.execute(stmt).scalars().first()
+        return next(filter(_may_settle, self._session.execute(stmt).scalars()), None)
 
     def last_before(self, when: date) -> BalanceAdjustment | None:
         """The latest correction dated before ``when``.
 
-        The mirror of :meth:`first_after`: `adjust_balance` asks it for the
-        line a new correction has to be dated after.
+        The mirror of :meth:`first_line_after`: `adjust_balance` asks it for
+        the line a new correction has to be dated after.
         """
         stmt = (
             select(BalanceAdjustment)

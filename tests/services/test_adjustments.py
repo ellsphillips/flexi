@@ -315,16 +315,22 @@ def test_zeroing_settles_an_adjustment_dated_inside_it(services: Services) -> No
     assert services.ledger.balance(TUESDAY).delta == timedelta()
 
 
-def test_zeroing_behind_a_manual_adjustment_is_refused(services: Services) -> None:
-    """A later correction stops a settlement as a later settlement does.
+def test_zeroing_behind_a_back_dated_adjustment_is_refused(
+    services: Services,
+) -> None:
+    """A later correction made after its date stops a settlement as one does.
 
-    A reason is free text, `zero --reason` included, so a correction cannot be
-    told from a settlement, and a line drawn behind a settlement absorbs the
-    period the two share twice. The refusal names an adjustment, not a line,
-    because that much is certain.
+    A settlement is always made after its date, and a reason is free text,
+    `zero --reason` included, so such a correction cannot be told from a
+    settlement, and a line drawn behind a settlement absorbs the period the two
+    share twice. The refusal names an adjustment, not a line, because that much
+    is certain.
     """
     work(services, MONDAY, hours=2)
-    later = services.adjustments.record(FRIDAY, timedelta(hours=1), "Missed meeting")
+    with time_machine.travel(datetime(2026, 6, 13, 12, 0, tzinfo=UTC), tick=False):
+        later = services.adjustments.record(
+            FRIDAY, timedelta(hours=1), "Missed meeting"
+        )
     assert later.adjustment is not None
 
     behind = zero_balance(services, MONDAY)
@@ -334,6 +340,48 @@ def test_zeroing_behind_a_manual_adjustment_is_refused(services: Services) -> No
     assert "Fri 12 Jun 2026" in behind.message
     assert f"flexi balance undo {later.adjustment.id}" in behind.message
     assert zero_balance(services, FRIDAY).success, "on its date it is settled too"
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_zeroing_is_not_held_up_by_an_adjustment_dated_today(
+    services: Services,
+) -> None:
+    """Zero cannot settle today, so a row dated today never stands in its way.
+
+    Otherwise `balance adjust` would stop `balance zero` for the rest of the
+    day, and the refusal's remedy, settling on or after the row's date, would
+    be refused too: that day has not finished.
+    """
+    work(services, MONDAY, hours=2)
+    assert adjust_balance(services, timedelta(minutes=30), "Missed meeting").success
+
+    settled = zero_balance(services)
+
+    assert settled.success, settled.message
+    assert services.ledger.balance(TUESDAY).delta == timedelta()
+    assert services.ledger.day(WEDNESDAY).adjustment == timedelta(minutes=30)
+
+
+@pytest.mark.usefixtures("in_london")
+def test_settlement_made_just_after_midnight_holds_its_line(
+    services: Services,
+) -> None:
+    """The day a row was made is read on the local clock, as `zero` reads today.
+
+    At 00:30 on a summer Wednesday in London it is still Tuesday in UTC, where
+    `created_at` is kept, so read there, Tuesday's settlement would look made
+    on its own date, and a settlement behind it would count Monday twice.
+    """
+    work(services, MONDAY, hours=2)
+    with time_machine.travel(datetime(2026, 6, 9, 23, 30, tzinfo=UTC), tick=False):
+        line = zero_balance(services)
+        assert line.adjustment is not None
+        assert line.adjustment.date == TUESDAY
+
+        behind = zero_balance(services, MONDAY)
+
+    assert not behind.success
+    assert f"flexi balance undo {line.adjustment.id}" in behind.message
 
 
 def test_zeroing_an_earlier_leave_year_is_allowed(services: Services) -> None:

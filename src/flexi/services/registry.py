@@ -122,9 +122,10 @@ def zero_balance(
     too: the correction is sized from the balance up to ``as_of``, which cannot
     see the later row, so the period they share is absorbed twice. A previous
     leave year is fair game, since each accumulates from its own start. Any
-    later row counts as a line, an opening balance or a correction as much as a
+    later row made after its date counts as a line, a correction as much as a
     settlement: a reason is free text, `--reason` included, and cannot tell
-    them apart.
+    them apart. One dated the day it was made, as an adjustment from today is,
+    is never a settlement, and a line behind it absorbs nothing twice.
 
     Here, not in `flexi/cli/balance.py`, so the TUI and any embedder hold the
     same line.
@@ -141,7 +142,7 @@ def zero_balance(
         # derivation stable until its compensating row is committed.
         services.ledger.invalidate()
         _, year_end = services.absence.leave_year_bounds(as_of)
-        standing_line = services.adjustments.first_after(as_of, year_end)
+        standing_line = services.adjustments.first_line_after(as_of, year_end)
         if standing_line is not None:
             return AdjustmentResult(
                 False,
