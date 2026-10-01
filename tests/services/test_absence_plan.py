@@ -354,6 +354,62 @@ def test_toil_today_spends_the_balance(services: Services) -> None:
     )
 
 
+def test_toil_today_spends_only_what_its_work_has_not_covered(
+    configure: Configured,
+) -> None:
+    """After five hours on Wednesday morning, its afternoon off costs 2:24.
+
+    That is all the day still asks for, so the +3:00 Tuesday banked pays for it
+    with no warning, and the balance moves by what the plan said it would.
+    """
+    tuesday, wednesday = date(2026, 8, 11), MID_SPAN.date()
+    services = configure(entitlement=(2025, 25.0), tracking_since=tuesday)
+    work(services, tuesday, hours=10.4, start_hour=7)
+    work(services, wednesday, hours=5, start_hour=7)
+
+    lunchtime = datetime.combine(wednesday, time(12, 30), tzinfo=UTC)
+    with time_machine.travel(lunchtime, tick=False):
+        available = services.wallet.available_toil_days()
+        plan = services.absence.plan(
+            wednesday,
+            wednesday,
+            AbsenceType.FLEXI,
+            Portion.PM,
+            available_toil_days=available,
+        )
+        booked = services.absence.book(
+            wednesday, AbsenceType.FLEXI, Portion.PM, available_toil_days=available
+        )
+        spent = available - services.wallet.available_toil_days()
+
+    assert plan.toil_cost == timedelta(hours=2, minutes=24) / CONTRACTED
+    assert spent == pytest.approx(plan.toil_cost)
+    assert plan.warning is None
+    assert booked.warning is None
+
+
+def test_a_night_begun_the_day_before_does_not_pay_for_today(
+    configure: Configured,
+) -> None:
+    """Tuesday's night shift counts on Tuesday, not on the afternoon taken off."""
+    tuesday, wednesday = date(2026, 8, 11), MID_SPAN.date()
+    services = configure(entitlement=(2025, 25.0), tracking_since=tuesday)
+    work(services, tuesday, hours=7.4, start_hour=22)
+
+    lunchtime = datetime.combine(wednesday, time(12, 30), tzinfo=UTC)
+    with time_machine.travel(lunchtime, tick=False):
+        plan = services.absence.plan(
+            wednesday,
+            wednesday,
+            AbsenceType.FLEXI,
+            Portion.PM,
+            available_toil_days=1.0,
+        )
+
+    assert len(plan.bookable) == 1
+    assert plan.toil_cost == 0.5
+
+
 def test_toil_preview_on_a_day_corrected_before_tracking_matches_the_ledger(
     configure: Configured,
 ) -> None:

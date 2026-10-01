@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import NamedTuple
 
 from sqlalchemy import select
@@ -29,7 +29,7 @@ from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain import leaveyear
 from flexi.domain.dates import days_between
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import plural, short_date, to_the_minute
+from flexi.domain.format import plural, short_date, to_the_minute, whole_minutes
 from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
@@ -222,6 +222,10 @@ class DayFacts:
     holiday_title: str | None
     booked: tuple[Portion, ...]
     worked: tuple[Span, ...]
+    worked_hours: timedelta
+    """How long the sessions begun on this date have run so far: the hours the
+    ledger counts on it. Not the length of ``worked``, which also holds a night
+    begun the day before, counted on that day."""
     is_tracked: bool = True
     """Whether the ledger expects anything of this date. False before tracking
     started, unless work is recorded on it; `LedgerService` reads the same
@@ -265,16 +269,27 @@ def clash_reason(facts: DayFacts, portion: Portion) -> str | None:
     return None
 
 
-def _draws_on_the_balance(facts: DayFacts, today: date) -> bool:
-    """True when booking TOIL on this date would move the flexi balance.
+def _drawn_from_the_balance(
+    facts: DayFacts, portion: Portion, today: date, contracted: timedelta
+) -> float:
+    """How many days of the flexi balance booking TOIL on this date would spend.
 
     A tracked day already past expects its contracted hours and already carries
     the shortfall for not getting them, so TOIL booked over it trades one for
-    the other and leaves the balance where it was. Today does not owe its
-    hours until it ends, so like a future tracked day it reserves time from
-    the balance. An untracked day never withdraws from it.
+    the other and leaves the balance where it was. A future tracked day reserves
+    the whole booking from the balance. Today does not owe its hours until it
+    ends, so a booking on it spends only the part its work has not covered: the
+    afternoon off after a five-hour morning costs the 2:24 still to work. An
+    untracked day never withdraws from it.
     """
-    return facts.date >= today and facts.is_tracked
+    if not facts.is_tracked or facts.date < today:
+        return 0.0
+    if facts.date > today:
+        return portion.days
+    # What the day expects before this booking, in the ledger's whole minutes.
+    share = 1 - sum(taken.days for taken in facts.booked)
+    unworked = max(timedelta(), whole_minutes(contracted * share) - facts.worked_hours)
+    return min(portion.days, unworked / contracted) if contracted else 0.0
 
 
 def verdict_for(
@@ -412,7 +427,8 @@ class AbsencePlan:
     toil_available: float | None = None
     toil_cost: float | None = None
     """What this plan takes off the flexi balance, which is not its `cost`: a
-    tracked day already past relabels a shortfall the balance has counted.
+    tracked day already past relabels a shortfall the balance has counted, and
+    today's work so far pays for part of a booking on it.
     ``None`` is a plan built without a date to measure against, where every
     bookable day counts."""
     toil_balances: tuple[ToilBalance, ...] = ()
@@ -764,7 +780,9 @@ class AbsenceService:
                 return AbsenceResult(False, decided.reason)
 
             today = wallclock.today()
-            charged = portion.days if _draws_on_the_balance(facts, today) else 0.0
+            charged = _drawn_from_the_balance(
+                facts, portion, today, self._settings.get_contracted()
+            )
             balances = (
                 self._toil_balances(
                     {self._settings.active_leave_year(day): charged},
@@ -810,9 +828,11 @@ class AbsenceService:
         # disagree about when now is.
         moment = wallclock.now()
         worked: defaultdict[date, list[Span]] = defaultdict(list)
+        hours: defaultdict[date, timedelta] = defaultdict(timedelta)
         recorded: set[date] = set()
         for session in sessions_touching(self._session, start, end):
             span = span_of(session, now=moment)
+            hours[session.work_date] += wallclock.elapsed(*span)
             last = max(session.work_date, span[1].date())
             for when in days_between(max(start, session.work_date), min(end, last)):
                 midnight = wallclock.local(datetime.combine(when, time.min))
@@ -831,6 +851,7 @@ class AbsenceService:
                 holiday_title=None if titles is None else titles.get(when),
                 booked=tuple(booked[when]),
                 worked=tuple(worked[when]),
+                worked_hours=hours[when],
                 is_tracked=(
                     tracking_since is None or when >= tracking_since or when in recorded
                 ),
@@ -912,6 +933,7 @@ class AbsenceService:
         remaining = dict(opening)
         days: list[PlannedDay] = []
         today = wallclock.today()
+        contracted = self._settings.get_contracted()
         toil_cost = 0.0
         toil_costs: defaultdict[int, float] = defaultdict(float)
 
@@ -928,7 +950,7 @@ class AbsenceService:
             days.append(decided)
             if decided.verdict is not Verdict.BOOK:
                 continue
-            charged = portion.days if _draws_on_the_balance(facts, today) else 0.0
+            charged = _drawn_from_the_balance(facts, portion, today, contracted)
             toil_cost += charged
             toil_costs[active_year] += charged
             if absence_type.draws_down_entitlement and available is not None:
