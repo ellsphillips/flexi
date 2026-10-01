@@ -86,10 +86,11 @@ that disagrees with the sum of its own rows.
 **Minutes.** A punch is stored as the clock read it, seconds and all, and read
 to the minute it shows. A session runs between the minutes of its two punches,
 and an open one to the current minute, so in at 09:00:40 and out at 17:00:20 is
-the 8:00 that `09:00 → 17:00` says. Every figure is drawn in whole minutes,
-each term floored before it is subtracted (`BalanceSummary.as_shown`), so a
-column adds up to the total under it and a balance reads the same wherever it
-is drawn.
+the 8:00 that `09:00 → 17:00` says. Half a day is counted to the minute below,
+expected and withdrawn alike, so half of 7:25 is 3:42 and not 3:42:30. Every
+figure is drawn in whole minutes, each term floored before it is subtracted
+(`BalanceSummary.as_shown`), so a column adds up to the total under it and a
+balance reads the same wherever it is drawn.
 
 ---
 

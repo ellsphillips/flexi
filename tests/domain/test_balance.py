@@ -84,6 +84,25 @@ def test_half_day_expects_half_the_contract() -> None:
     assert got == CONTRACTED / 2
 
 
+def test_half_of_an_odd_minute_day_is_whole_minutes() -> None:
+    """Half of 7:25 is 3:42, in the minutes every figure is drawn in, not 3:42:30."""
+    longer = timedelta(hours=7, minutes=25)
+    morning = [slice_(AbsenceType.FLEXI, Portion.AM)]
+    half = timedelta(hours=3, minutes=42)
+
+    assert (
+        expected_for(
+            longer,
+            is_tracked=True,
+            is_working_day=True,
+            is_holiday=False,
+            absences=morning,
+        )
+        == half
+    )
+    assert toil_taken_for(longer, morning) == half
+
+
 def test_two_half_days_expect_nothing() -> None:
     """A sick morning and an annual afternoon cover the whole day."""
     got = expected_for(

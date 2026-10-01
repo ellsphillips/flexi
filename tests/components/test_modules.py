@@ -368,12 +368,8 @@ def on_the_clock_since_nine(services: Services) -> datetime:
     return datetime(2026, 6, 11, 12, 0, 30, tzinfo=UTC)
 
 
-def half_of_a_longer_day(services: Services) -> datetime:
-    """A sick morning off a 7:25 day leaves the afternoon owing 3:42:30.
-
-    That half minute is in what the day expects, not in a punch, so no reading
-    of the clock removes it.
-    """
+def a_longer_day(services: Services) -> None:
+    """A contract of 7:25, whose half is not a whole number of minutes."""
     services.settings.save_settings(
         parse_settings(
             leave_year_start="10-20",
@@ -383,6 +379,15 @@ def half_of_a_longer_day(services: Services) -> datetime:
             contracted_minutes=445,
         )
     )
+
+
+def half_of_a_longer_day(services: Services) -> datetime:
+    """A sick morning off a 7:25 day leaves the afternoon owing half of it.
+
+    Half is 3:42:30, and that half minute is in what the day expects, not in a
+    punch, so no reading of the clock removes it.
+    """
+    a_longer_day(services)
     booked = services.absence.book(THURSDAY, AbsenceType.SICK, Portion.AM)
     assert booked.success, booked.message
     services.clock.clock_in(now=datetime(2026, 6, 11, 13, 0, tzinfo=UTC))
@@ -777,6 +782,37 @@ async def test_a_month_of_punches_with_seconds_adds_up(
         assert sum(
             (worked_cell(cell(row.cells[2])) for row in days), timedelta()
         ) == worked_cell(cell(total.cells[2]))
+        assert sum(
+            (as_delta(cell(row.cells[3])) for row in days), timedelta()
+        ) == as_delta(cell(total.cells[3]))
+
+
+async def test_two_half_days_off_a_longer_day_add_up(
+    configure: Configured,  # noqa: F811 - the imported fixture
+) -> None:
+    """Two TOIL mornings off a 7:25 day, and the ± column adds up to its total.
+
+    Half of 7:25 is 3:42:30, expected and withdrawn alike. Each row floored its
+    own half minutes away and the total floored the pair's whole minutes once,
+    so the column read two minutes over the total under it.
+    """
+    services = configure(entitlement=(2026, 25.0))
+    a_longer_day(services)
+    for day in (MONDAY, MONDAY + timedelta(days=1)):
+        booked = services.absence.book(day, AbsenceType.FLEXI, Portion.AM)
+        assert booked.success, booked.message
+        afternoon = datetime.combine(day, time(13), tzinfo=UTC)
+        services.clock.clock_in(now=afternoon)
+        services.clock.clock_out(now=afternoon + timedelta(hours=4))
+    invalidate_services(services)
+
+    module = RecordsModule()
+    friday_evening = datetime(2026, 6, 12, 18, 0, tzinfo=UTC)
+    async with showing(module, services, now=friday_evening):
+        rows = module.table.visible_rows()
+        days = [row for row in rows if row.key.startswith(RowKind.DAY)]
+        total = next(row for row in rows if row.key == row_key(RowKind.TOTAL, "period"))
+
         assert sum(
             (as_delta(cell(row.cells[3])) for row in days), timedelta()
         ) == as_delta(cell(total.cells[3]))
