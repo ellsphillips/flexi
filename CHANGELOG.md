@@ -143,8 +143,11 @@ three responsive layouts down to 64 columns. Colour is never the only encoding:
 every coloured cell, rule and bar sits beside a word or a signed number.
 
 `v` puts a one-key badge on every panel, and on the first nine day rows of the
-records table. `?` lists every binding on the screen. `ctrl+p` opens a command
-palette carrying every action, including those with no key.
+records table. `?` lists every binding on the screen. `ctrl+p` or `:` opens a
+command palette carrying every action, including Quit and those with no key.
+`q` quits from the dashboard, Leave and Insights. `:` and `q` are there for
+VS Code and Cursor, whose terminals keep `ctrl+p` and `ctrl+q` for the editor;
+the README has the setting that hands them back.
 
 ### Development and releases
 

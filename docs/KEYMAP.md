@@ -10,8 +10,8 @@ Three layers of discoverability, in the order a user meets them:
    when it does not. Shows the six or seven keys that matter on this screen.
 2. **`?`** — the help screen: every binding on the current screen, grouped by the
    widget that declared it, including the ones the strip dropped.
-3. **`ctrl+p`** — the command palette: every action, fuzzy-searchable, including
-   the ones that have no key at all.
+3. **`ctrl+p`** or **`:`** — the command palette: every action,
+   fuzzy-searchable, including the ones that have no key at all.
 
 Plus **`v`** — jump mode, which is navigation, not discovery.
 
@@ -27,13 +27,23 @@ one.
 | `/` | Clock in, or clock out. |
 | `v` | Jump mode. |
 | `?` | Help. |
-| `ctrl+p` | Command palette. |
+| `ctrl+p` `:` | Command palette. |
 | `f1` `f2` `f3` `f4` | Dashboard / Leave / Insights / Settings. |
 | `ctrl+q` | Quit. |
+| `q` | Quit, from the dashboard, Leave or Insights. |
 
 `escape` closes whatever is on top — a modal, the jump overlay, the help screen,
 or the screen `f2`/`f3`/`f4` pushed. Those screens bind it; the application does
 not, so on the dashboard it does nothing.
+
+`q` and `:` are for VS Code and Cursor, whose terminals keep `ctrl+q` (macOS,
+Windows) and `ctrl+p` (Windows, Linux) for the editor; the
+[README](../README.md#working-with-flexi) says how to hand those back. `q` is
+bound on the three destinations and not on the application, so it never quits
+from a dialog, the jump overlay, Settings or setup, where it would throw away
+what was typed. `:` opens the palette from any screen, but not from a dialog,
+help or jump mode, nor from inside a text field, where a time is typed with one.
+`ctrl+c` answers with the keys that quit from where you are.
 
 `/` is bound at **app** level with `priority=True`, so it works from any screen
 and any focused widget — except inside an `Input` or a `TextArea`, where the app
@@ -273,6 +283,8 @@ values such as `[/]` and nonprinting characters are refused.
 **A comma separates two keys**, as in `"t,ctrl+t"` above. For the comma key
 itself, write `comma`. A period can be written as `.` or `full_stop`.
 Avoid remapping screen actions to navigation keys consumed by focused widgets.
+Leave `q` and `:` free as well: they are fixed, and a hotkey set to either can
+take the key away from quitting or the palette.
 
 Two more rules: a hotkey must be one or more complete key names, and no key may
 be bound to two actions — Textual gives the key to one of them and says nothing
