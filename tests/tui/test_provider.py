@@ -12,7 +12,7 @@ from threading import Lock, get_ident
 from time import sleep
 
 import pytest
-from textual.command import DiscoveryHit, Hit
+from textual.command import CommandPalette, DiscoveryHit, Hit
 from textual.notifications import Notification
 from textual.widgets import Input, RadioSet
 
@@ -80,6 +80,40 @@ def unconfigured(tmp_path: Path) -> Path:
     create_schema(engine)
     engine.dispose()
     return path
+
+
+# Opening it -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key", ["ctrl+p", "colon"])
+async def test_either_key_opens_the_palette(app_factory: AppFactory, key: str) -> None:
+    """ctrl+p is Quick Open in VS Code and Cursor on Windows and Linux, hence `:`.
+
+    Textual adds ctrl+p itself, and stops as soon as any other key is bound to
+    its palette action, so ctrl+p is checked as well.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press(key)
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandPalette)
+
+
+async def test_colon_typed_into_a_time_stays_there(unconfigured: Path) -> None:
+    """Setup is a screen and not a dialog, so the application's keys reach it."""
+    app = FlexiApp(db_path=unconfigured)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        field = showing(app, SetupScreen).query_one("#input-auto-close", Input)
+        field.focus()
+        field.value = ""
+
+        await pilot.press("1", "7", "colon", "0", "0")
+        await pilot.pause()
+
+        assert field.value == "17:00"
+        assert not isinstance(app.screen, CommandPalette)
 
 
 # The catalogue --------------------------------------------------------------

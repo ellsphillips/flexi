@@ -47,7 +47,7 @@ class HelpScreen(ModalScreen[None]):
                     for key, description in bindings:
                         yield KeyHint(key, description)
             yield Static(
-                "Anything without a key is in the command palette — ctrl+p.",
+                "Anything without a key is in the command palette — ctrl+p or :",
                 classes="caption",
             )
 

@@ -6,7 +6,8 @@ raises before the theme is registered, and the setup screen can be pushed before
 
 ``/`` is bound with ``priority=True`` so it works from any screen, and stood
 down by :meth:`check_action` inside a text field, where a date being typed is
-allowed to contain one.
+allowed to contain one. ``:``, the palette's second key, is stood down there
+too, so a time keeps its colon.
 """
 
 from __future__ import annotations
@@ -90,6 +91,10 @@ class FlexiApp(TextualApp[None]):
         ),
         Binding(CONFIG.hotkeys.toggle_jump_mode, "toggle_jump_mode", "Jump", show=True),
         Binding(CONFIG.hotkeys.help, "help", "Help", show=True),
+        # A second key for the palette: Textual's ctrl+p is Quick Open in VS
+        # Code and Cursor on Windows and Linux. Not priority, unlike ctrl+p, so
+        # a field or a dialog in front keeps the colon.
+        Binding("colon", "palette", "Command palette", show=False),
         *[
             Binding(item.key, f"go_to('{item.screen}')", item.label, show=True)
             for item in NAV_ITEMS
@@ -446,13 +451,14 @@ class FlexiApp(TextualApp[None]):
     # clocking ----------------------------------------------------------------
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Stand `/` down while an Input or TextArea has focus.
+        """Stand `/` and `:` down while an Input or TextArea has focus.
 
-        The binding is `priority=True`, so it runs before the focused widget and
-        would otherwise eat the slash out of a date being typed.
+        `/` is `priority=True`, so it runs before the focused widget and would
+        otherwise eat the slash out of a date being typed. `:` is not, and is
+        stood down as well: a colon typed into a time never opens the palette.
         """
         del parameters
-        if action != "clock_toggle":
+        if action not in {"clock_toggle", "palette"}:
             return True
         return not isinstance(self.focused, Input | TextArea)
 
@@ -476,6 +482,15 @@ class FlexiApp(TextualApp[None]):
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen(collect_bindings(self.screen)))
+
+    def action_palette(self) -> None:
+        """Open the command palette from `:`.
+
+        Its own action, not a second key for `command_palette`: binding one
+        stops Textual adding ctrl+p, and :meth:`check_action` could not stand
+        `:` down in a field without standing ctrl+p down with it.
+        """
+        self.action_command_palette()
 
     def action_help_quit(self) -> None:
         """Answer ctrl+c with every key that quits from here, not only the first."""
