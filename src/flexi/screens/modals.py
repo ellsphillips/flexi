@@ -251,6 +251,8 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
 
         Not "banked", which is the dashboard's word for the whole balance: TOIL
         already booked ahead is spoken for, and this is the balance without it.
+        A deficit leaves none free, not "-1.6 days" of it, and nor does a figure
+        that rounds to nothing.
         """
         parts: list[str] = []
         if self._remaining is not None:
@@ -258,7 +260,8 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
             parts.append(f"{fmt_days(left)} {plural(left, 'day')} annual leave left")
         if self._toil_days is not None:
             free = round(self._toil_days, 1)
-            parts.append(f"{fmt_days(free)} {plural(free, 'day')} of TOIL free to book")
+            amount = f"{fmt_days(free)} {plural(free, 'day')} of" if free > 0 else "no"
+            parts.append(f"{amount} TOIL free to book")
         return " · ".join(parts)
 
     def result(self) -> AbsenceBooking:

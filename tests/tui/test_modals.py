@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
 from textual.app import ComposeResult
 from textual.widgets import Button, Input, RadioSet, Static
 
@@ -179,6 +180,22 @@ def test_modal_told_one_figure_says_one() -> None:
 
     assert remaining_only._allowance_hint() == "3.5 days annual leave left"
     assert toil_only._allowance_hint() == "1 day of TOIL free to book"
+
+
+@pytest.mark.parametrize(
+    "toil_days",
+    [-1.6, -0.04, 0.0, 0.04],
+    ids=["a deficit", "a deficit under a tenth", "level", "a surplus under a tenth"],
+)
+def test_modal_with_no_toil_to_spare_says_none_is_free(toil_days: float) -> None:
+    """A deficit, or TOIL booked past the balance, is not a count of days to book.
+
+    Counted, it read "-1.6 days of TOIL free to book", and "-0 days" for a
+    deficit too small to show.
+    """
+    modal = AbsenceModal(FREE_MONDAY, toil_days=toil_days)
+
+    assert modal._allowance_hint() == "no TOIL free to book"
 
 
 # ---- the help modal ----
