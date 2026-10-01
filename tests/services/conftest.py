@@ -39,6 +39,7 @@ def configure(session: Session) -> Configured:
         working_days: str = "0,1,2,3,4",
         division: str = "england-and-wales",
         auto_close_time: str = "18:00",
+        contracted_minutes: int | None = None,
         entitlement: tuple[int, float] | None = None,
         tracking_since: date | None = None,
         holidays: tuple[tuple[date, str], ...] = (
@@ -52,6 +53,7 @@ def configure(session: Session) -> Configured:
                 working_days=working_days,
                 bank_holiday_division=division,
                 auto_close_time=auto_close_time,
+                contracted_minutes=contracted_minutes,
             )
         )
         # Set after saving, which stamps it with today. `None` is the migrated
