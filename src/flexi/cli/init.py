@@ -161,7 +161,9 @@ def options(contents: Contents) -> list[ui.Option[Choice]]:
     return [
         ui.Option(Choice.OPEN, "Open Flexi", "your records, as they are"),
         ui.Option(
-            Choice.SETTINGS, "Change settings", "leave year, working days, region"
+            Choice.SETTINGS,
+            "Change settings",
+            "hours, leave year, working days, region",
         ),
         ui.Option(Choice.RESET, "Start again", erase, grave=True),
     ]
