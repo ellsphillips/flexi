@@ -11,6 +11,7 @@ from textual.widgets import Digits, Input, Static
 from flexi.app import FlexiApp
 from flexi.components.expandable import ExpandableTable, RowKind
 from flexi.config import CONFIG
+from flexi.constants import DayKind
 from flexi.domain.format import digits as digits_of
 from flexi.domain.punch import Cell, strip
 from flexi.screens.modals import CorrectionModal, CorrectionsModal
@@ -317,6 +318,25 @@ async def test_a_day_before_setup_says_it_will_owe_the_contracted_day(
         assert caption == (
             "Flexi started tracking on Thu 11 Jun. "
             "Work recorded here counts Mon 8 against your 7:30 day."
+        )
+
+
+async def test_an_empty_day_before_setup_warns_of_what_it_will_owe(
+    app_factory: AppFactory,
+) -> None:
+    """Untracked while empty, the day expects nothing until the work is saved."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        track_from(app, SET_UP)
+        when = date(2026, 4, 2)  # a Thursday before the seeded leave year
+        assert app.services.ledger.day(when).kind is DayKind.UNTRACKED
+
+        caption = await open_on(app, pilot, when)
+
+        assert caption == (
+            "Flexi started tracking on Thu 11 Jun. "
+            "Work recorded here counts Thu 2 against your 7:24 day."
         )
 
 
