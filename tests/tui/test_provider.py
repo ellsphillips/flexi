@@ -125,7 +125,7 @@ async def test_colon_typed_into_a_time_stays_there(unconfigured: Path) -> None:
 async def test_colon_opens_nothing_over_a_dialog_or_jump_mode(
     app_factory: AppFactory, opener: str, focus: str | None
 ) -> None:
-    """Unlike ctrl+p, `:` is not priority, so a screen in front keeps it.
+    """Unlike ctrl+p, `:` is not priority, so a modal in front keeps it.
 
     A colon is typed into times, and one that misses its field must not bury a
     half-filled dialog under the palette. A button holds focus where there is
