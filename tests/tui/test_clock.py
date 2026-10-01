@@ -309,6 +309,34 @@ async def test_seconds_leave_the_table_and_the_wallet_alone(
             )
 
 
+async def test_a_period_key_leaves_the_next_tick_nothing_to_redraw(
+    app_factory: AppFactory,
+) -> None:
+    """Moving the period draws the minute it is, so no tick catches up on it.
+
+    Otherwise every key that moves a year view would build its records twice.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await settled(pilot)
+        screen = dashboard(app)
+        assert screen._tick is not None
+        screen._tick.pause()  # Each tick below is the test's own.
+        screen.action_zoom("year")
+
+        with ExitStack() as stack:
+            calls = [
+                stack.enter_context(
+                    patch.object(
+                        kind, "rebuild", autospec=True, side_effect=kind.rebuild
+                    )
+                )
+                for kind in (RecordsModule, WalletModule)
+            ]
+            screen._on_tick()
+            assert [call.call_count for call in calls] == [0, 0]
+
+
 async def test_first_tick_of_a_new_day_moves_the_dashboard_on(
     app_factory: AppFactory,
 ) -> None:
