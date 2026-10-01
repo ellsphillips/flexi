@@ -315,10 +315,11 @@ class DashboardScreen(Screen[None]):
     def sweep(self) -> bool:
         """Close work left running on an earlier day, and say so.
 
-        Every sweep the application runs comes through here, so none closes a
-        session unannounced: the auto-close time can be hours after the person
-        left, and only they know when. Answers whether one was closed;
-        redrawing is the caller's.
+        Launch and `/` sweep through here, so neither closes a session
+        unannounced: the auto-close time can be hours after the person left,
+        and only they know when. `ClockService.clock_in` sweeps again, but
+        only after `/` has, so it finds nothing left to close. Answers whether
+        one was closed; redrawing is the caller's.
         """
         closed = self._services.clock.sweep()
         for result in closed:
