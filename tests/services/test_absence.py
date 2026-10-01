@@ -141,6 +141,25 @@ class TestRejections:
         result = absence.book(d, AbsenceType.SICK)
         assert result.success is False
 
+    @pytest.mark.parametrize(
+        ("asked", "refusal"),
+        [
+            (Portion.FULL, "Half of that day is already booked; remove it first"),
+            (Portion.AM, "That morning is already booked"),
+        ],
+    )
+    def test_reject_over_a_booked_half(
+        self, absence: AbsenceService, asked: Portion, refusal: str
+    ) -> None:
+        """A whole day cannot go over half of one, and a half cannot go twice."""
+        d = _next_weekday(date(2026, 6, 8), 0)
+        assert absence.book(d, AbsenceType.SICK, portion=Portion.AM).success
+
+        result = absence.book(d, AbsenceType.ANNUAL, portion=asked)
+
+        assert result.success is False
+        assert result.message == refusal
+
     def test_reject_when_bh_unavailable(self, tmp_path: Path) -> None:
         """Refuses when it cannot tell whether a date is a bank holiday.
 
