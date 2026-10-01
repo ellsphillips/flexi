@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import EventSource, Portion
+from flexi.constants import EventSource
 from flexi.domain.balance import worked_from
 from flexi.domain.format import short_date
 from flexi.domain.ledger import MIDDAY_HOUR
@@ -104,9 +104,9 @@ def _stopped_by_leave(
     stmt = select(AbsenceDay.portion).where(AbsenceDay.date == ws.work_date)
     booked = list(session.scalars(stmt))
     if covers_the_whole_day(booked):
-        portion, stop = Portion.FULL, opened
+        stop = opened
+        explanation = f"Auto-closed at booked day on {short_date(ws.work_date)}"
     elif booked:
-        portion = booked[0]
         earlier = session.scalars(
             select(WorkSession).where(
                 WorkSession.work_date == ws.work_date,
@@ -117,8 +117,12 @@ def _stopped_by_leave(
         owed = contracted / 2 - worked_from(map(segment_of, earlier), now=opened)
         noon = wallclock.local(datetime.combine(ws.work_date, time(MIDDAY_HOUR)))
         stop = max(noon, wallclock.advance(opened, max(owed, timedelta())))
+        explanation = (
+            f"Auto-closed after half a day: the {booked[0].noun} of "
+            f"{short_date(ws.work_date)} is booked off"
+        )
     else:
         return closing, None
     if stop >= closing:
         return closing, None
-    return stop, f"Auto-closed at booked {portion.noun} on {short_date(ws.work_date)}"
+    return stop, explanation

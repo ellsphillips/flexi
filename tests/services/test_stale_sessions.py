@@ -207,7 +207,10 @@ class TestHalfDayOff:
 
         assert closed.clock_out_event is not None
         assert closed.clock_out_event.timestamp.time() == closing
-        assert closed.note == f"Auto-closed at booked {portion.noun} on Mon 10 Aug"
+        assert closed.note == (
+            f"Auto-closed after half a day: the {portion.noun} of Mon 10 Aug "
+            "is booked off"
+        )
 
     def test_breaks_are_not_counted_as_work(
         self, services: Services, session: Session

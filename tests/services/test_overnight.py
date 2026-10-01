@@ -171,6 +171,6 @@ def test_inferred_clock_out_stops_at_booked_leave_and_explains_it(
     assert closed.clock_out_event is not None
     assert closed.clock_out_event.timestamp.time() == time(12, 42)
     assert closed.note is not None
-    assert "Auto-closed at booked afternoon" in closed.note
+    assert "Auto-closed after half a day: the afternoon" in closed.note
     if note is not None:
         assert closed.note.startswith(note)
