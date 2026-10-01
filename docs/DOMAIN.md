@@ -26,6 +26,18 @@ balance(as_of) =  Σ worked_hours(d)            for d in leave_year_start..as_of
 The sum restarts at the leave-year boundary. On the 6th of April the balance is
 nought again, whatever it was on the 5th; nothing is carried forward.
 
+**Today is not over.** Until midnight its expected hours count only as far as
+they have been worked, `min(expected_hours(today), worked_hours(today))`, so a
+morning opens on the balance the evening before closed on and a surplus counts
+the minute it is earned. TOIL taken today and a correction dated today count at
+once. A day after today counts nothing: its hours are not owed and its TOIL is
+not yet taken. This is the balance *as it stands*
+(`flexi.domain.balance.standing`), and every figure that shows or spends the
+balance reads it: the headline, the wallet, the records' `±` column and totals,
+the running balance and weekly bars in Insights, `flexi balance` and the TOIL
+free to book. Only the progress rails and the records subtitle measure the whole
+period's expected hours, as a target rather than a debt.
+
 **Adjustments are the only stored term.** Everything else is derived from clock
 events, so there is no total to edit when someone wants to draw a line under a
 period they never tracked. `flexi balance zero` writes one signed row instead,
@@ -75,8 +87,9 @@ separate allowance the way annual leave is — it has no entitlement, only a
 balance.
 
 **Open sessions count.** If you are on the clock right now, `worked_hours(today)`
-includes the time since you clocked in, so the balance ticks up while you watch
-it. That is why the dashboard refreshes on a timer.
+includes the time since you clocked in, so the day fills while you watch it, and
+once its hours are met the balance ticks up with it. That is why the dashboard
+refreshes on a timer.
 
 **Precision.** All arithmetic is in whole seconds, held as `datetime.timedelta`.
 Hours only appear at the formatting boundary. Never store or compare a float of
@@ -335,9 +348,11 @@ class DayLedger:
         ...
 ```
 
-`delta` is what the day's `±` column shows. `balance_effect` is what the running
-balance accumulates: a TOIL day expects nothing, so it scores no deficit for
-being unworked, and it spends a day of the surplus that paid for it.
+`delta` is the day's hours against what it expected. `balance_effect` is what
+the running balance accumulates, and what the day's `±` column shows: a TOIL day
+expects nothing, so it scores no deficit for being unworked, and it spends a day
+of the surplus that paid for it. Today's shows only what it has gained so far,
+and a day still to come shows nothing (§1).
 
 Every duration that can still be running takes a `now`, so a widget redrawing on
 a timer says what the elapsed time is at the moment it draws, and no ledger

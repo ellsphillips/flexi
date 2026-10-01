@@ -79,7 +79,8 @@ carry, and import/export are not available yet.
 ![The dashboard](https://raw.githubusercontent.com/ellsphillips/flexi/main/docs/shots/showcase-dashboard.svg)
 
 - **Clock in and out with `/`.** The dashboard shows worked time, expected hours,
-  breaks, and your running balance.
+  breaks, and your running balance. Today's surplus counts as soon as you work
+  it; a shortfall waits until the day ends.
 - **Add missed work with `n`.** Enter a completed session; overlapping work is
   refused. `N` lists these corrections.
 - **Inspect a day with `space`.** Expand its sessions, absences, and balance.
