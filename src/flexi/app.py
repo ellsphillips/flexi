@@ -388,7 +388,20 @@ class FlexiApp(TextualApp[None]):
         if self._settings is None:
             return
         form, self._settings = self._settings, None
-        form.dismiss(False)
+        self._dismiss(form, False)
+
+    def _dismiss[ResultT](self, screen: Screen[ResultT], result: ResultT) -> None:
+        """Dismiss a screen, popping whatever is still open over it first.
+
+        `Screen.dismiss` pops the top of the stack, not the screen it is called
+        on, and the command palette can choose a destination over a dialog. Left
+        to itself, the dismissal would pop the dialog and leave the screen behind
+        with its result already given, which raises when it is closed again.
+        Popping runs no callback, so a question nobody answered changes nothing.
+        """
+        while self.screen is not screen and screen in self.screen_stack:
+            self.pop_screen()
+        screen.dismiss(result)
 
     def _back(self, screen: Screen[None], _result: object = None) -> None:
         """Return the nav bar to the dashboard when a pushed screen is dismissed.

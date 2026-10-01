@@ -17,7 +17,9 @@ from textual.widgets import Button, Input, Select
 from flexi.app import FlexiApp
 from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import Division
+from flexi.context import command_app
 from flexi.models.database.engine import create_db_engine
+from flexi.provider import commands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.modals import ConfirmModal
@@ -230,6 +232,44 @@ async def test_settlements_are_named_before_they_stop_matching(
         await change_hours(app, pilot, "7.5")
 
         assert "balance adjustments keep their recorded amounts" in question_asked(app)
+
+
+@pytest.mark.parametrize(
+    ("under", "chosen", "left"),
+    [
+        ("dashboard", "Go to Dashboard", ["Screen", "DashboardScreen"]),
+        ("leave", "Go to Insights", ["Screen", "DashboardScreen", "InsightsScreen"]),
+    ],
+)
+async def test_leaving_from_the_palette_over_the_question_closes_the_form(
+    app_factory: AppFactory, under: str, chosen: str, left: list[str]
+) -> None:
+    """The palette's key outranks the question, so a destination can be chosen.
+
+    `Screen.dismiss` pops the top of the stack, which is the question and not
+    the form that asked it. The form left behind has already given its result,
+    and closing it again raised.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        app.action_go_to(under)
+        await pilot.pause()
+        await change_hours(app, pilot, "8h")
+        showing(app, ConfirmModal)
+
+        palette = {command.title: command for command in commands(command_app(app))}
+        palette[chosen].run()
+        await pilot.pause()
+
+        assert [type(screen).__name__ for screen in app.screen_stack] == left
+        assert app._settings is None
+        assert app.services.settings.get_contracted() == timedelta(minutes=444), (
+            "a question nobody answered changes nothing"
+        )
+
+        await pilot.press("escape")
+        await pilot.pause()
+        showing(app, DashboardScreen)
 
 
 # entitlements
