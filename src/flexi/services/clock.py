@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
 from flexi.constants import EventSource, Portion
-from flexi.domain.format import hm, long_date, short_date, spoken
+from flexi.domain.format import clock, hm, long_date, short_date, spoken
 from flexi.domain.ledger import MIDDAY_HOUR, Segment
 from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 from flexi.models.database.moment import moment_of
@@ -357,6 +357,38 @@ class ClockService:
             session=recorded,
             at=opened_at,
         )
+
+    def void(self, session_id: int) -> ClockResult:
+        """Take a closed session out of every figure, keeping its events.
+
+        The way back from a forgotten clock-out, a late one or a mistyped
+        correction: void it, then record the real hours with `correct`. The
+        events stay, being immutable, and the session drops out of the records
+        table and every figure derived from it, as one under a minute does.
+
+        A running session is refused: clocking out is what gives it an end.
+        """
+        with write_transaction(self._session):
+            found = self._session.get(WorkSession, session_id)
+            if found is None:
+                return ClockResult(success=False, message="No such session")
+            if found.voided:
+                return ClockResult(
+                    success=False, message="That session was already voided"
+                )
+            if found.clock_out_event is None:
+                return ClockResult(
+                    success=False,
+                    message="That session is still running; clock out first",
+                    session=found,
+                )
+            found.voided = True
+            message = (
+                f"Voided {clock(moment_of(found.clock_in_event))} → "
+                f"{clock(moment_of(found.clock_out_event))} on "
+                f"{short_date(found.work_date)}"
+            )
+        return ClockResult(success=True, message=message, session=found)
 
     def corrections_between(self, start: date, end: date) -> list[Segment]:
         """Every corrected stretch in a span, earliest first.
