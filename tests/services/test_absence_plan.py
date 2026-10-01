@@ -248,6 +248,37 @@ def test_entitlement_changed_after_a_preview_refuses_it(
     assert _rows(session) == 0
 
 
+@pytest.mark.parametrize(
+    "kind", [kind for kind in AbsenceType if not kind.draws_down_balance]
+)
+def test_a_minute_worked_after_a_preview_of_other_leave_still_books_it(
+    services: Services, kind: AbsenceType
+) -> None:
+    """A morning off, previewed at 16:20:50 and confirmed at 16:21:10.
+
+    The afternoon's open session has run a minute longer by then, which changes
+    what TOIL on the morning would cost and nothing this booking depends on.
+    """
+    wednesday = MID_SPAN.date()
+    with time_machine.travel(
+        datetime.combine(wednesday, time(12, 30), tzinfo=UTC), tick=False
+    ):
+        assert services.clock.clock_in().success
+    with time_machine.travel(
+        datetime.combine(wednesday, time(16, 20, 50), tzinfo=UTC), tick=False
+    ):
+        plan = services.absence.plan(
+            wednesday, wednesday, kind, Portion.AM, note="Dentist"
+        )
+    with time_machine.travel(
+        datetime.combine(wednesday, time(16, 21, 10), tzinfo=UTC), tick=False
+    ):
+        result = services.absence.book_plan(plan)
+
+    assert plan.toil_cost == 0.0, "it spends none of the flexi balance"
+    assert result.booked == (wednesday,)
+
+
 def test_span_across_a_bank_holiday_books_the_rest(
     services: Services, session: Session
 ) -> None:

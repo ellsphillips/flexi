@@ -950,7 +950,11 @@ class AbsenceService:
             days.append(decided)
             if decided.verdict is not Verdict.BOOK:
                 continue
-            charged = _drawn_from_the_balance(facts, portion, today, contracted)
+            charged = (
+                _drawn_from_the_balance(facts, portion, today, contracted)
+                if absence_type.draws_down_balance
+                else 0.0
+            )
             toil_cost += charged
             toil_costs[active_year] += charged
             if absence_type.draws_down_entitlement and available is not None:
