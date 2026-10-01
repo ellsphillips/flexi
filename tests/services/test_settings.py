@@ -26,6 +26,7 @@ from flexi.services.settings import (
     format_clock_time,
     format_window,
     parse_clock_time,
+    parse_contracted_minutes,
     parse_entitlement_days,
     parse_month_day,
     parse_settings,
@@ -376,6 +377,67 @@ def test_impossible_meridiem_hour_is_refused(typed: str) -> None:
     """`13pm` is a typo, and reading it as 1am or 1pm is a guess."""
     with pytest.raises(ValueError, match="does not take am or pm"):
         parse_clock_time(typed)
+
+
+# ---- hours a day ----
+
+
+@pytest.mark.parametrize(
+    ("typed", "minutes"),
+    [
+        ("7:24", 444),
+        ("07:30", 450),
+        ("7h24", 444),
+        ("7h24m", 444),
+        ("7h 24m", 444),
+        ("7 hours 24 minutes", 444),
+        ("7.5", 450),
+        ("7.5h", 450),
+        ("7.4", 444),
+        ("8h", 480),
+        ("8", 480),
+        (" 6 hrs ", 360),
+        ("24:00", 1440),
+    ],
+)
+def test_hours_a_day_are_read_however_they_are_written(
+    typed: str, minutes: int
+) -> None:
+    """A field labelled "hours a day" invites `7.5` as readily as `7:30`."""
+    assert parse_contracted_minutes(typed) == minutes
+
+
+def test_a_decimal_is_hours_and_not_a_clock() -> None:
+    """The clock parser reads `7.5` as 7:05, which as a working day is wrong."""
+    assert parse_clock_time("7.5") == (7, 5)
+    assert parse_contracted_minutes("7.5") == 450
+
+
+@pytest.mark.parametrize(
+    "typed", ["0", "0:00", "0h", "-7:24", "-8", "24:01", "25", "444"]
+)
+def test_hours_a_day_outside_a_day_are_refused(typed: str) -> None:
+    """`444` is the minutes Flexi stores, typed into a field that takes hours."""
+    with pytest.raises(ValueError, match="more than 0:00 and no more than 24:00"):
+        parse_contracted_minutes(typed)
+
+
+@pytest.mark.parametrize("typed", ["", "seven", "7:", "7 30", "7,5", "7:24pm"])
+def test_unreadable_hours_a_day_are_refused(typed: str) -> None:
+    with pytest.raises(ValueError, match="is not a length of time"):
+        parse_contracted_minutes(typed)
+
+
+def test_minutes_beyond_the_hour_are_refused() -> None:
+    with pytest.raises(ValueError, match="Minute 75 out of range 0-59"):
+        parse_contracted_minutes("7h75")
+
+
+@pytest.mark.parametrize("typed", ["7.24", "7.33"])
+def test_part_of_a_minute_is_refused_not_rounded(typed: str) -> None:
+    """`7.24` hours is 7:14 and a fraction; whoever typed it likely meant 7:24."""
+    with pytest.raises(ValueError, match="not a whole number of minutes"):
+        parse_contracted_minutes(typed)
 
 
 # ---- reading settings that are not there ----

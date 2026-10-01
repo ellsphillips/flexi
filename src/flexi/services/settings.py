@@ -4,6 +4,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, time, timedelta
+from fractions import Fraction
 from math import isfinite
 
 from sqlalchemy import select
@@ -52,6 +53,7 @@ __all__ = (
     "format_working_days",
     "named_weekday",
     "parse_clock_time",
+    "parse_contracted_minutes",
     "parse_entitlement_days",
     "parse_month_day",
     "parse_settings",
@@ -485,6 +487,63 @@ def parse_clock_time(raw: str) -> tuple[int, int]:
         msg = f"Minute {minute} out of range 0-59"
         raise ValueError(msg)
     return hour, minute
+
+
+_DAY_LENGTH = re.compile(
+    r"""
+    (?P<sign>[-−])? \s*
+    (?:
+        (?P<hours>\d+) \s* (?: : | h(?:ours?|rs?)? ) \s*
+        (?P<minutes>\d{1,2}) \s* (?: m(?:in(?:ute)?s?)? )?
+      | (?P<decimal>\d+(?:\.\d+)?) \s* (?: h(?:ours?|rs?)? )?
+    )
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def parse_contracted_minutes(raw: str) -> int:
+    """Minutes in a working day, from whatever the user typed.
+
+    A field labelled "hours a day" invites `7.5` as readily as `7:30`, and a
+    decimal there is hours: :func:`parse_clock_time` would read `7.5` as 7:05.
+    A decimal that is not a whole number of minutes is refused, not rounded:
+    `7.24` is far more often 7:24 mistyped than 7:14 and a fraction.
+
+    Examples:
+        >>> parse_contracted_minutes("7:24")
+        444
+        >>> parse_contracted_minutes("7h30m")
+        450
+        >>> parse_contracted_minutes("7.5")
+        450
+        >>> parse_contracted_minutes("8h")
+        480
+    """
+    found = _DAY_LENGTH.fullmatch(raw.strip())
+    if found is None:
+        msg = f"'{raw}' is not a length of time: use H:MM, like 7:24, or 7.5 hours"
+        raise ValueError(msg)
+
+    if found["decimal"] is not None:
+        exact = Fraction(found["decimal"]) * MINUTES_IN_HOUR
+        if exact.denominator != 1:
+            msg = f"'{raw}' is not a whole number of minutes: use H:MM, like 7:24"
+            raise ValueError(msg)
+        minutes = int(exact)
+    else:
+        past = int(found["minutes"])
+        if past >= MINUTES_IN_HOUR:
+            msg = f"Minute {past} out of range 0-59"
+            raise ValueError(msg)
+        minutes = int(found["hours"]) * MINUTES_IN_HOUR + past
+
+    # The sign is only read so that a negative day is refused as one, and not
+    # as something unreadable.
+    if found["sign"] or not 0 < minutes <= HOURS_IN_DAY * MINUTES_IN_HOUR:
+        msg = "Hours a day must be more than 0:00 and no more than 24:00"
+        raise ValueError(msg)
+    return minutes
 
 
 def parse_month_day(raw: str) -> tuple[int, int]:
