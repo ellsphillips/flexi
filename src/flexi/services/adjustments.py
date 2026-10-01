@@ -108,8 +108,8 @@ class AdjustmentService:
         )
         return next(filter(_may_settle, self._session.execute(stmt).scalars()), None)
 
-    def last_before(self, when: date) -> BalanceAdjustment | None:
-        """The latest correction dated before ``when``.
+    def last_line_before(self, when: date) -> BalanceAdjustment | None:
+        """The latest row before ``when`` that may be a settlement.
 
         The mirror of :meth:`first_line_after`: `adjust_balance` asks it for
         the line a new correction has to be dated after.
@@ -118,9 +118,8 @@ class AdjustmentService:
             select(BalanceAdjustment)
             .where(BalanceAdjustment.date < when)
             .order_by(BalanceAdjustment.date.desc(), BalanceAdjustment.id.desc())
-            .limit(1)
         )
-        return self._session.execute(stmt).scalars().first()
+        return next(filter(_may_settle, self._session.execute(stmt).scalars()), None)
 
     # --- writing ----------------------------------------------------------
 

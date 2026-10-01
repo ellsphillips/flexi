@@ -164,11 +164,12 @@ def adjustment_refusal(services: Services, when: date) -> str | None:
     one, so a row dated in an earlier year is listed and never counted. It
     cannot be in the future, where the ledger hides it until the day arrives.
 
-    And it has to come after the latest row dated before today. That row may be
-    a settlement, which zeroes the balance up to its own date, and a correction
-    dated on or before it reopens the period it closed. A reason is free text,
-    so a settlement cannot be told from anything else; a row dated today never
-    is one, because only a finished day can be settled.
+    And it has to come after the latest row made after its own date. That row
+    may be a settlement, which zeroes the balance up to its date, and a
+    correction dated on or before it reopens the period it closed. A reason is
+    free text, so only the dates can tell: a row dated the day it was made, as
+    an opening balance brought in today is, is never a settlement, because only
+    a finished day can be settled.
 
     Public, because the command line checks before it shows the plan it asks
     about, and `adjust_balance` checks again under the writer reservation.
@@ -183,12 +184,12 @@ def adjustment_refusal(services: Services, when: date) -> str | None:
             f" dated {long_date(when)} would never count; date it on or after"
             " that day"
         )
-    line = services.adjustments.last_before(today)
+    line = services.adjustments.last_line_before(today)
     if line is not None and when <= line.date:
         return (
-            f"An adjustment is already recorded on {long_date(line.date)}, and"
-            " one dated on or before it could reopen a balance settled there;"
-            " date this one after that day, or undo that one with"
+            f"An adjustment back-dated to {long_date(line.date)} may be a"
+            " settlement, and one dated on or before it could reopen the balance"
+            " it settled; date this one after that day, or undo that one with"
             f" `flexi balance undo {line.id}`"
         )
     return None

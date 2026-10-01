@@ -364,6 +364,21 @@ def test_adjust_behind_a_settlement_is_refused(home: Path) -> None:
     assert balance_of(runner, YESTERDAY) == "0:00"
 
 
+def test_a_balance_brought_in_can_be_corrected_the_next_day(home: Path) -> None:
+    """The README's examples a day apart: an opening balance is no settlement."""
+    runner = CliRunner()
+    with time_machine.travel(NOON - timedelta(days=1), tick=False):
+        brought = adjust(runner, "+5:30", "--reason", "Brought forward", "--yes")
+    assert brought.exit_code == 0, brought.output
+
+    result = adjust(
+        runner, "-0:45", "--on", "yesterday", "--reason", "Long lunch", "--yes"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert balance_of(runner) == "\N{MINUS SIGN}8:03"
+
+
 def test_adjustment_is_logged_and_can_be_taken_back(home: Path) -> None:
     runner = CliRunner()
     adjust(runner, "+5:30", "--reason", "Brought forward", "--yes")

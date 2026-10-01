@@ -582,7 +582,7 @@ def test_adjustment_behind_a_settlement_is_refused(services: Services) -> None:
 
 @pytest.mark.usefixtures("on_wednesday")
 def test_settlement_under_any_reason_holds_its_line(services: Services) -> None:
-    """`zero --reason` is free text, so every row before today is a possible line.
+    """`zero --reason` is free text, so every row made after its date may be a line.
 
     The refusal says adjustment, not settlement: the row in the way may be a
     correction recorded a day late.
@@ -594,9 +594,31 @@ def test_settlement_under_any_reason_holds_its_line(services: Services) -> None:
     refused = adjust_balance(services, timedelta(hours=1), "Late claim", MONDAY)
 
     assert not refused.success
-    assert "An adjustment is already recorded on Tue 9 Jun 2026" in refused.message, (
+    assert "An adjustment back-dated to Tue 9 Jun 2026" in refused.message, (
         "the latest line, not the first"
     )
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_back_dated_correction_holds_a_line_as_a_settlement_does(
+    services: Services,
+) -> None:
+    """Made after its date, as every settlement is, it cannot be told from one.
+
+    So a second correction to that day goes after it, and the refusal says why.
+    """
+    first = adjust_balance(services, timedelta(minutes=-45), "Long lunch", TUESDAY)
+    assert first.adjustment is not None
+
+    again = adjust_balance(
+        services, timedelta(minutes=-30), "Forgot to clock out", TUESDAY
+    )
+
+    assert not again.success
+    assert "back-dated to Tue 9 Jun 2026" in again.message
+    assert f"flexi balance undo {first.adjustment.id}" in again.message
+    after = adjust_balance(services, timedelta(minutes=-30), "Forgot to clock out")
+    assert after.success, after.message
 
 
 @pytest.mark.usefixtures("on_wednesday")
@@ -617,6 +639,24 @@ def test_adjustments_can_share_today(services: Services) -> None:
     assert adjust_balance(services, timedelta(minutes=-30), "Long lunch").success
 
     assert services.ledger.balance(WEDNESDAY).adjustment == timedelta(hours=5)
+
+
+def test_a_balance_brought_in_can_be_corrected_the_next_day(
+    services: Services,
+) -> None:
+    """A row dated the day it was made is no settlement, so it holds no line.
+
+    The README's two examples a day apart: an opening balance brought in on
+    Monday, then Tuesday's correction to Monday.
+    """
+    with time_machine.travel(datetime(2026, 6, 8, 9, 0, tzinfo=UTC), tick=False):
+        assert adjust_balance(services, BROUGHT_FORWARD, "Brought forward").success
+
+    with time_machine.travel(datetime(2026, 6, 9, 9, 0, tzinfo=UTC), tick=False):
+        result = adjust_balance(services, timedelta(minutes=-45), "Long lunch", MONDAY)
+
+    assert result.success, result.message
+    assert services.ledger.day(MONDAY).adjustment == timedelta(hours=4, minutes=45)
 
 
 @pytest.mark.usefixtures("on_wednesday")
