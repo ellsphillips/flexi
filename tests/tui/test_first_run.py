@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 import time_machine
 from textual.pilot import Pilot
-from textual.widgets import Input, Select, Static
+from textual.widgets import Input, Label, Select, Static
 
 from flexi.app import FlexiApp
 from flexi.components.wordmark import Wordmark
@@ -21,7 +21,7 @@ from flexi.services.settings import SettingsService
 from flexi.theme import MARK_LIVE, TAIL, colour
 from tests.conftest import session_at
 from tests.database import create_schema
-from tests.tui.conftest import WIDE, showing
+from tests.tui.conftest import WIDE, screen_text, showing
 
 
 @pytest.fixture
@@ -689,3 +689,77 @@ async def test_only_the_marker_is_lit_on_the_rail(
         assert {tone for _, tone in drawn[1:-1] if tone != drawn[marker][1]} == {
             hairline
         }, "one weight for the whole line"
+
+
+# ---- a terminal too short for the spaced form ----
+
+
+@pytest.mark.parametrize("size", [(80, 24), (120, 40)])
+async def test_every_question_is_on_screen_and_reached_by_tab(
+    fresh_db: Path, size: tuple[int, int]
+) -> None:
+    """Twenty-four rows is shorter than the wordmark over the spaced-out form.
+
+    The row under each question goes first, so nothing waits below the fold
+    and tab still reaches every question in turn.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=size) as pilot:
+        await revealed(pilot)
+        screen = showing(app, SetupScreen)
+        assert screen.max_scroll_y == 0, "nothing should wait below the fold"
+
+        drawn = screen_text(app)
+        for question in screen.query(Question):
+            ask = str(question.query_one(".ask", Label).render())
+            assert ask in drawn
+            focused = screen.focused
+            assert focused is not None
+            assert question in focused.ancestors_with_self, f"tab missed {ask}"
+            await pilot.press("tab")
+            await pilot.pause()
+
+
+async def test_resizing_closes_the_form_up_and_opens_it_out(fresh_db: Path) -> None:
+    """The rail and the reveal are counted, so a resize has to count them again."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await revealed(pilot)
+        screen = showing(app, SetupScreen)
+        block = screen.query_one("#setup-questions")
+        spaced = block.region.height
+
+        await pilot.resize_terminal(80, 24)
+        await revealed(pilot)
+        assert block.region.height < spaced
+        assert screen.query_one(Rail).region.height == block.region.height
+        assert screen.max_scroll_y == 0
+
+        await pilot.resize_terminal(120, 40)
+        await revealed(pilot)
+        assert block.region.height == spaced
+        assert screen.query_one(Rail).region.height == spaced
+
+
+async def test_marker_steps_one_row_a_question_when_closed_up(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The questions arrive closed up, and the marker lands beside the next one."""
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one(Wordmark).skip()
+        await revealed(pilot)
+
+        await pilot.press("tab")
+        for _ in range(12):
+            await pilot.pause()
+        await revealed(pilot)
+
+        rail = screen.query_one(Rail)
+        entitlement = screen.query_one("#ask-entitlement", Question)
+        assert rail.region.y + round(rail.marker) == entitlement.region.y
+        assert " " not in "".join(glyph for glyph, _ in _rail_column(app, rail))

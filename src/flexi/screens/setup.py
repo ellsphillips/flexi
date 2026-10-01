@@ -24,6 +24,7 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, Select, Static
 
 from flexi import wallclock
+from flexi.components import splash
 from flexi.components.options import ScreenOptions, StaticOptions, WidgetOptions
 from flexi.components.wordmark import Wordmark
 from flexi.constants import DEFAULT_DIVISION, Division
@@ -39,6 +40,7 @@ from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
 
 __all__ = (
     "ASK_WIDTH",
+    "COMPACT_QUESTION_ROWS",
     "FIELD_WIDTH",
     "FORM_WIDTH",
     "GUTTER",
@@ -69,6 +71,9 @@ HEADING_ROWS = 2
 
 QUESTION_ROWS = 2
 """A question, and the row of space under it."""
+
+COMPACT_QUESTION_ROWS = 1
+"""A question with no space under it, on a terminal too short for the space."""
 
 TAIL_ROWS = 1
 """The foot of the rail."""
@@ -127,7 +132,12 @@ class Rail(Static):
         self._rows = rows
 
     def on_mount(self) -> None:
-        self.styles.height = self._rows
+        self.fit(self._rows)
+
+    def fit(self, rows: int) -> None:
+        """Draw the line at a new length, for a form that closed up or opened out."""
+        self._rows = rows
+        self.styles.height = rows
         self._draw()
 
     def watch_marker(self) -> None:
@@ -240,6 +250,8 @@ class SetupScreen(Screen[bool]):
 
     #setup-heading { height: 1; margin-bottom: 1; color: $c-paper; text-style: bold; }
     #setup-tail { height: 1; color: $c-line; }
+
+    SetupScreen.-compact Question { margin-bottom: 0; }
     """)
 
     def __init__(
@@ -335,6 +347,31 @@ class SetupScreen(Screen[bool]):
         """
         self.query_one(Wordmark).styles.width = FORM_WIDTH
 
+    def on_resize(self) -> None:
+        """Close the questions up on a terminal too short for the spaced form.
+
+        The rail and the reveal's height are counted from the spacing, so a
+        change of spacing counts them again.
+        """
+        count = len(self.query(Question))
+        compact = self.size.height < splash.CANVAS_HEIGHT + form_rows(count)
+        if compact == self.has_class("-compact"):
+            return
+        self.set_class(compact, "-compact")
+        rows = form_rows(count, self._question_rows)
+        self.query_one(Rail).fit(rows)
+        questions = self.query_one("#setup-questions")
+        if questions.has_class("-arrived"):
+            questions.styles.animate(
+                "height", value=rows, duration=RISE, easing="out_cubic"
+            )
+        self._mark_the_live_question()
+
+    @property
+    def _question_rows(self) -> int:
+        """The rows each question takes at the spacing the terminal allows."""
+        return COMPACT_QUESTION_ROWS if self.has_class("-compact") else QUESTION_ROWS
+
     # Arrival.
 
     def on_wordmark_landed(self, _event: Wordmark.Landed) -> None:
@@ -346,7 +383,7 @@ class SetupScreen(Screen[bool]):
         """
         questions = self.query_one("#setup-questions")
         questions.add_class("-arrived")
-        rows = form_rows(len(self.query(Question)))
+        rows = form_rows(len(self.query(Question)), self._question_rows)
         questions.styles.animate(
             "height", value=rows, duration=RISE, easing="out_cubic"
         )
@@ -374,7 +411,9 @@ class SetupScreen(Screen[bool]):
             holds = focused is not None and question in focused.ancestors_with_self
             question.set_class(holds, "-live")
             if holds:
-                self.query_one(Rail).slide_to(HEADING_ROWS + index * QUESTION_ROWS)
+                self.query_one(Rail).slide_to(
+                    HEADING_ROWS + index * self._question_rows
+                )
 
     # Saving.
 
@@ -419,10 +458,10 @@ def entitlement_year(start: str) -> int:
     return leaveyear.active_year(wallclock.today(), *parse_month_day(start))
 
 
-def form_rows(questions: int) -> int:
+def form_rows(questions: int, question_rows: int = QUESTION_ROWS) -> int:
     """How tall the form is, in rows.
 
     The rail's height and the reveal's target height are both this, so the foot
     lands under the last question.
     """
-    return HEADING_ROWS + questions * QUESTION_ROWS + TAIL_ROWS
+    return HEADING_ROWS + questions * question_rows + TAIL_ROWS

@@ -70,6 +70,7 @@ if TYPE_CHECKING:
     )
     from flexi.screens.setup import (
         ASK_WIDTH,
+        COMPACT_QUESTION_ROWS,
         FIELD_WIDTH,
         FORM_WIDTH,
         GUTTER,
@@ -135,6 +136,7 @@ _MODULE_EXPORTS: Final = MappingProxyType(
         ),
         "setup": (
             "ASK_WIDTH",
+            "COMPACT_QUESTION_ROWS",
             "FIELD_WIDTH",
             "FORM_WIDTH",
             "GUTTER",
@@ -213,6 +215,7 @@ __all__ = (  # noqa: RUF022
     "describe_working_days",
     "parse_answers",
     "ASK_WIDTH",
+    "COMPACT_QUESTION_ROWS",
     "FIELD_WIDTH",
     "FORM_WIDTH",
     "GUTTER",
