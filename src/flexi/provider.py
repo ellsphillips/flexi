@@ -95,6 +95,11 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
                 "Open the leave year and book on it directly",
                 partial(app.action_go_to, "leave"),
             ),
+            Command(
+                "Adjust balance…",
+                "Bring a balance in, or correct it, from today",
+                screen.action_adjust_balance,
+            ),
         )
     )
     catalogue.extend(

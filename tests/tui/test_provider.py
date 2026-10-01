@@ -21,7 +21,7 @@ from flexi.constants import AbsenceType, Granularity
 from flexi.context import command_app
 from flexi.models.database.engine import create_db_engine
 from flexi.provider import Command, FlexiCommands, commands
-from flexi.screens.modals import AbsenceModal
+from flexi.screens.modals import AbsenceModal, AdjustmentModal
 from flexi.screens.setup import SetupScreen
 from tests.conftest import settled
 from tests.database import create_schema
@@ -104,6 +104,7 @@ async def test_palette_offers_every_keyless_action(
             assert f"Period: {granularity.label.lower()}" in offered
         for kind in AbsenceType:
             assert f"Book {kind.phrase}…" in offered
+        assert "Adjust balance…" in offered
         assert "Refresh bank holidays" in offered
 
 
@@ -163,6 +164,7 @@ async def test_palette_hides_commands_for_a_hidden_screen(
         assert "Go to today" not in offered
         assert "Go to date…" not in offered
         assert not [title for title in offered if title.startswith("Book ")]
+        assert "Adjust balance…" not in offered
 
 
 # Searching ------------------------------------------------------------------
@@ -259,6 +261,20 @@ async def test_choosing_an_absence_entry_prefills_the_type(
         assert modal.query_one("#absence-date", Input).value == str(
             dashboard(app).period.anchor
         )
+
+
+async def test_choosing_adjust_balance_opens_the_prompt(
+    app_factory: AppFactory,
+) -> None:
+    """The way in for someone who never opens a shell to `flexi balance adjust`."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await run_command(app, "Adjust balance…")
+        await pilot.pause()
+
+        modal = showing(app, AdjustmentModal)
+        assert app.focused is modal.query_one("#adjustment-amount", Input)
 
 
 async def test_choosing_clock_in_or_out_clocks(app_factory: AppFactory) -> None:

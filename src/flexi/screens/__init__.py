@@ -49,6 +49,8 @@ if TYPE_CHECKING:
     from flexi.screens.modals import (
         AbsenceBooking,
         AbsenceModal,
+        Adjustment,
+        AdjustmentModal,
         ConfirmModal,
         Correction,
         CorrectionModal,
@@ -112,6 +114,8 @@ _MODULE_EXPORTS: Final = MappingProxyType(
         "modals": (
             "AbsenceBooking",
             "AbsenceModal",
+            "Adjustment",
+            "AdjustmentModal",
             "ConfirmModal",
             "correction_line",
             "CorrectionsModal",
@@ -192,6 +196,8 @@ __all__ = (  # noqa: RUF022
     "working_day",
     "AbsenceBooking",
     "AbsenceModal",
+    "Adjustment",
+    "AdjustmentModal",
     "ConfirmModal",
     "correction_line",
     "CorrectionsModal",

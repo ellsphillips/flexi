@@ -70,6 +70,10 @@ class CommandDashboard(Protocol):
         """Open a booking prompt for ``kind`` on ``when``."""
         ...
 
+    def action_adjust_balance(self) -> None:
+        """Open the prompt that moves the balance by an amount."""
+        ...
+
 
 @runtime_checkable
 class CommandApplication(Protocol):

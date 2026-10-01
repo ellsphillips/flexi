@@ -46,6 +46,8 @@ from flexi.messages import DateSelected, Scope
 from flexi.screens.modals import (
     AbsenceBooking,
     AbsenceModal,
+    Adjustment,
+    AdjustmentModal,
     ConfirmModal,
     Correction,
     CorrectionModal,
@@ -57,6 +59,7 @@ from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
 from flexi.services.registry import (
     Services,
+    adjust_balance,
     available_toil_days,
     invalidate_services,
 )
@@ -407,6 +410,31 @@ class DashboardScreen(Screen[None]):
             ),
             callback=confirm,
         )
+
+    # ---- the balance ----
+
+    def action_adjust_balance(self) -> None:
+        """Bring a balance in, or correct it, from today.
+
+        Written by the registry function `flexi balance adjust` calls, so a date
+        the command line would refuse is refused here as well.
+        """
+
+        def adjust(adjustment: Adjustment | None) -> None:
+            if adjustment is None:
+                return
+            self._report(
+                adjust_balance(
+                    self._services,
+                    adjustment.amount,
+                    adjustment.reason,
+                    adjustment.when,
+                ),
+                # It moves every figure a corrected session moves.
+                scope=Scope.CLOCK,
+            )
+
+        self.app.push_screen(AdjustmentModal(wallclock.today()), callback=adjust)
 
     # ---- reporting ----
 
