@@ -49,6 +49,7 @@ __all__ = (
     "as_of_option",
     "ask_the_questions",
     "balance",
+    "balance_adjust",
     "balance_log",
     "balance_show",
     "balance_undo",
@@ -517,6 +518,46 @@ def balance_zero(
     from flexi.cli import balance as balance_cli
 
     return balance_cli.zero(services, as_of, reason, assume_yes=yes)
+
+
+@balance.command(
+    name="adjust",
+    # `-1:30` is an amount, not an unknown option `-1`.
+    context_settings={"ignore_unknown_options": True},
+)
+@click.argument("amount")
+@click.option(
+    "--reason",
+    default=None,
+    type=Utf8Text(),
+    help="Why, as `flexi balance log` will list it. Required.",
+)
+@click.option(
+    "--on",
+    "on",
+    type=TypedDate(),
+    default=None,
+    help="Count it from this date, in this leave year and not in the future. "
+    "Defaults to today.",
+)
+@click.option("--yes", is_flag=True, help="Do not ask.")
+@requires_setup()
+def balance_adjust(
+    services: ServiceRegistry,
+    amount: str,
+    reason: str | None,
+    on: date | None,
+    *,
+    yes: bool,
+) -> int:
+    """Move the balance by a signed amount, such as +5:30 or -1:30.
+
+    For a balance brought in from elsewhere, or a correction to one.
+    `flexi balance log` lists it and `flexi balance undo` takes it back.
+    """
+    from flexi.cli import balance as balance_cli
+
+    return balance_cli.adjust(services, amount, reason, on, assume_yes=yes)
 
 
 @balance.command(name="log")

@@ -19,7 +19,7 @@ from flexi.services.outcome import Outcome
 # These imports describe attributes that PEP 562 resolves lazily at runtime.
 if TYPE_CHECKING:
     from flexi.cli import balance, clock, holidays, init, leave, output, ui
-    from flexi.cli.balance import NO_CALENDAR, log, show, undo, zero
+    from flexi.cli.balance import NO_CALENDAR, adjust, log, show, undo, zero
     from flexi.cli.clock import already_on, clock_in, clock_out
     from flexi.cli.holidays import run as refresh_holidays
     from flexi.cli.init import (
@@ -68,6 +68,7 @@ _SUBMODULES: Final = (
 _EXPORTS: Final = MappingProxyType(
     {
         "NO_CALENDAR": ("balance", "NO_CALENDAR"),
+        "adjust": ("balance", "adjust"),
         "log": ("balance", "log"),
         "show": ("balance", "show"),
         "undo": ("balance", "undo"),
@@ -116,6 +117,7 @@ __all__ = (  # noqa: RUF022
     "output",
     "ui",
     "NO_CALENDAR",
+    "adjust",
     "log",
     "show",
     "undo",
