@@ -13,7 +13,7 @@ from textual.widgets import Button, Digits, Input, Switch
 
 from flexi.app import FlexiApp
 from flexi.components.common import Gauge
-from flexi.components.expandable import RowKind, row_key
+from flexi.components.expandable import ExpandableTable, RowKind, row_key
 from flexi.components.modules.balance import BalanceModule
 from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.monthview import MonthView
@@ -414,6 +414,8 @@ async def test_key_after_midnight_closes_monday_and_stops_there(
         async with app.run_test(size=WIDE) as pilot:
             await pilot.pause()
             assert app.services.clock.is_clocked_in()
+            records = dashboard(app).query_one("#records-table", ExpandableTable)
+            assert records.toggle(f"{RowKind.DAY}{MONDAY}"), "Monday opens"
 
             with time_machine.travel(TUESDAY_TEN, tick=False):
                 await pilot.press("slash")
@@ -430,6 +432,10 @@ async def test_key_after_midnight_closes_monday_and_stops_there(
                 assert not app.services.clock.is_clocked_in()
                 assert status_text(app) == (
                     "Closed the session left running; press again to clock in"
+                )
+                drawn = [str(row.cells[1]) for row in records.visible_rows()]
+                assert any("09:00 → 18:00  auto-closed" in text for text in drawn), (
+                    "Monday is still drawn as running"
                 )
                 assert dashboard(app)._tick is None, "nothing is running to tick"
 
