@@ -87,7 +87,7 @@ src/flexi/
   screens/
     dashboard.py  leave.py  insights.py  settings.py  setup.py  help.py
     modals.py            FlexiModal, AbsenceModal, GoToDateModal, ConfirmModal,
-                         CorrectionModal, CorrectionsModal
+                         CorrectionModal, CorrectionsModal, AdjustmentModal
 ```
 
 Stylesheets live in `styles/` and are listed in `FlexiApp.CSS_PATH`. A
@@ -223,10 +223,10 @@ destination before setup is answered is refused with a notification.
 `FlexiApp.COMMANDS = {FlexiCommands}` replaces Textual's stock providers, so the
 palette carries Flexi's commands and nothing else. `commands(app)` builds the
 catalogue: clock in or out, help, go to each screen, a period per granularity, go
-to today, go to a date, book leave, book each absence type on the selected day,
-and refresh bank holidays. On the setup screen, where there is no dashboard, only
-the first two appear — every other entry is drawn from the period the dashboard
-holds.
+to today, go to a date, book leave, adjust the balance, book each absence type on
+the selected day, and refresh bank holidays. On the setup screen, where there is
+no dashboard, only the first two appear — every other entry is drawn from the
+period the dashboard holds.
 
 ## 6. The records table
 

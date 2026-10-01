@@ -51,13 +51,19 @@ not happened yet.
 
 ### Balance corrections
 
+- **A balance you already had comes with you.**
+  `flexi balance adjust +5:30 --reason "Brought forward"` moves the balance by a
+  signed amount, from today or an earlier day of the leave year given with
+  `--on`, and shows the balance before and after it asks. `-1:30` reads, and so
+  does the `−1:30` Flexi prints. **Adjust balance…** in the command palette does
+  the same from the dashboard.
 - `flexi balance zero` draws a line under everything up to a date, writing one
-  signed, dated, reasoned row. It settles to yesterday by default, because today
-  is not over.
+  signed, dated, reasoned row, `settled` unless you give a reason. It settles to
+  yesterday by default, because today is not over.
 - `flexi balance log` lists every correction, and `flexi balance undo <id>`
   removes one.
-- A settlement that an earlier one already covers is refused, not
-  double-counted.
+- A settlement behind a correction already recorded is refused, not
+  double-counted, and a correction cannot be dated behind a settlement.
 
 ### The command line
 

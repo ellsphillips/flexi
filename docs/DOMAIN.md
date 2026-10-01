@@ -41,6 +41,17 @@ not open on seven months of deficit. Work recorded on one of them, punched or
 added with `n`, tracks it like any later day. It is `None` on databases migrated
 from before `0015`, and `None` means every day counts.
 
+The balance those days left behind is brought in by hand.
+`flexi balance adjust`, and *Adjust balance…* in the command palette, write the
+same kind of row as a settlement: an opening balance carried from a spreadsheet,
+or a correction. It is dated today unless `--on` names an earlier day of the
+current leave year, since a row dated in an earlier year is never counted, and
+it lands after the latest row dated before today. That row may be a settlement,
+which a row behind it would reopen, and a reason is free text, so nothing tells
+a settlement from a correction. A row dated today never is one: only a finished
+day is settled. For the same reason a settlement is refused behind any later
+row.
+
 `expected_hours(d)` is the crux:
 
 | Day | expected |
@@ -169,8 +180,9 @@ it" — every holiday a working day, quietly.
 ### `balance_adjustments`
 
 `date` (when the correction takes effect), `minutes` (signed), `reason`,
-`created_at`. Written by `flexi balance zero` and by the settle action; removable
-by id through `flexi balance undo`.
+`created_at`. Written by `flexi balance zero`, with the reason `settled` unless
+one is given, and by `flexi balance adjust` or the palette's *Adjust balance…*;
+removable by id through `flexi balance undo`.
 
 ---
 

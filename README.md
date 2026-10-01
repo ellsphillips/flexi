@@ -64,6 +64,9 @@ UK bank-holiday division, and the time to close sessions left running overnight.
 Tracking starts that day; earlier days do not create a deficit. Record work on
 one of them and it counts against your contracted day.
 
+Starting with a balance? Run `flexi balance adjust +5:30 --reason "Brought forward"`,
+or choose **Adjust balance…** from the command palette (`ctrl+p`).
+
 Press `f4` to change settings or set each leave year's entitlement.
 A new leave year needs its own allowance.
 
@@ -113,6 +116,7 @@ flexi leave sick today pm
 flexi leave cancel next monday
 flexi balance show
 flexi balance zero --reason "Balance agreed with my manager"
+flexi balance adjust -0:45 --on yesterday --reason "Long lunch"
 flexi balance log
 flexi balance undo 3
 flexi holidays refresh
@@ -120,6 +124,12 @@ flexi holidays refresh
 
 Leave commands show a plan and ask before writing. `--dry-run` previews it;
 `--yes` skips confirmation. Declining exits with status 1.
+
+`balance adjust` moves the balance by a signed amount, such as `+5:30` or
+`-1:30`, from today or an earlier day of the leave year given with `--on`. It
+shows the balance before and after and asks first, as `balance zero` does;
+`--yes` skips the question, and is needed where there is no terminal to ask on.
+`balance log` lists every adjustment, and `balance undo` removes one.
 
 `balance zero` settles through yesterday by default. If work overlaps booked
 leave, clock-out asks you to remove the conflicting booking and retry; the
