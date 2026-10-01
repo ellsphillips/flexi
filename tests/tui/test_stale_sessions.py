@@ -92,6 +92,23 @@ async def test_opening_says_what_it_closed(left_open: Path) -> None:
             ) in [notice.message for notice in app._notifications]
 
 
+async def test_nothing_left_running_goes_unannounced(left_open: Path) -> None:
+    """Still Monday: opening has nothing to close, and `/` just clocks out."""
+    app = FlexiApp(db_path=left_open)
+    with time_machine.travel(MONDAY_NINE + timedelta(hours=8), tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            await pilot.press("slash")
+            await pilot.pause()
+
+            assert not app.services.clock.is_clocked_in()
+            assert not [
+                notice.message
+                for notice in app._notifications
+                if "left running" in notice.message
+            ]
+
+
 async def test_clock_key_starts_tuesday_not_ends_monday(
     left_open: Path,
 ) -> None:
