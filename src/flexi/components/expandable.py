@@ -122,6 +122,7 @@ class ExpandableTable(DataTable[RenderableType]):
         go off the right edge.
         """
         self.clear(columns=True)
+        self._laid_out = ((), ())
         for spec in specs:
             if isinstance(spec, tuple):
                 label, width = spec
@@ -148,7 +149,7 @@ class ExpandableTable(DataTable[RenderableType]):
         self._groups = tuple(groups)
         self._expanded &= {group.parent.key for group in self._groups}
         rows = self.visible_rows()
-        if self.row_count != len(rows) or self._laid_out != self._layout(rows):
+        if self._laid_out != self._layout(rows):
             self._redraw()
             return
         columns = self.ordered_columns

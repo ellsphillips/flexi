@@ -301,6 +301,19 @@ async def test_a_column_that_changed_width_lays_the_rows_out_again() -> None:
         assert table.virtual_size.width == column.get_render_width(table)
 
 
+async def test_the_same_header_set_again_lays_the_rows_out_again() -> None:
+    """Setting the header empties the table, even at the widths it had."""
+    table = ExpandableTable()
+    async with mounted(table) as pilot:
+        await table_of(pilot, day(MONDAY), day(TUESDAY))
+        table.set_columns(("Day", 12))
+
+        table.set_groups([day(MONDAY), day(TUESDAY)])
+        await pilot.pause()
+
+        assert table.get_row(row_key(RowKind.DAY, TUESDAY)) == [TUESDAY]
+
+
 async def test_table_groups_are_readable_back() -> None:
     """The table is the only place the run of groups is kept."""
     table = ExpandableTable()
