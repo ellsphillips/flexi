@@ -49,7 +49,7 @@ class WalletModule(Module):
     HELP_LABEL = "Wallet"
 
     WATCHES: ClassVar[Scope] = (
-        Scope.ABSENCE | Scope.CLOCK | Scope.SETTINGS | Scope.PERIOD
+        Scope.ABSENCE | Scope.CLOCK | Scope.SETTINGS | Scope.PERIOD | Scope.TIME
     )
 
     def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:

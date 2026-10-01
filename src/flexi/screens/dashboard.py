@@ -38,7 +38,7 @@ from flexi.components.options import ScreenOptions
 from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
-from flexi.domain.balance import expected_for
+from flexi.domain.balance import BalanceSummary, expected_for
 from flexi.domain.format import clock as clock_time
 from flexi.domain.format import short_date
 from flexi.domain.period import Period
@@ -124,6 +124,8 @@ class DashboardScreen(Screen[None]):
         )
         self.now = wallclock.now()
         self._tick: Timer | None = None
+        self._shown: tuple[BalanceSummary, ...] = ()
+        """The minutes the records table and the wallet were last drawn at."""
 
     # ---- composition ----
 
@@ -146,6 +148,7 @@ class DashboardScreen(Screen[None]):
     def on_mount(self) -> None:
         self._sync_header()
         self._refresh_progress()
+        self._shown = self._shown_minutes()
         self._start_tick_if_open()
 
     def on_resize(self) -> None:
@@ -210,6 +213,7 @@ class DashboardScreen(Screen[None]):
             invalidate_services(self._services)
         for module in self.query(Module):
             module.rebuild_if(scope)
+        self._shown = self._shown_minutes()
         self._refresh_progress()
 
     def _refresh_progress(self) -> None:
@@ -247,6 +251,10 @@ class DashboardScreen(Screen[None]):
     def _on_tick(self) -> None:
         """A second passed. Redraw the two readouts that measure elapsed time.
 
+        Everything else that moves with the clock prints whole minutes, and a
+        year of records takes eight ticks' worth of time to build, so it
+        waits for `TIME`: a figure on screen reaching its next minute.
+
         No `invalidate()`: nothing was written, and `LedgerService.days` always
         rebuilds today, which an open session lengthens a minute at a time.
         Clearing the memo would throw away every other day in the period with it.
@@ -255,7 +263,27 @@ class DashboardScreen(Screen[None]):
         for module in (ClockModule, BalanceModule):
             for widget in self.query(module):
                 widget.rebuild()
+        shown = self._shown_minutes()
+        if shown != self._shown:
+            self._shown = shown
+            for panel in self.query(Module):
+                panel.rebuild_if(Scope.TIME)
         self._refresh_progress()
+
+    def _shown_minutes(self) -> tuple[BalanceSummary, ...]:
+        """Today, the period and the balance, in the whole minutes they print.
+
+        Not the wall clock's minute: each turns over at the seconds its own
+        sessions add up to, so a table keyed to the wall clock would read a
+        minute behind the balance beside it for part of every minute.
+        """
+        ledger = self._services.ledger
+        today = self.now.date()
+        return (
+            ledger.summary(today, today, now=self.now).as_shown(),
+            ledger.summary(self.period.start, self.period.end, now=self.now).as_shown(),
+            ledger.balance(today, now=self.now).as_shown(),
+        )
 
     def on_unmount(self) -> None:
         if self._tick is not None:

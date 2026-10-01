@@ -30,8 +30,10 @@ class Scope(Flag):
     """Contracted hours, the leave year, the working pattern or the division."""
     PERIOD = auto()
     """The temporal view moved. No rows changed."""
+    TIME = auto()
+    """An open session reached another whole minute. Nothing was written."""
 
-    ALL = CLOCK | ABSENCE | SETTINGS | PERIOD
+    ALL = CLOCK | ABSENCE | SETTINGS | PERIOD | TIME
 
 
 class DateSelected(Message):

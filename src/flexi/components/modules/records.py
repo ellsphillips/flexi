@@ -4,7 +4,7 @@ A collapsed row is a whole day in one line; opening it shows the sessions and
 breaks behind the figures.
 
 Strips are painted into cells, not mounted: a widget per row would cost a layout
-pass per redraw, on the one widget that redraws every second.
+pass per redraw, and the table redraws every minute a session is open.
 """
 
 from __future__ import annotations
