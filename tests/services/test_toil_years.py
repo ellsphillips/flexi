@@ -110,7 +110,7 @@ def test_refused_days_in_next_year_cannot_consume_current_year_toil(
 def test_current_year_reservations_are_not_subtracted_twice(tracked: Services) -> None:
     assert tracked.absence.book(LAST, AbsenceType.FLEXI, Portion.AM).success
     contracted = tracked.settings.get_contracted()
-    assert tracked.adjustments.record(TODAY, contracted * 3, "opening balance").success
+    assert tracked.adjustments.record(TODAY, contracted * 2, "opening balance").success
     available = tracked.wallet.available_toil_days(TODAY)
     assert available == 1.5
     plan = tracked.absence.plan(
@@ -175,7 +175,7 @@ def test_cli_warns_when_the_actual_next_year_balance_is_negative(
     tracked: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
     contracted = tracked.settings.get_contracted()
-    assert tracked.adjustments.record(TODAY, contracted * 11, "opening balance").success
+    assert tracked.adjustments.record(TODAY, contracted * 10, "opening balance").success
     assert tracked.wallet.available_toil_days(TODAY) == 10.0
     assert (
         run(

@@ -14,8 +14,8 @@ year of rounding it gives a balance that disagrees with the sum of its rows.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta
 
 from flexi.constants import AbsenceType
 from flexi.domain.format import whole_minutes
@@ -26,6 +26,7 @@ __all__ = (
     "BalanceSummary",
     "accumulate",
     "expected_for",
+    "standing",
     "toil_taken_for",
     "worked_from",
 )
@@ -149,3 +150,19 @@ def accumulate(ledgers: Iterable[DayLedger]) -> BalanceSummary:
             adjustment=ledger.adjustment,
         )
     return total
+
+
+def standing(ledgers: Iterable[DayLedger], today: date) -> BalanceSummary:
+    """Total a run of day ledgers as they stand on ``today``.
+
+    Today is not over. Its contracted hours are held back for as long as they
+    are still to be worked, so a morning opens on the balance the evening
+    before closed on, and a day cut short counts its shortfall once it ends.
+    The rest of it counts at once: a surplus, TOIL taken and a correction.
+    """
+    return accumulate(
+        replace(ledger, expected=min(ledger.expected, ledger.worked))
+        if ledger.date == today
+        else ledger
+        for ledger in ledgers
+    )

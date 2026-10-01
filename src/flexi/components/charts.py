@@ -20,7 +20,7 @@ from textual.widget import Widget
 
 from flexi.components.options import WidgetOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
-from flexi.domain.balance import accumulate as summary_of
+from flexi.domain.balance import standing
 from flexi.domain.dates import week_start
 from flexi.domain.format import MINUS, delta, hm, signed_days
 from flexi.domain.format import days as fmt_days
@@ -404,21 +404,24 @@ class YearHeatmap(Widget):
         return text
 
 
-def running_balance(ledgers: Sequence[DayLedger]) -> tuple[float, ...]:
+def running_balance(ledgers: Sequence[DayLedger], *, today: date) -> tuple[float, ...]:
     """The flexi balance in hours after each day, in order.
 
-    A day off contributes what it withdrew, so a week of leave is flat;
-    `balance_effect` is the one place that rule lives.
+    A day off contributes what it withdrew, so a week of leave is flat, and
+    today only what it has gained so far; `standing` is the one place those
+    rules live.
     """
     return tuple(
         accumulate(
-            ledger.balance_effect.total_seconds() / SECONDS_PER_HOUR
+            standing((ledger,), today).delta.total_seconds() / SECONDS_PER_HOUR
             for ledger in ledgers
         )
     )
 
 
-def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column]:
+def week_columns(
+    ledgers: list[DayLedger], *, first_weekday: int, today: date
+) -> list[Column]:
     """Group a run of days into one bar per week, for :class:`DivergingBars`.
 
     ``first_weekday`` buckets and labels the bars, keeping them in step with the
@@ -429,7 +432,9 @@ def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column
         buckets[week_start(ledger.date, first_weekday=first_weekday)].append(ledger)
     # Floored term by term, the one rule every printed balance follows, so a
     # bar cannot read a minute off the balance beside it.
-    shown = {week: summary_of(days).as_shown().delta for week, days in buckets.items()}
+    shown = {
+        week: standing(days, today).as_shown().delta for week, days in buckets.items()
+    }
     return [
         Column(
             label=str(week.day),

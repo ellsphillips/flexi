@@ -8,22 +8,22 @@
  │ ───████████████▌───┊─▎                                                                           8:13   +0:49      │
  │ since 08:44 · go home▎   t  Today                                                                3:54   +0:12      │
  │                      ▎   [  Previous                                                             7:32   +0:08      │
- │            Depart    ▎   ]  Next                                                                 5:08   −2:16      │
+ │            Depart    ▎   ]  Next                                                                 5:08    0:00      │
  ╰─────── 5:08:00 · 11/0▎   d  Day                                                                  TOIL   −7:24      │
  ╭─ Balance ────────────▎   w  Week                                                                    —              │
- │    ╶╮ ╭─╴   ╷ ╷╭─╮   ▎   m  Month                                                                   —              │
- │ ╶┼╴ │ ╰─╮ : ╰─┤├─┤   ▎   y  Year                                                                24:47   −8:31      │
- │    ╶┴╴╶─╯     ╵╰─╯   ▎   p  Period                                                                                 │
+ │    ╶╮ ╭─╮   ╭─╮╷ ╷   ▎   m  Month                                                                   —              │
+ │ ╶┼╴ │ ├─┤ : │ │╰─┤   ▎   y  Year                                                                24:47   −6:15      │
+ │    ╶┴╴╰─╯   ╰─╯  ╵   ▎   p  Period                                                                                 │
  │        FLEXI BALANCE ▎   g  Go to date                                                                             │
- │   15:48 banked · +2.1▎   n  Record work                                                                            │
+ │   18:04 banked · +2.4▎   n  Record work                                                                            │
  ╰────────── 6 Apr 26–5 ▎   N  Corrections                                                                            │
  ╭─ Wallet ─────────────▎   A  Annual leave                                                                           │
  │ ANNUAL       20.5 lef▎   S  Sickness                                                                               │
  │ ━━━━━┿━━━━━━━━━━━━━━━▎   T  TOIL day                                                                               │
- │ TOIL         +15:48  ▎   U  Unpaid leave                                                                           │
+ │ TOIL         +18:04  ▎   U  Unpaid leave                                                                           │
  │ ━━━━━━━━━━━━━━━━━━━━━▎   O  Other absence                                                                          │
  │ SICK         1d · 1 o▎  Anywhere                                                                                   │
- ╰────────── −8:31 this ▎  ──────────────────────────────────────────────────────────────────                         │
+ ╰────────── −6:15 this ▎  ──────────────────────────────────────────────────────────────────                         │
  ╭─ Calendar ───────────▎                                                                                             │
  │  ‹       June 2026   ▎   ^q  Quit                                                                                  │
  │  M   T   W   T   F   ▎   /  Clock                                                                                  │

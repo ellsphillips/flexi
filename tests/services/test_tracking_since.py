@@ -30,11 +30,14 @@ def balance_hours(services: Services, as_of: date) -> float:
 def test_setting_up_mid_year_is_not_a_deficit(
     configure: Configured,
 ) -> None:
-    """An April leave year set up in August has a hundred empty days behind it."""
+    """An April leave year set up in August has a hundred empty days behind it.
+
+    None of them is owed, and nor is the setup day until it ends.
+    """
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
 
-        assert balance_hours(services, INSTALLED) == -CONTRACTED.total_seconds() / 3600
+        assert balance_hours(services, INSTALLED) == 0
 
 
 def test_without_a_tracking_date_every_day_still_counts(

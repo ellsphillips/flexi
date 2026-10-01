@@ -322,12 +322,32 @@ async def test_headline_is_the_figure_the_command_line_prints(
 ) -> None:
     """`flexi balance show` floors each term, and the headline uses the same figures."""
     services = configure(entitlement=(2026, 25.0))
-    work(services, THURSDAY, hours=2 + 9 / 3600)
-    expected = digits(services.ledger.balance(THURSDAY).as_shown().delta)
+    work(services, WEDNESDAY, hours=2 + 9 / 3600)
+    expected = digits(services.ledger.balance(THURSDAY, now=NOW).as_shown().delta)
 
     module = BalanceModule()
     async with showing(module, services, anchor=THURSDAY, now=NOW):
         assert module.query_one("#balance-digits", Digits).value == expected
+
+
+async def test_a_morning_owes_none_of_the_day_ahead(
+    configure: Configured,  # noqa: F811 - the imported fixture
+) -> None:
+    """Before the first punch the headline is where the evening before left it.
+
+    Three days of 7:30 bank +0:18, and Thursday's 7:24 is not owed at 08:00 with
+    the whole day still to work it in.
+    """
+    services = configure(entitlement=(2026, 25.0), tracking_since=MONDAY)
+    for day in (MONDAY, MONDAY + timedelta(days=1), WEDNESDAY):
+        work(services, day, hours=7.5)
+
+    module = BalanceModule()
+    async with showing(module, services, now=datetime(2026, 6, 11, 8, 0)):
+        assert module.query_one("#balance-digits", Digits).value == "+0:18"
+        assert str(module.query_one("#balance-detail", Static).render()) == (
+            "0:18 banked"
+        )
 
 
 @pytest.mark.parametrize(
@@ -368,6 +388,12 @@ def on_the_clock_since_nine(services: Services) -> datetime:
     services.clock.clock_in(now=datetime(2026, 6, 11, 9, 0, 40, tzinfo=UTC))
     invalidate_services(services)
     return datetime(2026, 6, 11, 12, 0, 30, tzinfo=UTC)
+
+
+def on_the_clock_past_its_hours(services: Services) -> datetime:
+    """The same session still on at 17:00:30: the 8:00 it shows, not 7:59:50."""
+    on_the_clock_since_nine(services)
+    return datetime(2026, 6, 11, 17, 0, 30, tzinfo=UTC)
 
 
 def a_longer_day(services: Services) -> None:
@@ -419,9 +445,15 @@ def left_running_overnight(services: Services) -> datetime:
 
 @pytest.mark.parametrize(
     "arrange",
-    [on_the_clock_since_nine, half_of_a_longer_day, left_running_overnight],
+    [
+        on_the_clock_since_nine,
+        on_the_clock_past_its_hours,
+        half_of_a_longer_day,
+        left_running_overnight,
+    ],
     ids=[
         "a session open at 12:00:30",
+        "a session open past its hours",
         "half a 7:25 day",
         "a session left running overnight",
     ],
@@ -435,8 +467,9 @@ async def test_every_surface_reads_the_balance_alike(
     Each case is a way seconds once reached a day: a session open mid-minute,
     half of an odd-minute day, a session left running overnight. Each now counts
     in whole minutes, and on top of that every surface floors each term as the
-    headline does. Tracked from one day, that day is the balance, the period,
-    the chart and its one week alike.
+    headline does, and holds back the hours today has still to work. Tracked
+    from one day, that day is the balance, the period, the chart and its one
+    week alike.
     """
     services = configure(entitlement=(2026, 25.0), tracking_since=THURSDAY)
     now = arrange(services)
@@ -712,6 +745,26 @@ async def test_day_that_met_its_hours_is_drawn_muted(
         assert delta.style == module.get_component_rich_style("record--muted")
 
 
+async def test_today_is_no_shortfall_until_it_ends(flexi: Services) -> None:
+    """On since 09:00, at 14:32 Thursday has cost nothing yet, and still adds up."""
+    flexi.clock.clock_in(now=datetime(2026, 6, 11, 9, 0, tzinfo=UTC))
+    invalidate_services(flexi)
+
+    module = RecordsModule()
+    afternoon = datetime(2026, 6, 11, 14, 32, tzinfo=UTC)
+    async with showing(module, flexi, now=afternoon):
+        rows = module.table.visible_rows()
+        days = [row for row in rows if row.key.startswith(RowKind.DAY)]
+        total = next(row for row in rows if row.key == row_key(RowKind.TOTAL, "period"))
+        today = next(row for row in days if row.key == row_key(RowKind.DAY, THURSDAY))
+
+        assert str(cell(today.cells[2])) == "5:32"
+        assert str(cell(today.cells[3])) == "0:00"
+        assert sum(
+            (as_delta(cell(row.cells[3])) for row in days), timedelta()
+        ) == as_delta(cell(total.cells[3]))
+
+
 async def test_day_column_adds_up_to_the_period_under_it(
     flexi: Services,
 ) -> None:
@@ -749,8 +802,9 @@ async def test_sign_column_reads_the_cells_beside_it(
     work(services, THURSDAY, hours=2 + 9 / 3600)
 
     module = RecordsModule()
+    friday = datetime(2026, 6, 12, 9, 0)
     async with showing(
-        module, services, granularity=Granularity.DAY, anchor=THURSDAY
+        module, services, granularity=Granularity.DAY, anchor=THURSDAY, now=friday
     ) as (_pilot, _panel):
         rows = module.table.visible_rows()
         day = next(item for item in rows if item.key == row_key(RowKind.DAY, THURSDAY))

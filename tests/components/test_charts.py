@@ -34,6 +34,7 @@ from flexi.components.charts import (
     DivergingBars,
     WeekRibbon,
     YearHeatmap,
+    running_balance,
     week_columns,
 )
 from flexi.constants import AbsenceType, DayKind, Portion
@@ -434,6 +435,9 @@ async def test_punched_and_corrected_days_keep_their_fills() -> None:
 
 # ---- week_columns ----
 
+LATER = MONDAY + timedelta(weeks=4)
+"""A today after every day below, so each is over and counts in full."""
+
 
 def test_days_are_grouped_into_weeks_beginning_on_monday() -> None:
     ledgers = [
@@ -441,7 +445,7 @@ def test_days_are_grouped_into_weeks_beginning_on_monday() -> None:
         day(MONDAY + timedelta(days=3), effect=timedelta(hours=2)),
         day(MONDAY + timedelta(days=7), effect=-timedelta(hours=1)),
     ]
-    assert week_columns(ledgers, first_weekday=0) == [
+    assert week_columns(ledgers, first_weekday=0, today=LATER) == [
         Column(label="2", value=3.0, readout="+3:00"),
         Column(label="9", value=-1.0, readout="−1:00"),
     ]
@@ -450,7 +454,7 @@ def test_days_are_grouped_into_weeks_beginning_on_monday() -> None:
 def test_midweek_start_is_dated_by_its_monday() -> None:
     """The demo data starts on a Wednesday and lands in that week's bar."""
     wednesday = MONDAY + timedelta(days=2)
-    assert week_columns([day(wednesday)], first_weekday=0)[0].label == "2"
+    assert week_columns([day(wednesday)], first_weekday=0, today=LATER)[0].label == "2"
 
 
 def test_absence_still_lands_in_its_week() -> None:
@@ -460,7 +464,23 @@ def test_absence_still_lands_in_its_week() -> None:
         absences=(AbsenceSlice(1, AbsenceType.ANNUAL, Portion.FULL),),
         effect=-CONTRACTED,
     )
-    assert week_columns([booked], first_weekday=0)[0].value == pytest.approx(-7.4)
+    (week,) = week_columns([booked], first_weekday=0, today=LATER)
+    assert week.value == pytest.approx(-7.4)
+
+
+def test_today_is_not_a_fall_until_it_ends() -> None:
+    """Its hours still to work are held back, by the bar and by the line alike."""
+    tuesday = MONDAY + timedelta(days=1)
+    ledgers = [
+        day(MONDAY, effect=timedelta(hours=1)),
+        day(tuesday, effect=-timedelta(hours=5)),
+    ]
+
+    assert week_columns(ledgers, first_weekday=0, today=tuesday) == [
+        Column(label="2", value=1.0, readout="+1:00")
+    ]
+    assert running_balance(ledgers, today=tuesday) == (1.0, 1.0)
+    assert running_balance(ledgers, today=LATER) == (1.0, -4.0)
 
 
 # ---- an arm is a distance from the baseline, never a value ----

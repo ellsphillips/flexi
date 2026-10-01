@@ -265,14 +265,18 @@ async def test_cancelling_the_correction_writes_nothing(
 async def test_recording_a_correction_moves_the_balance_on_screen(
     app_factory: AppFactory,
 ) -> None:
-    """Read off the widget: the arithmetic and the redraw are two separate things."""
+    """Read off the widget: the arithmetic and the redraw are two separate things.
+
+    Long enough to take today past its hours: short of them, it is still owed
+    nothing, and the balance stands where it did.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         digits = app.screen.query_one("#balance-digits", Digits)
         before = digits.value
 
-        await record(pilot, "6:00", "7:30")
+        await record(pilot, "5:00", "8:00")
 
         assert digits.value != before, "the readout still shows the old balance"
         summary = app.services.ledger.balance(dashboard(app).now.date())

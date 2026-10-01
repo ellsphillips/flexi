@@ -22,6 +22,7 @@ from flexi.domain.balance import (
     BalanceSummary,
     accumulate,
     expected_for,
+    standing,
     toil_taken_for,
     worked_from,
 )
@@ -163,11 +164,14 @@ class LedgerService:
         """The running flexi balance, from the start of the leave year to a date.
 
         Accumulated on every read, never stored, so a corrected session or a
-        changed contract takes effect everywhere at once.
+        changed contract takes effect everywhere at once. Read as it stands
+        now, so today's hours still to work are not owed until it ends.
         """
-        as_of = as_of or wallclock.today()
+        today = (wallclock.local(now) if now is not None else wallclock.now()).date()
+        as_of = as_of or today
         month, day = self._settings.get_leave_year_start()
-        return self.summary(leaveyear.start_of(as_of, month, day), as_of, now=now)
+        start = leaveyear.start_of(as_of, month, day)
+        return standing(self.days(start, as_of, now=now), today)
 
     # Building.
 

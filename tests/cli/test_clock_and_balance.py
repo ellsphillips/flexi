@@ -366,6 +366,25 @@ def test_settling_draws_the_line_it_names(
     assert figure(today, "balance") == timedelta(minutes=5)
 
 
+def test_settling_first_thing_leaves_nothing_owed(
+    session: Session, services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Zeroed at 08:00, the day ahead is not a 7:24 deficit before it is worked."""
+    tracked = tracking_from(session, date(2026, 6, 8))
+    with time_machine.travel(datetime(2026, 6, 8, 9, 0), tick=False):
+        clock_cli.clock_in(tracked)
+    with time_machine.travel(datetime(2026, 6, 8, 17, 0), tick=False):
+        clock_cli.clock_out(tracked)
+    capsys.readouterr()
+
+    with time_machine.travel(datetime(2026, 6, 9, 8, 0), tick=False):
+        assert balance_cli.zero(tracked, assume_yes=True) == 0
+
+    printed = capsys.readouterr().out
+    assert "is +0:36" in printed
+    assert figure(printed, "balance now") == timedelta()
+
+
 def test_toil_taken_is_shown_on_its_own_line(
     stocked: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:

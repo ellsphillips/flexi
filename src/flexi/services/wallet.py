@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta
 from flexi import wallclock
 from flexi.constants import AbsenceType
 from flexi.domain import leaveyear
+from flexi.domain.balance import standing
 from flexi.domain.wallet import Allowance, WalletData
 from flexi.services.absence import AbsenceService
 from flexi.services.ledger import LedgerService
@@ -47,9 +48,10 @@ class WalletService:
         contracted = self._settings.get_contracted()
 
         # In the whole minutes the headline and the records print, so the TOIL
-        # row and "this period" cannot round the same seconds another way.
+        # row and "this period" cannot round the same seconds another way, and
+        # with today's hours still to work held back as the records hold them.
         balance = self._ledger.balance(today, now=now).as_shown()
-        period = self._ledger.summary(start, end, now=now).as_shown()
+        period = standing(self._ledger.days(start, end, now=now), today).as_shown()
         balance_days = balance.delta / contracted if contracted else 0.0
 
         return WalletData(

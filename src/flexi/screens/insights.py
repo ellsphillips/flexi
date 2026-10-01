@@ -31,7 +31,7 @@ from flexi.components.plot import Plot
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
 from flexi.context import service_app
-from flexi.domain.balance import accumulate
+from flexi.domain.balance import standing
 from flexi.domain.format import day_month, delta, hm, stamp
 from flexi.domain.period import Period
 from flexi.domain.plot import Mark, Series
@@ -68,18 +68,19 @@ class BalanceHistory(Module):
 
     def rebuild(self) -> None:
         period = self.period
+        today = self.now.date()
         # Stop at today: a working day in the future expects hours and has none
         # recorded, so charting past it draws a cliff of deficits.
-        end = min(period.end, self.now.date())
+        end = min(period.end, today)
         if end < period.start:
             self.query_one("#balance-bars", DivergingBars).show([])
             self.set_subtitle("not started")
             return
         ledgers = self.services.ledger.days(period.start, end, now=self.now)
         self.query_one("#balance-bars", DivergingBars).show(
-            week_columns(ledgers, first_weekday=period.first_weekday)
+            week_columns(ledgers, first_weekday=period.first_weekday, today=today)
         )
-        total = self.services.ledger.summary(period.start, end, now=self.now)
+        total = standing(ledgers, today)
         self.set_subtitle(f"{delta(total.as_shown().delta)} to {day_month(end)}")
 
 
@@ -108,9 +109,10 @@ class RunningBalance(Module):
 
     def rebuild(self) -> None:
         period = self.period
+        today = self.now.date()
         # Stop at today: a working day in the future expects hours and has none
         # recorded, so carrying on draws a cliff into a debt no one has run up.
-        end = min(period.end, self.now.date())
+        end = min(period.end, today)
         chart = self.query_one("#balance-plot", Plot)
         if end < period.start:
             chart.show([], empty_message="Not started")
@@ -118,7 +120,7 @@ class RunningBalance(Module):
             return
 
         ledgers = self.services.ledger.days(period.start, end, now=self.now)
-        running = running_balance(ledgers)
+        running = running_balance(ledgers, today=today)
         chart.show(
             [Series("balance", running, Mark.LINE, "series")],
             rule=0.0,
@@ -128,7 +130,7 @@ class RunningBalance(Module):
         # that is the balance, over a month only the drift within the month, so
         # the two are captioned differently. Summed again, not read off the
         # plotted hours, and floored term by term as the dashboard floors it.
-        total = delta(accumulate(ledgers).as_shown().delta)
+        total = delta(standing(ledgers, today).as_shown().delta)
         if period.granularity is Granularity.YEAR:
             self.set_subtitle(f"{total} on {day_month(end)}")
         else:

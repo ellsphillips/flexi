@@ -100,12 +100,17 @@ def test_zeroing_leaves_today_alone(home: Path) -> None:
     """The line is drawn at the end of yesterday, so today counts normally.
 
     Absorbing today's contracted hours before they are worked would leave the
-    evening looking like unearned overtime.
+    evening looking like unearned overtime. Until today ends they are not owed,
+    so the line leaves nothing behind it; once it has, an unworked day is.
     """
     runner = CliRunner()
-    runner.invoke(cli, ["balance", "zero", "--yes"])
+    settled = runner.invoke(cli, ["balance", "zero", "--yes"])
+    assert "balance now   0:00" in settled.output
     assert balance_of(runner, YESTERDAY) == "0:00"
-    assert balance_of(runner) == "−7:24"
+    assert balance_of(runner) == "0:00"
+
+    with time_machine.travel(NOON + timedelta(days=1), tick=False):
+        assert balance_of(runner) == "−7:24"
 
 
 def test_zero_asks_before_it_writes(home: Path) -> None:
@@ -235,14 +240,15 @@ def logged(runner: CliRunner) -> str:
 
 
 def test_adjust_moves_the_balance(home: Path) -> None:
+    """An adjustment from today counts at once, before today's hours are owed."""
     runner = CliRunner()
-    assert balance_of(runner) == "−12:48"
+    assert balance_of(runner) == "−5:24"
 
     result = adjust(runner, "+5:30", "--reason", "Brought forward", "--yes")
 
     assert result.exit_code == 0, result.output
     assert "adjusted by +5:30" in result.stdout
-    assert balance_of(runner) == "−7:18"
+    assert balance_of(runner) == "+0:06"
 
 
 @pytest.mark.parametrize("typed", ["-1:30", "\N{MINUS SIGN}1:30"])
@@ -297,7 +303,7 @@ def test_adjust_shows_the_balance_it_makes_and_asks(home: Path) -> None:
     assert result.exit_code == 1
     assert "+5:30 on Wed 10 Jun 2026" in result.stdout
     assert "Brought forward" in result.stdout
-    assert "−12:48 → −7:18" in result.stdout
+    assert "−5:24 → +0:06" in result.stdout
     assert "Record it?" in result.stderr, "the question is not the output"
     assert "Nothing was recorded" in result.stderr
     assert "No adjustments" in logged(runner)
@@ -376,7 +382,7 @@ def test_a_balance_brought_in_can_be_corrected_the_next_day(home: Path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    assert balance_of(runner) == "\N{MINUS SIGN}8:03"
+    assert balance_of(runner) == "\N{MINUS SIGN}0:39"
 
 
 def test_adjustment_is_logged_and_can_be_taken_back(home: Path) -> None:
@@ -391,4 +397,4 @@ def test_adjustment_is_logged_and_can_be_taken_back(home: Path) -> None:
 
     assert undone.exit_code == 0
     assert "No adjustments" in logged(runner)
-    assert balance_of(runner) == "−12:48"
+    assert balance_of(runner) == "−5:24"

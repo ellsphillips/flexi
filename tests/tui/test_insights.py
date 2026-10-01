@@ -55,14 +55,14 @@ def test_week_columns_group_days_into_weeks() -> None:
         ledger(date(2026, 6, 9), CONTRACTED),
         ledger(date(2026, 6, 15), CONTRACTED - timedelta(hours=2)),
     ]
-    columns = week_columns(days, first_weekday=0)
+    columns = week_columns(days, first_weekday=0, today=date(2026, 6, 30))
     assert [column.label for column in columns] == ["8", "15"]
     assert columns[0].value == pytest.approx(1.0)
     assert columns[1].readout == "−2:00"
 
 
 def test_week_columns_of_nothing_is_empty() -> None:
-    assert week_columns([], first_weekday=0) == []
+    assert week_columns([], first_weekday=0, today=date(2026, 6, 30)) == []
 
 
 # ---- the screen ----

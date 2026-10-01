@@ -8,6 +8,7 @@ from flexi.domain.balance import (
     BalanceSummary,
     accumulate,
     expected_for,
+    standing,
     toil_taken_for,
     worked_from,
 )
@@ -156,15 +157,19 @@ def day(
     worked: timedelta = timedelta(),
     expected: timedelta = CONTRACTED,
     toil: timedelta = timedelta(),
+    *,
+    when: date = DAY,
+    adjustment: timedelta = timedelta(),
 ) -> DayLedger:
     return DayLedger(
-        date=DAY,
+        date=when,
         kind=DayKind.WORKING,
         is_working_day=True,
         contracted=CONTRACTED,
         worked=worked,
         expected=expected,
         toil_taken=toil,
+        adjustment=adjustment,
     )
 
 
@@ -215,3 +220,41 @@ def test_summaries_add() -> None:
 
 def test_empty_run_is_zero() -> None:
     assert accumulate([]).delta == timedelta()
+
+
+# Standing -------------------------------------------------------------------
+
+YESTERDAY = DAY - timedelta(days=1)
+TOMORROW = DAY + timedelta(days=1)
+
+
+def test_today_holds_back_the_hours_still_to_work() -> None:
+    """A morning opens on the balance the evening before closed on."""
+    week = [
+        day(worked=CONTRACTED + timedelta(minutes=30), when=YESTERDAY),
+        day(worked=timedelta(hours=2)),
+    ]
+
+    assert standing(week, DAY).delta == timedelta(minutes=30)
+    assert accumulate(week).delta == timedelta(minutes=30) - timedelta(
+        hours=5, minutes=24
+    ), "the whole day, as it will stand if it stops here"
+
+
+def test_today_counts_a_surplus_as_soon_as_it_is_worked() -> None:
+    long_day = day(worked=CONTRACTED + timedelta(hours=1))
+    assert standing([long_day], DAY).delta == timedelta(hours=1)
+
+
+def test_today_counts_its_toil_and_corrections_at_once() -> None:
+    """Only the hours still to work wait for the evening, not a withdrawal."""
+    taken = day(expected=timedelta(), toil=CONTRACTED)
+    corrected = day(adjustment=timedelta(hours=2))
+
+    assert standing([taken], DAY).delta == -CONTRACTED
+    assert standing([corrected], DAY).delta == timedelta(hours=2)
+
+
+def test_a_day_once_over_counts_its_shortfall() -> None:
+    short = day(worked=timedelta(hours=5))
+    assert standing([short], TOMORROW).delta == timedelta(hours=5) - CONTRACTED

@@ -17,7 +17,6 @@ from flexi.components.modules.records import DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import ProgressRail, TimeProgress
 from flexi.constants import AbsenceType
-from flexi.domain.format import delta
 from flexi.messages import Scope
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
@@ -237,8 +236,8 @@ async def test_period_total_agrees_with_the_wallet(
 
         after = str(table(app).get_row(f"{RowKind.TOTAL}period")[3])
         assert after != before, f"the correction never reached the total ({before})"
-        summary = app.services.ledger.summary(board.period.start, board.period.end)
-        assert after.strip() == delta(summary.delta)
+        wallet = app.screen.query_one(WalletModule)
+        assert str(wallet.border_subtitle) == f"{after.strip()} this period"
 
 
 # --- booking from a row ---------------------------------------------------
