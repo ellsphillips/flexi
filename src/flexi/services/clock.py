@@ -124,15 +124,21 @@ class ClockService:
             return Portion.PM
         return None
 
-    def sweep(self) -> None:
-        """Close work left running on an earlier day.
+    def sweep(self) -> list[ClockResult]:
+        """Close work left running on an earlier day, one result per session.
+
+        The auto-close time can be hours after the person left, so whichever
+        surface ran the sweep says what it closed and what it counted.
 
         The minimum-session preference applies at clock-out, where the person
         sees the decision. Reapplying today's preference to historical rows
         would reinterpret real work on every launch after a config change, so
         startup closes stale sessions and nothing else.
         """
-        close_stale_sessions(self._session, self._settings.get_auto_close_time())
+        closed = close_stale_sessions(
+            self._session, self._settings.get_auto_close_time()
+        )
+        return [_left_running(row) for row in closed]
 
     def clock_in(
         self,
@@ -471,6 +477,20 @@ CORRECTION_OVERLAP = "That overlaps work already recorded on {day}"
 format string`. `domain/format.py` exists for this, and `short_date` goes
 through it.
 """
+
+
+def _left_running(closed: WorkSession) -> ClockResult:
+    """What the sweep did to one session: where it closed it, and what counted."""
+    segment = segment_of(closed)
+    ended = segment.finish(wallclock.now())
+    return ClockResult(
+        success=True,
+        message=(
+            f"{short_date(closed.work_date)} was left running and closed at "
+            f"{clock(ended)} ({hm(segment.duration(ended))} counted)"
+        ),
+        session=closed,
+    )
 
 
 def overlapping(first: Segment, start: datetime, end: datetime) -> bool:

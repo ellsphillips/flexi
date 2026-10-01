@@ -78,6 +78,20 @@ async def test_opening_closes_monday_at_its_own_evening(
             assert monday[0].auto_closed is True
 
 
+async def test_opening_says_what_it_closed(left_open: Path) -> None:
+    """The auto-close time can be hours after Monday ended, so it is said."""
+    app = FlexiApp(db_path=left_open)
+    with time_machine.travel(TUESDAY_TEN, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+
+            assert (
+                "Mon 8 Jun was left running and closed at 18:00 (9:00 counted). "
+                "If you left earlier: open the day in Records, press x on the "
+                "session, then n."
+            ) in [notice.message for notice in app._notifications]
+
+
 async def test_clock_key_starts_tuesday_not_ends_monday(
     left_open: Path,
 ) -> None:

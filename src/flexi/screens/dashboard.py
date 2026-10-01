@@ -312,6 +312,25 @@ class DashboardScreen(Screen[None]):
 
     # ---- clocking ----
 
+    def sweep(self) -> bool:
+        """Close work left running on an earlier day, and say so.
+
+        Every sweep the application runs comes through here, so none closes a
+        session unannounced: the auto-close time can be hours after the person
+        left, and only they know when. Answers whether one was closed;
+        redrawing is the caller's.
+        """
+        closed = self._services.clock.sweep()
+        for result in closed:
+            self.notify(
+                f"{result.message}. If you left earlier: open the day in Records, "
+                "press x on the session, then n.",
+                severity="warning",
+                timeout=10,
+                markup=False,
+            )
+        return bool(closed)
+
     def on_clock_module_toggle(self, event: ClockModule.Toggle) -> None:
         event.stop()
         self.toggle_clock()
@@ -329,7 +348,7 @@ class DashboardScreen(Screen[None]):
         # A session left running overnight is drawn as closed the moment the
         # date turns, and `sweep` makes that true in the database. It runs
         # first, or the morning's `/` closes yesterday at this morning's time.
-        clock.sweep()
+        self.sweep()
         if clock.is_clocked_in():
             return self._report(clock.clock_out())
         return self._report(clock.clock_in())

@@ -20,7 +20,7 @@ from click.testing import CliRunner
 
 import flexi.__main__ as main
 from flexi import wallclock
-from flexi.__main__ import cli
+from flexi.__main__ import LEFT_RUNNING, cli
 from flexi.cli import init as init_cli
 from flexi.cli import ui
 from flexi.locations import backups_directory, database_file
@@ -567,6 +567,30 @@ def test_clocking_in_from_the_command_line(home: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert "Clocked in" in result.output
+
+
+@pytest.mark.parametrize("command", [["clock", "out"], ["balance", "show"]])
+def test_every_command_says_what_the_sweep_closed(
+    home: Path, command: list[str]
+) -> None:
+    """Friday was left running, and whichever command runs next closes it.
+
+    Said on stderr: it explains the next morning's `Not clocked in`, and it is
+    not the output of `balance show`.
+    """
+    with time_machine.travel(datetime(2026, 8, 7, 9, 0), tick=False):
+        assert CliRunner().invoke(cli, ["clock", "in"]).exit_code == 0
+
+    result = CliRunner().invoke(cli, command)
+
+    assert (
+        LEFT_RUNNING.format(
+            closed="Fri 7 Aug was left running and closed at 18:00 (9:00 counted)"
+        )
+        in result.stderr
+    )
+    assert "left running" not in result.stdout
+    assert "left running" not in CliRunner().invoke(cli, command).output, "once"
 
 
 def test_refreshing_the_calendar_asks_gov_uk_once(

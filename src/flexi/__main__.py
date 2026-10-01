@@ -40,6 +40,7 @@ else:
 
 
 __all__ = (
+    "LEFT_RUNNING",
     "NEEDS_TERMINAL",
     "NOT_INITIALISED",
     "UNREADABLE",
@@ -138,6 +139,8 @@ UNREADABLE = (
     "The database at {path} could not be read.\n"
     "Move it aside, or restore a copy from {backups}, then run `flexi init`."
 )
+
+LEFT_RUNNING = "{closed}. If you left earlier: open flexi, select it, press x, then n."
 
 
 def needs_a_terminal(ctx: click.Context) -> None:
@@ -266,6 +269,9 @@ def launch(*, settings: bool = False, splash: bool = False) -> FlexiApplication:
 def open_database(ctx: click.Context, *, fill: bool = True) -> ServiceRegistry:
     """Migrate, connect, sweep, and hand back the service registry.
 
+    What the sweep closed is said on stderr, whatever the command: it is why
+    the next morning's `clock out` answers `Not clocked in`.
+
     Closing is registered on the context: `ctx.exit` raises, so a
     `session.close()` at the end of a command is unreachable after a failure.
     """
@@ -275,7 +281,8 @@ def open_database(ctx: click.Context, *, fill: bool = True) -> ServiceRegistry:
     migrate()
     _engine, session = ctx.with_resource(database_scope())
     services = build_services(session)
-    services.clock.sweep()
+    for closed in services.clock.sweep():
+        click.secho(LEFT_RUNNING.format(closed=closed.message), fg="yellow", err=True)
     if fill:
         services.bank_holidays.fill_if_empty()
     return services

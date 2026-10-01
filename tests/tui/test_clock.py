@@ -430,6 +430,26 @@ async def test_key_after_midnight_starts_today(
                 assert len(tuesday) == 1, "the key should have started a new day"
 
 
+async def test_key_after_midnight_says_what_it_closed(monday_open: Path) -> None:
+    """The sweep the key runs is announced as the one at launch is."""
+    app = FlexiApp(db_path=monday_open)
+    with time_machine.travel(MONDAY_FIVE, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+
+            with time_machine.travel(TUESDAY_TEN, tick=False):
+                await pilot.press("slash")
+                await pilot.pause()
+
+                assert any(
+                    notice.message.startswith(
+                        "Mon 8 Jun was left running and closed at 18:00 "
+                        "(9:00 counted). If you left earlier"
+                    )
+                    for notice in app._notifications
+                )
+
+
 async def test_rollback_refusal_keeps_the_dashboard_off_the_clock(
     app_factory: AppFactory,
 ) -> None:

@@ -195,6 +195,28 @@ def test_sweep_can_be_told_what_day_it_is(svc: ClockService, session: Session) -
     assert closed[0].auto_closed is True
 
 
+def test_the_sweep_says_what_it_closed(svc: ClockService) -> None:
+    """Closed at the auto-close time, which can be hours after the person left.
+
+    So it is reported wherever the sweep runs, with what it counted.
+    """
+    svc.clock_in(now=datetime.combine(YESTERDAY, time(9, 0), tzinfo=UTC))
+
+    [closed] = svc.sweep()
+
+    assert closed.message == (
+        "Mon 10 Aug was left running and closed at 18:00 (9:00 counted)"
+    )
+    assert closed.session is not None
+    assert closed.session.auto_closed is True
+
+
+def test_a_sweep_with_nothing_left_running_says_nothing(svc: ClockService) -> None:
+    svc.clock_in()
+
+    assert svc.sweep() == []
+
+
 def test_session_closed_mid_sweep_is_not_reported(
     svc: ClockService, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

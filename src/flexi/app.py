@@ -149,10 +149,11 @@ class FlexiApp(TextualApp[None]):
 
     def on_mount(self) -> None:
         if self.services.settings.is_setup_complete():
+            board = DashboardScreen(self.services, id="dashboard")
             # The CLI sweeps when it opens the database, and so does this: a
             # session left open overnight otherwise draws as still running.
-            self.services.clock.sweep()
-            self.push_screen(DashboardScreen(self.services, id="dashboard"))
+            board.sweep()
+            self.push_screen(board)
             if self.open_settings:
                 # Held like any other form, so `f4` cannot push a second over
                 # it and `f1` can close it.
