@@ -271,7 +271,8 @@ async def test_seconds_leave_the_table_and_the_wallet_alone(
     """Both print whole minutes, so only a minute turning over redraws them.
 
     In a year view a records rebuild takes some fifty milliseconds. The
-    balance still redraws on every tick, and the calendar on neither.
+    balance still redraws on every tick, and the calendar on neither. The
+    seconds after a minute turns are as quiet as the seconds before it.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -298,6 +299,14 @@ async def test_seconds_leave_the_table_and_the_wallet_alone(
             with time_machine.travel(A_MINUTE_ON, tick=False):
                 screen._on_tick()
             assert [call.call_count for call in calls] == [1, 1, 4, 0]
+
+            for second in (1, 30):
+                moment = A_MINUTE_ON + timedelta(seconds=second)
+                with time_machine.travel(moment, tick=False):
+                    screen._on_tick()
+            assert [call.call_count for call in calls] == [1, 1, 6, 0], (
+                "a minute already drawn was drawn again"
+            )
 
 
 async def test_first_tick_of_a_new_day_moves_the_dashboard_on(
