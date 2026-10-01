@@ -105,7 +105,7 @@ are checked before booking. Two different half-day absences can share a date.
 | `[` · `]` · `t` · `g` | Previous period · next period · today · go to date |
 | `A` · `S` · `T` · `U` · `O` | Annual · sick · TOIL · unpaid · other leave |
 | `v` · `?` · `ctrl+p` or `:` | Jump mode · help · command palette |
-| `q` or `ctrl+q` | Quit |
+| `q` or `ctrl+q` | Quit (`q` on the dashboard, Leave and Insights) |
 
 The [keymap](https://github.com/ellsphillips/flexi/blob/main/docs/KEYMAP.md)
 lists every shortcut and explains remapping. Dates accept forms such as `12`,
@@ -113,10 +113,10 @@ lists every shortcut and explains remapping. Dates accept forms such as `12`,
 
 **In VS Code or Cursor**, the editor takes some keys before Flexi sees them:
 `ctrl+q` on macOS and Windows, `ctrl+p` on Windows and Linux, and `f1` and `f3`.
-Press `q` to quit and `:` for the command palette, which also reaches every
-screen. To send those keys to Flexi instead, add
-`"terminal.integrated.sendKeybindingsToShell": true` to your settings, or
-release only these four:
+Press `q` to quit from the dashboard, Leave or Insights, and `:` for the command
+palette, which offers Quit too and reaches every screen. To send those keys to
+Flexi instead, add `"terminal.integrated.sendKeybindingsToShell": true` to your
+settings, or release only these four:
 
 ```json
 "terminal.integrated.commandsToSkipShell": [

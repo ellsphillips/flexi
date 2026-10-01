@@ -346,7 +346,9 @@ minutes are currently fixed at 444 per working day in the interface.
 ## Rules for adding a binding
 
 1. **It goes in `config.py` under `hotkeys`**, and the `Binding` reads it from
-   there. No literal key strings in a widget.
+   there. No literal key strings in a widget, except for a key meant to stay
+   fixed, such as `escape`, `enter`, the arrows, `ctrl+q`, or the `q` and `:`
+   that stand in for keys VS Code keeps.
 2. **Decide `show`.** `show=True` means it competes for the key strip's limited
    width. A screen should show at most seven. Everything else is `show=False`
    and is found through `?` or the palette.
