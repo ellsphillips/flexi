@@ -83,6 +83,9 @@ carry, and import/export are not available yet.
   it; a shortfall waits until the day ends.
 - **Add missed work with `n`.** Enter a completed session; overlapping work is
   refused. `N` lists these corrections.
+- **Fix a wrong session with `x`, then `n`.** `x` on a session voids it: it stops
+  counting, and its clock record is kept. A session you leave running is closed
+  at your auto-close time, and Flexi tells you what it counted.
 - **Inspect a day with `space`.** Expand its sessions, absences, and balance.
 - **Book leave with `f2`.** Annual, sick, TOIL, unpaid, or other absence, in whole
   or half days. Extend a selection with `shift` and an arrow.
@@ -136,7 +139,9 @@ skips the question, and is needed where there is no terminal to ask on.
 
 `balance zero` settles through yesterday by default. If work overlaps booked
 leave, clock-out asks you to remove the conflicting booking and retry; the
-session stays open. Clock records are retained as an audit trail.
+session stays open. Clock records are retained as an audit trail. A session left
+running overnight is closed at your auto-close time by the next command, which
+says so on stderr.
 
 ## Your data
 

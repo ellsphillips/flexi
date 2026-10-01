@@ -13,7 +13,9 @@ forward on launch, with a backup taken first.
 
 - **One key for the clock.** `/` clocks in and out from any screen, and the
   status bar says what was recorded. A session left running past midnight is
-  closed at an auto-close time you choose, and the row says so.
+  closed at an auto-close time you choose, and Flexi says so with what it
+  counted: on launch, on stderr from any command, and on the `/` that finds it,
+  which then stops rather than clocking you in.
 - **The punch strip.** Every day is drawn as cells across the working day,
   filled where you were on the clock, with a tick where the contracted hours are
   met. Seven on one axis is a week's shape at a glance.
@@ -36,6 +38,11 @@ forward on launch, with a backup taken first.
   visit, a morning the laptop stayed shut. It counts for everything a punched
   session counts for, and is drawn apart from one. An overlapping stretch is
   refused. `N` lists every correction in the period.
+- **A wrong session can be voided.** `x` on a session in an opened day asks,
+  then takes it out of every figure and keeps its clock record. Add the real
+  hours with `n`: the way back from a forgotten clock-out, a late one or a
+  mistyped correction. The question warns when a `balance zero` settlement
+  covers the day.
 - **A period you move.** `d`, `w`, `m`, `y` and `p` change the span; `[` and `]`
   step it; `t` returns to today; `g` takes a date typed however is quickest —
   `12`, `12 Jun`, `2026-06-12`, `+3d`, `-2w`.
@@ -120,8 +127,8 @@ whole budget in front of every command.
   kept; `flexi init`'s reset takes one that is never aged out. Restoring is a
   file copy — see the README.
 - **A lock file** stops two copies migrating the same database at once.
-- **Clock events are immutable**, enforced in the database. Correcting a session
-  writes a replacement and voids the original, so the audit trail survives.
+- **Clock events are immutable**, enforced in the database. A session is never
+  edited: voiding it keeps its events, so the audit trail survives.
 - **A session under a minute never happened.** Clocking in and straight back out
   is discarded, and the events are kept.
 

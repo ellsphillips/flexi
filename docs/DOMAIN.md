@@ -133,7 +133,8 @@ year the leave year *starts* in.
 ### `clock_events`
 
 Immutable, and enforced as such: `0012` installs a trigger that rejects any
-`UPDATE`. A correction inserts a replacement pair and voids the old session.
+`UPDATE`. A session is never edited: a wrong one is voided, which keeps its
+events, and the real hours go back on as a correction with a pair of its own.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -170,6 +171,17 @@ from it. The preference is bounded to 0–3600 seconds and is evaluated only whe
 the session is closed, so a later config change never rewrites history. It
 measures the punches themselves, not the minutes they show, so thirty seconds
 across a minute boundary is still a slip.
+
+**A wrong session is voided by hand the same way.** `ClockService.void` takes
+any closed session — punched, auto-closed or corrected — out of every figure in
+one write, and keeps its events; the real hours then go back on as a
+correction. A running session is refused, because clocking out is what gives it
+an end.
+
+**The sweep says what it closed.** A session still open on an earlier date is
+closed at the auto-close time, which can be hours after the person left, so
+whichever surface ran the sweep reports the day, the close and what it counted:
+every command on stderr, the application as a notice at launch and on `/`.
 
 ### `absence_days`
 

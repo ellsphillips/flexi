@@ -47,6 +47,12 @@ table and from every figure derived from it. The threshold is
 `defaults.minimum_session_seconds`, 0–3600 seconds, and it is applied when that
 session is closed: changing it never reclassifies historical work.
 
+**A session left running is closed, and you are told.** Once the date has
+turned under an open session, whichever comes first — opening Flexi, pressing
+`/`, or any `flexi` command — closes it at the auto-close time and says what it
+counted. The `/` that closes it does not also clock in, since past midnight it is
+as likely meant as a clock-out: press it again to start the day.
+
 Clocking in is refused, on the status bar and never in a dialog, on a bank
 holiday, on a day booked off in full, and during the half of a day that is booked
 — a booked morning leaves the afternoon workable.
@@ -77,11 +83,15 @@ Live when the table has focus.
 | `shift+space` | Expand or collapse every day. |
 | `home` `end` | First / last row. |
 | `a` | Book an absence on the day under the cursor. |
-| `x` | Remove the absence booking under the cursor. It asks first. |
+| `x` | Remove the absence booking, or void the session, under the cursor. It asks first. |
 
-`x` removes leave bookings. Clock records are retained as an audit trail.
-Use `n` to add work that was missed; editing or deleting an existing clocked
-session is not available in the interface.
+`x` on a session voids it: it stops counting everywhere, and its clock events
+are kept as the audit trail. To correct a session — a forgotten clock-out closed
+at the auto-close time, a late one, a mistyped correction — void it, then add
+the real hours with `n`. A running session cannot be voided until you clock
+out, and the question warns when the day is under a `balance zero` settlement,
+which will no longer read zero. Editing a session's times in place is not
+available.
 
 `left` and `right` are `DataTable`'s own column-cursor keys here. They do not
 step the period.
