@@ -116,6 +116,35 @@ async def test_colon_typed_into_a_time_stays_there(unconfigured: Path) -> None:
         assert not isinstance(app.screen, CommandPalette)
 
 
+@pytest.mark.parametrize(
+    ("opener", "focus"),
+    [("A", "#modal-cancel"), ("v", None)],
+    ids=["dialog", "jump mode"],
+)
+async def test_colon_opens_nothing_over_a_dialog_or_jump_mode(
+    app_factory: AppFactory, opener: str, focus: str | None
+) -> None:
+    """Unlike ctrl+p, `:` is not priority, so a screen in front keeps it.
+
+    A colon is typed into times, and one that misses its field must not bury a
+    half-filled dialog under the palette. A button holds focus where there is
+    one, because a field takes the colon as typing whatever is bound.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press(opener)
+        await pilot.pause()
+        opened = app.screen
+        if focus is not None:
+            opened.query_one(focus).focus()
+            await pilot.pause()
+
+        await pilot.press("colon")
+        await pilot.pause()
+
+        assert app.screen is opened
+
+
 # The catalogue --------------------------------------------------------------
 
 
