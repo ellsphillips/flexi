@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from typing import NamedTuple
 
@@ -509,6 +509,27 @@ class AbsencePlan:
         return overdraw(self.toil_after)
 
 
+def _still_agreed(current: AbsencePlan, confirmed: AbsencePlan) -> bool:
+    """True when ``current`` is the plan confirmed, or that plan for less TOIL.
+
+    Every minute an open session runs pays for a little more of TOIL booked on
+    today, so a preview answered a minute later has only got cheaper and has
+    nothing new to ask. A year left with less banked than the preview said is a
+    change.
+    """
+    unpriced = replace(
+        current,
+        toil_cost=confirmed.toil_cost,
+        toil_balances=confirmed.toil_balances,
+    )
+    return unpriced == confirmed and all(
+        now.after >= then.after
+        for now, then in zip(
+            current.toil_balances, confirmed.toil_balances, strict=True
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RemovalBooking:
     """The immutable identity and content of one confirmed booking removal."""
@@ -990,7 +1011,7 @@ class AbsenceService:
                 note=plan.note,
                 available_toil_days=plan.toil_available,
             )
-            if current != plan:
+            if not _still_agreed(current, plan):
                 return RangeResult(skipped=((plan.start, PLAN_CHANGED),))
 
             booked: list[date] = []

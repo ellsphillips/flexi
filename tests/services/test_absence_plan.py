@@ -420,6 +420,39 @@ def test_toil_today_spends_only_what_its_work_has_not_covered(
     assert booked.warning is None
 
 
+def test_toil_today_confirmed_a_minute_cheaper_still_books(
+    services: Services,
+) -> None:
+    """The afternoon's open session has paid for another minute of the morning.
+
+    Previewed at 16:20:50, the morning off cost the 3:34 still to work; by the
+    answer at 16:21:10 it costs 3:33. A booking that has only got cheaper is
+    still the one agreed to.
+    """
+    wednesday = MID_SPAN.date()
+    with time_machine.travel(
+        datetime.combine(wednesday, time(12, 30), tzinfo=UTC), tick=False
+    ):
+        assert services.clock.clock_in().success
+    with time_machine.travel(
+        datetime.combine(wednesday, time(16, 20, 50), tzinfo=UTC), tick=False
+    ):
+        plan = services.absence.plan(
+            wednesday,
+            wednesday,
+            AbsenceType.FLEXI,
+            Portion.AM,
+            available_toil_days=1.0,
+        )
+    with time_machine.travel(
+        datetime.combine(wednesday, time(16, 21, 10), tzinfo=UTC), tick=False
+    ):
+        result = services.absence.book_plan(plan)
+
+    assert plan.toil_cost == timedelta(hours=3, minutes=34) / CONTRACTED
+    assert result.booked == (wednesday,)
+
+
 def test_a_night_begun_the_day_before_does_not_pay_for_today(
     configure: Configured,
 ) -> None:
