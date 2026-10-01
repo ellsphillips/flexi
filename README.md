@@ -59,20 +59,23 @@ uv run flexi
 
 ## First run
 
-Flexi asks for your leave-year start, annual entitlement, working days,
-UK bank-holiday division, and the time to close sessions left running overnight.
-Tracking starts that day; earlier days do not create a deficit. Record work on
-one of them and it counts against your contracted day.
+Flexi asks for your leave-year start, annual entitlement, working days, hours
+a day, UK bank-holiday division, and the time to close sessions left running
+overnight. Tracking starts that day; earlier days do not create a deficit. Record
+work on one of them and it counts against your contracted day.
+
+Hours a day default to 7:24 and accept `7:30`, `7h30` or `7.5`; a decimal is
+hours, so `7.5` is 7:30. One figure applies to every working day.
 
 Starting with a balance? Run `flexi balance adjust +5:30 --reason "Brought forward"`,
 or choose **Adjust balance…** from the command palette (`ctrl+p`).
 
 Press `f4` to change settings or set each leave year's entitlement.
-A new leave year needs its own allowance.
+A new leave year needs its own allowance. New hours a day recalculate every day
+already tracked, not only the days ahead, so `f4` asks before saving them.
 
-The interface currently uses **7 hours 24 minutes per working day**. The flexi
-balance restarts each leave year. Custom contracted hours, automatic balance
-carry, and import/export are not available yet.
+The flexi balance restarts each leave year. Automatic balance carry and
+import/export are not available yet.
 
 ## Working with Flexi
 

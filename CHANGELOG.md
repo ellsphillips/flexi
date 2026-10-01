@@ -104,15 +104,18 @@ there and offers to open Flexi, change settings, or start over.
 
 ### Setting up
 
-- **Five questions, once**: when the leave year starts, your entitlement, which
-  days you work, which bank holiday calendar, and when to auto-close a forgotten
-  session.
+- **Six questions, once**: when the leave year starts, your entitlement, which
+  days you work, how long your working day is, which bank holiday calendar, and
+  when to auto-close a forgotten session. Hours take `7:30`, `7h30` or `7.5`.
 - **Flexi stamps the day you set it up** and expects nothing of the days before
   it, so installing in November does not open you on seven months of deficit.
   Fill one in with `n` and it counts against your contracted day, as a punched
   day would.
 - **Entitlement is per leave year.** `f4` lists the years, edits any of them and
   adds the next.
+- **Hours a day can change.** `f4` asks first, because every tracked day is
+  measured again at the new length, and says when a balance adjustment will no
+  longer match.
 
 ### Bank holidays
 
@@ -158,7 +161,9 @@ the README has the setting that hands them back.
 
 ### Known limits
 
-A contract other than 37 hours cannot be set yet; there is no export, no import,
-and no `doctor` command. The flexi balance does not carry between leave years:
-it is the sum for the current one, so in April it starts again from nought. See
-[`docs/README.md`](docs/README.md) for the rest of the list.
+One length of day applies to every working day and every tracked day: hours
+that differ by weekday, or change from a given date, cannot be set yet. There is
+no export, no import, and no `doctor` command. The flexi balance does not carry
+between leave years: it is the sum for the current one, so in April it starts
+again from nought. See [`docs/README.md`](docs/README.md) for the rest of the
+list.

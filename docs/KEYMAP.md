@@ -338,8 +338,7 @@ table and one key may only answer to one action across the whole file.
 Application *settings* — contracted minutes, leave year, working days, bank
 holiday division, auto-close time — are not here. They live in the database,
 because the balance depends on them. `f4` edits the leave year, working days,
-bank-holiday division, auto-close time, and annual entitlements. Contracted
-minutes are currently fixed at 444 per working day in the interface.
+hours a day, bank-holiday division, auto-close time, and annual entitlements.
 
 ---
 

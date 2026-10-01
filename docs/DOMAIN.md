@@ -80,6 +80,11 @@ So a day you booked as annual leave neither earns nor costs flexi. A day you
 worked six hours against a 7.4-hour contract costs you 1.4 hours of balance. A
 Saturday you worked earns you the lot.
 
+`contracted_hours` is one figure for every date, asked at setup and edited in
+Settings. Changing it recalculates every tracked day, the past included, while
+an adjustment keeps the amount it was recorded with; that is why Settings asks
+before saving a new figure, and says so when adjustments exist.
+
 `toil_taken_hours(d)` is a whole (or half) day of `FLEXI` absence valued at
 `contracted_hours` (or half). Taking a TOIL day is the *withdrawal* side of the
 same account the surplus accrues into, which is why TOIL is not counted as a
