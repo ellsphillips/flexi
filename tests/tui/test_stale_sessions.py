@@ -15,6 +15,7 @@ import pytest
 import time_machine
 
 from flexi.app import FlexiApp
+from flexi.components.chrome import AppHeader
 from flexi.components.modules.records import RecordsModule
 from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
@@ -135,6 +136,23 @@ async def test_open_dashboard_closes_monday_when_the_date_turns(
                 row = board.query_one(RecordsModule).table.get_row(f"d-{MONDAY}")
                 assert str(row[2]) == "9:00", "Monday counted past its auto-close"
                 assert board._tick is None, "nothing is open, so nothing ticks"
+
+
+async def test_a_day_view_of_monday_moves_on_to_tuesday(left_open: Path) -> None:
+    """The header names the day the dashboard moved to, not the one it left."""
+    app = FlexiApp(db_path=left_open)
+    with time_machine.travel(MONDAY_FIVE, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            board = showing(app, DashboardScreen)
+            board.action_zoom("day")
+
+            with time_machine.travel(JUST_AFTER_MIDNIGHT, tick=False):
+                board._on_tick()
+                await pilot.pause()
+
+                assert board.period.anchor == JUST_AFTER_MIDNIGHT.date()
+                assert board.query_one(AppHeader).context == board.period.label
 
 
 async def test_a_period_moved_off_today_stays_where_it_was(

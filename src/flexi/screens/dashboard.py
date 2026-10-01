@@ -289,7 +289,6 @@ class DashboardScreen(Screen[None]):
         self._services.clock.sweep()
         if self.period.contains(was):
             self.period = self.period.go_to(self._today)
-            self._sync_header()
         self.refresh_modules(Scope.ALL)
         self._start_tick_if_open()
 
