@@ -329,24 +329,19 @@ class CorrectionModal(FlexiModal[Correction]):
 
     The day defaults to the one selected. The times use the clock-time grammar
     the rest of Flexi uses, so `9`, `9:15`, `9.15` and `9am` all read.
+    `expected` is what the day will ask for once work is recorded on it.
     """
 
     title_text: ClassVar[str] = "Record work"
     confirm_label: ClassVar[str] = "Record"
 
     def __init__(
-        self,
-        day: date,
-        *,
-        tracking_since: date | None,
-        contracted: timedelta,
-        expects_work: bool,
+        self, day: date, *, tracking_since: date | None, expected: timedelta
     ) -> None:
         super().__init__()
         self._day = day
         self._tracking_since = tracking_since
-        self._contracted = contracted
-        self._expects_work = expects_work
+        self._expected = expected
 
     @property
     def modal_title(self) -> str:
@@ -363,11 +358,12 @@ class CorrectionModal(FlexiModal[Correction]):
         """What the work counts for, said plainly where it surprises.
 
         A working day before setup expects nothing until work is recorded on
-        it, and then the whole contracted day, so a morning shows a shortfall.
-        A weekend or a bank holiday expects nothing either way.
+        it, and then the contracted day less any leave booked on it, so a
+        morning shows a shortfall. A weekend, a bank holiday or a day booked
+        off in full expects nothing either way.
         """
         since = self._tracking_since
-        if since is None or self._day >= since or not self._expects_work:
+        if since is None or self._day >= since or not self._expected:
             return (
                 "For a day you worked and did not clock. It counts for everything "
                 "a punched session counts for, and is drawn apart from one."
@@ -375,7 +371,7 @@ class CorrectionModal(FlexiModal[Correction]):
         return (
             f"Flexi started tracking on {short_date(since)}. Work recorded here "
             f"counts {stamp(self._day, '%a %-d')} against your "
-            f"{hm(self._contracted)} day."
+            f"{hm(self._expected)} day."
         )
 
     def on_mount(self) -> None:

@@ -320,15 +320,40 @@ async def test_a_day_before_setup_says_it_will_owe_the_contracted_day(
         )
 
 
+async def test_a_half_day_off_before_setup_says_it_will_owe_the_other_half(
+    app_factory: AppFactory,
+) -> None:
+    """The seeded Tuesday has its morning booked off, so it owes only the afternoon."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        track_from(app, SET_UP)
+
+        caption = await open_on(app, pilot, date(2026, 6, 9))
+
+        assert caption == (
+            "Flexi started tracking on Thu 11 Jun. "
+            "Work recorded here counts Tue 9 against your 3:42 day."
+        )
+
+
 @pytest.mark.parametrize(
     "when",
-    [date(2026, 6, 6), date(2026, 5, 25), SET_UP],
-    ids=["weekend-before-setup", "bank-holiday-before-setup", "setup-day"],
+    [date(2026, 6, 6), date(2026, 5, 25), date(2026, 6, 5), SET_UP],
+    ids=[
+        "weekend-before-setup",
+        "bank-holiday-before-setup",
+        "booked-off-before-setup",
+        "setup-day",
+    ],
 )
 async def test_a_day_owing_nothing_new_keeps_the_usual_caption(
     app_factory: AppFactory, when: date
 ) -> None:
-    """Only a working day before setup starts owing the contract when worked."""
+    """Only a working day before setup starts owing the contract when worked.
+
+    A day booked off in full owes nothing, and refuses the work besides.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()

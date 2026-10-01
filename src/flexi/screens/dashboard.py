@@ -38,6 +38,7 @@ from flexi.components.options import ScreenOptions
 from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
+from flexi.domain.balance import expected_for
 from flexi.domain.format import clock as clock_time
 from flexi.domain.format import short_date
 from flexi.domain.period import Period
@@ -315,8 +316,15 @@ class DashboardScreen(Screen[None]):
             CorrectionModal(
                 day,
                 tracking_since=self._services.settings.resolved().tracking_since,
-                contracted=ledger.contracted,
-                expects_work=ledger.is_working_day and not ledger.is_holiday,
+                # Recorded work tracks the day whatever `tracking_since` says,
+                # so ask what it expects once tracked, not while it is empty.
+                expected=expected_for(
+                    ledger.contracted,
+                    is_tracked=True,
+                    is_working_day=ledger.is_working_day,
+                    is_holiday=ledger.is_holiday,
+                    absences=ledger.absences,
+                ),
             ),
             callback=record,
         )
