@@ -212,14 +212,15 @@ class YearAtAGlance(Module):
         # The leave year the period is in, whatever the period has been zoomed
         # to, so the panel and the header name the same year.
         year = self.period.zoom(Granularity.YEAR)
-        end = min(year.end, self.now.date())
+        today = self.now.date()
+        end = min(year.end, today)
         heatmap = self.query_one("#heatmap", YearHeatmap)
         if end < year.start:
-            heatmap.show([], first_weekday=self.period.first_weekday)
+            heatmap.show([], first_weekday=self.period.first_weekday, today=today)
             self.set_subtitle("not started")
             return
         ledgers = self.services.ledger.days(year.start, end, now=self.now)
-        heatmap.show(ledgers, first_weekday=self.period.first_weekday)
+        heatmap.show(ledgers, first_weekday=self.period.first_weekday, today=today)
         worked = sum((item.worked for item in ledgers), start=timedelta())
         self.set_subtitle(f"{hm(worked)} worked")
 

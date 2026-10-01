@@ -34,9 +34,9 @@ once. A day after today counts nothing: its hours are not owed and its TOIL is
 not yet taken. This is the balance *as it stands*
 (`flexi.domain.balance.standing`), and every figure that shows or spends the
 balance reads it: the headline, the wallet, the records' `±` column and totals,
-the running balance and weekly bars in Insights, `flexi balance` and the TOIL
-free to book. Only the progress rails and the records subtitle measure the whole
-period's expected hours, as a target rather than a debt.
+the running balance, weekly bars and heatmap in Insights, `flexi balance` and
+the TOIL free to book. Only the progress rails and the records subtitle measure
+the whole period's expected hours, as a target rather than a debt.
 
 **Adjustments are the only stored term.** Everything else is derived from clock
 events, so there is no total to edit when someone wants to draw a line under a

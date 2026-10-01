@@ -327,15 +327,22 @@ class YearHeatmap(Widget):
     def __init__(self, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self.ledgers: dict[date, DayLedger] = {}
+        self.effects: dict[date, timedelta] = {}
         self.scale = timedelta(hours=2)
         self.first_weekday = 0
         """Which day the rows start on; `render` can run before the first `show`."""
 
-    def show(self, ledgers: list[DayLedger], *, first_weekday: int) -> None:
+    def show(
+        self, ledgers: list[DayLedger], *, first_weekday: int, today: date
+    ) -> None:
         self.ledgers = {item.date: item for item in ledgers}
+        # What each day did to the balance as it stands, so today's hours still
+        # to work are not drawn as a deficit before it ends.
+        self.effects = {item.date: standing((item,), today).delta for item in ledgers}
         self.first_weekday = first_weekday
         worst = max(
-            (abs(item.balance_effect) for item in ledgers), default=timedelta(hours=2)
+            (abs(effect) for effect in self.effects.values()),
+            default=timedelta(hours=2),
         )
         # A floor on the scale, so a fortnight of near-perfect days is not
         # drawn as violently as a fortnight of disasters.
@@ -374,7 +381,7 @@ class YearHeatmap(Widget):
             if any(segment.amended for segment in ledger.segments)
             else HEAT
         )
-        effect = ledger.balance_effect
+        effect = self.effects[when]
         if effect == timedelta():
             return glyph, self.get_component_rich_style("chart--neutral")
         share = min(1.0, abs(effect) / self.scale)
