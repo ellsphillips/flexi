@@ -248,8 +248,8 @@ def clock(moment: datetime) -> str:
 def to_the_minute(moment: datetime) -> datetime:
     """A moment as the minute :func:`clock` prints it.
 
-    A punch is stored to the second, and a span measured between two of them
-    can disagree with the times printed at its ends: 09:00:40 to 17:00:20 is
+    A punch keeps its seconds, and a span measured between two of them can
+    disagree with the times printed at its ends: 09:00:40 to 17:00:20 is
     7:59:40, drawn ``7:59`` beside ``09:00`` and ``17:00``. Measured between
     the minutes those ends show it is ``8:00``, and a column of such spans
     adds up to the total under it.

@@ -249,8 +249,8 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
     def _allowance_hint(self) -> str:
         """What is left of the annual allowance, and the TOIL free to book.
 
-        Not "banked", the dashboard's word for the balance: TOIL booked ahead
-        is already spoken for, so this figure is that one less those days.
+        Not "banked", which is the dashboard's word for the whole balance: TOIL
+        already booked ahead is spoken for, and this is the balance without it.
         """
         parts: list[str] = []
         if self._remaining is not None:

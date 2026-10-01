@@ -742,8 +742,8 @@ async def test_a_month_of_punches_with_seconds_adds_up(
 ) -> None:
     """Four punches a working day, each at its own second, and both columns add up.
 
-    Floored only once totalled, the seconds cost each day a minute here and
-    there that the total row, floored once, keeps.
+    Measured between the punches, each row floored its own seconds away and the
+    total floored the month's only once, so the rows summed short of it.
     """
     services = configure(entitlement=(2026, 25.0))
     june = Period.containing(THURSDAY, Granularity.MONTH)
