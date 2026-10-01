@@ -117,7 +117,7 @@ balance reads the same wherever it is drawn.
 | `leave_year_start` | `str` "MM-DD" | Anniversary the allowances reset on. |
 | `working_days` | `str` "0,1,2,3,4" | Weekday indices, Monday = 0. |
 | `bank_holiday_division` | `str` | GOV.UK division: `england-and-wales`, `scotland`, `northern-ireland`. |
-| `auto_close_time` | `str` "HH:MM" | A session still open at this time on a later day is closed here, not left running. |
+| `auto_close_time` | `str` "HH:MM" | A session still open at this time on a later day is closed here, not left running. On a day with half of it booked off it closes once half the contracted day is worked, and never before noon. |
 | `contracted_minutes` | `int` | Minutes in a standard working day. Default `444` (7h 24m). |
 | `day_window_start` | `str` "HH:MM" | Left edge of the punch strip. Default `07:00`. |
 | `day_window_end` | `str` "HH:MM" | Right edge of the punch strip. Default `19:00`. |
@@ -251,15 +251,20 @@ objection only, cheapest first:
 3. No bank holiday calendar — so the day cannot be ruled out as one.
 4. The day *is* a bank holiday.
 5. A clash: the day is booked in full, or half-booked and a full day was asked
-   for, or that half is already booked, or there is recorded work in that half.
+   for, or that half is already booked, or there is recorded work on a day the
+   booking would take off in full — a whole day, or its second half.
 6. Annual leave beyond what the year has left. No entitlement recorded at all is
    not the same as none left, and refuses nothing.
 
 TOIL is warned about, never refused: a booking that would overdraw the balance
 goes in with a warning beside it.
 
-Clocking in is refused on a bank holiday, on a day booked off in full, and during
-a booked half — a booked morning leaves the afternoon workable.
+Clocking in is refused on a bank holiday and on a day booked off in full, a
+morning and an afternoon together included. One half booked off refuses no work,
+whatever the hour: it halves what the day expects, so arriving at 11:30 after a
+morning off, or leaving at 12:42 before an afternoon off, is an ordinary half
+day. A correction follows the same rule, and a clock-out that would run into a
+day booked off in full is refused and leaves the session open.
 
 Removing an absence restores the allowance it drew down. A booking on a day that
 a later change to the working pattern turned into a non-working day stays where

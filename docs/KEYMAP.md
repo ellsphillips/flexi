@@ -54,8 +54,8 @@ the auto-close time and says what it counted. The `/` that closes it does not al
 as likely meant as a clock-out: press it again to start the day.
 
 Clocking in is refused, on the status bar and never in a dialog, on a bank
-holiday, on a day booked off in full, and during the half of a day that is booked
-— a booked morning leaves the afternoon workable.
+holiday and on a day booked off in full. Half a day booked off refuses nothing:
+it halves what the day expects, whichever side of noon the rest is worked.
 
 ---
 

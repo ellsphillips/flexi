@@ -137,11 +137,11 @@ the balance before and after and asks first, as `balance zero` does; `--yes`
 skips the question, and is needed where there is no terminal to ask on.
 `balance log` lists every adjustment, and `balance undo` removes one.
 
-`balance zero` settles through yesterday by default. If work overlaps booked
-leave, clock-out asks you to remove the conflicting booking and retry; the
-session stays open. Clock records are retained as an audit trail. A session left
-running overnight is closed at your auto-close time by the next command, which
-says so on stderr.
+`balance zero` settles through yesterday by default. A half day off halves the
+hours a day expects, whichever side of noon you work the rest; only a day booked
+off in full refuses work. Clock records are retained as an audit trail. A session
+left running overnight is closed at your auto-close time by the next command,
+which says so on stderr.
 
 ## Your data
 

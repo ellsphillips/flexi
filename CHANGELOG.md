@@ -56,6 +56,10 @@ forward on launch, with a backup taken first.
   annual leave. `shift` and an arrow extends the selection first.
 - **Half days.** `space` cycles a cell between a whole day, a morning and an
   afternoon, and a morning and an afternoon of different types can share a date.
+  A half day halves what the day expects, whichever side of noon you work the
+  rest: in at 11:30 after the dentist, or home sick at one, is recorded as it
+  happened. A session forgotten on a half day closes once half the day is
+  worked.
 - **Five kinds of absence** — annual, sick, TOIL, unpaid and other — where there
   were three.
 - **Refusals are per day and reported together.** Book a fortnight over a bank
