@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
 from sqlalchemy import event
 from textual.pilot import Pilot
 from textual.widgets import Input, RadioSet
@@ -520,14 +521,21 @@ async def test_declining_the_question_leaves_the_session_alone(
         assert app.services.clock.segments_on(MONDAY) == before
 
 
+@pytest.mark.parametrize(
+    "settled_on", [MONDAY, date(2026, 6, 10)], ids=["that-day", "a-later-day"]
+)
 async def test_the_question_warns_when_the_day_is_settled(
-    app_factory: AppFactory,
+    app_factory: AppFactory, settled_on: date
 ) -> None:
-    """A settlement is a fixed amount: voiding a day under it moves it off zero."""
+    """A settlement is a fixed amount: voiding a day under it moves it off zero.
+
+    Settling to yesterday, then voiding an earlier day's forgotten clock-out, is
+    the usual order, so a line drawn after the day covers it as one on it does.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-        assert zero_balance(app.services, MONDAY).success
+        assert zero_balance(app.services, settled_on).success
         await on_session(app, pilot, morning(app))
 
         await pilot.press("x")
