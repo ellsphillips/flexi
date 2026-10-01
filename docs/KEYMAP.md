@@ -41,9 +41,9 @@ Windows) and `ctrl+p` (Windows, Linux) for the editor; the
 [README](../README.md#working-with-flexi) says how to hand those back. `q` is
 bound on the three destinations and not on the application, so it never quits
 from a dialog, the jump overlay, Settings or setup, where it would throw away
-what was typed. `:` opens the palette from any screen, but not from a dialog,
-help or jump mode, nor from inside a text field, where a time is typed with one.
-`ctrl+c` answers with the keys that quit from where you are.
+what was typed. `:` opens the palette from any screen and from help, but not
+from a dialog or jump mode, nor from inside a text field, where a time is typed
+with one. `ctrl+c` answers with the keys that quit from where you are.
 
 `/` is bound at **app** level with `priority=True`, so it works from any screen
 and any focused widget — except inside an `Input` or a `TextArea`, where the app

@@ -21,6 +21,7 @@ from flexi.constants import AbsenceType, Granularity
 from flexi.context import command_app
 from flexi.models.database.engine import create_db_engine
 from flexi.provider import Command, FlexiCommands, commands
+from flexi.screens.help import HelpScreen
 from flexi.screens.modals import AbsenceModal, AdjustmentModal
 from flexi.screens.setup import SetupScreen
 from tests.conftest import settled
@@ -143,6 +144,24 @@ async def test_colon_opens_nothing_over_a_dialog_or_jump_mode(
         await pilot.pause()
 
         assert app.screen is opened
+
+
+async def test_colon_opens_the_palette_from_help(app_factory: AppFactory) -> None:
+    """Help's caption names `:`, and where VS Code keeps ctrl+p it is the only key.
+
+    Help is modal, so the application's `:` stops short of it, as it does at a
+    dialog; help binds its own, having nothing half-filled to bury.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("question_mark")
+        await pilot.pause()
+        showing(app, HelpScreen)
+
+        await pilot.press("colon")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandPalette)
 
 
 # The catalogue --------------------------------------------------------------
