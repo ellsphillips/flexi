@@ -46,8 +46,10 @@ class WalletService:
         elapsed = leaveyear.fraction_elapsed(year_start, year_end, today)
         contracted = self._settings.get_contracted()
 
-        balance = self._ledger.balance(today, now=now)
-        period = self._ledger.summary(start, end, now=now)
+        # In the whole minutes the headline and the records print, so the TOIL
+        # row and "this period" cannot round the same seconds another way.
+        balance = self._ledger.balance(today, now=now).as_shown()
+        period = self._ledger.summary(start, end, now=now).as_shown()
         balance_days = balance.delta / contracted if contracted else 0.0
 
         return WalletData(
@@ -95,7 +97,7 @@ class WalletService:
         contracted = self._settings.get_contracted()
         if not contracted:
             return 0.0
-        banked = self._ledger.balance(today).delta / contracted
+        banked = self._ledger.balance(today).as_shown().delta / contracted
         _, year_end = self._absence.leave_year_bounds(today)
         committed = self._absence.count_days(
             AbsenceType.FLEXI, today + timedelta(days=1), year_end, valid_only=True

@@ -146,6 +146,20 @@ def test_available_toil_is_the_balance_in_days(services: Services) -> None:
     assert available_toil_days(services, MONDAY) == pytest.approx(1.0, abs=0.05)
 
 
+def test_toil_free_to_book_is_the_balance_as_shown(services: Services) -> None:
+    """The booking dialog's days come from the figure the headline shows.
+
+    Read from the exact balance instead, a punch's seconds can carry it over a
+    tenth of a day that the headline does not cross.
+    """
+    services.clock.clock_in(now=datetime(2026, 6, 8, 9, 0, 40, tzinfo=UTC))
+    services.clock.clock_out(now=datetime(2026, 6, 8, 11, 0, tzinfo=UTC))
+    invalidate_services(services)
+
+    shown = services.ledger.balance(MONDAY).as_shown().delta
+    assert available_toil_days(services, MONDAY) == shown / CONTRACTED
+
+
 def test_toil_booked_on_a_new_holiday_is_freed(
     services: Services, session: Session
 ) -> None:

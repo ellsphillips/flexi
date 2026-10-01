@@ -94,7 +94,7 @@ def zero(
         # sized from counts every day between now and then as unworked.
         return report(zero_balance(services, when, reason=reason or SETTLED))
 
-    standing = services.ledger.balance(when).delta
+    standing = services.ledger.balance(when).as_shown().delta
 
     click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
     if not assume_yes and not click.confirm(
@@ -107,7 +107,7 @@ def zero(
     if report(result):
         return 1
 
-    now = services.ledger.balance(wallclock.today()).delta
+    now = services.ledger.balance(wallclock.today()).as_shown().delta
     click.echo(f"balance now   {delta(now)}")
     return 0
 

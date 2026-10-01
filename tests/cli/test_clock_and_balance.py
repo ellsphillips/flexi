@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from flexi.cli import balance as balance_cli
 from flexi.cli import clock as clock_cli
-from flexi.constants import AbsenceType
+from flexi.constants import AbsenceType, Portion
 from flexi.domain.format import MINUS
 from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
 from flexi.services.registry import Services, build_services, invalidate_services
@@ -197,6 +197,25 @@ def test_the_balance_agrees_with_its_rows(
     assert figure(printed, "balance") == worked - expected
 
 
+def balance_word(printed: str) -> str:
+    """The figure on the one line that names the balance."""
+    return next(row for row in printed.splitlines() if "balance" in row).split()[-1]
+
+
+def test_the_running_session_reads_the_balance_balance_show_does(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A running session gives the balance seconds, and both floor each term."""
+    with time_machine.travel(datetime(2026, 6, 10, 9, 0, 40), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 10, 12, 0, 30), tick=False):
+        clock_cli.clock_in(services)
+        running = capsys.readouterr().out
+        assert balance_cli.show(services, NOON) == 0
+
+    assert balance_word(running) == balance_word(capsys.readouterr().out)
+
+
 def test_a_balance_for_a_future_day_is_refused(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -275,6 +294,47 @@ def stocked(services: Services, session: Session) -> Services:
     )
     session.commit()
     return build_services(session)
+
+
+def test_settling_draws_the_line_it_names(
+    stocked: Services, session: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The balance it asks about, the adjustment and the settled day agree.
+
+    A sick morning off a 7:25 day leaves the afternoon owing 3:42:30, and the
+    balance shows that half minute floored. Sized from the exact figure, the
+    line misses by a minute and the settled day reads +0:01.
+    """
+    services = tracking_from(session, NOON)
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="0,1,2,3,4,5,6",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+            contracted_minutes=445,
+        )
+    )
+    assert services.absence.book(NOON, AbsenceType.SICK, Portion.AM).success
+    with time_machine.travel(datetime(2026, 6, 10, 13, 0), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 10, 16, 59), tick=False):
+        clock_cli.clock_out(services)
+    invalidate_services(services)
+    capsys.readouterr()
+
+    with time_machine.travel(datetime(2026, 6, 11, 9, 0), tick=False):
+        assert balance_cli.zero(services, NOON, assume_yes=True) == 0
+        settling = capsys.readouterr().out
+        assert balance_cli.show(services, NOON) == 0
+        settled = capsys.readouterr().out
+        assert balance_cli.show(services) == 0
+        today = capsys.readouterr().out
+
+    assert "is +0:17" in settling
+    assert f"adjusted by {MINUS}0:17" in settling
+    assert figure(settled, "balance") == timedelta()
+    assert figure(settling, "balance now") == figure(today, "balance")
 
 
 def test_toil_taken_is_shown_on_its_own_line(

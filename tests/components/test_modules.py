@@ -8,7 +8,7 @@ module never does the work itself, and what is worth asserting is that it asked.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 
@@ -22,7 +22,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Digits, Label, Static, Switch
 
 from flexi.components.allowance import pace_tone
-from flexi.components.common import Tone
+from flexi.components.common import Gauge, Tone
 from flexi.components.expandable import ExpandableTable, RowKind, row_key
 from flexi.components.modules.balance import BalanceModule, lean_class
 from flexi.components.modules.base import Module
@@ -34,6 +34,7 @@ from flexi.components.modules.records import (
     DeleteHere,
     RecordsModule,
 )
+from flexi.components.modules.wallet import WalletModule
 from flexi.components.punch import PunchStrip
 from flexi.constants import AbsenceType, DayKind, Granularity, Portion
 from flexi.domain.dates import DAYS_IN_WEEK, SUPPORTED_FIRST, SUPPORTED_LAST
@@ -43,7 +44,9 @@ from flexi.domain.period import Period
 from flexi.domain.punch import Window
 from flexi.domain.wallet import Allowance
 from flexi.messages import DateSelected
+from flexi.screens.insights import BalanceHistory, RunningBalance
 from flexi.services.registry import Services, invalidate_services, zero_balance
+from flexi.services.settings import parse_settings
 from tests.conftest import settled
 from tests.services.conftest import (  # noqa: F401 - `configure` is used as a fixture
     CONTRACTED,
@@ -329,6 +332,88 @@ def test_balance_with_no_contract_stays_in_hours() -> None:
 def test_level_balance_is_muted() -> None:
     """Green is earned by a surplus; nil is not a very small one."""
     assert lean_class(timedelta()) == "muted"
+
+
+def reading(printed: str) -> str:
+    """The figure a line leads with, written with the one minus sign.
+
+    `Digits` has no U+2212, so the headline draws a hyphen where every other
+    surface draws the minus sign.
+    """
+    return printed.split(maxsplit=1)[0].replace("-", MINUS)
+
+
+def on_the_clock_since_nine(services: Services) -> datetime:
+    """In at 09:00:40 and still on at 12:00:30, so the running day has seconds."""
+    services.clock.clock_in(now=datetime(2026, 6, 11, 9, 0, 40, tzinfo=UTC))
+    invalidate_services(services)
+    return datetime(2026, 6, 11, 12, 0, 30, tzinfo=UTC)
+
+
+def half_of_a_longer_day(services: Services) -> datetime:
+    """A sick morning off a 7:25 day leaves the afternoon owing 3:42:30.
+
+    That half minute is in what the day expects, not in a punch, so no reading
+    of the clock removes it.
+    """
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="10-20",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+            contracted_minutes=445,
+        )
+    )
+    booked = services.absence.book(THURSDAY, AbsenceType.SICK, Portion.AM)
+    assert booked.success, booked.message
+    services.clock.clock_in(now=datetime(2026, 6, 11, 13, 0, tzinfo=UTC))
+    services.clock.clock_out(now=datetime(2026, 6, 11, 16, 59, tzinfo=UTC))
+    invalidate_services(services)
+    return datetime(2026, 6, 11, 17, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "arrange",
+    [on_the_clock_since_nine, half_of_a_longer_day],
+    ids=["a session open at 12:00:30", "half a 7:25 day"],
+)
+async def test_every_surface_reads_the_balance_alike(
+    configure: Configured,  # noqa: F811 - the imported fixture
+    arrange: Callable[[Services], datetime],
+) -> None:
+    """The headline floors each term, so every other copy of it has to.
+
+    Cut towards zero instead, a deficit carrying seconds reads a minute short
+    and a surplus owing half a minute reads a minute long. Tracked from one
+    day, that day is the balance, the period and the chart alike.
+    """
+    services = configure(entitlement=(2026, 25.0), tracking_since=THURSDAY)
+    now = arrange(services)
+    figures: dict[str, str] = {}
+
+    headline = BalanceModule()
+    async with showing(headline, services, granularity=Granularity.DAY, now=now):
+        figures["balance"] = reading(
+            headline.query_one("#balance-digits", Digits).value
+        )
+    wallet = WalletModule()
+    async with showing(wallet, services, granularity=Granularity.DAY, now=now):
+        figures["toil"] = reading(wallet.query_one("#gauge-toil", Gauge).readout)
+        figures["this period"] = reading(str(wallet.border_subtitle))
+    records = RecordsModule()
+    async with showing(records, services, granularity=Granularity.DAY, now=now):
+        total = next(
+            row
+            for row in records.table.visible_rows()
+            if row.key == row_key(RowKind.TOTAL, "period")
+        )
+        figures["records"] = str(cell(total.cells[3]))
+    for name, chart in (("by week", BalanceHistory()), ("running", RunningBalance())):
+        async with showing(chart, services, granularity=Granularity.DAY, now=now):
+            figures[name] = reading(str(chart.border_subtitle))
+
+    assert figures == dict.fromkeys(figures, figures["balance"])
 
 
 # ---------- the wallet ----------

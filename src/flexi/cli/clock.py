@@ -43,7 +43,7 @@ def already_on(services: Services, since: datetime) -> int:
     now = wallclock.now()
     today = now.date()
     ledger = services.ledger.days(today, today, now=now)[0]
-    balance = services.ledger.balance(today, now=now).delta
+    balance = services.ledger.balance(today, now=now).as_shown().delta
     strip = on_the_clock(ledger, services.ledger.window, since, balance, now=now)
     console = Console(highlight=False, markup=False, emoji=False)
     console.print()

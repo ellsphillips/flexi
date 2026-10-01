@@ -151,7 +151,9 @@ def zero_balance(
                 f" undo it with `flexi balance undo {standing_line.id}`"
                 " or settle on or after that date",
             )
-        standing = services.ledger.balance(as_of).delta
+        # Sized from the balance as shown, so the line reads 0:00 and not a
+        # minute either side of it.
+        standing = services.ledger.balance(as_of).as_shown().delta
         if not round(standing.total_seconds() / 60):
             return AdjustmentResult(False, "The balance is already zero")
         return services.adjustments.stage_record(as_of, -standing, reason)
