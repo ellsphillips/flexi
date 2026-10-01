@@ -22,6 +22,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Digits, Label, Static, Switch
 
 from flexi.components.allowance import pace_tone
+from flexi.components.charts import DivergingBars
 from flexi.components.common import Gauge, Tone
 from flexi.components.expandable import ExpandableTable, RowKind, row_key
 from flexi.components.modules.balance import BalanceModule, lean_class
@@ -396,10 +397,34 @@ def half_of_a_longer_day(services: Services) -> datetime:
     return datetime(2026, 6, 11, 17, 0, tzinfo=UTC)
 
 
+def left_running_overnight(services: Services) -> datetime:
+    """In at 20:00 on Thursday, never out, and looked at on Friday morning.
+
+    Left running, a session is worth its own day to the last microsecond, so
+    the seconds come from the day's end and not from a punch. Friday is not
+    a working day here, so the balance is Thursday's alone.
+    """
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="10-20",
+            working_days="0,1,2,3",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
+    )
+    services.clock.clock_in(now=datetime(2026, 6, 11, 20, 0, tzinfo=UTC))
+    invalidate_services(services)
+    return datetime(2026, 6, 12, 9, 0, tzinfo=UTC)
+
+
 @pytest.mark.parametrize(
     "arrange",
-    [on_the_clock_since_nine, half_of_a_longer_day],
-    ids=["a session open at 12:00:30", "half a 7:25 day"],
+    [on_the_clock_since_nine, half_of_a_longer_day, left_running_overnight],
+    ids=[
+        "a session open at 12:00:30",
+        "half a 7:25 day",
+        "a session left running overnight",
+    ],
 )
 async def test_every_surface_reads_the_balance_alike(
     configure: Configured,  # noqa: F811 - the imported fixture
@@ -407,9 +432,9 @@ async def test_every_surface_reads_the_balance_alike(
 ) -> None:
     """The headline floors each term, so every other copy of it has to.
 
-    Cut towards zero instead, a deficit carrying seconds reads a minute short
-    and a surplus owing half a minute reads a minute long. Tracked from one
-    day, that day is the balance, the period and the chart alike.
+    Cut towards zero instead, a balance carrying seconds can read a minute
+    short of it. Tracked from one day, that day is the balance, the period,
+    the chart and its one week alike.
     """
     services = configure(entitlement=(2026, 25.0), tracking_since=THURSDAY)
     now = arrange(services)
@@ -432,9 +457,14 @@ async def test_every_surface_reads_the_balance_alike(
             if row.key == row_key(RowKind.TOTAL, "period")
         )
         figures["records"] = str(cell(total.cells[3]))
-    for name, chart in (("by week", BalanceHistory()), ("running", RunningBalance())):
-        async with showing(chart, services, granularity=Granularity.DAY, now=now):
-            figures[name] = reading(str(chart.border_subtitle))
+    history = BalanceHistory()
+    async with showing(history, services, granularity=Granularity.DAY, now=now):
+        figures["by week"] = reading(str(history.border_subtitle))
+        (week,) = history.query_one(DivergingBars).columns
+        figures["its week"] = week.readout
+    running = RunningBalance()
+    async with showing(running, services, granularity=Granularity.DAY, now=now):
+        figures["running"] = reading(str(running.border_subtitle))
 
     assert figures == dict.fromkeys(figures, figures["balance"])
 

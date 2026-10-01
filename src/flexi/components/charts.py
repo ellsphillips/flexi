@@ -20,6 +20,7 @@ from textual.widget import Widget
 
 from flexi.components.options import WidgetOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
+from flexi.domain.balance import accumulate as summary_of
 from flexi.domain.dates import week_start
 from flexi.domain.format import MINUS, delta, hm, signed_days
 from flexi.domain.format import days as fmt_days
@@ -423,16 +424,18 @@ def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column
     ``first_weekday`` buckets and labels the bars, keeping them in step with the
     calendar drawn from the same setting.
     """
-    buckets: defaultdict[date, timedelta] = defaultdict(timedelta)
+    buckets: defaultdict[date, list[DayLedger]] = defaultdict(list)
     for ledger in ledgers:
-        buckets[week_start(ledger.date, first_weekday=first_weekday)] += (
-            ledger.balance_effect
-        )
+        buckets[week_start(ledger.date, first_weekday=first_weekday)].append(ledger)
+    # Floored term by term, as the balance beside the bars is: a session left
+    # running is worth its day to the microsecond, and cut towards zero that
+    # reads a minute short of it.
+    shown = {week: summary_of(days).as_shown().delta for week, days in buckets.items()}
     return [
         Column(
             label=str(week.day),
             value=total.total_seconds() / SECONDS_PER_HOUR,
             readout=delta(total),
         )
-        for week, total in sorted(buckets.items())
+        for week, total in sorted(shown.items())
     ]
