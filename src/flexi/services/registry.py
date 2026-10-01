@@ -34,6 +34,8 @@ from flexi.services.wallet import WalletService
 
 __all__ = (
     "Services",
+    "adjust_balance",
+    "adjustment_refusal",
     "available_toil_days",
     "build_services",
     "invalidate_services",
@@ -148,6 +150,66 @@ def zero_balance(
         if not round(standing.total_seconds() / 60):
             return AdjustmentResult(False, "The balance is already zero")
         return services.adjustments.stage_record(as_of, -standing, reason)
+
+
+def adjustment_refusal(services: Services, when: date) -> str | None:
+    """Return why an adjustment cannot be dated ``when``, or None if it can.
+
+    It has to fall in the current leave year: the balance starts again at each
+    one, so a row dated in an earlier year is listed and never counted. It
+    cannot be in the future, where the ledger hides it until the day arrives.
+
+    And it has to come after the latest row dated before today. That row may be
+    a settlement, which zeroes the balance up to its own date, and a correction
+    dated on or before it reopens the period it closed. A reason is free text,
+    so a settlement cannot be told from anything else; a row dated today never
+    is one, because only a finished day can be settled.
+
+    Public, because the command line checks before it shows the plan it asks
+    about, and `adjust_balance` checks again under the writer reservation.
+    """
+    today = wallclock.today()
+    if when > today:
+        return f"{long_date(when)} has not happened; date it today or earlier"
+    start, _ = services.absence.leave_year_bounds(today)
+    if when < start:
+        return (
+            f"The balance starts again on {long_date(start)}, so an adjustment"
+            f" dated {long_date(when)} would never count; date it on or after"
+            " that day"
+        )
+    line = services.adjustments.last_before(today)
+    if line is not None and when <= line.date:
+        return (
+            f"The adjustment dated {long_date(line.date)} may have settled the"
+            " balance, and one dated on or before it would reopen what it closed;"
+            " date this one after that day, or undo that one with"
+            f" `flexi balance undo {line.id}`"
+        )
+    return None
+
+
+def adjust_balance(
+    services: Services,
+    amount: timedelta,
+    reason: str,
+    on: date | None = None,
+) -> AdjustmentResult:
+    """Move the balance by ``amount`` from ``on``, which defaults to today.
+
+    For a balance brought in from elsewhere, or a correction to one. Not
+    yesterday by default, as a settlement is: on the first day of a leave year,
+    yesterday belongs to the year before, where the row would never count.
+
+    Here, not in `flexi/cli/balance.py`, so the TUI and any embedder hold the
+    same line.
+    """
+    when = on or wallclock.today()
+    with services.write():
+        refusal = adjustment_refusal(services, when)
+        if refusal is not None:
+            return AdjustmentResult(False, refusal)
+        return services.adjustments.stage_record(when, amount, reason)
 
 
 def minimum_session() -> timedelta:

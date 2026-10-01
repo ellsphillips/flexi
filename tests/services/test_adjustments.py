@@ -1,7 +1,8 @@
-"""Settling a balance without deleting the records that made it."""
+"""Settling or adjusting a balance without deleting the records that made it."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -13,9 +14,10 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.models.database.db import BalanceAdjustment
 from flexi.models.database.engine import get_session
-from flexi.services.adjustments import SETTLED
+from flexi.services.adjustments import SETTLED, parse_amount
 from flexi.services.registry import (
     Services,
+    adjust_balance,
     build_services,
     invalidate_services,
     zero_balance,
@@ -24,9 +26,13 @@ from tests.conftest import sessions_on
 from tests.services.conftest import CONTRACTED, Configured, work
 
 MONDAY = date(2026, 6, 8)
+TUESDAY = date(2026, 6, 9)
+WEDNESDAY = date(2026, 6, 10)
 FRIDAY = date(2026, 6, 12)
 NEW_YEAR = ((date(2026, 1, 1), "New Year's Day"),)
 """A holiday well away from the test week, so the calendar answers at all."""
+
+BROUGHT_FORWARD = timedelta(hours=5, minutes=30)
 
 
 @pytest.fixture
@@ -35,6 +41,13 @@ def services(configure: Configured) -> Services:
     return configure(
         leave_year_start="06-08", holidays=((date(2026, 1, 1), "New Year's Day"),)
     )
+
+
+@pytest.fixture
+def on_wednesday() -> Iterator[None]:
+    """Noon on the Wednesday of the test week, two days into the leave year."""
+    with time_machine.travel(datetime(2026, 6, 10, 12, 0, tzinfo=UTC), tick=False):
+        yield
 
 
 # the arithmetic
@@ -362,3 +375,170 @@ def test_zeroing_keeps_the_records(services: Services, session: Session) -> None
     invalidate_services(services)
     assert len(sessions_on(session, MONDAY)) == 1
     assert services.ledger.day(MONDAY).worked == timedelta(hours=2)
+
+
+# reading an amount
+
+
+@pytest.mark.parametrize(
+    ("typed", "minutes"),
+    [
+        ("+5:30", 330),
+        ("5:30", 330),
+        ("-1:30", -90),
+        ("\N{MINUS SIGN}1:30", -90),
+        ("+0:05", 5),
+        (" 12:00 ", 720),
+    ],
+)
+def test_amount_reads_signed_hours_and_minutes(typed: str, minutes: int) -> None:
+    """No sign is a surplus. A deficit takes a hyphen or the U+2212 Flexi prints."""
+    assert parse_amount(typed) == timedelta(minutes=minutes)
+
+
+@pytest.mark.parametrize(
+    "typed",
+    [
+        "",
+        "5",
+        "+5",
+        "5:3",
+        "5:60",
+        "1:30:00",
+        "+-1:30",
+        "--1:30",
+        "+ 1:30",
+        "5.30",
+        "1h30",
+        "10000:00",
+    ],
+)
+def test_unreadable_amount_names_the_form_it_takes(typed: str) -> None:
+    """A bare 5 is refused too: five hours or five minutes cannot be told apart."""
+    with pytest.raises(ValueError, match="use H:MM"):
+        parse_amount(typed)
+
+
+@pytest.mark.parametrize("typed", ["0:00", "+0:00", "-0:00", "\N{MINUS SIGN}0:00"])
+def test_zero_amount_is_refused(typed: str) -> None:
+    with pytest.raises(ValueError, match="change nothing"):
+        parse_amount(typed)
+
+
+# adjusting
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_adjusting_counts_from_today(services: Services) -> None:
+    result = adjust_balance(services, BROUGHT_FORWARD, "Brought forward")
+
+    assert result.success, result.message
+    assert result.adjustment is not None
+    assert result.adjustment.date == WEDNESDAY
+    assert services.ledger.balance(WEDNESDAY).adjustment == BROUGHT_FORWARD
+    assert services.ledger.balance(TUESDAY).adjustment == timedelta()
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_adjustment_can_be_dated_earlier_in_the_leave_year(
+    services: Services,
+) -> None:
+    result = adjust_balance(services, timedelta(minutes=-90), "Left early", MONDAY)
+
+    assert result.success, result.message
+    assert services.ledger.day(MONDAY).adjustment == timedelta(minutes=-90)
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_adjustment_in_the_future_is_refused(services: Services) -> None:
+    """The ledger would hide it until its date, and today's figure would not move."""
+    result = adjust_balance(services, timedelta(hours=1), "Early", FRIDAY)
+
+    assert not result.success
+    assert "has not happened" in result.message
+    assert services.adjustments.all() == []
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_adjustment_before_the_leave_year_is_refused(services: Services) -> None:
+    """The balance starts again each leave year, so it would never count.
+
+    It would still be listed by `flexi balance log`, as if it did.
+    """
+    result = adjust_balance(services, timedelta(hours=1), "Late", date(2026, 6, 7))
+
+    assert not result.success
+    assert "Sun 7 Jun 2026" in result.message
+    assert "Mon 8 Jun 2026" in result.message, "the refusal names the first day"
+    assert services.adjustments.all() == []
+
+
+def test_first_day_of_a_leave_year_counts_in_it(services: Services) -> None:
+    """Today, never yesterday: on the first day, yesterday is the previous year."""
+    with time_machine.travel(datetime(2026, 6, 8, 9, 0, tzinfo=UTC), tick=False):
+        assert adjust_balance(services, BROUGHT_FORWARD, "Brought forward").success
+        assert services.ledger.balance(MONDAY).adjustment == BROUGHT_FORWARD
+
+        yesterday = adjust_balance(
+            services, BROUGHT_FORWARD, "Brought forward", date(2026, 6, 7)
+        )
+        assert not yesterday.success
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_adjustment_behind_a_settlement_is_refused(services: Services) -> None:
+    """On or before its date, a row would reopen what the settlement closed."""
+    work(services, MONDAY, hours=2)
+    line = zero_balance(services, TUESDAY)
+    assert line.adjustment is not None
+
+    for when in (MONDAY, TUESDAY):
+        refused = adjust_balance(services, timedelta(hours=1), "Late claim", when)
+
+        assert not refused.success
+        assert "Tue 9 Jun 2026" in refused.message
+        assert f"flexi balance undo {line.adjustment.id}" in refused.message
+    assert len(services.adjustments.all()) == 1
+    assert services.ledger.balance(TUESDAY).delta == timedelta()
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_settlement_under_any_reason_holds_its_line(services: Services) -> None:
+    """`zero --reason` is free text, so every row before today is a possible line."""
+    work(services, MONDAY, hours=2)
+    assert zero_balance(services, MONDAY, reason="Agreed with my manager").success
+    services.adjustments.record(TUESDAY, timedelta(minutes=15), "Missed meeting")
+
+    refused = adjust_balance(services, timedelta(hours=1), "Late claim", MONDAY)
+
+    assert not refused.success
+    assert "Tue 9 Jun 2026" in refused.message, "the latest line, not the first"
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_adjustment_after_a_settlement_counts(services: Services) -> None:
+    work(services, MONDAY, hours=2)
+    assert zero_balance(services, MONDAY).success
+
+    result = adjust_balance(services, timedelta(hours=1), "Late claim", TUESDAY)
+
+    assert result.success, result.message
+    assert services.ledger.day(TUESDAY).adjustment == timedelta(hours=1)
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_adjustments_can_share_today(services: Services) -> None:
+    """A row dated today is never a settlement: only a finished day is settled."""
+    assert adjust_balance(services, BROUGHT_FORWARD, "Brought forward").success
+    assert adjust_balance(services, timedelta(minutes=-30), "Long lunch").success
+
+    assert services.ledger.balance(WEDNESDAY).adjustment == timedelta(hours=5)
+
+
+@pytest.mark.usefixtures("on_wednesday")
+def test_adjustment_is_refused_with_no_reason(services: Services) -> None:
+    result = adjust_balance(services, BROUGHT_FORWARD, "  ")
+
+    assert not result.success
+    assert "reason" in result.message
+    assert services.adjustments.all() == []

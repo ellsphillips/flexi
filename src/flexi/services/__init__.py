@@ -58,6 +58,7 @@ if TYPE_CHECKING:
         SETTLED,
         AdjustmentResult,
         AdjustmentService,
+        parse_amount,
     )
     from flexi.services.bank_holidays import (
         CACHE_MAX_AGE,
@@ -91,6 +92,8 @@ if TYPE_CHECKING:
     from flexi.services.outcome import Outcome
     from flexi.services.registry import (
         Services,
+        adjust_balance,
+        adjustment_refusal,
         available_toil_days,
         build_services,
         invalidate_services,
@@ -216,6 +219,7 @@ _EXPORTS: Final = MappingProxyType(
         "SETTLED": ("adjustments", "SETTLED"),
         "AdjustmentResult": ("adjustments", "AdjustmentResult"),
         "AdjustmentService": ("adjustments", "AdjustmentService"),
+        "parse_amount": ("adjustments", "parse_amount"),
         "CACHE_MAX_AGE": ("bank_holidays", "CACHE_MAX_AGE"),
         "GOVUK_URL": ("bank_holidays", "GOVUK_URL"),
         "REQUEST_TIMEOUT": ("bank_holidays", "REQUEST_TIMEOUT"),
@@ -244,6 +248,8 @@ _EXPORTS: Final = MappingProxyType(
         "segment_of": ("ledger", "segment_of"),
         "Outcome": ("outcome", "Outcome"),
         "Services": ("registry", "Services"),
+        "adjust_balance": ("registry", "adjust_balance"),
+        "adjustment_refusal": ("registry", "adjustment_refusal"),
         "available_toil_days": ("registry", "available_toil_days"),
         "build_services": ("registry", "build_services"),
         "invalidate_services": ("registry", "invalidate_services"),
@@ -355,6 +361,7 @@ __all__ = (  # noqa: RUF022
     "SETTLED",
     "AdjustmentResult",
     "AdjustmentService",
+    "parse_amount",
     "CACHE_MAX_AGE",
     "GOVUK_URL",
     "REQUEST_TIMEOUT",
@@ -380,6 +387,8 @@ __all__ = (  # noqa: RUF022
     "segment_of",
     "Outcome",
     "Services",
+    "adjust_balance",
+    "adjustment_refusal",
     "available_toil_days",
     "build_services",
     "invalidate_services",
