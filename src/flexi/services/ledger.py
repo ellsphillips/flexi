@@ -293,12 +293,13 @@ class LedgerService:
 
 
 def end_of_day(day: date) -> datetime:
-    """The last moment of a date.
+    """The last minute of a date.
 
     An unclosed session is worth the rest of its own day, not every hour since,
-    so a past day's open session stops at midnight.
+    so a past day's open session stops here: at 23:59, in the whole minutes
+    every other figure is counted in, and not a microsecond before midnight.
     """
-    return wallclock.local(datetime.combine(day, time.max))
+    return wallclock.local(datetime.combine(day, time(23, 59)))
 
 
 def segment_of(row: WorkSession) -> Segment:

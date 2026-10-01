@@ -427,9 +427,8 @@ def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column
     buckets: defaultdict[date, list[DayLedger]] = defaultdict(list)
     for ledger in ledgers:
         buckets[week_start(ledger.date, first_weekday=first_weekday)].append(ledger)
-    # Floored term by term, as the balance beside the bars is: a session left
-    # running is worth its day to the microsecond, and cut towards zero that
-    # reads a minute short of it.
+    # Floored term by term, the one rule every printed balance follows, so a
+    # bar cannot read a minute off the balance beside it.
     shown = {week: summary_of(days).as_shown().delta for week, days in buckets.items()}
     return [
         Column(

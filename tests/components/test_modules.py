@@ -36,10 +36,11 @@ from flexi.components.modules.records import (
     RecordsModule,
 )
 from flexi.components.modules.wallet import WalletModule
+from flexi.components.plot import Plot
 from flexi.components.punch import PunchStrip
 from flexi.constants import AbsenceType, DayKind, Granularity, Portion
 from flexi.domain.dates import DAYS_IN_WEEK, SUPPORTED_FIRST, SUPPORTED_LAST
-from flexi.domain.format import MINUS, digits
+from flexi.domain.format import MINUS, digits, hm_hours
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.period import Period
 from flexi.domain.punch import Window
@@ -400,9 +401,8 @@ def half_of_a_longer_day(services: Services) -> datetime:
 def left_running_overnight(services: Services) -> datetime:
     """In at 20:00 on Thursday, never out, and looked at on Friday morning.
 
-    Left running, a session is worth its own day to the last microsecond, so
-    the seconds come from the day's end and not from a punch. Friday is not
-    a working day here, so the balance is Thursday's alone.
+    Left running, a session is worth the rest of its own day, to 23:59. Friday
+    is not a working day here, so the balance is Thursday's alone.
     """
     services.settings.save_settings(
         parse_settings(
@@ -467,6 +467,23 @@ async def test_every_surface_reads_the_balance_alike(
         figures["running"] = reading(str(running.border_subtitle))
 
     assert figures == dict.fromkeys(figures, figures["balance"])
+
+
+async def test_running_balance_axis_reads_a_session_left_running(
+    configure: Configured,  # noqa: F811 - the imported fixture
+) -> None:
+    """Left running overnight, the line bottoms out at the −3:25 under it.
+
+    Counted to the microsecond before midnight, the day fell a hair over 3:24
+    short, and the axis, which rounds the hours it plots, read −3:24.
+    """
+    services = configure(entitlement=(2026, 25.0), tracking_since=THURSDAY)
+    now = left_running_overnight(services)
+
+    running = RunningBalance()
+    async with showing(running, services, granularity=Granularity.DAY, now=now):
+        low, _ = running.query_one(Plot).bounds()
+        assert hm_hours(low) == reading(str(running.border_subtitle))
 
 
 # ---------- the wallet ----------

@@ -31,16 +31,16 @@ def _leave_open(session: Session, at: datetime) -> None:
     session.commit()
 
 
-def test_open_past_day_stops_at_midnight(services: Services, session: Session) -> None:
+def test_open_past_day_stops_at_its_last_minute(
+    services: Services, session: Session
+) -> None:
+    """09:00 to 23:59, in whole minutes, and not to the microsecond before midnight."""
     _leave_open(session, TUESDAY_NINE)
     invalidate_services(services)
 
     tuesday = services.ledger.day(TUESDAY, now=THURSDAY_NOON)
 
-    assert tuesday.worked < timedelta(days=1)
-    assert tuesday.worked == timedelta(
-        hours=14, minutes=59, seconds=59, microseconds=999999
-    )
+    assert tuesday.worked == timedelta(hours=14, minutes=59)
 
 
 def test_open_day_does_not_count_days_since(
@@ -90,5 +90,5 @@ def test_a_cached_open_session_reaches_its_cutoff_after_midnight(
 
     after_midnight = services.ledger.day(TUESDAY, now=watching + timedelta(hours=2))
 
-    assert after_midnight.worked == timedelta(hours=15, microseconds=-1)
+    assert after_midnight.worked == timedelta(hours=14, minutes=59)
     assert after_midnight is not before_midnight
