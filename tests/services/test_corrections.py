@@ -258,33 +258,45 @@ def test_booked_morning_leaves_the_afternoon_correctable(
     assert clock.correct(MONDAY, time(13, 0), time(17, 0), now=TODAY).success is True
 
 
-def test_correction_over_a_booked_morning_is_refused(
-    services: Services, clock: ClockService
+@pytest.mark.parametrize(
+    ("portion", "opened", "closed"),
+    [
+        (Portion.PM, time(8, 30), time(12, 30)),
+        (Portion.AM, time(11, 30), time(12, 0)),
+    ],
+)
+def test_half_day_off_is_correctable_at_any_hour(
+    services: Services,
+    clock: ClockService,
+    portion: Portion,
+    opened: time,
+    closed: time,
 ) -> None:
-    """The half is spent out of the allowance; working it again is paid twice.
+    """A half day is half the contract off, wherever the work fell.
 
-    The booking side refuses the mirror image through `DayFacts.has_work_in`.
+    The ledger halves what the day expects whatever the time of the work, so
+    the hours come out right either side of noon.
     """
-    assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.AM).success
+    assert services.absence.book(MONDAY, AbsenceType.ANNUAL, portion).success
 
-    result = clock.correct(MONDAY, time(9, 0), time(17, 0), now=TODAY)
+    result = clock.correct(MONDAY, opened, closed, now=TODAY)
 
-    assert result.success is False
-    booked_off = f"The morning of {short_date(MONDAY)} is already booked off"
-    assert result.message == booked_off
-    assert clock.segments_on(MONDAY) == []
+    assert result.success is True, result.message
+    assert len(clock.segments_on(MONDAY)) == 1
 
 
-def test_correction_past_midday_meets_a_booked_afternoon(
+def test_two_halves_off_cannot_also_be_corrected(
     services: Services, clock: ClockService
 ) -> None:
-    """Ending after twelve is what makes a stretch the afternoon's business."""
+    """A morning and an afternoon are the whole day, paid for once already."""
+    assert services.absence.book(MONDAY, AbsenceType.SICK, Portion.AM).success
     assert services.absence.book(MONDAY, AbsenceType.ANNUAL, Portion.PM).success
 
-    result = clock.correct(MONDAY, time(9, 0), time(13, 0), now=TODAY)
+    result = clock.correct(MONDAY, time(9, 0), time(11, 0), now=TODAY)
 
     assert result.success is False
-    assert "afternoon" in result.message
+    assert result.message == CORRECTION_BOOKED.format(day=short_date(MONDAY))
+    assert clock.segments_on(MONDAY) == []
 
 
 def test_booked_afternoon_leaves_the_morning_correctable(

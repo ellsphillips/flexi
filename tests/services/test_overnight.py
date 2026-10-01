@@ -78,13 +78,15 @@ def test_the_middle_of_a_multiday_session_is_also_occupied(
     assert len(plan.refused) == 2
 
 
-@pytest.mark.parametrize("portion", [Portion.FULL, Portion.AM])
-def test_clock_out_preserves_work_until_overlapping_leave_is_removed(
-    configure: Configured, portion: Portion
+@pytest.mark.parametrize("portions", [(Portion.FULL,), (Portion.AM, Portion.PM)])
+def test_clock_out_cannot_run_into_a_day_booked_off_in_full(
+    configure: Configured, portions: tuple[Portion, ...]
 ) -> None:
+    """The work stays open, and the refusal sends no one to delete the leave."""
     services = configure()
     closed = (OPENED + timedelta(days=1)).replace(hour=2)
-    assert services.absence.book(closed.date(), AbsenceType.SICK, portion).success
+    for portion in portions:
+        assert services.absence.book(closed.date(), AbsenceType.SICK, portion).success
     opened = services.clock.clock_in(now=OPENED)
     assert opened.success
     assert opened.session is not None
@@ -92,9 +94,28 @@ def test_clock_out_preserves_work_until_overlapping_leave_is_removed(
     refused = services.clock.clock_out(now=closed)
 
     assert not refused.success
-    assert "remove that absence" in refused.message
+    assert refused.message == "Work overlaps Mon 8 Jun, which is booked off in full"
     assert opened.session.clock_out_id is None
-    assert services.absence.remove(closed.date(), portion).success
+
+
+def test_clock_out_at_midnight_stops_short_of_a_day_off(
+    configure: Configured,
+) -> None:
+    services = configure()
+    closed = (OPENED + timedelta(days=1)).replace(hour=0)
+    assert services.absence.book(closed.date(), AbsenceType.SICK).success
+    assert services.clock.clock_in(now=OPENED).success
+
+    assert services.clock.clock_out(now=closed).success
+
+
+def test_clock_out_may_run_into_a_half_day_off(configure: Configured) -> None:
+    services = configure()
+    closed = (OPENED + timedelta(days=1)).replace(hour=2)
+    assert services.absence.book(closed.date(), AbsenceType.SICK, Portion.AM).success
+    opened = services.clock.clock_in(now=OPENED)
+    assert opened.session is not None
+
     assert services.clock.clock_out(now=closed).success
     assert opened.session.clock_out_event is not None
     assert moment_of(opened.session.clock_out_event) == closed
@@ -112,7 +133,7 @@ def test_clock_out_at_noon_leaves_booked_afternoon_intact(
     assert len(services.absence.for_date(day)) == 1
 
 
-def test_clock_out_after_noon_requires_resolving_booked_afternoon(
+def test_clock_out_after_noon_leaves_booked_afternoon_intact(
     configure: Configured,
 ) -> None:
     services = configure()
@@ -120,11 +141,11 @@ def test_clock_out_after_noon_requires_resolving_booked_afternoon(
     assert services.absence.book(day, AbsenceType.SICK, Portion.PM).success
     assert services.clock.clock_in(now=datetime.combine(day, time(9))).success
 
-    result = services.clock.clock_out(now=datetime.combine(day, time(13)))
+    result = services.clock.clock_out(now=datetime.combine(day, time(12, 30)))
 
-    assert not result.success
-    assert "afternoon" in result.message
-    assert services.clock.is_clocked_in()
+    assert result.success, result.message
+    assert not services.clock.is_clocked_in()
+    assert len(services.absence.for_date(day)) == 1
 
 
 @pytest.mark.parametrize("note", [None, "Morning meeting"])

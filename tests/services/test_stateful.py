@@ -165,17 +165,22 @@ class TimesheetModel(RuleBasedStateMachine):
         return None
 
     def _booked_over(self, moment: datetime) -> bool:
-        """Whether an absence booked on a date is spoken for at this moment.
+        """Whether the date of this moment is booked off in full.
 
-        A booked morning leaves the afternoon workable, so only a moment inside
-        the half that is booked is refused. Noon starts the afternoon.
+        One half booked leaves the rest of the contract to work, at any hour.
         """
-        booked = self.observed_absences.get(moment.date(), {})
-        if covers_the_whole_day(booked):
-            return True
-        if Portion.AM in booked and moment.time() < time(12, 0):
-            return True
-        return Portion.PM in booked and moment.time() >= time(12, 0)
+        return covers_the_whole_day(self.observed_absences.get(moment.date(), {}))
+
+    def _reaches_a_day_off(self, until: datetime) -> bool:
+        """Whether the running interval reaches a date booked off in full."""
+        if self.open_since is None:
+            return False
+        return any(
+            covers_the_whole_day(booked)
+            and datetime.combine(day, time()) < until
+            and self.open_since < datetime.combine(day + timedelta(days=1), time())
+            for day, booked in self.observed_absences.items()
+        )
 
     @rule()
     def clock_in(self) -> None:
@@ -203,7 +208,7 @@ class TimesheetModel(RuleBasedStateMachine):
 
         expected = self.open_since is not None and (
             self.now - self.open_since < self.minimum
-            or self._first_booked_moment(self.now) is None
+            or not self._reaches_a_day_off(self.now)
         )
         assert result.success is expected, result.message
         if result.success and self.open_since is not None:

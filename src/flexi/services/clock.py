@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from flexi import wallclock
 from flexi.constants import EventSource, Portion
 from flexi.domain.format import clock, hm, long_date, short_date, spoken
-from flexi.domain.ledger import MIDDAY_HOUR, Segment
+from flexi.domain.ledger import Segment
 from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.absence import covers_the_whole_day
@@ -19,7 +20,6 @@ from flexi.services.settings import SettingsService
 from flexi.services.startup import close_stale_sessions
 from flexi.services.transactions import write_transaction
 from flexi.services.work_sessions import (
-    first_absence_overlap,
     sessions_touching,
     stage_clock_in,
     stage_clock_out,
@@ -102,26 +102,35 @@ class ClockService:
         )
         return any(moment_of(event) > moment for event in self._session.scalars(stmt))
 
-    def _booked_over(
-        self, work_date: date, opened_at: datetime, closed_at: datetime
-    ) -> Portion | None:
-        """Which booked portion a stretch of work collides with, or ``None``.
+    def _days_off(self, start: date, end: date) -> list[date]:
+        """The dates in a span booked off in full, earliest first.
 
-        The inverse of `DayFacts.has_work_in`, the rule the booking side runs
-        on, so the two cannot disagree: a morning booked off and then worked is
-        a day paid for twice. Both routes into a work session ask it, `clock_in`
-        and `correct`. One date can carry two booked portions, a sick morning
-        and an annual afternoon, so they come back as a list.
+        `covers_the_whole_day` is the rule the booking side runs on too, so the
+        two cannot disagree: a day booked off and then worked is paid for twice.
+        One half booked never refuses work, whatever the hour: the ledger halves
+        what the day expects, so 11:30 after a morning off counts as 14:00 does.
         """
-        stmt = select(AbsenceDay.portion).where(AbsenceDay.date == work_date)
-        booked = list(self._session.execute(stmt).scalars().all())
-        if covers_the_whole_day(booked):
-            return Portion.FULL
-        midday = wallclock.local(datetime.combine(work_date, time(MIDDAY_HOUR, 0)))
-        if Portion.AM in booked and opened_at < midday:
-            return Portion.AM
-        if Portion.PM in booked and (opened_at >= midday or closed_at > midday):
-            return Portion.PM
+        stmt = select(AbsenceDay.date, AbsenceDay.portion).where(
+            AbsenceDay.date >= start, AbsenceDay.date <= end
+        )
+        booked: defaultdict[date, list[Portion]] = defaultdict(list)
+        for when, portion in self._session.execute(stmt):
+            booked[when].append(portion)
+        return sorted(
+            when for when, portions in booked.items() if covers_the_whole_day(portions)
+        )
+
+    def _first_day_off(self, opened: datetime, closed: datetime) -> date | None:
+        """The first date booked off in full that a stretch of work reaches.
+
+        Endpoints may touch: work ending at midnight leaves the next day intact.
+        """
+        for when in self._days_off(opened.date(), closed.date()):
+            midnight = datetime.combine(when, time.min)
+            begins = wallclock.local(midnight)
+            ends = wallclock.local(midnight + timedelta(days=1))
+            if opened < ends and begins < closed:
+                return when
         return None
 
     def sweep(self) -> list[ClockResult]:
@@ -176,17 +185,9 @@ class ClockService:
                     success=False, message="Cannot clock in on a bank holiday"
                 )
 
-            # The moment itself, not the rest of the day: a booked morning
-            # leaves the afternoon workable.
-            booked = self._booked_over(work_date, moment, moment)
-            if booked is Portion.FULL:
+            if self._days_off(work_date, work_date):
                 return ClockResult(
                     success=False, message="Cannot clock in on an absence day"
-                )
-            if booked is not None:
-                return ClockResult(
-                    success=False,
-                    message=f"Cannot clock in during a booked {booked.noun}",
                 )
 
             work_session = stage_clock_in(
@@ -232,17 +233,13 @@ class ClockService:
                 )
 
             short = length < self._minimum
-            clash = (
-                None if short else first_absence_overlap(self._session, opened, moment)
-            )
-            if clash is not None:
-                booking, _boundary = clash
+            day_off = None if short else self._first_day_off(opened, moment)
+            if day_off is not None:
                 return ClockResult(
                     success=False,
                     message=(
-                        f"Work overlaps the booked {booking.portion.noun} on "
-                        f"{short_date(booking.date)}; remove that absence, "
-                        "then clock out again"
+                        f"Work overlaps {short_date(day_off)}, "
+                        "which is booked off in full"
                     ),
                     session=open_session,
                 )
@@ -302,10 +299,10 @@ class ClockService:
         sharing an hour count it twice, and no merge rule beats a person looking
         at both.
 
-        A portion already booked off is refused for the same reason: the day
-        would be paid for twice, once out of the leave balance and once into the
-        flexi balance. The other half of it stays correctable, as `clock_in`
-        leaves it.
+        A day booked off in full is refused for the same reason: it would be
+        paid for twice, once out of the leave balance and once into the flexi
+        balance. One half booked leaves the day correctable at any hour, as
+        `clock_in` leaves it.
 
         A stretch ending after now is a plan, and is refused.
 
@@ -330,16 +327,10 @@ class ClockService:
             return ClockResult(success=False, message=CORRECTION_EMPTY)
 
         with write_transaction(self._session):
-            booked = self._booked_over(day, opened_at, closed_at)
-            if booked is Portion.FULL:
+            if self._days_off(day, day):
                 return ClockResult(
                     success=False,
                     message=CORRECTION_BOOKED.format(day=short_date(day)),
-                )
-            if booked is not None:
-                half = f"{booked.noun} of {short_date(day)}"
-                return ClockResult(
-                    success=False, message=f"The {half} is already booked off"
                 )
             if any(
                 overlapping(existing, opened_at, closed_at)
