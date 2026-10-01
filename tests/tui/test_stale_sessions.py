@@ -15,6 +15,7 @@ import pytest
 import time_machine
 
 from flexi.app import FlexiApp
+from flexi.components.modules.records import RecordsModule
 from flexi.constants import ClockAction
 from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.models.database.engine import create_db_engine, get_session
@@ -98,3 +99,59 @@ async def test_clock_key_starts_tuesday_not_ends_monday(
 
             tuesday = sessions_on(app._session, TUESDAY_TEN.date())
             assert len(tuesday) == 1, "the key should have started a new day"
+
+
+# ---- the date turning under an open dashboard ----
+
+MONDAY_FIVE = MONDAY_NINE.replace(hour=17)
+JUST_AFTER_MIDNIGHT = TUESDAY_TEN.replace(hour=0, second=30)
+
+
+async def test_open_dashboard_closes_monday_when_the_date_turns(
+    left_open: Path,
+) -> None:
+    """Without a key pressed, Monday counts to midnight and the tick runs on.
+
+    Midnight is six hours past the auto-close the sweep will record, so the
+    balance drops by them on the morning's first `/`.
+    """
+    app = FlexiApp(db_path=left_open)
+    with time_machine.travel(MONDAY_FIVE, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            board = showing(app, DashboardScreen)
+            assert board._tick is not None, "Monday is still on the clock"
+
+            with time_machine.travel(JUST_AFTER_MIDNIGHT, tick=False):
+                board._on_tick()
+                await pilot.pause()
+
+                monday = sessions_on(app._session, MONDAY)
+                assert monday[0].auto_closed is True, "closed by the sweep"
+                closed = monday[0].clock_out_event
+                assert closed is not None
+                assert moment_of(closed) == MONDAY_NINE.replace(hour=18)
+                assert board.period.anchor == JUST_AFTER_MIDNIGHT.date()
+                row = board.query_one(RecordsModule).table.get_row(f"d-{MONDAY}")
+                assert str(row[2]) == "9:00", "Monday counted past its auto-close"
+                assert board._tick is None, "nothing is open, so nothing ticks"
+
+
+async def test_a_period_moved_off_today_stays_where_it_was(
+    left_open: Path,
+) -> None:
+    """Only a period that showed the old date follows the new one."""
+    app = FlexiApp(db_path=left_open)
+    with time_machine.travel(MONDAY_FIVE, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            board = showing(app, DashboardScreen)
+            board.action_shift(-1)
+            browsed = board.period
+
+            with time_machine.travel(JUST_AFTER_MIDNIGHT, tick=False):
+                board._on_tick()
+                await pilot.pause()
+
+                assert board.period == browsed
+                assert sessions_on(app._session, MONDAY)[0].auto_closed is True

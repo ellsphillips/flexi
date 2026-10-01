@@ -123,6 +123,8 @@ class DashboardScreen(Screen[None]):
             first_weekday=CONFIG.defaults.first_day_of_week,
         )
         self.now = wallclock.now()
+        self._today = self.now.date()
+        """The date the tick last saw, so it can tell when midnight passes."""
         self._tick: Timer | None = None
         self._shown: tuple[BalanceSummary, ...] = ()
         """The minutes the records table and the wallet were last drawn at."""
@@ -260,6 +262,9 @@ class DashboardScreen(Screen[None]):
         Clearing the memo would throw away every other day in the period with it.
         """
         self.now = wallclock.now()
+        if self.now.date() != self._today:
+            self._turn_the_day()
+            return
         for module in (ClockModule, BalanceModule):
             for widget in self.query(module):
                 widget.rebuild()
@@ -269,6 +274,24 @@ class DashboardScreen(Screen[None]):
             for panel in self.query(Module):
                 panel.rebuild_if(Scope.TIME)
         self._refresh_progress()
+
+    def _turn_the_day(self) -> None:
+        """Midnight passed under an open dashboard.
+
+        A session left running is closed at the auto-close time, as the next
+        launch or `/` would close it; until then the balance counts it to
+        midnight. A period that showed the old date moves to the new one, and
+        the tick stops if nothing is left on the clock.
+        """
+        was, self._today = self._today, self.now.date()
+        # The same sweep launch and `/` run: whatever reports what one closed
+        # belongs beside each call.
+        self._services.clock.sweep()
+        if self.period.contains(was):
+            self.period = self.period.go_to(self._today)
+            self._sync_header()
+        self.refresh_modules(Scope.ALL)
+        self._start_tick_if_open()
 
     def _shown_minutes(self) -> tuple[BalanceSummary, ...]:
         """Today, the period and the balance, in the whole minutes they print.

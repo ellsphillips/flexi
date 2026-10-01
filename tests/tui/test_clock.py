@@ -300,6 +300,32 @@ async def test_seconds_leave_the_table_and_the_wallet_alone(
             assert [call.call_count for call in calls] == [1, 1, 4, 0]
 
 
+async def test_first_tick_of_a_new_day_moves_the_dashboard_on(
+    app_factory: AppFactory,
+) -> None:
+    """Off the clock nothing ticks, so the tick learns the date late.
+
+    A dashboard left open overnight catches up on the first tick after the
+    morning's `/`, and keeps ticking for the session that opened.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("slash")  # out, on Thursday afternoon
+        await pilot.pause()
+        screen = dashboard(app)
+        assert screen._tick is None
+
+        saturday = datetime(2026, 6, 13, 10, 0, tzinfo=UTC)
+        with time_machine.travel(saturday, tick=False):
+            await pilot.press("slash")
+            await pilot.pause()
+            screen._on_tick()
+            await pilot.pause()
+
+            assert screen.period.anchor == saturday.date()
+            assert screen._tick is not None, "Saturday is on the clock"
+
+
 # ---- the day turning under an open session ----
 
 MONDAY = date(2026, 6, 8)
