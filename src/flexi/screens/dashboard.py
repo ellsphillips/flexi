@@ -348,7 +348,18 @@ class DashboardScreen(Screen[None]):
         # A session left running overnight is drawn as closed the moment the
         # date turns, and `sweep` makes that true in the database. It runs
         # first, or the morning's `/` closes yesterday at this morning's time.
-        self.sweep()
+        # A press that closed one stops there: past midnight it is as likely
+        # meant as a clock-out, and clocking in would open a session nobody
+        # is working.
+        if self.sweep():
+            receipt = (
+                "Closed the session left running; press again to clock in",
+                Tone.WARN,
+            )
+            self.status(*receipt)
+            self.refresh_modules(Scope.CLOCK)
+            self._start_tick_if_open()
+            return receipt
         if clock.is_clocked_in():
             return self._report(clock.clock_out())
         return self._report(clock.clock_in())

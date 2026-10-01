@@ -400,13 +400,14 @@ def monday_open(tmp_path: Path) -> Path:
     return path
 
 
-async def test_key_after_midnight_starts_today(
+async def test_key_after_midnight_closes_monday_and_stops_there(
     monday_open: Path,
 ) -> None:
-    """The key acts on the day the panel is showing.
+    """The press that sweeps is spent saying so; the next one starts today.
 
-    Left running overnight the panel reads today's ledger, so the morning's
-    `/` opens today and leaves Monday to the sweep.
+    Left running overnight the panel reads today's ledger, and the sweep closes
+    Monday at its auto-close time. Past midnight that press is as likely meant
+    as a clock-out, and clocking in on it would open a session nobody works.
     """
     app = FlexiApp(db_path=monday_open)
     with time_machine.travel(MONDAY_FIVE, tick=False):
@@ -426,8 +427,17 @@ async def test_key_after_midnight_starts_today(
                 worked = moment_of(closed) - moment_of(monday[0].clock_in_event)
                 assert worked < timedelta(hours=24), f"Monday was recorded as {worked}"
 
+                assert not app.services.clock.is_clocked_in()
+                assert status_text(app) == (
+                    "Closed the session left running; press again to clock in"
+                )
+                assert dashboard(app)._tick is None, "nothing is running to tick"
+
+                await pilot.press("slash")
+                await pilot.pause()
+
                 tuesday = sessions_on(app._session, TUESDAY_TEN.date())
-                assert len(tuesday) == 1, "the key should have started a new day"
+                assert len(tuesday) == 1, "the next press should start the day"
 
 
 async def test_key_after_midnight_says_what_it_closed(monday_open: Path) -> None:
