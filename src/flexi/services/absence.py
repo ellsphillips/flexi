@@ -1133,10 +1133,9 @@ def span_of(session: WorkSession, *, now: datetime | None = None) -> Span:
     """When a session ran, resolved, to the minutes the records table shows.
 
     A session still open on its own day is worth what it has run so far, the
-    value `LedgerService` and the punch strip use; valued to the end of the day
-    it would cover an unworked afternoon and refuse a booking over it. One left
-    open on an earlier day is worth the rest of that day and no more, so a
-    clock-out that never came cannot make every evening since look worked.
+    value `LedgerService` and the punch strip use. One left open on an earlier
+    day is worth the rest of that day and no more, so a clock-out that never
+    came cannot make every evening since look worked.
     """
     start = to_the_minute(moment_of(session.clock_in_event))
     if session.clock_out_event is not None:
