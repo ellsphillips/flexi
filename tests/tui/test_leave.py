@@ -418,7 +418,7 @@ async def test_booking_over_work_repeats_the_refusal(
         await pilot.pause()
 
         assert app.services.absence.for_date(TODAY) == []
-        assert status_text(app) == "There is recorded work in that part of the day"
+        assert status_text(app) == "There is recorded work on that day"
 
 
 async def test_wallet_moves_with_the_booking(app_factory: AppFactory) -> None:

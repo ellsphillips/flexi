@@ -18,20 +18,23 @@ TODAY = datetime(2026, 6, 15, 12, tzinfo=UTC)
 
 
 @pytest.mark.parametrize("nights", [1, 3])
-@pytest.mark.parametrize("portion", [Portion.FULL, Portion.AM])
-def test_overnight_work_blocks_leave_on_the_date_it_ends(
-    configure: Configured, nights: int, portion: Portion
+def test_overnight_work_blocks_a_day_off_on_the_date_it_ends(
+    configure: Configured, nights: int
 ) -> None:
     services = configure()
     closed = (OPENED + timedelta(days=nights)).replace(hour=2)
     assert services.clock.clock_in(now=OPENED).success
     assert services.clock.clock_out(now=closed).success
 
-    result = services.absence.book(closed.date(), AbsenceType.SICK, portion)
+    whole = services.absence.book(closed.date(), AbsenceType.SICK)
+    morning = services.absence.book(closed.date(), AbsenceType.SICK, Portion.AM)
+    afternoon = services.absence.book(closed.date(), AbsenceType.SICK, Portion.PM)
 
-    assert not result.success
-    assert "recorded work" in result.message
-    assert services.absence.book(closed.date(), AbsenceType.SICK, Portion.PM).success
+    assert not whole.success
+    assert "recorded work" in whole.message
+    assert morning.success, morning.message
+    assert not afternoon.success
+    assert "recorded work" in afternoon.message
 
 
 def test_work_ending_at_midnight_leaves_the_following_day_free(

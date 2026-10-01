@@ -8,7 +8,8 @@ The rules SQLite cannot express, enforced here:
   ``(date, portion)``.
 * Two halves of different types are legal: a sick morning and an annual
   afternoon.
-* A half day may be booked over recorded work in the other half.
+* A half day may be booked over recorded work, whatever the hour; a booking
+  that would take the whole of a worked day off may not.
 * TOIL warns and does not block: an annual allowance is a limit set elsewhere,
   a flexi balance is the user's own arithmetic.
 """
@@ -30,7 +31,6 @@ from flexi.domain import leaveyear
 from flexi.domain.dates import days_between
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import plural, short_date, to_the_minute, whole_minutes
-from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
@@ -74,8 +74,8 @@ session is worth."""
 def covers_the_whole_day(booked: Iterable[Portion]) -> bool:
     """True when what is booked leaves no half of the day left to work.
 
-    The mirror of `DayFacts.has_work_in`, which lets a half day be booked over
-    work in the other half.
+    The one test both sides share: the clock refuses work on such a day, and
+    `clash_reason` a booking that would make a worked day one.
 
     Examples:
         >>> covers_the_whole_day([Portion.FULL])
@@ -231,32 +231,13 @@ class DayFacts:
     started, unless work is recorded on it; `LedgerService` reads the same
     rule, and a TOIL booking's arithmetic turns on it."""
 
-    @property
-    def midday(self) -> datetime:
-        """The boundary between the two halves of this date.
-
-        Localised, because the spans in ``worked`` are: comparing a naive wall
-        time against a stored aware one raises `TypeError`.
-        """
-        return wallclock.local(datetime.combine(self.date, time(MIDDAY_HOUR, 0)))
-
-    def has_work_in(self, portion: Portion) -> bool:
-        """True when recorded work overlaps the half of the day being booked."""
-        if not self.worked:
-            return False
-        if portion is Portion.FULL:
-            return True
-        midday = self.midday
-        return any(
-            start < midday if portion is Portion.AM else end > midday
-            for start, end in self.worked
-        )
-
 
 def clash_reason(facts: DayFacts, portion: Portion) -> str | None:
     """Why this part of the day is already spoken for, or ``None``.
 
-    Ordered cheapest first, and only the first is reported.
+    Ordered cheapest first, and only the first is reported. Recorded work
+    refuses only a booking that would leave none of the day to work: one half
+    off halves what `expected_for` asks of the day, whenever the hours fell.
     """
     if Portion.FULL in facts.booked:
         return "That day is already booked in full"
@@ -264,8 +245,8 @@ def clash_reason(facts: DayFacts, portion: Portion) -> str | None:
         return "Half of that day is already booked; remove it first"
     if portion in facts.booked:
         return f"That {portion.label.lower()} is already booked"
-    if facts.has_work_in(portion):
-        return "There is recorded work in that part of the day"
+    if facts.worked and covers_the_whole_day((*facts.booked, portion)):
+        return "There is recorded work on that day"
     return None
 
 
