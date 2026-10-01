@@ -516,7 +516,7 @@ def test_unknown_stored_division_falls_back(
 def test_omitted_optional_fields_keep_their_values(
     svc: SettingsService,
 ) -> None:
-    """The setup screen writes four fields; the settings screen writes seven."""
+    """Both forms write five fields, hours a day among them, and no day window."""
     svc.save_settings(
         parse_settings(
             leave_year_start="01-01",
