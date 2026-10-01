@@ -20,6 +20,7 @@ from flexi.constants import Division
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.leave import LeaveScreen
+from flexi.screens.modals import ConfirmModal
 from flexi.screens.settings import SettingsScreen, describe_working_days
 from flexi.services.settings import parse_working_days
 from tests.conftest import settled
@@ -160,6 +161,75 @@ async def test_unusable_hours_a_day_are_refused(app_factory: AppFactory) -> None
 
         showing(app, SettingsScreen)
         assert app.services.settings.get_contracted() == timedelta(minutes=444)
+
+
+# hours a day
+
+
+async def change_hours(app: FlexiApp, pilot: Pilot[None], typed: str) -> None:
+    """Type a new length of day into the form, and press Save."""
+    await open_settings(pilot)
+    showing(app, SettingsScreen).query_one("#input-hours", Input).value = typed
+    await pilot.click("#btn-save")
+    await pilot.pause()
+
+
+def question_asked(app: FlexiApp) -> str:
+    """The whole of the confirmation in front of the user, unwrapped."""
+    return str(showing(app, ConfirmModal).query_one(".modal-body Static").render())
+
+
+async def test_new_hours_a_day_ask_before_anything_moves(
+    app_factory: AppFactory,
+) -> None:
+    """Every tracked day is measured against the new length, so the past moves too."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await change_hours(app, pilot, "8h")
+
+        asked = question_asked(app)
+        assert "8:00 instead of 7:24" in asked
+        assert "days already past in this leave year" in asked
+        assert "adjustment" not in asked, "there is nothing settled to warn about"
+        assert app.services.settings.get_contracted() == timedelta(minutes=444)
+
+        await pilot.click("#modal-confirm")
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert app.services.settings.get_contracted() == timedelta(hours=8)
+        assert "of 8:00" in screen_text(app), "today is measured against it"
+
+
+async def test_declining_new_hours_writes_nothing_and_keeps_the_form(
+    app_factory: AppFactory,
+) -> None:
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await change_hours(app, pilot, "8h")
+
+        await pilot.click("#modal-cancel")
+        await pilot.pause()
+
+        screen = showing(app, SettingsScreen)
+        assert screen.query_one("#input-hours", Input).value == "8h"
+        assert app.services.settings.get_contracted() == timedelta(minutes=444)
+
+
+async def test_settlements_are_named_before_they_stop_matching(
+    app_factory: AppFactory,
+) -> None:
+    """`balance zero` stores a fixed amount, sized against the old day."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        app.services.adjustments.record(
+            date(2026, 5, 29), timedelta(hours=-2), "settled with my manager"
+        )
+
+        await change_hours(app, pilot, "7.5")
+
+        assert "balance adjustments keep their recorded amounts" in question_asked(app)
 
 
 # entitlements

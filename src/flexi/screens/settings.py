@@ -7,7 +7,8 @@ words.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from datetime import timedelta
 from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
@@ -21,6 +22,7 @@ from flexi.components.options import ScreenOptions
 from flexi.constants import Division
 from flexi.domain.dates import DAY_NAMES
 from flexi.domain.format import hm
+from flexi.screens.modals import ConfirmModal
 from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
@@ -140,6 +142,7 @@ class SettingsScreen(Screen[bool]):
     def __init__(self, services: Services, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
         self._svc = services.settings
+        self._adjustments = services.adjustments
         self.entitlement_drafts = {
             entitlement.year: str(entitlement.days)
             for entitlement in self._svc.all_entitlements()
@@ -242,6 +245,9 @@ class SettingsScreen(Screen[bool]):
         cannot be read leaves nothing written. Nothing invalidates the ledger
         cache on this path: the application hangs that off `dismiss(True)`, and
         a rejection does not dismiss.
+
+        A new length of day asks first: every tracked day is measured against
+        it, the ones already past included.
         """
         allowances: dict[int, float] = {}
         rejected: list[str] = []
@@ -266,9 +272,42 @@ class SettingsScreen(Screen[bool]):
             self.notify(str(error), severity="error")
             return
 
-        self._svc.save_settings_and_entitlements(update, allowances)
+        was, hours = self._svc.get_contracted(), update.contracted
+        if hours is None or hours == was:
+            self._commit(update, allowances)
+            return
 
+        def confirm(answer: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
+            if answer:
+                self._commit(update, allowances)
+
+        self.app.push_screen(
+            ConfirmModal(self._warning(was, hours), title="Change hours a day?"),
+            callback=confirm,
+        )
+
+    def _commit(self, update: SettingsUpdate, allowances: Mapping[int, float]) -> None:
+        self._svc.save_settings_and_entitlements(update, allowances)
         self.dismiss(True)
+
+    def _warning(self, was: timedelta, hours: timedelta) -> str:
+        """What a new length of day does to the days already counted.
+
+        The balance is worked out afresh on every read, so a stored adjustment
+        is the one term that does not move with it.
+        """
+        warning = (
+            f"Every tracked day will be measured against {hm(hours)} instead of "
+            f"{hm(was)}, including the days already past in this leave year, so "
+            "the balance will change."
+        )
+        if self._adjustments.all():
+            warning += (
+                "\n\nYour balance adjustments keep their recorded amounts and are "
+                "not recalculated, so a balance settled at 0:00 will no longer "
+                "read 0:00."
+            )
+        return warning
 
     def action_back(self) -> None:
         self.dismiss(False)
