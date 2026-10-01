@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.moment import moment_of
 from flexi.services.startup import close_stale_sessions
-from tests.services.conftest import Configured
+from tests.services.conftest import CONTRACTED, Configured
 
 OPENED = datetime(2026, 6, 7, 22, tzinfo=UTC)
 TODAY = datetime(2026, 6, 15, 12, tzinfo=UTC)
@@ -164,10 +164,12 @@ def test_inferred_clock_out_stops_at_booked_leave_and_explains_it(
     opened.session.note = note
     session.commit()
 
-    [closed] = close_stale_sessions(session, time(18), today=day + timedelta(days=1))
+    [closed] = close_stale_sessions(
+        session, time(18), contracted=CONTRACTED, today=day + timedelta(days=1)
+    )
 
     assert closed.clock_out_event is not None
-    assert closed.clock_out_event.timestamp.time() == time(12)
+    assert closed.clock_out_event.timestamp.time() == time(12, 42)
     assert closed.note is not None
     assert "Auto-closed at booked afternoon" in closed.note
     if note is not None:

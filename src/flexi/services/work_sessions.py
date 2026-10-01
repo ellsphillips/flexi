@@ -8,50 +8,22 @@ success and leave no speculative event behind for the losing writer.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session, selectinload
 
-from flexi import wallclock
-from flexi.constants import ClockAction, EventSource, Portion
-from flexi.domain.ledger import MIDDAY_HOUR
-from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
+from flexi.constants import ClockAction, EventSource
+from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.models.database.moment import punched
 
 __all__ = (
-    "first_absence_overlap",
     "sessions_touching",
     "stage_clock_in",
     "stage_clock_out",
     "stage_correction",
 )
-
-
-def first_absence_overlap(
-    session: Session, start: datetime, end: datetime
-) -> tuple[AbsenceDay, datetime] | None:
-    """The first booked absence touched by work, and where the overlap begins.
-
-    Endpoints may touch: work ending at noon leaves an afternoon booking intact.
-    The caller reserves the writer before using this answer to persist work.
-    """
-    stmt = (
-        select(AbsenceDay)
-        .where(AbsenceDay.date >= start.date(), AbsenceDay.date <= end.date())
-        .order_by(AbsenceDay.date, AbsenceDay.portion)
-    )
-    for absence in session.scalars(stmt):
-        midday = datetime.combine(absence.date, time(MIDDAY_HOUR))
-        midnight = datetime.combine(absence.date, time.min)
-        begins = wallclock.local(midday if absence.portion is Portion.PM else midnight)
-        finishes = wallclock.local(
-            midday if absence.portion is Portion.AM else midnight + timedelta(days=1)
-        )
-        if start < finishes and begins < end:
-            return absence, max(start, begins)
-    return None
 
 
 def sessions_touching(session: Session, start: date, end: date) -> list[WorkSession]:

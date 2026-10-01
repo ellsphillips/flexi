@@ -144,8 +144,9 @@ class ClockService:
         would reinterpret real work on every launch after a config change, so
         startup closes stale sessions and nothing else.
         """
+        settings = self._settings.resolved()
         closed = close_stale_sessions(
-            self._session, self._settings.get_auto_close_time()
+            self._session, settings.auto_close, contracted=settings.contracted
         )
         return [_left_running(row) for row in closed]
 

@@ -41,6 +41,7 @@ from flexi.services.registry import build_services, invalidate_services
 from flexi.services.settings import parse_settings
 from tests import strategies
 from tests.database import create_schema
+from tests.services.conftest import CONTRACTED
 
 START = datetime(2026, 6, 1, 8, 0)
 """A Monday morning, early in a leave year that starts on 6 April."""
@@ -138,31 +139,39 @@ class TimesheetModel(RuleBasedStateMachine):
         """What `run_startup_cleanup` will do, before it does it.
 
         A session left open on an earlier date is closed at the configured time,
-        or at 23:59 when that time has already passed by the time it was opened.
+        or at 23:59 when that time has already passed by the time it was opened,
+        or sooner where leave booked on that day stops it.
         """
         if self.open_since is None or self.open_since.date() >= self.now.date():
             return
         closing = AUTO_CLOSE if self.open_since.time() <= AUTO_CLOSE else time(23, 59)
         closed_at = datetime.combine(self.open_since.date(), closing)
-        closed_at = self._first_booked_moment(closed_at) or closed_at
+        closed_at = self._stopped_by_leave(self.open_since, closed_at)
         self.sessions.append((self.open_since, closed_at, False))
         self.open_since = None
 
-    def _first_booked_moment(self, until: datetime) -> datetime | None:
-        """The first occupied half-day that intersects the running interval."""
-        if self.open_since is None:
-            return None
-        for day, booked in sorted(self.observed_absences.items()):
-            for half, hour in ((Portion.AM, 0), (Portion.PM, 12)):
-                start = datetime.combine(day, time(hour))
-                end = start + timedelta(hours=12)
-                if (
-                    (Portion.FULL in booked or half in booked)
-                    and start < until
-                    and self.open_since < end
-                ):
-                    return max(self.open_since, start)
-        return None
+    def _stopped_by_leave(self, opened: datetime, closing: datetime) -> datetime:
+        """Where leave booked on the day work was left running stops its close.
+
+        A day off in full stops it at the clock-in; a half day once the day's
+        work makes up the other half of the contract, and never before noon.
+        """
+        day = opened.date()
+        booked = self.observed_absences.get(day, {})
+        if covers_the_whole_day(booked):
+            return opened
+        if not booked:
+            return closing
+        worked = sum(
+            (
+                end - start
+                for start, end, voided in self.sessions
+                if start.date() == day and not voided
+            ),
+            timedelta(),
+        )
+        owed = max(CONTRACTED / 2 - worked, timedelta())
+        return min(closing, max(datetime.combine(day, time(12)), opened + owed))
 
     def _booked_over(self, moment: datetime) -> bool:
         """Whether the date of this moment is booked off in full.

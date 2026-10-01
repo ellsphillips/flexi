@@ -10,12 +10,13 @@ import time_machine
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import ClockAction, EventSource
-from flexi.models.database.db import WorkSession
+from flexi.constants import AbsenceType, ClockAction, EventSource, Portion
+from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of, punched
 from flexi.services.clock import ClockService
+from flexi.services.registry import Services, build_services
 from flexi.services.startup import close_stale_sessions
-from tests.services.conftest import Configured
+from tests.services.conftest import CONTRACTED, Configured
 
 TODAY = date(2026, 8, 11)
 """The day these tests run on, held still.
@@ -45,20 +46,20 @@ class TestStaleSessionClose:
     def test_closes_previous_day(self, svc: ClockService, session: Session) -> None:
         yesterday = NOW - timedelta(days=1)
         svc.clock_in(now=yesterday)
-        closed = close_stale_sessions(session, time(18, 0))
+        closed = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
         assert len(closed) == 1
         assert closed[0].clock_out_id is not None
 
     def test_does_not_close_today(self, svc: ClockService, session: Session) -> None:
         svc.clock_in()
-        closed = close_stale_sessions(session, time(18, 0))
+        closed = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
         assert closed == []
         assert svc.is_clocked_in() is True
 
     def test_system_audit_event(self, svc: ClockService, session: Session) -> None:
         yesterday = NOW - timedelta(days=1)
         svc.clock_in(now=yesterday)
-        closed = close_stale_sessions(session, time(18, 0))
+        closed = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
         assert closed[0].clock_out_event is not None
         assert closed[0].clock_out_event.source == "system"
         assert closed[0].clock_out_event.action is ClockAction.OUT
@@ -66,18 +67,18 @@ class TestStaleSessionClose:
     def test_auto_closed_flag_set(self, svc: ClockService, session: Session) -> None:
         yesterday = NOW - timedelta(days=1)
         svc.clock_in(now=yesterday)
-        closed = close_stale_sessions(session, time(18, 0))
+        closed = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
         assert closed[0].auto_closed is True
 
     def test_closes_only_once(self, svc: ClockService, session: Session) -> None:
         yesterday = NOW - timedelta(days=1)
         svc.clock_in(now=yesterday)
-        close_stale_sessions(session, time(18, 0))
-        second = close_stale_sessions(session, time(18, 0))
+        close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
+        second = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
         assert second == []
 
     def test_noop_when_no_stale(self, svc: ClockService, session: Session) -> None:
-        assert close_stale_sessions(session, time(18, 0)) == []
+        assert close_stale_sessions(session, time(18, 0), contracted=CONTRACTED) == []
 
     def test_does_not_auto_close_voided_history(self, session: Session) -> None:
         """A discarded open row is history, not unfinished current work."""
@@ -96,7 +97,7 @@ class TestStaleSessionClose:
         session.add(discarded)
         session.commit()
 
-        assert close_stale_sessions(session, time(18, 0)) == []
+        assert close_stale_sessions(session, time(18, 0), contracted=CONTRACTED) == []
         session.refresh(discarded)
         assert discarded.clock_out_id is None
 
@@ -112,7 +113,7 @@ class TestFallbackTo2359:
             tzinfo=UTC,
         )
         svc.clock_in(now=yesterday_8pm)
-        closed = close_stale_sessions(session, time(18, 0))
+        closed = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
         assert len(closed) == 1
         closing = closed[0].clock_out_event
         assert closing is not None
@@ -130,7 +131,7 @@ class TestFallbackTo2359:
         yesterday_late = datetime.combine(YESTERDAY, time(23, 59, 30), tzinfo=UTC)
         svc.clock_in(now=yesterday_late)
 
-        closed = close_stale_sessions(session, time(18, 0))
+        closed = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
 
         closing = closed[0].clock_out_event
         assert closing is not None
@@ -147,7 +148,7 @@ class TestFallbackTo2359:
         )
         svc.clock_in(now=yesterday_6pm)
 
-        closed = close_stale_sessions(session, time(18, 0))
+        closed = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
 
         closing = closed[0].clock_out_event
         assert closing is not None
@@ -164,7 +165,7 @@ class TestCountsTowardWorkedTime:
             tzinfo=UTC,
         )
         svc.clock_in(now=yesterday_9am)
-        closed = close_stale_sessions(session, time(18, 0))
+        closed = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
         ws = closed[0]
         assert ws.clock_out_event is not None
         start = ws.clock_in_event.timestamp.replace(tzinfo=None)
@@ -172,6 +173,91 @@ class TestCountsTowardWorkedTime:
         duration = (end - start).total_seconds()
         assert duration > 0
         assert duration == 9 * 3600  # 9am to 18:00
+
+
+class TestHalfDayOff:
+    """A session forgotten on a day with half of it booked off.
+
+    The auto-close time would count the booked half as work too, so it closes
+    when the clock card said to go home: once the day's work makes up the
+    other half, and never before noon.
+    """
+
+    @pytest.mark.parametrize(
+        ("portion", "arrival", "closing"),
+        [
+            (Portion.PM, time(9), time(12, 42)),
+            (Portion.PM, time(8), time(12)),
+            (Portion.AM, time(11, 30), time(15, 12)),
+        ],
+    )
+    def test_closes_once_half_the_day_is_worked(
+        self,
+        services: Services,
+        session: Session,
+        portion: Portion,
+        arrival: time,
+        closing: time,
+    ) -> None:
+        assert services.absence.book(YESTERDAY, AbsenceType.ANNUAL, portion).success
+        opened = datetime.combine(YESTERDAY, arrival, tzinfo=UTC)
+        assert services.clock.clock_in(now=opened).success
+
+        [closed] = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
+
+        assert closed.clock_out_event is not None
+        assert closed.clock_out_event.timestamp.time() == closing
+        assert closed.note == f"Auto-closed at booked {portion.noun} on Mon 10 Aug"
+
+    def test_breaks_are_not_counted_as_work(
+        self, services: Services, session: Session
+    ) -> None:
+        """An hour before a break leaves 2:42 to work after it, and the day even."""
+        assert services.absence.book(YESTERDAY, AbsenceType.ANNUAL, Portion.PM).success
+        eight, nine, ten = (
+            datetime.combine(YESTERDAY, time(hour), tzinfo=UTC) for hour in (8, 9, 10)
+        )
+        assert services.clock.clock_in(now=eight).success
+        assert services.clock.clock_out(now=nine).success
+        assert services.clock.clock_in(now=ten).success
+
+        [closed] = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
+
+        assert closed.clock_out_event is not None
+        assert closed.clock_out_event.timestamp.time() == time(12, 42)
+        assert build_services(session).ledger.day(YESTERDAY).delta == timedelta()
+
+    def test_never_closes_later_than_the_auto_close_time(
+        self, services: Services, session: Session
+    ) -> None:
+        """The booked half only ever brings the close forward."""
+        assert services.absence.book(YESTERDAY, AbsenceType.ANNUAL, Portion.PM).success
+        opened = datetime.combine(YESTERDAY, time(9), tzinfo=UTC)
+        assert services.clock.clock_in(now=opened).success
+
+        [closed] = close_stale_sessions(session, time(12, 30), contracted=CONTRACTED)
+
+        assert closed.clock_out_event is not None
+        assert closed.clock_out_event.timestamp.time() == time(12, 30)
+        assert closed.note is None
+
+    def test_day_booked_off_in_full_closes_at_the_clock_in(
+        self, services: Services, session: Session
+    ) -> None:
+        """Only a write past the booking rules leaves a full day under open work.
+
+        Nothing is counted for a day already paid for as leave.
+        """
+        opened = datetime.combine(YESTERDAY, time(9), tzinfo=UTC)
+        assert services.clock.clock_in(now=opened).success
+        session.add(AbsenceDay(date=YESTERDAY, absence_type=AbsenceType.SICK))
+        session.commit()
+
+        [closed] = close_stale_sessions(session, time(18, 0), contracted=CONTRACTED)
+
+        assert closed.clock_out_event is not None
+        assert moment_of(closed.clock_out_event) == opened
+        assert closed.note == "Auto-closed at booked day on Mon 10 Aug"
 
 
 def test_sweep_can_be_told_what_day_it_is(svc: ClockService, session: Session) -> None:
@@ -183,12 +269,13 @@ def test_sweep_can_be_told_what_day_it_is(svc: ClockService, session: Session) -
     monday = date(2026, 8, 10)
     svc.clock_in(now=datetime.combine(monday, time(9, 0), tzinfo=UTC))
 
-    assert close_stale_sessions(session, time(18, 0), today=monday) == [], (
-        "as at the day itself, the session is not stale"
-    )
+    assert (
+        close_stale_sessions(session, time(18, 0), contracted=CONTRACTED, today=monday)
+        == []
+    ), "as at the day itself, the session is not stale"
 
     closed = close_stale_sessions(
-        session, time(18, 0), today=monday + timedelta(days=1)
+        session, time(18, 0), contracted=CONTRACTED, today=monday + timedelta(days=1)
     )
 
     assert len(closed) == 1
@@ -233,7 +320,7 @@ def test_session_closed_mid_sweep_is_not_reported(
         lambda *_args, **_kwargs: False,
     )
 
-    assert close_stale_sessions(session, time(18, 0)) == []
+    assert close_stale_sessions(session, time(18, 0), contracted=CONTRACTED) == []
 
 
 def test_a_timezone_change_cannot_auto_close_before_clock_in(
@@ -242,7 +329,9 @@ def test_a_timezone_change_cannot_auto_close_before_clock_in(
     with wallclock.pinned(timezone(-timedelta(hours=12))):
         assert svc.clock_in(now=datetime.combine(YESTERDAY, time(23, 59, 30))).success
 
-    [closed] = close_stale_sessions(session, time(18), today=TODAY)
+    [closed] = close_stale_sessions(
+        session, time(18), contracted=CONTRACTED, today=TODAY
+    )
 
     assert closed.clock_out_event is not None
     assert moment_of(closed.clock_out_event) == moment_of(closed.clock_in_event)
