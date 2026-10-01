@@ -149,15 +149,27 @@ def test_available_toil_is_the_balance_in_days(services: Services) -> None:
 def test_toil_free_to_book_is_the_balance_as_shown(services: Services) -> None:
     """The booking dialog's days come from the figure the headline shows.
 
-    Read from the exact balance instead, a punch's seconds can carry it over a
-    tenth of a day that the headline does not cross.
+    A sick morning off a 7:25 day leaves the afternoon owing 3:42:30. Read from
+    the exact balance, that half minute can carry the days over a tenth that
+    the headline does not cross.
     """
-    services.clock.clock_in(now=datetime(2026, 6, 8, 9, 0, 40, tzinfo=UTC))
-    services.clock.clock_out(now=datetime(2026, 6, 8, 11, 0, tzinfo=UTC))
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="06-08",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+            contracted_minutes=445,
+        )
+    )
+    assert services.absence.book(MONDAY, AbsenceType.SICK, Portion.AM).success
+    services.clock.clock_in(now=datetime(2026, 6, 8, 13, 0, tzinfo=UTC))
+    services.clock.clock_out(now=datetime(2026, 6, 8, 16, 59, tzinfo=UTC))
     invalidate_services(services)
 
     shown = services.ledger.balance(MONDAY).as_shown().delta
-    assert available_toil_days(services, MONDAY) == shown / CONTRACTED
+    assert shown == timedelta(minutes=17)
+    assert available_toil_days(services, MONDAY) == shown / timedelta(minutes=445)
 
 
 def test_toil_booked_on_a_new_holiday_is_freed(

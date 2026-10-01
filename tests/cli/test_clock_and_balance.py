@@ -212,25 +212,6 @@ def test_the_balance_agrees_with_its_rows(
     assert figure(printed, "balance") == worked - expected
 
 
-def balance_word(printed: str) -> str:
-    """The figure on the one line that names the balance."""
-    return next(row for row in printed.splitlines() if "balance" in row).split()[-1]
-
-
-def test_the_running_session_reads_the_balance_balance_show_does(
-    services: Services, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A running session gives the balance seconds, and both floor each term."""
-    with time_machine.travel(datetime(2026, 6, 10, 9, 0, 40), tick=False):
-        clock_cli.clock_in(services)
-    with time_machine.travel(datetime(2026, 6, 10, 12, 0, 30), tick=False):
-        clock_cli.clock_in(services)
-        running = capsys.readouterr().out
-        assert balance_cli.show(services, NOON) == 0
-
-    assert balance_word(running) == balance_word(capsys.readouterr().out)
-
-
 def test_a_balance_for_a_future_day_is_refused(
     services: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -311,17 +292,15 @@ def stocked(services: Services, session: Session) -> Services:
     return build_services(session)
 
 
-def test_settling_draws_the_line_it_names(
-    stocked: Services, session: Session, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """The balance it asks about, the adjustment and the settled day agree.
+@pytest.fixture
+def longer_day(stocked: Services, session: Session) -> Services:
+    """A 7:25 day, tracked from NOON, with NOON's morning booked off sick.
 
-    A sick morning off a 7:25 day leaves the afternoon owing 3:42:30, and the
-    balance shows that half minute floored. Sized from the exact figure, the
-    line misses by a minute and the settled day reads +0:01.
+    Its afternoon then owes 3:42:30, half a minute that no punch carries and
+    that every printed balance floors the same way.
     """
-    services = tracking_from(session, NOON)
-    services.settings.save_settings(
+    tracked = tracking_from(session, NOON)
+    tracked.settings.save_settings(
         parse_settings(
             leave_year_start="04-06",
             working_days="0,1,2,3,4,5,6",
@@ -330,20 +309,55 @@ def test_settling_draws_the_line_it_names(
             contracted_minutes=445,
         )
     )
-    assert services.absence.book(NOON, AbsenceType.SICK, Portion.AM).success
+    assert tracked.absence.book(NOON, AbsenceType.SICK, Portion.AM).success
+    return tracked
+
+
+def balance_word(printed: str) -> str:
+    """The figure on the one line that names the balance."""
+    return next(row for row in printed.splitlines() if "balance" in row).split()[-1]
+
+
+def test_the_running_session_reads_the_balance_balance_show_does(
+    longer_day: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Four hours since one against 3:42:30 is +0:17:30, shown as +0:18."""
     with time_machine.travel(datetime(2026, 6, 10, 13, 0), tick=False):
-        clock_cli.clock_in(services)
-    with time_machine.travel(datetime(2026, 6, 10, 16, 59), tick=False):
-        clock_cli.clock_out(services)
-    invalidate_services(services)
+        clock_cli.clock_in(longer_day)
+    with time_machine.travel(datetime(2026, 6, 10, 17, 0), tick=False):
+        clock_cli.clock_in(longer_day)
+        running = capsys.readouterr().out
+        assert balance_cli.show(longer_day, NOON) == 0
+
+    assert balance_word(running) == balance_word(capsys.readouterr().out)
+
+
+def test_settling_draws_the_line_it_names(
+    longer_day: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The balance it asks about, the adjustment and what is left agree.
+
+    The afternoon is +0:16:30, shown +0:17. Sized from the exact figure, the
+    line misses by a minute; printed exact, a long Thursday reads a minute
+    short beside `balance show`.
+    """
+    for start, end in (
+        (datetime(2026, 6, 10, 13, 0), datetime(2026, 6, 10, 16, 59)),
+        (datetime(2026, 6, 11, 9, 0), datetime(2026, 6, 11, 16, 30)),
+    ):
+        with time_machine.travel(start, tick=False):
+            clock_cli.clock_in(longer_day)
+        with time_machine.travel(end, tick=False):
+            clock_cli.clock_out(longer_day)
+    invalidate_services(longer_day)
     capsys.readouterr()
 
-    with time_machine.travel(datetime(2026, 6, 11, 9, 0), tick=False):
-        assert balance_cli.zero(services, NOON, assume_yes=True) == 0
+    with time_machine.travel(datetime(2026, 6, 11, 18, 0), tick=False):
+        assert balance_cli.zero(longer_day, NOON, assume_yes=True) == 0
         settling = capsys.readouterr().out
-        assert balance_cli.show(services, NOON) == 0
+        assert balance_cli.show(longer_day, NOON) == 0
         settled = capsys.readouterr().out
-        assert balance_cli.show(services) == 0
+        assert balance_cli.show(longer_day) == 0
         today = capsys.readouterr().out
 
     assert "is +0:17" in settling
