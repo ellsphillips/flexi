@@ -194,8 +194,8 @@ Every tick redraws the clock module, the balance module and the two progress
 rails. The records table and the wallet print whole minutes, and a year of
 records takes some fifty milliseconds to build, so they declare `Scope.TIME` and
 redraw only on the tick where today, the period or the balance reaches its next
-whole minute. That is not the wall clock's minute: each figure turns over at the
-seconds its own sessions add up to.
+whole minute. Punches count from the minute they show, so that is the tick where
+the wall clock's minute turns.
 
 The tick calls no `invalidate()` — nothing was written, and `LedgerService`
 rebuilds today on every call anyway, so clearing the memo would throw away the

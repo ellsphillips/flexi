@@ -457,8 +457,7 @@ async def test_rollback_refusal_keeps_the_dashboard_off_the_clock(
 def pressed_on_the_second(tmp_path: Path) -> Path:
     """Monday worked and Tuesday on the clock, punched as a person punches.
 
-    A press lands on any second. The demo seed punches on the minute, where
-    every figure turns over with the wall clock.
+    A press lands on any second; the demo seed punches on the minute.
     """
     path = tmp_path / "flexi.db"
     engine = create_db_engine(path)
@@ -482,15 +481,14 @@ def pressed_on_the_second(tmp_path: Path) -> Path:
     return path
 
 
-async def test_each_figure_turns_its_minute_on_its_own_second(
+async def test_every_figure_turns_its_minute_with_the_wall_clock(
     pressed_on_the_second: Path,
 ) -> None:
     """Today's row and the period's total keep step with the rails above them.
 
-    Today reaches its next minute at the second Tuesday was clocked in on, and
-    the week at the seconds Monday adds to that. Redrawn when the wall clock's
-    minute turns, the table would read a minute behind the rails for part of
-    each one.
+    Tuesday was clocked in at 09:00:37 and Monday's punches carry seconds too,
+    but each counts from the minute it shows, so the rails, redrawn every tick,
+    and the table, redrawn on `TIME`, gain their minute on the same tick.
     """
     app = FlexiApp(db_path=pressed_on_the_second)
     with time_machine.travel(TUESDAY_TEN, tick=False):

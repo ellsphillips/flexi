@@ -295,9 +295,8 @@ class DashboardScreen(Screen[None]):
     def _shown_minutes(self) -> tuple[BalanceSummary, ...]:
         """Today, the period and the balance, in the whole minutes they print.
 
-        Not the wall clock's minute: each turns over at the seconds its own
-        sessions add up to, so a table keyed to the wall clock would read a
-        minute behind the balance beside it for part of every minute.
+        Punches count from the minute they show and an open session to the
+        minute on the clock, so these turn over as the wall clock's minute does.
         """
         ledger = self._services.ledger
         today = self.now.date()
