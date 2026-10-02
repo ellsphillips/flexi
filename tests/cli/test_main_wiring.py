@@ -491,20 +491,27 @@ def test_demo_without_a_terminal_names_no_command() -> None:
     result = CliRunner().invoke(cli, ["--demo"])
 
     assert "`flexi" not in result.output
-    assert "Windows" not in result.output, "a console is named only where it is one"
 
 
 @pytest.mark.parametrize(
     "message", [main.NEEDS_TERMINAL, main.DEMO_NEEDS_TERMINAL], ids=["app", "demo"]
 )
-def test_windows_is_told_which_consoles_will_do(
+@pytest.mark.parametrize(
+    ("platform", "pointed"), [("win32", True), ("darwin", False), ("linux", False)]
+)
+def test_only_windows_is_told_which_consoles_will_do(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     message: str,
+    platform: str,
+    pointed: bool,
 ) -> None:
-    """Git Bash's mintty and an IDE's output pane are no console to draw in."""
+    """Git Bash's mintty and an IDE's output pane are no console to draw in.
+
+    The platform is pinned, as the suite runs on all three.
+    """
     monkeypatch.setattr("flexi.cli.ui.interactive", lambda: False)
-    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "platform", platform)
 
     with pytest.raises(click.exceptions.Exit) as refused:
         main.needs_a_terminal(click.Context(cli), message)
@@ -512,7 +519,9 @@ def test_windows_is_told_which_consoles_will_do(
     assert refused.value.exit_code == 1
     said = capsys.readouterr().err
     assert said.startswith(message)
-    assert "Run Flexi in Windows Terminal, PowerShell or Command Prompt." in said
+    assert (
+        "Run Flexi in Windows Terminal, PowerShell or Command Prompt." in said
+    ) is pointed
 
 
 # what stopped the database being opened
