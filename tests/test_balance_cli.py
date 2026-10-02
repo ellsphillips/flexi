@@ -180,6 +180,16 @@ def test_non_utf8_reason_is_refused_before_the_write(
     assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
 
 
+def test_a_blank_reason_is_settled_as_none(home: Path) -> None:
+    """Not refused once the question has been answered yes."""
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["balance", "zero", "--reason", "   "], input="y\n")
+
+    assert result.exit_code == 0, result.output
+    assert "settled" in runner.invoke(cli, ["balance", "log"]).output
+
+
 def test_zero_is_refused_twice(home: Path) -> None:
     """The second one would be a row that does nothing."""
     runner = CliRunner()

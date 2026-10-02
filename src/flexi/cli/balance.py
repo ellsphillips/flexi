@@ -105,7 +105,8 @@ def zero(
         click.echo("Left alone.", err=True)
         return 1
 
-    result = zero_balance(services, when, reason=reason or SETTLED)
+    # A blank one is no reason given, and not a refusal after the question.
+    result = zero_balance(services, when, reason=(reason or "").strip() or SETTLED)
     if report(result):
         return 1
 
