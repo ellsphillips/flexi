@@ -10,6 +10,7 @@ from threading import get_ident
 import httpx
 import pytest
 from sqlalchemy import delete, update
+from textual._context import active_app
 from textual.pilot import Pilot
 from textual.widgets import Input, Select
 
@@ -17,6 +18,7 @@ import flexi
 from flexi.app import FlexiApp
 from flexi.components.chrome import NavBar, VersionTag
 from flexi.components.modules.records import RecordsModule
+from flexi.config import CONFIG
 from flexi.constants import Division
 from flexi.context import command_app, flexi_app
 from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
@@ -206,16 +208,20 @@ async def test_redraw_during_mount_is_not_a_crash(
 ) -> None:
     """`refresh_open_screens` can reach a dashboard whose cells are not composed.
 
-    It runs off the message loop when the bank holiday worker finishes, so it
-    lands between two levels of the tree and raises `NoMatches` on a worker.
-    `is_mounted` goes true before a widget's own children arrive, so there is no
-    flag to wait on instead.
+    A finished holiday fetch or a write from another process can land between
+    two levels of the tree, and raise `NoMatches`. `is_mounted` goes true before
+    a widget's own children arrive, so there is no flag to wait on instead.
+
+    Both run on the application's own loop, so the hammer runs with the
+    application active, as they do. A redraw can start the live tick, and a
+    timer started without it dies at its first tick, a second in.
     """
     app = FlexiApp(db_path=seeded_db)
     ticks = 0
 
     async def redraw_throughout_mounting() -> None:
         nonlocal ticks
+        active_app.set(app)
         for _ in range(MOUNT_TICKS):
             app.refresh_open_screens()
             ticks += 1
@@ -227,6 +233,7 @@ async def test_redraw_during_mount_is_not_a_crash(
         # Awaiting inside the block re-raises whatever the task hit; an
         # unretrieved exception from a dead task is only a log line.
         await hammer
+        await pilot.pause(CONFIG.defaults.tick_seconds * 1.5)
 
     assert ticks == MOUNT_TICKS
 
