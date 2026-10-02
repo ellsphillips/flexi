@@ -78,7 +78,11 @@ __all__ = (
 )
 
 
-@click.group(invoke_without_command=True)
+@click.group(
+    invoke_without_command=True,
+    # Inherited by every command's context, so `flexi leave -h` is help too.
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 # `package_name` lets Click read the version inside the flag's own callback; a
 # literal `message` would read the metadata at import, on every command.
 @click.version_option(

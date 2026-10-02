@@ -546,6 +546,20 @@ def test_ignored_preferences_go_to_stderr(
     assert "config.yaml could not be used" not in result.stdout, "not the output"
 
 
+@pytest.mark.parametrize(
+    "command", [[], ["leave"], ["balance", "adjust"]], ids=["flexi", "leave", "adjust"]
+)
+def test_h_is_help(command: list[str]) -> None:
+    """Many people type -h first, and it should not be their first error.
+
+    The two commands that let unknown options through as words included.
+    """
+    short = CliRunner().invoke(cli, [*command, "-h"])
+
+    assert short.exit_code == 0, short.output
+    assert short.output == CliRunner().invoke(cli, [*command, "--help"]).output
+
+
 def test_help_works_without_a_database() -> None:
     """The guard is per command.
 
