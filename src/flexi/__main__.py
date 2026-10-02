@@ -262,7 +262,15 @@ class SignedArguments(click.Command):
     a mistyped `--dryrun` would be read as a date, or as an extra argument. A
     word only an option could be, two hyphens or a hyphen and a letter, is
     reported as the unknown option it is, with the nearest real one.
+
+    Nor does it take a short option, which Click would find inside a word:
+    `-1h` would be `-1` and `-h`, and show help for a mistyped amount. So `-h`
+    is help here only as a word of its own.
     """
+
+    def get_help_option_names(self, ctx: click.Context) -> list[str]:
+        names = super().get_help_option_names(ctx)
+        return [name for name in names if name.startswith("--")]
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         from difflib import get_close_matches
@@ -279,6 +287,9 @@ class SignedArguments(click.Command):
         for word in words:
             if word in names:
                 continue
+            if word in ctx.help_option_names:
+                click.echo(ctx.get_help(), color=ctx.color)
+                ctx.exit()
             if word.startswith("--") or (word[:1] == "-" and word[1:2].isalpha()):
                 nearest = get_close_matches(word, names, n=1)
                 raise click.NoSuchOption(word, possibilities=nearest, ctx=ctx)

@@ -948,6 +948,15 @@ def test_a_negative_offset_is_still_a_date(home: Path) -> None:
     assert "Fri 7 Aug" in result.output
 
 
+def test_a_date_with_an_h_in_it_is_not_a_call_for_help(home: Path) -> None:
+    """Help exits 0, which a script booking with --yes would take for booked."""
+    result = CliRunner().invoke(cli, ["leave", "sick", "-1h", "--yes"])
+
+    assert result.exit_code == 2
+    assert "Try 2026-06-12" in result.output
+    assert booked_days(home) == []
+
+
 def test_leave_with_nothing_to_answer_says_to_add_yes(home: Path) -> None:
     """Cron and Task Scheduler give no input, and get what to add, not "Aborted!"."""
     result = CliRunner().invoke(cli, ["leave", "annual", "friday"], input="")

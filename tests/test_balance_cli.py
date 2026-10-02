@@ -357,6 +357,23 @@ def test_unreadable_or_zero_amount_is_a_usage_error(
     assert "No adjustments" in logged(runner)
 
 
+@pytest.mark.parametrize("typed", ["-1h", "-1h30"])
+def test_an_amount_with_an_h_in_it_is_not_a_call_for_help(
+    home: Path, typed: str
+) -> None:
+    """`-h` is help as a word of its own, never one Click finds inside `-1h`.
+
+    Help exits 0, which a script adjusting with --yes would take for written.
+    """
+    runner = CliRunner()
+
+    result = adjust(runner, typed, "--reason", "Late meeting", "--yes")
+
+    assert result.exit_code == 2
+    assert f"'{typed}' is not an amount: use H:MM" in result.stderr
+    assert "No adjustments" in logged(runner)
+
+
 @pytest.mark.parametrize("reason", [None, "   "])
 def test_adjust_needs_a_reason(home: Path, reason: str | None) -> None:
     """Every row is read back in `flexi balance log`, so each says why."""
