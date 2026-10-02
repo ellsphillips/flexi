@@ -380,7 +380,9 @@ def run_demo(ctx: click.Context) -> None:
             Base.metadata.create_all(engine)
             moment = wallclock.now()
             seed_demo(session, anchor=moment.date(), now=moment.time())
-        run_app(ctx, FlexiApp(db_path=path))
+        app = FlexiApp(db_path=path)
+        app.demo = True
+        run_app(ctx, app)
 
 
 @cli.command()

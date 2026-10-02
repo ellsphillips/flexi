@@ -112,6 +112,7 @@ class _Opened:
         self.db_path = db_path
         self.show_splash = False
         self.open_settings = False
+        self.demo = False
         self.ran = False
         self.return_code: int | None = None
         self._on_run = on_run
@@ -198,6 +199,16 @@ def test_demo_database_is_removed_on_close(
 
     assert opened[0].db_path is not None
     assert not opened[0].db_path.exists()
+
+
+def test_demo_is_opened_as_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """So the application can say the records are samples, and go when it does."""
+    at_a_terminal(monkeypatch)
+    opened = instead_of_the_application(monkeypatch)
+
+    CliRunner().invoke(cli, ["--demo"])
+
+    assert [app.demo for app in opened] == [True]
 
 
 def test_demo_seeds_work_sessions(

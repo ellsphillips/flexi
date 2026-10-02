@@ -59,9 +59,11 @@ from flexi.services.registry import build_services, invalidate_services
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import UPGRADE_HINT, available_update
 
-__all__ = ("OTHER_WRITERS_SECONDS", "UPDATE_NOTICE_SECONDS", "FlexiApp")
+__all__ = ("DEMO_NOTICE", "OTHER_WRITERS_SECONDS", "UPDATE_NOTICE_SECONDS", "FlexiApp")
 
 UPDATE_NOTICE_SECONDS = 10
+
+DEMO_NOTICE = "This is sample data. Changes here are deleted when you quit."
 
 OTHER_WRITERS_SECONDS = 2.0
 """How often an open app looks for writes made by another process.
@@ -135,6 +137,8 @@ class FlexiApp(TextualApp[None]):
             """Set by `flexi init` on a first run, to play the splash."""
             self.open_settings = False
             """Set by `flexi init` when the user chose to change settings."""
+            self.demo = False
+            """Set by `flexi --demo`, whose records are samples that go on quitting."""
             self._pushed: Screen[None] | None = None
             """The one destination open on top of the dashboard, if any.
 
@@ -185,6 +189,8 @@ class FlexiApp(TextualApp[None]):
                 SetupScreen(self.services, animate=plays),
                 callback=self._on_setup_done,
             )
+        if self.demo:
+            self.notify(DEMO_NOTICE, title="Demo", timeout=UPDATE_NOTICE_SECONDS)
         self._check_for_updates()
         self.refresh_holidays()
         if CONFIG_PROBLEM:

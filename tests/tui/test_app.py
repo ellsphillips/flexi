@@ -15,7 +15,7 @@ from textual.pilot import Pilot
 from textual.widgets import Input, Select
 
 import flexi
-from flexi.app import FlexiApp
+from flexi.app import DEMO_NOTICE, FlexiApp
 from flexi.components.chrome import NavBar, VersionTag
 from flexi.components.modules.records import RecordsModule
 from flexi.config import CONFIG
@@ -339,6 +339,20 @@ async def test_newer_release_is_announced_with_the_command(
         assert announced, "a newer version should be announced"
         assert "99.0.0" in announced[0]
         assert UPGRADE_HINT in announced[0]
+
+
+async def test_the_demo_says_its_records_are_samples(app_factory: AppFactory) -> None:
+    """Someone else's day, clocked into, should not look as if it counts or lasts."""
+    app = app_factory()
+    app.demo = True
+    async with app.run_test(size=WIDE) as pilot:
+        assert DEMO_NOTICE in await said(app, pilot)
+
+
+async def test_real_records_are_not_called_samples(app_factory: AppFactory) -> None:
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        assert DEMO_NOTICE not in await said(app, pilot)
 
 
 async def test_being_up_to_date_says_nothing(app_factory: AppFactory) -> None:
