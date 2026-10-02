@@ -322,6 +322,27 @@ def test_a_deficit_is_an_amount_not_an_option(home: Path, typed: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("typed", "said"),
+    [
+        ("--dry-run", "No such option '--dry-run'."),
+        ("--yse", "No such option '--yse'. Did you mean '--yes'?"),
+    ],
+)
+def test_an_unknown_option_is_not_an_extra_argument(
+    home: Path, typed: str, said: str
+) -> None:
+    """Unknown options are let through as words, so that `-1:30` is an amount."""
+    runner = CliRunner()
+
+    result = adjust(runner, "-1:30", "--reason", "Left early", typed)
+
+    assert result.exit_code == 2
+    assert said in result.stderr
+    assert "unexpected extra argument" not in result.output
+    assert "No adjustments" in logged(runner)
+
+
+@pytest.mark.parametrize(
     ("typed", "said"), [("5", "use H:MM"), ("5:3", "use H:MM"), ("0:00", "nothing")]
 )
 def test_unreadable_or_zero_amount_is_a_usage_error(

@@ -705,6 +705,42 @@ def test_confirmation_is_asked_on_stderr(
     assert "Booking annual leave" in result.stdout, "the plan is the output"
 
 
+@pytest.mark.parametrize(
+    ("typed", "said"),
+    [
+        ("--dryrun", "No such option '--dryrun'. Did you mean '--dry-run'?"),
+        ("--yse", "No such option '--yse'. Did you mean '--yes'?"),
+        ("-y", "No such option '-y'."),
+    ],
+)
+def test_a_mistyped_option_is_not_blamed_on_the_date(
+    home: Path, typed: str, said: str
+) -> None:
+    """Unknown options are let through as words, so that `-2w` is a date."""
+    result = CliRunner().invoke(cli, ["leave", "annual", "friday", typed])
+
+    assert result.exit_code == 2
+    assert said in result.stderr
+    assert "Try 2026-06-12" not in result.output
+    assert booked_days(home) == []
+
+
+def test_a_word_after_a_double_dash_is_read_as_a_word(home: Path) -> None:
+    """`--` ends the options, so what follows it is the date, however spelled."""
+    result = CliRunner().invoke(cli, ["leave", "annual", "friday", "--", "--dry-run"])
+
+    assert result.exit_code == 2
+    assert "No such option" not in result.output
+    assert "Try 2026-06-12" in result.output
+
+
+def test_a_negative_offset_is_still_a_date(home: Path) -> None:
+    result = CliRunner().invoke(cli, ["leave", "annual", "-3d", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Fri 7 Aug" in result.output
+
+
 def test_leave_with_nothing_to_answer_says_to_add_yes(home: Path) -> None:
     """Cron and Task Scheduler give no input, and get what to add, not "Aborted!"."""
     result = CliRunner().invoke(cli, ["leave", "annual", "friday"], input="")

@@ -46,6 +46,7 @@ __all__ = (
     "UNREADABLE",
     "FlexiApplication",
     "ServiceRegistry",
+    "SignedArguments",
     "already_set_up",
     "as_of_option",
     "ask_the_questions",
@@ -212,6 +213,36 @@ def migrate() -> None:
     except OSError as error:
         message = f"Flexi could not use {database_file().parent}: {error}."
         raise click.ClickException(message) from error
+
+
+class SignedArguments(click.Command):
+    """A command whose arguments may start with a minus, as `-2w` and `-1:30` do.
+
+    Such a command has Click pass an unknown option through as an argument, so
+    a mistyped `--dryrun` would be read as a date, or as an extra argument. A
+    word only an option could be, two hyphens or a hyphen and a letter, is
+    reported as the unknown option it is, with the nearest real one.
+    """
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        from difflib import get_close_matches
+
+        options: list[click.Parameter] = [
+            param for param in self.get_params(ctx) if isinstance(param, click.Option)
+        ]
+        names = [name for option in options for name in option.opts]
+        # Parsed with the options alone, so every word an argument would take
+        # is left over to be looked at. One spelled like a real option came
+        # after `--`, which says it is a word.
+        alone = click.Command(self.name, params=options, add_help_option=False)
+        _, words, _ = alone.make_parser(ctx).parse_args(args=list(args))
+        for word in words:
+            if word in names:
+                continue
+            if word.startswith("--") or (word[:1] == "-" and word[1:2].isalpha()):
+                nearest = get_close_matches(word, names, n=1)
+                raise click.NoSuchOption(word, possibilities=nearest, ctx=ctx)
+        return super().parse_args(ctx, args)
 
 
 def as_of_option[ReturnT](
@@ -444,6 +475,8 @@ def clock_out(services: ServiceRegistry) -> int:
 
 
 @cli.command(
+    cls=SignedArguments,
+    # `-2w` is a date, not an unknown option `-2`.
     context_settings={"ignore_unknown_options": True},
     short_help="Book or cancel leave in one line.",
 )
@@ -530,6 +563,7 @@ def balance_zero(
 
 @balance.command(
     name="adjust",
+    cls=SignedArguments,
     # `-1:30` is an amount, not an unknown option `-1`.
     context_settings={"ignore_unknown_options": True},
 )
