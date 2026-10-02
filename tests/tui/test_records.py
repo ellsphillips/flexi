@@ -16,6 +16,7 @@ from flexi.components.expandable import (
     row_key,
 )
 from flexi.components.modules.clock import ClockModule
+from flexi.components.modules.monthview import MonthView
 from flexi.components.modules.records import DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import ProgressRail, TimeProgress
@@ -139,6 +140,44 @@ async def test_a_redraw_leaves_the_cursor_where_it_was_put(
         await pilot.pause()
 
         assert table(app).cursor_key == row_key(RowKind.DAY, TODAY - timedelta(days=2))
+
+
+async def test_a_cancelled_dialog_leaves_the_cursor_where_it_was(
+    app_factory: AppFactory,
+) -> None:
+    """The rows take the keyboard once; after that it is the user's to move.
+
+    Taking it back whenever the dashboard showed again would put the cursor
+    back on today after every cancelled `n`.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await pilot.press("up", "up", "n")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert app.focused is table(app)
+        assert table(app).cursor_key == row_key(RowKind.DAY, TODAY - timedelta(days=2))
+
+
+async def test_closing_help_leaves_the_calendar_the_keyboard(
+    app_factory: AppFactory,
+) -> None:
+    """The screen's own focus comes back with it, not the rows' first claim."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        calendar = app.screen.query_one(MonthView)
+        calendar.focus()
+        await pilot.pause()
+
+        await pilot.press("question_mark")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert app.focused is calendar
 
 
 def cursor_ground(widget: ExpandableTable) -> str:
