@@ -107,8 +107,8 @@ def refuse(refusal: AnswerError) -> None:
     """Say why an answer was refused, under its question, and go back to it.
 
     Both forms start the row a field is on with the label that asks for it, so
-    the refusal is titled in the form's own words. Focus selects what was
-    typed, so the correction types over it.
+    the refusal is titled in the form's own words. Arriving from another field
+    selects what was typed, as tab does, so a correction types over it.
     """
     field = refusal.field
     asked = field.query_ancestor(Horizontal).query_one(Label)
