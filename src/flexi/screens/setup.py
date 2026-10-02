@@ -89,15 +89,19 @@ Long enough to read as travel, short enough that holding tab still moves.
 """
 
 RAIL_WIDTH = 5
-ASK_WIDTH = 22
-FIELD_WIDTH = 24
-NOTE_WIDTH = 36
+ASK_WIDTH = 20
+FIELD_WIDTH = 21
+NOTE_WIDTH = 32
 FORM_WIDTH = RAIL_WIDTH + ASK_WIDTH + FIELD_WIDTH + NOTE_WIDTH
 """The four columns of a question, and the width of everything on this screen.
 
 Fixed in Python, not left to `width: auto`: the wordmark has to match the
 questions' width to centre over them, and an auto column takes the width of its
 widest child.
+
+Seventy-eight in all, inside the eighty columns a terminal opens at, so no note
+runs off the right edge; a note gets its column less two cells of padding. The
+field is as narrow as the list of regions goes before it wraps Northern Ireland.
 """
 
 
@@ -288,7 +292,7 @@ class SetupScreen(Screen[bool]):
             Question(
                 "Working days",
                 Input("Mon-Fri", id="input-working-days", placeholder="Mon-Fri"),
-                "or Tue, Thu if you work part time",
+                "or Tue, Thu for part time",
                 id="ask-working-days",
             ),
             Question(

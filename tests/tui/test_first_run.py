@@ -826,3 +826,36 @@ async def test_marker_steps_one_row_a_question_when_closed_up(
         entitlement = screen.query_one("#ask-entitlement", Question)
         assert rail.region.y + round(rail.marker) == entitlement.region.y
         assert " " not in "".join(glyph for glyph, _ in _rail_column(app, rail))
+
+
+# ---- a terminal eighty columns wide ----
+
+
+@pytest.mark.parametrize("size", [(80, 24), (120, 40)])
+async def test_every_note_is_drawn_whole(fresh_db: Path, size: tuple[int, int]) -> None:
+    """Eighty columns is the size a terminal opens at on macOS and Linux.
+
+    A form wider than that loses the end of every long note off the right edge,
+    mid-word.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=size) as pilot:
+        await revealed(pilot)
+        screen = showing(app, SetupScreen)
+        assert screen.query_one("#setup").region.right <= size[0]
+
+        drawn = screen_text(app)
+        for question in screen.query(Question):
+            note = str(question.query_one(".note", Static).render())
+            assert note in drawn, f"{note!r} is cut short"
+
+
+async def test_regions_are_listed_whole_in_the_narrow_field(fresh_db: Path) -> None:
+    """The list is as wide as its field, and one column less wraps a region."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await revealed(pilot)
+        showing(app, SetupScreen).query_one(Select).action_show_overlay()
+        await pilot.pause()
+
+        assert "Northern Ireland" in screen_text(app)
