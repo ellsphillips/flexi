@@ -11,7 +11,12 @@ import pytest
 
 import flexi
 from flexi.__main__ import cli
-from flexi.versioning import PYPI_URL, available_update, get_pypi_version
+from flexi.versioning import (
+    PYPI_URL,
+    UPGRADE_HINT,
+    available_update,
+    get_pypi_version,
+)
 
 
 def _response(payload: object) -> httpx.Response:
@@ -109,3 +114,11 @@ def test_index_is_asked_once_per_check() -> None:
     assert fetch.call_count == 1
     assert str(fetch.call_args.args[0].url) == PYPI_URL
     assert fetch.call_args.kwargs["stream"] is True
+
+
+def test_the_upgrade_hint_says_to_quit_first() -> None:
+    """On Windows a running Flexi holds the files an upgrade replaces.
+
+    uv then reports the upgrade as failed, and the hint is read with Flexi open.
+    """
+    assert UPGRADE_HINT.startswith("Quit Flexi, then upgrade")
