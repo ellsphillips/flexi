@@ -124,6 +124,16 @@ def test_zero_asks_before_it_writes(home: Path) -> None:
     assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
 
 
+def test_enter_leaves_the_balance_alone(home: Path) -> None:
+    """Enter means no at every question that writes, as it does for leave."""
+    result = CliRunner().invoke(cli, ["balance", "zero"], input="\n")
+
+    assert result.exit_code == 1
+    assert "Settle it to zero? [y/N]" in result.stderr
+    assert "Left alone" in result.stderr
+    assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
+
+
 def test_settlement_question_is_asked_on_stderr(home: Path) -> None:
     """`flexi balance zero > log` must not send the question into the file."""
     result = CliRunner().invoke(cli, ["balance", "zero"], input="n\n")
@@ -341,6 +351,19 @@ def test_adjust_shows_the_balance_it_makes_and_asks(home: Path) -> None:
     assert "Brought forward" in result.stdout
     assert "−5:24 → +0:06" in result.stdout
     assert "Record it?" in result.stderr, "the question is not the output"
+    assert "Nothing was recorded" in result.stderr
+    assert "No adjustments" in logged(runner)
+
+
+@pytest.mark.usefixtures("at_a_terminal")
+def test_enter_records_no_adjustment(home: Path) -> None:
+    """Enter means no, as it does at every other question that writes."""
+    runner = CliRunner()
+
+    result = adjust(runner, "+5:30", "--reason", "Brought forward", answer="\n")
+
+    assert result.exit_code == 1
+    assert "Record it? [y/N]" in result.stderr
     assert "Nothing was recorded" in result.stderr
     assert "No adjustments" in logged(runner)
 

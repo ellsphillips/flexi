@@ -102,7 +102,7 @@ def zero(
 
     click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
     if not assume_yes and not click.confirm(
-        "Settle it to zero?", default=True, err=True
+        "Settle it to zero?", default=False, err=True
     ):
         click.echo("Left alone.", err=True)
         return 1
@@ -159,7 +159,7 @@ def adjust(
                 err=True,
             )
             return 1
-        if not click.confirm("\nRecord it?", default=True, err=True):
+        if not click.confirm("\nRecord it?", default=False, err=True):
             click.echo("Nothing was recorded.", err=True)
             return 1
 
