@@ -74,6 +74,24 @@ async def test_fields_arrive_holding_what_is_stored(
         )
 
 
+async def test_typing_straight_away_corrects_the_first_field(
+    app_factory: AppFactory,
+) -> None:
+    """Left to Textual, the scrolling body took focus and the keys went nowhere."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        screen = showing(app, SettingsScreen)
+        field = screen.query_one("#input-leave-start", Input)
+        assert screen.focused is field
+
+        await pilot.press(*"09-30", "enter")
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert stored_start(app) == "09-30", "what was typed replaced what was there"
+
+
 async def test_screen_opens_before_any_settings_exist(tmp_path: Path) -> None:
     """`compose` falls back to defaults when there is no settings row to read."""
     path = tmp_path / "empty.db"

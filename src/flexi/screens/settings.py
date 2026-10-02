@@ -96,6 +96,13 @@ class SettingsScreen(Screen[bool]):
 
     HELP_LABEL = "Settings"
 
+    AUTO_FOCUS: ClassVar[str] = "#input-leave-start"
+    """The first field, so a correction can be typed straight in.
+
+    Textual would otherwise focus the first focusable widget, which is the
+    scrolling body, and the keys would go nowhere.
+    """
+
     BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "back", "Back")]
 
     DEFAULT_CSS = """
