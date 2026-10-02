@@ -25,7 +25,11 @@ from flexi.screens.setup import (
     SetupScreen,
     form_rows,
 )
-from flexi.services.settings import SettingsService, read_leave_year_start
+from flexi.services.settings import (
+    LEAVE_YEAR_HINT,
+    SettingsService,
+    read_leave_year_start,
+)
 from flexi.theme import MARK_LIVE, TAIL, colour
 from tests.conftest import session_at
 from tests.database import create_schema
@@ -491,7 +495,7 @@ async def test_note_follows_the_start_that_is_typed(fresh_db: Path) -> None:
 
 
 async def test_half_typed_start_leaves_the_note_alone(fresh_db: Path) -> None:
-    """Half a date is not an answer yet, and a note that flashes is noise."""
+    """Half a date is not an answer yet, and a year that flashes is noise."""
     with time_machine.travel(FEBRUARY, tick=False):
         app = FlexiApp(db_path=fresh_db)
         async with app.run_test(size=WIDE) as pilot:
@@ -504,6 +508,64 @@ async def test_half_typed_start_leaves_the_note_alone(fresh_db: Path) -> None:
             await pilot.pause()
 
             assert entitlement_note(app) == "days for 2026, halves allowed"
+
+
+# ---- the start, read back as it is typed ----
+
+
+def start_note(app: FlexiApp) -> str:
+    """The sentence beside the leave-year start."""
+    ask = showing(app, SetupScreen).query_one("#ask-leave-start", Question)
+    return str(ask.query_one(".note", Static).render())
+
+
+@pytest.mark.parametrize(
+    ("typed", "said"),
+    [
+        ("1 Apr", "starts 1 April"),
+        ("30 September", "starts 30 September"),
+        ("30/09", "starts 30 September"),
+        ("01/09", LEAVE_YEAR_HINT),
+        ("1 Ap", LEAVE_YEAR_HINT),
+        ("", LEAVE_YEAR_HINT),
+    ],
+)
+async def test_note_says_how_the_start_was_read(
+    fresh_db: Path, typed: str, said: str
+) -> None:
+    """`01/09` was saved as 9 January beside a note that still said 6 April.
+
+    Eighty columns wide, so the longest reading has to fit the note's column.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await revealed(pilot)
+        showing(app, SetupScreen).query_one("#input-leave-start", Input).value = typed
+        await pilot.pause()
+
+        assert start_note(app) == said
+        assert said in screen_text(app)
+
+
+async def test_note_reads_the_start_back_key_by_key(fresh_db: Path) -> None:
+    """The start offered arrives selected, so the first key types over it."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await revealed(pilot)
+        assert start_note(app) == "6 April, for most schemes"
+
+        await pilot.press(*"1 Se")
+        await pilot.pause()
+        assert start_note(app) == LEAVE_YEAR_HINT, "half a date says how to finish"
+
+        await pilot.press("p")
+        await pilot.pause()
+        assert start_note(app) == "starts 1 September"
+
+        field = showing(app, SetupScreen).query_one("#input-leave-start", Input)
+        field.value = LEAVE_YEAR_START
+        await pilot.pause()
+        assert start_note(app) == "6 April, for most schemes"
 
 
 async def test_wordmark_lands_and_the_questions_arrive(

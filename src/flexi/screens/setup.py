@@ -34,6 +34,8 @@ from flexi.screens.settings import AnswerError, answer, parse_answers, refuse
 from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
+    LEAVE_YEAR_HINT,
+    describe_leave_year_start,
     parse_entitlement_days,
     read_leave_year_start,
 )
@@ -66,6 +68,9 @@ LEAVE_YEAR_START = "6 Apr"
 
 In words: the form refuses `04-06`, which is 4 June written day first.
 """
+
+_OFFERED = "6 April, for most schemes"
+"""The note beside the start the form offers, until another is typed."""
 
 GUTTER = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
@@ -283,7 +288,7 @@ class SetupScreen(Screen[bool]):
                     id="input-leave-start",
                     placeholder=LEAVE_YEAR_START,
                 ),
-                "6 April, for most schemes",
+                _OFFERED,
                 id="ask-leave-start",
             ),
             Question(
@@ -348,17 +353,24 @@ class SetupScreen(Screen[bool]):
                     )
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Keep the entitlement note on the year the typed start files it under."""
+        """Say how the typed start reads, and the year its allowance is filed under."""
         if event.input.id != "input-leave-start":
             return
+        note = self.query_one("#ask-leave-start", Question).query_one(".note", Static)
         try:
-            year = entitlement_year(event.value)
+            start = read_leave_year_start(event.value)
         except ValueError:
-            # Half a date is not an answer yet; the note keeps the last year
-            # it could work out.
+            # Half a date is not an answer yet: the note says how to write one,
+            # and the allowance stays on the last year it could work out.
+            note.update(LEAVE_YEAR_HINT)
             return
+        note.update(
+            _OFFERED
+            if event.value == LEAVE_YEAR_START
+            else f"starts {describe_leave_year_start(start)}"
+        )
         self.query_one("#ask-entitlement", Question).query_one(".note", Static).update(
-            f"days for {year}, halves allowed"
+            f"days for {entitlement_year(event.value)}, halves allowed"
         )
 
     def on_mount(self) -> None:
