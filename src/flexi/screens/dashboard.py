@@ -504,8 +504,8 @@ class DashboardScreen(Screen[None]):
         )
         if line is not None:
             question += (
-                " The balance you settled to zero on or after this day will no "
-                "longer read zero."
+                " If you settled the balance to zero on or after this day, it will "
+                "no longer read zero."
             )
 
         def confirm(answer: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally

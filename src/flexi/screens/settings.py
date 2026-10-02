@@ -306,8 +306,8 @@ class SettingsScreen(Screen[bool]):
         if self._adjustments.first_line_after(date.min, date.max) is not None:
             warning += (
                 "\n\nYour balance adjustments keep their recorded amounts and are "
-                "not recalculated, so a balance you settled to zero will no "
-                "longer read zero."
+                "not recalculated, so if you settled a balance to zero, it will "
+                "no longer read zero."
             )
         return warning
 

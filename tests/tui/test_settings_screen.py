@@ -246,7 +246,8 @@ async def test_settlements_are_named_before_they_stop_matching(
 
         assert question_asked(app).endswith(
             "Your balance adjustments keep their recorded amounts and are not "
-            "recalculated, so a balance you settled to zero will no longer read zero."
+            "recalculated, so if you settled a balance to zero, it will no longer "
+            "read zero."
         ), "worded as voiding a settled day words it"
 
 

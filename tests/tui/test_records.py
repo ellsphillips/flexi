@@ -542,8 +542,8 @@ async def test_the_question_warns_when_the_day_is_settled(
         await pilot.pause()
 
         assert showing(app, ConfirmModal)._question.endswith(
-            "Add the real hours with n. The balance you settled to zero on or "
-            "after this day will no longer read zero."
+            "Add the real hours with n. If you settled the balance to zero on or "
+            "after this day, it will no longer read zero."
         )
 
 
