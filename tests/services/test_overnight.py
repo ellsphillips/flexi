@@ -112,6 +112,21 @@ def test_clock_out_at_midnight_stops_short_of_a_day_off(
     assert services.clock.clock_out(now=closed).success
 
 
+def test_clock_out_in_the_first_minute_of_a_day_off_ends_at_midnight(
+    configure: Configured,
+) -> None:
+    """Out at 00:00:30 reads 00:00, and counts to it, so it touches the day off."""
+    services = configure()
+    closed = (OPENED + timedelta(days=1)).replace(hour=0, second=30)
+    assert services.absence.book(closed.date(), AbsenceType.SICK).success
+    assert services.clock.clock_in(now=OPENED).success
+
+    result = services.clock.clock_out(now=closed)
+
+    assert result.success, result.message
+    assert services.ledger.day(OPENED.date()).worked == timedelta(hours=2)
+
+
 def test_clock_out_may_run_into_a_half_day_off(configure: Configured) -> None:
     services = configure()
     closed = (OPENED + timedelta(days=1)).replace(hour=2)

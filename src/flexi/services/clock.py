@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from flexi import wallclock
 from flexi.constants import EventSource, Portion
-from flexi.domain.format import clock, hm, long_date, short_date, spoken
+from flexi.domain.format import clock, hm, long_date, short_date, spoken, to_the_minute
 from flexi.domain.ledger import Segment
 from flexi.models.database.db import AbsenceDay, ClockEvent, WorkSession
 from flexi.models.database.moment import moment_of
@@ -123,8 +123,10 @@ class ClockService:
     def _first_day_off(self, opened: datetime, closed: datetime) -> date | None:
         """The first date booked off in full that a stretch of work reaches.
 
-        Endpoints may touch: work ending at midnight leaves the next day intact.
+        Read between the minutes its ends show, as the ledger counts it, and
+        endpoints may touch: work ending at 00:00:30 leaves the next day intact.
         """
+        opened, closed = to_the_minute(opened), to_the_minute(closed)
         for when in self._days_off(opened.date(), closed.date()):
             midnight = datetime.combine(when, time.min)
             begins = wallclock.local(midnight)
