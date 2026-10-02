@@ -25,4 +25,4 @@
  ANNUAL 20.5 left · TOIL +1:13
  Thu 11 Jun 2026 · 1 working day · Nothing booked
 
-A Annual S Sick T TOIL x Remove space Half day q Quit / Clock v Jump +5 more
+A Annual S Sick T TOIL x Remove space Half day q Quit / Clock ? Help +5 more
