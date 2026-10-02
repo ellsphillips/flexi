@@ -509,6 +509,13 @@ NavBar {
     text-style: bold;
 }
 
+/* Under 100 columns the period label needs the room: at 80 the stamp cut the
+   month off "Week of 28 Sep", and after `[` or `g` nothing else names it. The
+   version says nothing about the screen, so it is the one that gives way. */
+Screen.-narrow .header-version {
+    display: none;
+}
+
 /* Two rows and not one more: the status line and the key strip. */
 AppFooter {
     dock: bottom;

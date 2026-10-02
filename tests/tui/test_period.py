@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 import pytest
 
+import flexi
 from flexi.app import FlexiApp
 from flexi.components.common import SHORT_ROWS
 from flexi.components.expandable import ExpandableTable, RowKind
@@ -15,7 +16,14 @@ from flexi.constants import Granularity
 from flexi.domain.dates import DAYS_IN_WEEK
 from flexi.services.registry import invalidate_services
 from tests.conftest import settled
-from tests.tui.conftest import READABLE, WIDE, AppFactory, contrast, dashboard
+from tests.tui.conftest import (
+    READABLE,
+    WIDE,
+    AppFactory,
+    contrast,
+    dashboard,
+    screen_text,
+)
 
 TODAY = date(2026, 6, 11)
 
@@ -339,3 +347,33 @@ async def test_the_calendar_is_back_where_it_fits(app_factory: AppFactory) -> No
 
         assert app.screen.query_one(MonthView).display is True
         assert app.screen.query_one("#dashboard-controls").max_scroll_y == 0
+
+
+# The header at 80 columns ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("key", "label"),
+    [
+        ("w", "Week of 8 Jun"),
+        ("d", "Thu 11 Jun 2026"),
+        ("m", "June 2026"),
+        ("y", "2026/27"),
+    ],
+)
+async def test_the_header_names_the_period_at_80_columns(
+    app_factory: AppFactory, key: str, label: str
+) -> None:
+    """Terminal.app opens at 80x24, where the version stamp cut the month off.
+
+    After `[`, `]` or `g` the header is the only place the month is named, so
+    the stamp, which says nothing about the screen, gives way first.
+    """
+    app = app_factory()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.press(key)
+        await settled(pilot)
+
+        header = screen_text(app).splitlines()[1].rstrip()
+        assert header.endswith(f"  {label}"), header
+        assert flexi.__version__ not in header
