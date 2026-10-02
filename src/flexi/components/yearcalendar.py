@@ -77,6 +77,9 @@ There is no maximum: a day is a tile, taking an equal share of the full width
 and painting its own ground, so no panel is left unpainted.
 """
 
+_SHORTEST_WORD: Final = 3
+"""Fewer letters than this read as another word ("an", "to"), not a short one."""
+
 FULL: Final = "●"
 MORNING: Final = "◐"
 AFTERNOON: Final = "◑"
@@ -365,29 +368,36 @@ class YearCalendar(ScrollView, can_focus=True):
         ledger = self.ledgers.get(when)
         style = self._day_style(when, ledger)
         if width >= LABELLED_CELL:
-            label = self._label(ledger)
-            text = f" {when.day:>2} {label}" if label else f" {when.day:>2}"
+            text = f" {when.day:>2}"
+            word, glyph = self._label(ledger)
+            if glyph:
+                # Only the glyph says half the day is gone, and the colour says
+                # the type at any width, so the word is what gives way: to the
+                # room the date, the glyph, a space before each and the gutter
+                # leave it.
+                word = word[: width - len(text) - 4]
+                word = f"{word} {glyph}" if len(word) >= _SHORTEST_WORD else glyph
+            if word:
+                text = f"{text} {word}"
             return Segment(text[: width - 1].ljust(width), style)
         token = f"{when.day:>2}{self._marker(ledger)}"
         return Segment(token.rjust(width - 1) + BLANK, style)
 
-    def _label(self, ledger: DayLedger | None) -> str:
-        """What is on the day, in a word."""
+    def _label(self, ledger: DayLedger | None) -> tuple[str, str]:
+        """What is on the day, in a word, and the glyph for half a day."""
         if ledger is None:
-            return ""
+            return "", ""
         if ledger.is_holiday:
-            return "hol"
+            return "hol", ""
         if not ledger.absences:
-            return ""
+            return "", ""
         if len(ledger.absences) > 1:
-            return "part day"
+            return "part day", ""
         slice_ = ledger.absences[0]
         word = slice_.type.short.lower()
-        return (
-            word
-            if slice_.portion is Portion.FULL
-            else f"{word} {PORTION_GLYPH[slice_.portion]}"
-        )
+        if slice_.portion is Portion.FULL:
+            return word, ""
+        return word, PORTION_GLYPH[slice_.portion]
 
     def _marker(self, ledger: DayLedger | None) -> str:
         """The glyph says how much of the day; the colour says what kind."""
