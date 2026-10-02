@@ -497,16 +497,21 @@ def test_toil_today_on_a_zero_contract_does_not_divide_by_zero(
     assert plan.toil_cost == 0.0
 
 
+@pytest.mark.parametrize(
+    "worked", [time(13, 0), time(9, 0)], ids=["the-other-half", "the-same-half"]
+)
 def test_toil_preview_on_a_day_corrected_before_tracking_matches_the_ledger(
-    configure: Configured,
+    configure: Configured, worked: time
 ) -> None:
-    """Recorded work tracks the day, so TOIL on its other half relabels a shortfall.
+    """Recorded work tracks the day, so TOIL on half of it relabels a shortfall.
 
-    The preview says the balance stays where it is, and the ledger agrees.
+    The preview says the balance stays where it is, and the ledger agrees,
+    whichever side of noon the four hours fell.
     """
     with time_machine.travel(AFTER_THE_SPAN, tick=False):
         services = configure(entitlement=(2025, 25.0), tracking_since=FRIDAY)
-        assert services.clock.correct(MONDAY, time(13, 0), time(17, 0)).success
+        until = time(worked.hour + 4, worked.minute)
+        assert services.clock.correct(MONDAY, worked, until).success
         before = services.ledger.day(MONDAY).balance_effect
 
         plan = services.absence.plan(
