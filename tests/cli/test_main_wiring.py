@@ -7,6 +7,8 @@ what is checked is which database it was pointed at and whether it was opened.
 
 from __future__ import annotations
 
+import os
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -199,6 +201,42 @@ def test_demo_database_is_removed_on_close(
 
     assert opened[0].db_path is not None
     assert not opened[0].db_path.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGHUP")
+@pytest.mark.parametrize("name", ["SIGHUP", "SIGTERM"])
+def test_demo_database_is_removed_when_the_window_closes(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """Closing the window sends SIGHUP, and `kill` sends SIGTERM.
+
+    Either ends the process where it stands by default, leaving the sample
+    database behind. A stand-in takes that default's place here, as the default
+    would end the test run itself.
+    """
+    signum: int = getattr(signal, name)
+    caught: list[int] = []
+
+    def stand_in(received: int, _frame: object) -> None:
+        caught.append(received)
+
+    at_a_terminal(monkeypatch)
+    opened = instead_of_the_application(
+        monkeypatch, lambda _app: os.kill(os.getpid(), signum)
+    )
+    original = signal.signal(signum, stand_in)
+    try:
+        with pytest.raises(SystemExit) as ended:
+            main.run_demo(click.Context(cli))
+        restored = signal.getsignal(signum)
+    finally:
+        signal.signal(signum, original)
+
+    assert ended.value.code == 128 + signum, "the status a shell gives the signal"
+    assert opened[0].db_path is not None
+    assert not opened[0].db_path.parent.exists()
+    assert caught == []
+    assert restored is stand_in, "the handler from before the demo is put back"
 
 
 def test_demo_is_opened_as_one(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -9,10 +9,12 @@ from __future__ import annotations
 import functools
 import sqlite3
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from types import FrameType
+from typing import TYPE_CHECKING, NoReturn, Protocol
 
 import click
 
@@ -78,6 +80,7 @@ __all__ = (
     "run_demo",
     "set_up_here",
     "unreadable",
+    "unwound_on_hangup",
 )
 
 
@@ -359,6 +362,33 @@ def holidays_refresh(services: ServiceRegistry) -> int:
     return holidays_cli.run(services)
 
 
+@contextmanager
+def unwound_on_hangup() -> Iterator[None]:
+    """Make a closed window or a `kill` unwind the blocks inside, as quitting does.
+
+    SIGHUP, which closing the window sends, and SIGTERM end the process where it
+    stands by default, and the demo's temporary database outlives it. Raised as
+    `SystemExit` instead, with the status a shell gives the signal, they unwind.
+    Windows has no SIGHUP, and ends a console's process its own way.
+    """
+    if sys.platform == "win32":  # pragma: no cover - POSIX takes the branch below
+        yield
+        return
+
+    import signal
+
+    def unwind(signum: int, _frame: FrameType | None) -> NoReturn:
+        raise SystemExit(128 + signum)
+
+    hangups = (signal.SIGHUP, signal.SIGTERM)
+    previous = [signal.signal(signum, unwind) for signum in hangups]
+    try:
+        yield
+    finally:
+        for signum, handler in zip(hangups, previous, strict=True):
+            signal.signal(signum, handler)
+
+
 def run_demo(ctx: click.Context) -> None:
     """Launch against a temporary database holding the sample data.
 
@@ -374,7 +404,10 @@ def run_demo(ctx: click.Context) -> None:
     from flexi.models.database.engine import database_scope
     from flexi.services.samples import seed_demo
 
-    with tempfile.TemporaryDirectory(prefix="flexi-demo-") as directory:
+    with (
+        unwound_on_hangup(),
+        tempfile.TemporaryDirectory(prefix="flexi-demo-") as directory,
+    ):
         path = Path(directory) / "demo.db"
         with database_scope(path) as (engine, session):
             Base.metadata.create_all(engine)
