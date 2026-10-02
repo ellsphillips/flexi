@@ -17,8 +17,15 @@ from flexi.components.wordmark import Wordmark
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.settings import ALL_REQUIRED, NO_DIVISION
-from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
-from flexi.services.settings import SettingsService
+from flexi.screens.setup import (
+    GUTTER,
+    LEAVE_YEAR_START,
+    Question,
+    Rail,
+    SetupScreen,
+    form_rows,
+)
+from flexi.services.settings import SettingsService, read_leave_year_start
 from flexi.theme import MARK_LIVE, TAIL, colour
 from tests.conftest import session_at
 from tests.database import create_schema
@@ -40,6 +47,11 @@ def notices(app: FlexiApp) -> list[str]:
     return [notification.message for notification in app._notifications]
 
 
+def refusals(app: FlexiApp) -> list[Notification]:
+    """The errors put in front of the user, oldest first."""
+    return [shown for shown in app._notifications if shown.severity == "error"]
+
+
 async def revealed(pilot: Pilot[None]) -> None:
     """Wait for the setup screen's reveal to finish.
 
@@ -56,7 +68,7 @@ async def revealed(pilot: Pilot[None]) -> None:
 
 async def _answer(app: FlexiApp, working_days: str) -> None:
     screen = showing(app, SetupScreen)
-    screen.query_one("#input-leave-start", Input).value = "04-06"
+    screen.query_one("#input-leave-start", Input).value = "6 Apr"
     screen.query_one("#input-entitlement", Input).value = "28"
     screen.query_one("#input-working-days", Input).value = working_days
     screen.query_one("#select-division", Select).value = "scotland"
@@ -235,6 +247,64 @@ async def test_what_was_answered_is_what_was_saved(fresh_db: Path) -> None:
         assert settings.get_active_entitlement_days(None) == 28.0
 
 
+# ---- the leave-year start ----
+
+
+def test_the_start_offered_is_6_april() -> None:
+    """Offered in words: `04-06` reads two ways, and the form would refuse it."""
+    assert read_leave_year_start(LEAVE_YEAR_START) == (4, 6)
+
+
+@pytest.mark.parametrize(
+    ("typed", "stored"),
+    [("1 April", "04-01"), ("1st Sep", "09-01"), ("30/09", "09-30")],
+)
+async def test_the_start_is_saved_month_first_however_it_is_written(
+    fresh_db: Path, typed: str, stored: str
+) -> None:
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-leave-start", Input).value = typed
+
+        screen.action_save()
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+
+    with session_at(fresh_db) as session:
+        row = SettingsService(session).get_settings()
+        assert row is not None
+        assert row.leave_year_start == stored
+
+
+async def test_a_start_that_reads_two_ways_is_refused(fresh_db: Path) -> None:
+    """`01/04` was saved as 4 January, under a dashboard that dates day first."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        field = screen.query_one("#input-leave-start", Input)
+        field.value = "01/04"
+
+        screen.action_save()
+        await pilot.pause()
+
+        [refused] = refusals(app)
+        assert refused.title == "Leave year starts"
+        assert refused.message == (
+            "'01/04' could be 1 April or 4 January: type 1 Apr or 4 Jan"
+        )
+        assert screen.focused is field
+
+    with session_at(fresh_db) as session:
+        assert SettingsService(session).get_settings() is None
+
+
 async def test_hours_a_day_are_what_every_day_expects(fresh_db: Path) -> None:
     """7:24 is offered, and a decimal is hours: 7.5 is half past, not 7:05."""
     app = FlexiApp(db_path=fresh_db)
@@ -287,11 +357,6 @@ async def test_hours_a_day_that_cannot_be_used_are_refused(
 
     with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
-
-
-def refusals(app: FlexiApp) -> list[Notification]:
-    """The errors put in front of the user, oldest first."""
-    return [shown for shown in app._notifications if shown.severity == "error"]
 
 
 @pytest.mark.parametrize(
@@ -493,9 +558,9 @@ async def test_any_key_cuts_the_animation_short(
         await revealed(pilot)
 
         assert questions.has_class("-arrived"), "the word stopped and let them in"
-        assert app.screen.query_one("#input-leave-start", Input).value == "04-06", (
-            "and the key that skipped it was not typed into anything"
-        )
+        assert app.screen.query_one("#input-leave-start", Input).value == (
+            LEAVE_YEAR_START
+        ), "and the key that skipped it was not typed into anything"
 
 
 async def test_quit_key_quits_during_the_animation(

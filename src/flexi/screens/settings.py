@@ -27,11 +27,12 @@ from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
     SettingsUpdate,
+    describe_leave_year_start,
     parse_clock_time,
     parse_contracted_minutes,
     parse_entitlement_days,
-    parse_month_day,
     parse_working_days,
+    read_leave_year_start,
 )
 
 __all__ = (
@@ -85,7 +86,7 @@ def parse_answers(node: Widget) -> SettingsUpdate:
     string, which is why the division is checked separately from the text
     fields.
     """
-    leave_year_start = answer(node, "#input-leave-start", parse_month_day)
+    leave_year_start = answer(node, "#input-leave-start", read_leave_year_start)
     working_days = answer(node, "#input-working-days", parse_working_days)
     contracted = answer(node, "#input-hours", parse_contracted_minutes)
     region = node.query_one("#select-division", Select)
@@ -202,8 +203,9 @@ class SettingsScreen(Screen[bool]):
         # Every field through the service's own accessor, which is where each
         # one's fallback is written down; the settings row alone does not carry
         # them.
-        month, day = self._svc.get_leave_year_start()
-        leave_start = f"{month:02d}-{day:02d}"
+        leave_start = describe_leave_year_start(
+            self._svc.get_leave_year_start(), short=True
+        )
         working = describe_working_days(self._svc.get_working_day_indices())
         hours = hm(self._svc.get_contracted())
         division = self._svc.get_division().value

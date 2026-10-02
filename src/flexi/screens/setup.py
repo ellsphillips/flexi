@@ -35,7 +35,7 @@ from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
     parse_entitlement_days,
-    parse_month_day,
+    read_leave_year_start,
 )
 from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
 
@@ -61,8 +61,11 @@ __all__ = (
     "sized",
 )
 
-LEAVE_YEAR_START = "04-06"
-"""What the first question is pre-filled with, not the stored default."""
+LEAVE_YEAR_START = "6 Apr"
+"""What the first question is pre-filled with, not the stored default.
+
+In words: the form refuses `04-06`, which is 4 June written day first.
+"""
 
 GUTTER = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
@@ -275,7 +278,11 @@ class SetupScreen(Screen[bool]):
         return [
             Question(
                 "Leave year starts",
-                Input(LEAVE_YEAR_START, id="input-leave-start", placeholder="MM-DD"),
+                Input(
+                    LEAVE_YEAR_START,
+                    id="input-leave-start",
+                    placeholder=LEAVE_YEAR_START,
+                ),
                 "6 April, for most schemes",
                 id="ask-leave-start",
             ),
@@ -461,7 +468,7 @@ class SetupScreen(Screen[bool]):
 
 def entitlement_year(start: str) -> int:
     """The leave year an allowance typed today would be filed under."""
-    return leaveyear.active_year(wallclock.today(), *parse_month_day(start))
+    return leaveyear.active_year(wallclock.today(), *read_leave_year_start(start))
 
 
 def form_rows(questions: int, question_rows: int = QUESTION_ROWS) -> int:

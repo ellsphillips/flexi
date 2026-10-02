@@ -442,7 +442,7 @@ async def test_dashboard_opens_with_the_answers_from_setup(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         screen = showing(app, SetupScreen)
-        screen.query_one("#input-leave-start", Input).value = "04-06"
+        screen.query_one("#input-leave-start", Input).value = "6 Apr"
         screen.query_one("#input-entitlement", Input).value = "28"
         screen.query_one("#input-working-days", Input).value = "Tue-Thu"
         screen.query_one("#select-division", Select).value = "scotland"
@@ -535,7 +535,7 @@ async def test_calendar_is_fetched_for_the_chosen_division(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         screen = showing(app, SetupScreen)
-        screen.query_one("#input-leave-start", Input).value = "04-06"
+        screen.query_one("#input-leave-start", Input).value = "6 Apr"
         screen.query_one("#input-entitlement", Input).value = "28"
         screen.query_one("#input-working-days", Input).value = "Tue-Thu"
         screen.query_one("#select-division", Select).value = "scotland"

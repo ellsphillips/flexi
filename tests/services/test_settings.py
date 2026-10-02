@@ -20,8 +20,10 @@ from flexi.models.database.db import DEFAULT_WINDOW_END, DEFAULT_WINDOW_START
 from flexi.models.database.engine import get_session
 from flexi.services.settings import (
     INVALID_ENTITLEMENT,
+    LEAVE_YEAR_HINT,
     SettingsService,
     SettingsUpdate,
+    describe_leave_year_start,
     duration_minutes,
     format_clock_time,
     format_window,
@@ -30,6 +32,7 @@ from flexi.services.settings import (
     parse_entitlement_days,
     parse_month_day,
     parse_settings,
+    read_leave_year_start,
     validate_window,
 )
 from flexi.services.setup import REQUIRED_SETTINGS
@@ -303,6 +306,92 @@ class TestParseMonthDay:
 
     def test_leap_day_is_a_valid_year_start(self) -> None:
         assert parse_month_day("02-29") == (2, 29)
+
+
+# ---- the leave-year start, as it is typed ----
+
+
+@pytest.mark.parametrize(
+    ("typed", "start"),
+    [
+        ("1 Apr", (4, 1)),
+        ("1 April", (4, 1)),
+        ("6th April", (4, 6)),
+        ("April 6", (4, 6)),
+        ("apr 6th", (4, 6)),
+        ("1st SEP", (9, 1)),
+        ("  22nd   May ", (5, 22)),
+        ("3rd June", (6, 3)),
+        ("29 Feb", (2, 29)),
+    ],
+)
+def test_a_month_in_words_is_read_either_side_of_the_day(
+    typed: str, start: tuple[int, int]
+) -> None:
+    assert read_leave_year_start(typed) == start
+
+
+@pytest.mark.parametrize(
+    ("typed", "start"),
+    [
+        ("30/09", (9, 30)),
+        ("09-30", (9, 30)),
+        ("04-04", (4, 4)),
+        ("31/12", (12, 31)),
+        ("1/1", (1, 1)),
+        ("29/02", (2, 29)),
+    ],
+)
+def test_numbers_that_read_one_way_are_read_that_way(
+    typed: str, start: tuple[int, int]
+) -> None:
+    """A day above twelve cannot be the month, and a day and month alike agree."""
+    assert read_leave_year_start(typed) == start
+
+
+def test_numbers_that_read_both_ways_are_refused() -> None:
+    """`parse_month_day` reads `01/04` as 4 January, and a Briton writes 1 April."""
+    with pytest.raises(ValueError, match="could be") as refused:
+        read_leave_year_start("01/04")
+    assert str(refused.value) == (
+        "'01/04' could be 1 April or 4 January: type 1 Apr or 4 Jan"
+    )
+
+
+@pytest.mark.parametrize("typed", ["04-06", "06/04", "1/9", "01-09", "12/11"])
+def test_every_day_that_reads_two_ways_is_refused(typed: str) -> None:
+    with pytest.raises(ValueError, match="could be"):
+        read_leave_year_start(typed)
+
+
+def test_the_stored_start_is_still_read_month_first() -> None:
+    """Only typed answers are refused: every database holds `MM-DD`."""
+    assert parse_month_day("04-06") == (4, 6)
+
+
+@pytest.mark.parametrize(
+    "typed",
+    ["", "6", "April", "1 Apirl", "30 Feb", "31/02", "13/13", "0/4", "2026-04-06"],
+)
+def test_a_start_that_is_not_a_date_says_how_to_write_one(typed: str) -> None:
+    with pytest.raises(ValueError, match="is not a date") as refused:
+        read_leave_year_start(typed)
+    assert str(refused.value).endswith(f"type {LEAVE_YEAR_HINT}")
+
+
+def test_every_start_shown_in_words_reads_back_as_itself() -> None:
+    """Neither form may refuse the value it was opened with, 6 April included."""
+    for day in range(366):
+        shown = date(2000, 1, 1) + timedelta(days=day)
+        start = (shown.month, shown.day)
+        assert read_leave_year_start(describe_leave_year_start(start)) == start
+        written = describe_leave_year_start(start, short=True)
+        assert read_leave_year_start(written) == start
+
+
+def test_a_start_is_described_in_words() -> None:
+    assert describe_leave_year_start((4, 6)) == "6 April"
+    assert describe_leave_year_start((9, 30), short=True) == "30 Sep"
 
 
 # ---- auto-close time ----
