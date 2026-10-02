@@ -181,7 +181,8 @@ an end.
 **The sweep says what it closed.** A session still open on an earlier date is
 closed at the auto-close time, which can be hours after the person left, so
 whichever surface ran the sweep reports the day, the close and what it counted:
-every command on stderr, the application as a notice at launch and on `/`.
+every command on stderr, the application as a notice at launch, on `/`, and when
+the date turns under an open dashboard.
 
 ### `absence_days`
 
