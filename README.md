@@ -17,14 +17,14 @@ and Windows. Use a terminal with Unicode and colour support; on Windows,
 With [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```bash
-uv tool install "flexi>=0.2.0"
+uv tool install flexi
 flexi
 ```
 
 Try it with sample data:
 
 ```bash
-uvx --from "flexi>=0.2.0" flexi --demo
+uvx flexi --demo
 ```
 
 The demo uses a temporary database and removes it on exit. To update an installed
@@ -37,13 +37,13 @@ copy, run `uv tool upgrade flexi`. If your shell cannot find the command, run
 With pipx:
 
 ```bash
-pipx install "flexi>=0.2.0"
+pipx install flexi
 ```
 
 With pip, inside an existing virtual environment:
 
 ```bash
-python -m pip install "flexi>=0.2.0"
+python -m pip install flexi
 ```
 
 From source:
