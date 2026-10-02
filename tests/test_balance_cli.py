@@ -169,6 +169,43 @@ def test_zero_is_refused_twice(home: Path) -> None:
     assert "already zero" in again.output
 
 
+def test_nothing_to_settle_is_said_without_asking(home: Path) -> None:
+    """A yes answered with a refusal is a question that should not have been asked.
+
+    Every first day of tracking reads 0:00 through yesterday. The exit is still
+    1, as for any settlement not written.
+    """
+    runner = CliRunner()
+    runner.invoke(cli, ["balance", "zero", "--yes"])
+
+    result = runner.invoke(cli, ["balance", "zero"], input="y\n")
+
+    assert result.exit_code == 1
+    assert "Settle it to zero?" not in result.stderr
+    assert (
+        "The balance as at Tue 9 Jun 2026 is already zero; nothing to settle"
+        in result.stderr
+    )
+
+
+def test_a_line_already_drawn_is_refused_before_asking(home: Path) -> None:
+    """Settling behind a later line is refused, and before the figure and question."""
+    runner = CliRunner()
+    with time_machine.travel(NOON + timedelta(days=2), tick=False):
+        # Back-dated, so it may be a settlement, and on Thursday, after Tuesday.
+        drawn = adjust(runner, "+1:00", "--on", "yesterday", "--reason", "x", "--yes")
+        assert drawn.exit_code == 0, drawn.output
+
+        result = runner.invoke(
+            cli, ["balance", "zero", "--as-of", YESTERDAY.isoformat()], input="y\n"
+        )
+
+    assert result.exit_code == 1
+    assert "An adjustment is already recorded on Thu 11 Jun 2026" in result.stderr
+    assert "Settle it to zero?" not in result.stderr
+    assert "balance as at" not in result.stdout
+
+
 def test_settlement_can_be_taken_back(home: Path) -> None:
     """Log names the row, undo removes it, and the balance returns.
 

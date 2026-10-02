@@ -41,6 +41,7 @@ __all__ = (
     "invalidate_services",
     "minimum_session",
     "settlement_date",
+    "settlement_refusal",
     "zero_balance",
 )
 
@@ -104,13 +105,8 @@ def settlement_date(as_of: date | None = None) -> date:
     return as_of or wallclock.today() - timedelta(days=1)
 
 
-def zero_balance(
-    services: Services,
-    as_of: date | None = None,
-    *,
-    reason: str = SETTLED,
-) -> AdjustmentResult:
-    """Settle the balance so that it reads zero as at the end of ``as_of``.
+def settlement_refusal(services: Services, as_of: date) -> str | None:
+    """Return why the balance cannot be settled at ``as_of``, or None if it can.
 
     A date that has not finished is refused. The balance cannot see its hours
     yet: it counts nothing after today and holds back what today has still to
@@ -125,35 +121,55 @@ def zero_balance(
     them apart. One dated the day it was made, as an adjustment from today is,
     is never a settlement, and a line behind it absorbs nothing twice.
 
+    And a balance already at zero is refused, rather than written as a row
+    that changes nothing.
+
+    Public, because the command line checks before it asks, and `zero_balance`
+    checks again under the writer reservation.
+    """
+    if as_of >= wallclock.today():
+        return f"{long_date(as_of)} has not finished; settle to yesterday or before"
+    _, year_end = services.absence.leave_year_bounds(as_of)
+    standing_line = services.adjustments.first_line_after(as_of, year_end)
+    if standing_line is not None:
+        return (
+            "An adjustment is already recorded on"
+            f" {long_date(standing_line.date)};"
+            f" undo it with `flexi balance undo {standing_line.id}`"
+            " or settle on or after that date"
+        )
+    if not round(services.ledger.balance(as_of).as_shown().delta.total_seconds() / 60):
+        return (
+            f"The balance as at {long_date(as_of)} is already zero; nothing to settle"
+        )
+    return None
+
+
+def zero_balance(
+    services: Services,
+    as_of: date | None = None,
+    *,
+    reason: str = SETTLED,
+) -> AdjustmentResult:
+    """Settle the balance so that it reads zero as at the end of ``as_of``.
+
+    Refused for the reasons :func:`settlement_refusal` gives.
+
     Here, not in `flexi/cli/balance.py`, so the TUI and any embedder hold the
     same line.
     """
     as_of = settlement_date(as_of)
-    if as_of >= wallclock.today():
-        return AdjustmentResult(
-            False,
-            f"{long_date(as_of)} has not finished; settle to yesterday or before",
-        )
     with services.write():
         # A preview may have memoised this period before another process wrote
         # to it. The writer reservation must come first; only then is a fresh
         # derivation stable until its compensating row is committed.
         services.ledger.invalidate()
-        _, year_end = services.absence.leave_year_bounds(as_of)
-        standing_line = services.adjustments.first_line_after(as_of, year_end)
-        if standing_line is not None:
-            return AdjustmentResult(
-                False,
-                "An adjustment is already recorded on"
-                f" {long_date(standing_line.date)};"
-                f" undo it with `flexi balance undo {standing_line.id}`"
-                " or settle on or after that date",
-            )
+        refusal = settlement_refusal(services, as_of)
+        if refusal is not None:
+            return AdjustmentResult(False, refusal)
         # Sized from the balance as shown, so the line reads 0:00 and not a
         # minute either side of it.
         standing = services.ledger.balance(as_of).as_shown().delta
-        if not round(standing.total_seconds() / 60):
-            return AdjustmentResult(False, "The balance is already zero")
         return services.adjustments.stage_record(as_of, -standing, reason)
 
 

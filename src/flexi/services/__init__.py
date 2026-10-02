@@ -99,6 +99,7 @@ if TYPE_CHECKING:
         invalidate_services,
         minimum_session,
         settlement_date,
+        settlement_refusal,
         zero_balance,
     )
     from flexi.services.samples import (
@@ -258,6 +259,7 @@ _EXPORTS: Final = MappingProxyType(
         "invalidate_services": ("registry", "invalidate_services"),
         "minimum_session": ("registry", "minimum_session"),
         "settlement_date": ("registry", "settlement_date"),
+        "settlement_refusal": ("registry", "settlement_refusal"),
         "zero_balance": ("registry", "zero_balance"),
         "ANCHOR": ("samples", "ANCHOR"),
         "ARRIVALS": ("samples", "ARRIVALS"),
@@ -400,6 +402,7 @@ __all__ = (  # noqa: RUF022
     "invalidate_services",
     "minimum_session",
     "settlement_date",
+    "settlement_refusal",
     "zero_balance",
     "ANCHOR",
     "ARRIVALS",

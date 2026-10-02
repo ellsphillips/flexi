@@ -20,6 +20,7 @@ from flexi.services.registry import (
     adjust_balance,
     adjustment_refusal,
     settlement_date,
+    settlement_refusal,
     zero_balance,
 )
 
@@ -87,13 +88,15 @@ def zero(
     Records one signed adjustment and deletes nothing, so the clock events that
     produced the balance stay where they are and `flexi balance undo` can take
     the line back. Declining exits 1, as declining a booking does, so a script
-    chaining on `&&` can tell the write did not happen.
+    chaining on `&&` can tell the write did not happen. So does a refusal, which
+    comes before the question: a yes answered with a no is a question that
+    should not have been asked.
     """
     when = settlement_date(as_of)
-    if when >= wallclock.today():
-        # `zero_balance` refuses a date that has not finished, and the standing
-        # it would be sized from cannot see that date's hours yet.
-        return report(zero_balance(services, when, reason=reason or SETTLED))
+    refusal = settlement_refusal(services, when)
+    if refusal is not None:
+        click.secho(refusal, fg="red", err=True)
+        return 1
 
     standing = services.ledger.balance(when).as_shown().delta
 

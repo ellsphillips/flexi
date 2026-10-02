@@ -18,7 +18,12 @@ from flexi.cli import clock as clock_cli
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.format import MINUS
 from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
-from flexi.services.registry import Services, build_services, invalidate_services
+from flexi.services.registry import (
+    Services,
+    build_services,
+    invalidate_services,
+    zero_balance,
+)
 from flexi.services.settings import parse_settings
 
 NOON = date(2026, 6, 10)
@@ -185,6 +190,34 @@ def test_settling_and_taking_it_back(services: Services) -> None:
 
         assert balance_cli.undo(services, rows[0].id, assume_yes=True) == 0
         assert services.adjustments.all() == []
+
+
+def test_a_settlement_made_while_asking_is_not_made_twice(
+    services: Services,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The refusals are checked before the question and again under the write lock.
+
+    A question can stand open for minutes, and another Flexi can settle in them.
+    """
+    with time_machine.travel(datetime(2026, 6, 9, 9, 0), tick=False):
+        clock_cli.clock_in(services)
+    with time_machine.travel(datetime(2026, 6, 9, 11, 0), tick=False):
+        clock_cli.clock_out(services)
+
+    def settled_elsewhere(*_args: object, **_kwargs: object) -> bool:
+        assert zero_balance(services, date(2026, 6, 9)).success
+        return True
+
+    monkeypatch.setattr("click.confirm", settled_elsewhere)
+    capsys.readouterr()
+
+    with time_machine.travel(datetime(2026, 6, 10, 12, 0), tick=False):
+        assert balance_cli.zero(services) == 1
+
+    assert len(services.adjustments.all()) == 1
+    assert "already zero" in capsys.readouterr().err
 
 
 def test_undoing_a_missing_adjustment_fails(
