@@ -183,7 +183,7 @@ def test_settling_and_taking_it_back(services: Services) -> None:
         rows = services.adjustments.all()
         assert len(rows) == 1
 
-        assert balance_cli.undo(services, rows[0].id) == 0
+        assert balance_cli.undo(services, rows[0].id, assume_yes=True) == 0
         assert services.adjustments.all() == []
 
 

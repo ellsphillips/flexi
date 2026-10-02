@@ -183,9 +183,9 @@ def test_settlement_can_be_taken_back(home: Path) -> None:
     assert "opening balance" not in log.output
     row_id = log.output.split()[0]
 
-    undone = runner.invoke(cli, ["balance", "undo", row_id])
+    undone = runner.invoke(cli, ["balance", "undo", row_id, "--yes"])
     assert undone.exit_code == 0
-    assert "removed" in undone.output
+    assert "Removed" in undone.output
 
     assert balance_of(runner, YESTERDAY) != "0:00"
 
@@ -392,8 +392,68 @@ def test_adjustment_is_logged_and_can_be_taken_back(home: Path) -> None:
     assert "2026-06-10" in log
     assert "+5:30  Brought forward" in log
 
-    undone = runner.invoke(cli, ["balance", "undo", log.split()[0]])
+    undone = runner.invoke(cli, ["balance", "undo", log.split()[0], "--yes"])
 
     assert undone.exit_code == 0
     assert "No adjustments" in logged(runner)
     assert balance_of(runner) == "−5:24"
+
+
+# Taking one back
+
+
+def undo(runner: CliRunner, *args: str, answer: str | None = None) -> Result:
+    return runner.invoke(cli, ["balance", "undo", *args], input=answer)
+
+
+@pytest.mark.usefixtures("at_a_terminal")
+def test_undo_shows_the_row_and_asks_first(home: Path) -> None:
+    """An id is reused once the newest row goes, so a remembered one may be stale.
+
+    Declining exits 1 and removes nothing, as declining every other write does.
+    """
+    runner = CliRunner()
+    adjust(runner, "+1:00", "--reason", "Late meeting", "--yes")
+    row_id = logged(runner).split()[0]
+
+    result = undo(runner, row_id, answer="n\n")
+
+    assert result.exit_code == 1
+    assert "+1:00  Late meeting" in result.stdout, "the row, as the log lists it"
+    assert "Remove it? [y/N]" in result.stderr, "the question is not the output"
+    assert "Nothing was removed" in result.stderr
+    assert "Late meeting" in logged(runner)
+
+
+@pytest.mark.usefixtures("at_a_terminal")
+def test_undo_names_the_row_it_removed(home: Path) -> None:
+    """Said in full, so a row removed by mistake can be entered again."""
+    runner = CliRunner()
+    adjust(runner, "+1:00", "--reason", "Late meeting", "--yes")
+    row_id = logged(runner).split()[0]
+
+    result = undo(runner, row_id, answer="y\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"Removed {row_id}: +1:00 on 10 Jun 2026, Late meeting" in result.stdout
+    assert "No adjustments" in logged(runner)
+
+
+def test_undo_without_a_terminal_refuses_instead_of_asking(home: Path) -> None:
+    """As adjust does: a pipe is not someone answering."""
+    runner = CliRunner()
+    adjust(runner, "+1:00", "--reason", "Late meeting", "--yes")
+    row_id = logged(runner).split()[0]
+
+    result = undo(runner, row_id, answer="y\n")
+
+    assert result.exit_code == 1
+    assert "add --yes to remove it without asking" in result.stderr
+    assert "Late meeting" in logged(runner)
+
+
+def test_undo_of_a_missing_id_points_at_the_log(home: Path) -> None:
+    result = undo(CliRunner(), "3", "--yes")
+
+    assert result.exit_code == 1
+    assert "No adjustment 3; `flexi balance log` lists them" in result.stderr

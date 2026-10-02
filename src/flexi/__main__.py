@@ -579,12 +579,13 @@ def balance_log(services: ServiceRegistry) -> int:
 
 @balance.command(name="undo")
 @click.argument("adjustment_id", type=int)
+@click.option("--yes", is_flag=True, help="Do not ask.")
 @requires_setup()
-def balance_undo(services: ServiceRegistry, adjustment_id: int) -> int:
+def balance_undo(services: ServiceRegistry, adjustment_id: int, *, yes: bool) -> int:
     """Remove a correction by its id, as listed by `flexi balance log`."""
     from flexi.cli import balance as balance_cli
 
-    return balance_cli.undo(services, adjustment_id)
+    return balance_cli.undo(services, adjustment_id, assume_yes=yes)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ import click
 from flexi import wallclock
 from flexi.cli import report, ui
 from flexi.domain.format import delta, hm, long_date, printable, stamp
+from flexi.models.database.db import BalanceAdjustment
 from flexi.services.adjustments import SETTLED, parse_amount
 from flexi.services.registry import (
     Services,
@@ -162,19 +163,54 @@ def adjust(
     return report(adjust_balance(services, change, why, when))
 
 
+def _listed(row: BalanceAdjustment) -> str:
+    """One correction as `log` lists it, and `undo` shows it back."""
+    return (
+        f"{row.id:>4}  {row.date:%Y-%m-%d}  "
+        f"{delta(timedelta(minutes=row.minutes)):>9}  {printable(row.reason)}"
+    )
+
+
 def log(services: Services) -> int:
     """List every correction ever recorded."""
     rows = services.adjustments.all()
     if not rows:
         click.echo("No adjustments.")
     for row in rows:
-        click.echo(
-            f"{row.id:>4}  {row.date:%Y-%m-%d}  "
-            f"{delta(timedelta(minutes=row.minutes)):>9}  {printable(row.reason)}"
-        )
+        click.echo(_listed(row))
     return 0
 
 
-def undo(services: Services, adjustment_id: int) -> int:
-    """Remove a correction by its id, as listed by `log`."""
+def undo(services: Services, adjustment_id: int, *, assume_yes: bool = False) -> int:
+    """Remove a correction by its id, as listed by `log`, once it has been shown.
+
+    An id is used again once the newest row has gone, so one typed from memory
+    or the shell's history may name another row by now. Declining exits 1, and
+    with no terminal to ask on it refuses unless `--yes` was given, as `adjust`
+    does.
+    """
+    row = services.adjustments.get(adjustment_id)
+    if row is None:
+        click.secho(
+            f"No adjustment {adjustment_id}; `flexi balance log` lists them",
+            fg="red",
+            err=True,
+        )
+        return 1
+
+    click.echo("Removing")
+    click.echo(_listed(row))
+
+    if not assume_yes:
+        if not ui.interactive():
+            click.secho(
+                "No terminal to ask on; add --yes to remove it without asking.",
+                fg="yellow",
+                err=True,
+            )
+            return 1
+        if not click.confirm("\nRemove it?", default=False, err=True):
+            click.echo("Nothing was removed.", err=True)
+            return 1
+
     return report(services.adjustments.remove(adjustment_id))
