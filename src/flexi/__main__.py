@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import functools
 import sqlite3
+import sys
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -40,10 +41,12 @@ else:
 
 
 __all__ = (
+    "DEMO_NEEDS_TERMINAL",
     "LEFT_RUNNING",
     "NEEDS_TERMINAL",
     "NOT_INITIALISED",
     "UNREADABLE",
+    "WINDOWS_TERMINALS",
     "FlexiApplication",
     "ServiceRegistry",
     "SignedArguments",
@@ -111,7 +114,7 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
         msg = "--demo opens the sample application; it does not take a command."
         raise click.UsageError(msg)
     if demo:
-        needs_a_terminal(ctx)
+        needs_a_terminal(ctx, DEMO_NEEDS_TERMINAL)
         run_demo(ctx)
         return
 
@@ -140,6 +143,14 @@ NEEDS_TERMINAL = (
     "Try `flexi balance show`, or `flexi --help` for the rest."
 )
 
+DEMO_NEEDS_TERMINAL = (
+    "The demo is a full-screen application and needs an interactive terminal."
+)
+"""Naming no command: whoever ran `uvx flexi --demo` has no `flexi` to run."""
+
+WINDOWS_TERMINALS = "Run Flexi in Windows Terminal, PowerShell or Command Prompt."
+"""Said on Windows only, where Git Bash and an IDE's output pane are no console."""
+
 UNREADABLE = (
     "The database at {path} could not be read.\n"
     "Move it aside, or restore a copy from {backups}, then run `flexi init`."
@@ -148,7 +159,7 @@ UNREADABLE = (
 LEFT_RUNNING = "{closed}. If you left earlier: open flexi, select it, press x, then n."
 
 
-def needs_a_terminal(ctx: click.Context) -> None:
+def needs_a_terminal(ctx: click.Context, message: str = NEEDS_TERMINAL) -> None:
     """Refuse when there is no terminal for the application to draw on.
 
     Textual reads ``sys.__stdin__`` and draws on ``sys.__stderr__``, which is
@@ -158,7 +169,9 @@ def needs_a_terminal(ctx: click.Context) -> None:
     from flexi.cli import ui
 
     if not ui.interactive():
-        click.secho(NEEDS_TERMINAL, fg="yellow", err=True)
+        if sys.platform == "win32":
+            message = f"{message}\n{WINDOWS_TERMINALS}"
+        click.secho(message, fg="yellow", err=True)
         ctx.exit(1)
 
 
@@ -435,17 +448,11 @@ def ask_the_questions(
     ``then_open`` carries bare ``flexi`` on into the application once the
     questions are answered; ``flexi init`` stops and says so.
     """
-    from flexi.cli import ui
-
-    if not ui.interactive():
-        click.secho(
-            f"The database is ready at {db_path}, but setup needs answering.\n"
-            "Run `flexi init` from a terminal to finish.",
-            fg="yellow",
-            err=True,
-        )
-        ctx.exit(1)
-
+    needs_a_terminal(
+        ctx,
+        f"The database is ready at {db_path}, but setup needs answering.\n"
+        "Run `flexi init` from a terminal to finish.",
+    )
     run_app(ctx, launch(splash=True))
 
     if not set_up_here():

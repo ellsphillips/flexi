@@ -8,11 +8,13 @@ what is checked is which database it was pointed at and whether it was opened.
 from __future__ import annotations
 
 import sqlite3
+import sys
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import click
 import httpx
 import pytest
 import time_machine
@@ -336,8 +338,40 @@ def test_demo_without_a_terminal_refuses_early(
     result = CliRunner().invoke(cli, ["--demo"])
 
     assert result.exit_code == 1
-    assert "needs a terminal" in result.output
+    assert "needs an interactive terminal" in result.output
     assert opened == []
+
+
+def test_demo_without_a_terminal_names_no_command() -> None:
+    """A visitor who ran `uvx flexi --demo` has no `flexi` to run anything with.
+
+    Nor would `flexi balance show` read the demo's records.
+    """
+    result = CliRunner().invoke(cli, ["--demo"])
+
+    assert "`flexi" not in result.output
+    assert "Windows" not in result.output, "a console is named only where it is one"
+
+
+@pytest.mark.parametrize(
+    "message", [main.NEEDS_TERMINAL, main.DEMO_NEEDS_TERMINAL], ids=["app", "demo"]
+)
+def test_windows_is_told_which_consoles_will_do(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    message: str,
+) -> None:
+    """Git Bash's mintty and an IDE's output pane are no console to draw in."""
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: False)
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    with pytest.raises(click.exceptions.Exit) as refused:
+        main.needs_a_terminal(click.Context(cli), message)
+
+    assert refused.value.exit_code == 1
+    said = capsys.readouterr().err
+    assert said.startswith(message)
+    assert "Run Flexi in Windows Terminal, PowerShell or Command Prompt." in said
 
 
 # what stopped the database being opened
