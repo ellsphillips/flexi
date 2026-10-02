@@ -186,15 +186,22 @@ class DashboardScreen(Screen[None]):
 
     # ---- period ----
 
-    def set_period(self, period: Period) -> None:
-        """Move the temporal view and redraw everything that depends on it."""
+    def set_period(self, period: Period, scope: Scope = Scope.PERIOD) -> None:
+        """Move the temporal view and redraw everything that depends on it.
+
+        A wider ``scope`` reads more than the period again.
+        """
         self.period = period
         self._sync_header()
-        self.refresh_modules(Scope.PERIOD)
+        self.refresh_modules(scope)
 
     def action_today(self) -> None:
-        """Return to now, keeping the width the user chose."""
-        self.set_period(self.period.go_to(wallclock.today()))
+        """Return to now, keeping the width the user chose, and read it all again.
+
+        The key that catches up at once on what another process wrote, without
+        waiting for the app's next look.
+        """
+        self.set_period(self.period.go_to(wallclock.today()), Scope.ALL)
 
     def action_shift(self, count: int) -> None:
         self.set_period(self.period.shift(count))

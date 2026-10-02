@@ -147,3 +147,21 @@ async def test_slash_after_a_clock_out_elsewhere_does_not_clock_in(
         await pilot.pause()
 
         assert app.services.clock.is_clocked_in()
+
+
+async def test_t_catches_up_at_once(
+    app_factory: AppFactory, seeded_db: Path, unhurried: None
+) -> None:
+    """`t` reads everything again, so nobody has to wait for the poll."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("slash")
+        await pilot.pause()
+        with session_at(seeded_db) as other:
+            assert build_services(other).clock.clock_in().success
+
+        await pilot.press("t")
+        await pilot.pause()
+
+        assert clock_button(app) == "Depart"
+        assert dashboard(app)._tick is not None
