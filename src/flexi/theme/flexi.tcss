@@ -712,8 +712,14 @@ DataTable > .datatable--header {
 }
 
 /* Background only: a foreground here wins over the per-cell `Text` styles, and
-   the row under the cursor would lose its punch strip and its signed delta. */
+   the row under the cursor would lose its punch strip and its signed delta.
+   Lit only while the table has the keyboard: away from it, the row under the
+   cursor is not the one the keys act on. */
 DataTable > .datatable--cursor {
+    background: $c-line-soft;
+}
+
+DataTable:focus > .datatable--cursor {
     background: $c-accent-deep;
 }
 

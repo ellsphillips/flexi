@@ -15,6 +15,7 @@ from flexi.components.expandable import (
     RowKind,
     row_key,
 )
+from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.records import DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import ProgressRail, TimeProgress
@@ -24,6 +25,7 @@ from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.modals import AbsenceModal, ConfirmModal
 from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import adjust_balance, zero_balance
+from flexi.theme import colour
 from tests.conftest import sessions_on, settled
 from tests.tui.conftest import (
     WIDE,
@@ -136,6 +138,34 @@ async def test_a_redraw_leaves_the_cursor_where_it_was_put(
         await pilot.pause()
 
         assert table(app).cursor_key == row_key(RowKind.DAY, TODAY - timedelta(days=2))
+
+
+def cursor_ground(widget: ExpandableTable) -> str:
+    """The colour behind the row under the cursor, as `#rrggbb`."""
+    ground = widget.get_component_rich_style("datatable--cursor").bgcolor
+    assert ground is not None
+    assert ground.triplet is not None
+    return ground.triplet.hex
+
+
+async def test_the_cursor_is_lit_only_while_the_rows_have_the_keyboard(
+    app_factory: AppFactory,
+) -> None:
+    """Away from the table its cursor steps back, as the theme's blurred cursor.
+
+    Lit, it reads as the day the keys act on, and away from the table `n` acts
+    on the anchor instead.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        assert cursor_ground(widget) == colour("c-accent-deep").lower()
+
+        app.screen.query_one(ClockModule).focus()
+        await pilot.pause()
+
+        assert cursor_ground(widget) == colour("c-line-soft").lower()
 
 
 async def test_tab_comes_round_to_the_rows_through_live_stops(
