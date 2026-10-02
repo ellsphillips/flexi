@@ -30,7 +30,7 @@ from flexi.constants import (
 )
 from flexi.domain.dates import Preference, parse_span
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import long_date, plural, printable, short_date
+from flexi.domain.format import long_date, plural, printable, short_date, stamp
 from flexi.services.absence import AbsencePlan, RemovalBooking
 from flexi.services.registry import Services, available_toil_days
 
@@ -66,12 +66,21 @@ VERDICT_NOTE: Final[Mapping[Verdict, str]] = MappingProxyType(
 )
 
 
-def _booking_line(booking: RemovalBooking) -> str:
+def _day(when: date, today: date) -> str:
+    """A date as a plan lists it, with its year when that is not this one.
+
+    A date typed without one is the next to come, so `15 jun` typed in October
+    is next June, and the year is what says so.
+    """
+    return short_date(when) if when.year == today.year else long_date(when)
+
+
+def _booking_line(booking: RemovalBooking, today: date) -> str:
     """One booked row, as the cancellation lists it."""
     portion = (
         "" if booking.portion is Portion.FULL else f" ({booking.portion.label.lower()})"
     )
-    return f"  {short_date(booking.date)}   {booking.absence_type.label}{portion}"
+    return f"  {_day(booking.date, today)}   {booking.absence_type.label}{portion}"
 
 
 class Request(NamedTuple):
@@ -114,20 +123,25 @@ def parse_request(words: tuple[str, ...]) -> Request:
     return Request(kind, portion, " ".join(rest))
 
 
-def render(plan: AbsencePlan) -> str:
-    """Return the plan as a block to check before agreeing to it."""
+def render(plan: AbsencePlan, *, today: date, leave_year: tuple[date, date]) -> str:
+    """Return the plan as a block to check before agreeing to it.
+
+    ``leave_year`` is the one ``today`` is in. Days booked outside it are said
+    to be, beside the year on each date.
+    """
     verb = f"Booking {plan.absence_type.phrase}"
     portion = "" if plan.portion is Portion.FULL else f" ({plan.portion.label.lower()})"
     lines = [f"{verb}{portion}"]
 
     for day in plan.days:
+        when = _day(day.date, today)
         if day.verdict is Verdict.BOOK:
-            lines.append(f"  {short_date(day.date)}")
+            lines.append(f"  {when}")
         elif day.verdict.is_skip:
             note = printable(day.detail or VERDICT_NOTE.get(day.verdict, "skipped"))
-            lines.append(f"  {short_date(day.date)}   — {note}")
+            lines.append(f"  {when}   — {note}")
         else:
-            lines.append(f"  {short_date(day.date)}   ✗ {day.reason}")
+            lines.append(f"  {when}   ✗ {day.reason}")
 
     if plan.is_empty:
         lines.append("")
@@ -136,7 +150,17 @@ def render(plan: AbsencePlan) -> str:
 
     booked = len(plan.bookable)
     lines.append("")
-    lines.append(f"{booked} {plural(booked, 'day')}, {fmt_days(plan.cost)} used")
+    lines.append(
+        f"{booked} working {plural(booked, 'day')}, {fmt_days(plan.cost)}"
+        f" {plural(plan.cost, 'day')} of {plan.absence_type.phrase}"
+    )
+    first, last = leave_year
+    outside = sum(not first <= day.date <= last for day in plan.bookable)
+    if outside:
+        lines.append(
+            f"{outside} {plural(outside, 'day')} outside the current leave year,"
+            f" {stamp(first, '%-d %b %Y')} to {stamp(last, '%-d %b %Y')}"
+        )
     balances = tuple(
         balance
         for balance in plan.annual_balances
@@ -144,8 +168,11 @@ def render(plan: AbsencePlan) -> str:
     )
     if plan.absence_type.draws_down_entitlement:
         for balance in balances:
+            # Named by year unless it is the current one's alone.
             label = (
-                "Annual leave" if len(balances) == 1 else f"Annual leave {balance.year}"
+                "Annual leave"
+                if [held.year for held in balances] == [first.year]
+                else f"Annual leave {balance.year}"
             )
             lines.append(
                 f"{label}: {fmt_days(balance.before or 0)}"
@@ -184,6 +211,7 @@ def run(
             portion=requested_portion,
             assume_yes=assume_yes,
             dry_run=dry_run,
+            today=today,
         )
 
     portion = requested_portion or Portion.FULL
@@ -200,7 +228,9 @@ def run(
         note=note,
         available_toil_days=available_toil_days(services, today),
     )
-    click.echo(render(plan))
+    click.echo(
+        render(plan, today=today, leave_year=services.absence.leave_year_bounds(today))
+    )
 
     if plan.is_empty:
         return 1
@@ -227,6 +257,7 @@ def cancel(
     portion: Portion | None = None,
     assume_yes: bool,
     dry_run: bool,
+    today: date,
 ) -> int:
     plan = services.absence.removal_plan(start, end, portion=portion)
     if plan.is_empty:
@@ -246,7 +277,7 @@ def cancel(
                     err=True,
                 )
                 for booking in whole.bookings:
-                    click.echo(_booking_line(booking), err=True)
+                    click.echo(_booking_line(booking, today), err=True)
                 click.echo("Cancel the whole day to take it back.", err=True)
                 return 1
         click.echo(f"Nothing is booked on {span}.", err=True)
@@ -254,7 +285,7 @@ def cancel(
 
     click.echo("Cancelling")
     for booking in plan.bookings:
-        click.echo(_booking_line(booking))
+        click.echo(_booking_line(booking, today))
 
     if dry_run:
         return 0
