@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -23,6 +23,8 @@ from flexi import wallclock
 from flexi.__main__ import LEFT_RUNNING, cli
 from flexi.cli import init as init_cli
 from flexi.cli import ui
+from flexi.cli.leave import parse_request
+from flexi.domain.dates import Preference, parse_span
 from flexi.locations import backups_directory, database_file
 from flexi.models.database.db import AbsenceDay, BankHolidayCache, BankHolidayRefresh
 from flexi.models.database.engine import create_db_engine, get_session
@@ -957,6 +959,28 @@ def test_erasing_an_absent_database_takes_no_snapshot(
     main.erase(tmp_path / "absent.db")
 
     assert "Snapshot" not in capsys.readouterr().err
+
+
+def test_every_leave_example_works_all_year() -> None:
+    """A fixed date such as `12 jun` drifts into next year, and onto a weekend.
+
+    So each example names a day in the fortnight ahead, on whatever day the help
+    is read.
+    """
+    output = CliRunner().invoke(cli, ["leave", "--help"]).output
+    examples = [
+        line.split()[2:]
+        for line in output.splitlines()
+        if line.strip().startswith("flexi leave ")
+    ]
+    assert examples
+
+    for offset in range(366):
+        today = date(2026, 1, 1) + timedelta(days=offset)
+        for words in examples:
+            when = parse_request(tuple(words)).when or "today"
+            start, end = parse_span(when, reference=today, prefer=Preference.FORWARD)
+            assert today <= start <= end <= today + timedelta(days=14), (words, today)
 
 
 def test_leave_examples_are_listed_one_per_line() -> None:

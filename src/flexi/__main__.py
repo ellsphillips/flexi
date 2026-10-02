@@ -505,11 +505,12 @@ def leave(
     flexi leave annual friday
     flexi leave annual monday to friday
     flexi leave sick today pm
-    flexi leave toil 12 jun
+    flexi leave toil next friday
     flexi leave cancel next monday
 
     End with am, morning, pm or afternoon for half a day. Join two dates with
-    to, until, through or `..`. The plan is shown before anything is written.
+    to, until, through or `..`. A date with no year is the next one to come.
+    The plan is shown before anything is written.
     """  # noqa: D301 - the \b is Click's, and a raw string breaks it
     from flexi.cli import leave as leave_cli
 
