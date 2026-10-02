@@ -739,12 +739,14 @@ def parse_settings(
     day_window_start: str | None = None,
     day_window_end: str | None = None,
 ) -> SettingsUpdate:
-    """Parse raw form or CLI values into one immutable settings update.
+    """Parse raw values into one immutable settings update.
 
-    The persistence service never accepts strings: this is the one boundary at
-    which permissive input such as ``Mon-Fri`` and ``6pm`` is read and
-    normalised. A day window is one value, so its two raw endpoints are supplied
-    together or omitted together.
+    The persistence service never accepts strings, so this reads permissive
+    input such as ``Mon-Fri`` and ``6pm``, and the leave-year start as it is
+    stored, ``MM-DD``. The forms read their answers a field at a time, and a
+    typed start with :func:`read_leave_year_start`, which refuses ``04-06``. A
+    day window is one value, so its two raw endpoints are supplied together or
+    omitted together.
     """
     if (day_window_start is None) != (day_window_end is None):
         msg = "Day window start and end must be provided together"
