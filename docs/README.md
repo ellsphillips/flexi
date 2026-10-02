@@ -44,8 +44,8 @@ Wanted, and absent from 0.2.0:
 - `flexi doctor` — database integrity, orphaned sessions, cache age, config
   validation.
 - Import from a CSV timesheet.
-- A contracted-day setting. The service layer takes one; no screen or command
-  offers it, so every install is on 7h 24m.
+- Hours a day that differ by weekday, or that change from a given date. One
+  length of day applies to every tracked day.
 - A day-of-week profile chart: median start, end and hours worked per weekday.
 - Booking a range by dragging in the calendar, as well as `shift` and an arrow.
 - A warning as a leave year ends with allowance unspent.

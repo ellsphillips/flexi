@@ -45,6 +45,7 @@ LEAF_MODULES = tuple(f"flexi.cli.{name}" for name in CLI_MODULE_NAMES) + tuple(
 
 CLI_ROUTES = {
     "NO_CALENDAR": ("balance", "NO_CALENDAR"),
+    "adjust": ("balance", "adjust"),
     "log": ("balance", "log"),
     "show": ("balance", "show"),
     "undo": ("balance", "undo"),

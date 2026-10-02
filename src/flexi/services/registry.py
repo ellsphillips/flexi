@@ -18,7 +18,7 @@ from flexi import wallclock
 from flexi.domain.format import long_date
 from flexi.services.absence import AbsenceService
 from flexi.services.adjustments import (
-    OPENING_BALANCE,
+    SETTLED,
     AdjustmentResult,
     AdjustmentService,
 )
@@ -34,6 +34,8 @@ from flexi.services.wallet import WalletService
 
 __all__ = (
     "Services",
+    "adjust_balance",
+    "adjustment_refusal",
     "available_toil_days",
     "build_services",
     "invalidate_services",
@@ -106,20 +108,22 @@ def zero_balance(
     services: Services,
     as_of: date | None = None,
     *,
-    reason: str = OPENING_BALANCE,
+    reason: str = SETTLED,
 ) -> AdjustmentResult:
     """Settle the balance so that it reads zero as at the end of ``as_of``.
 
-    A date that has not finished is refused. The balance is derived from a
-    projection in which every day between now and then was worked zero hours,
-    so the correction absorbs hours not yet worked, and the row stays invisible
-    (`LedgerService._adjustments` filters on `date <= end`) until its date
-    arrives, when the week's real hours read as pure surplus.
+    A date that has not finished is refused. The balance cannot see its hours
+    yet: it counts nothing after today and holds back what today has still to
+    work, so a line sized now would not read zero once the date was over.
 
     A date earlier than a line already drawn in the same leave year is refused
     too: the correction is sized from the balance up to ``as_of``, which cannot
     see the later row, so the period they share is absorbed twice. A previous
-    leave year is fair game, since each accumulates from its own start.
+    leave year is fair game, since each accumulates from its own start. Any
+    later row made after its date counts as a line, a correction as much as a
+    settlement: a reason is free text, `--reason` included, and cannot tell
+    them apart. One dated the day it was made, as an adjustment from today is,
+    is never a settlement, and a line behind it absorbs nothing twice.
 
     Here, not in `flexi/cli/balance.py`, so the TUI and any embedder hold the
     same line.
@@ -136,18 +140,82 @@ def zero_balance(
         # derivation stable until its compensating row is committed.
         services.ledger.invalidate()
         _, year_end = services.absence.leave_year_bounds(as_of)
-        standing_line = services.adjustments.first_after(as_of, year_end)
+        standing_line = services.adjustments.first_line_after(as_of, year_end)
         if standing_line is not None:
             return AdjustmentResult(
                 False,
-                f"A line was already drawn at {long_date(standing_line.date)};"
+                "An adjustment is already recorded on"
+                f" {long_date(standing_line.date)};"
                 f" undo it with `flexi balance undo {standing_line.id}`"
                 " or settle on or after that date",
             )
-        standing = services.ledger.balance(as_of).delta
+        # Sized from the balance as shown, so the line reads 0:00 and not a
+        # minute either side of it.
+        standing = services.ledger.balance(as_of).as_shown().delta
         if not round(standing.total_seconds() / 60):
             return AdjustmentResult(False, "The balance is already zero")
         return services.adjustments.stage_record(as_of, -standing, reason)
+
+
+def adjustment_refusal(services: Services, when: date) -> str | None:
+    """Return why an adjustment cannot be dated ``when``, or None if it can.
+
+    It has to fall in the current leave year: the balance starts again at each
+    one, so a row dated in an earlier year is listed and never counted. It
+    cannot be in the future, where the ledger hides it until the day arrives.
+
+    And it has to come after the latest row made after its own date. That row
+    may be a settlement, which zeroes the balance up to its date, and a
+    correction dated on or before it reopens the period it closed. A reason is
+    free text, so only the dates can tell: a row dated the day it was made, as
+    an opening balance brought in today is, is never a settlement, because only
+    a finished day can be settled.
+
+    Public, because the command line checks before it shows the plan it asks
+    about, and `adjust_balance` checks again under the writer reservation.
+    """
+    today = wallclock.today()
+    if when > today:
+        return f"{long_date(when)} has not happened; date it today or earlier"
+    start, _ = services.absence.leave_year_bounds(today)
+    if when < start:
+        return (
+            f"The balance starts again on {long_date(start)}, so an adjustment"
+            f" dated {long_date(when)} would never count; date it on or after"
+            " that day"
+        )
+    line = services.adjustments.last_line_before(today)
+    if line is not None and when <= line.date:
+        return (
+            f"An adjustment back-dated to {long_date(line.date)} may be a"
+            " settlement, and one dated on or before it could reopen the balance"
+            " it settled; date this one after that day, or undo that one with"
+            f" `flexi balance undo {line.id}`"
+        )
+    return None
+
+
+def adjust_balance(
+    services: Services,
+    amount: timedelta,
+    reason: str,
+    on: date | None = None,
+) -> AdjustmentResult:
+    """Move the balance by ``amount`` from ``on``, which defaults to today.
+
+    For a balance brought in from elsewhere, or a correction to one. Not
+    yesterday by default, as a settlement is: on the first day of a leave year,
+    yesterday belongs to the year before, where the row would never count.
+
+    Here, not in `flexi/cli/balance.py`, so the TUI and any embedder hold the
+    same line.
+    """
+    when = on or wallclock.today()
+    with services.write():
+        refusal = adjustment_refusal(services, when)
+        if refusal is not None:
+            return AdjustmentResult(False, refusal)
+        return services.adjustments.stage_record(when, amount, reason)
 
 
 def minimum_session() -> timedelta:

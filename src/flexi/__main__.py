@@ -40,6 +40,7 @@ else:
 
 
 __all__ = (
+    "LEFT_RUNNING",
     "NEEDS_TERMINAL",
     "NOT_INITIALISED",
     "UNREADABLE",
@@ -49,6 +50,7 @@ __all__ = (
     "as_of_option",
     "ask_the_questions",
     "balance",
+    "balance_adjust",
     "balance_log",
     "balance_show",
     "balance_undo",
@@ -137,6 +139,8 @@ UNREADABLE = (
     "The database at {path} could not be read.\n"
     "Move it aside, or restore a copy from {backups}, then run `flexi init`."
 )
+
+LEFT_RUNNING = "{closed}. If you left earlier: open flexi, select it, press x, then n."
 
 
 def needs_a_terminal(ctx: click.Context) -> None:
@@ -265,6 +269,9 @@ def launch(*, settings: bool = False, splash: bool = False) -> FlexiApplication:
 def open_database(ctx: click.Context, *, fill: bool = True) -> ServiceRegistry:
     """Migrate, connect, sweep, and hand back the service registry.
 
+    What the sweep closed is said on stderr, whatever the command: it is why
+    the next morning's `clock out` answers `Not clocked in`.
+
     Closing is registered on the context: `ctx.exit` raises, so a
     `session.close()` at the end of a command is unreachable after a failure.
     """
@@ -274,7 +281,8 @@ def open_database(ctx: click.Context, *, fill: bool = True) -> ServiceRegistry:
     migrate()
     _engine, session = ctx.with_resource(database_scope())
     services = build_services(session)
-    services.clock.sweep()
+    for closed in services.clock.sweep():
+        click.secho(LEFT_RUNNING.format(closed=closed.message), fg="yellow", err=True)
     if fill:
         services.bank_holidays.fill_if_empty()
     return services
@@ -485,7 +493,8 @@ def balance() -> None:
 
 @balance.command(name="show")
 @as_of_option(
-    "Report the balance as at the end of this date, which may not be in the "
+    "Report the balance as at the end of this date, or as it stands today, "
+    "before the hours still to work are owed. The date may not be in the "
     "future. Defaults to today."
 )
 @requires_setup()
@@ -517,6 +526,46 @@ def balance_zero(
     from flexi.cli import balance as balance_cli
 
     return balance_cli.zero(services, as_of, reason, assume_yes=yes)
+
+
+@balance.command(
+    name="adjust",
+    # `-1:30` is an amount, not an unknown option `-1`.
+    context_settings={"ignore_unknown_options": True},
+)
+@click.argument("amount")
+@click.option(
+    "--reason",
+    default=None,
+    type=Utf8Text(),
+    help="Why, as `flexi balance log` will list it. Required.",
+)
+@click.option(
+    "--on",
+    "on",
+    type=TypedDate(),
+    default=None,
+    help="Count it from this date, in this leave year and not in the future. "
+    "Defaults to today.",
+)
+@click.option("--yes", is_flag=True, help="Do not ask.")
+@requires_setup()
+def balance_adjust(
+    services: ServiceRegistry,
+    amount: str,
+    reason: str | None,
+    on: date | None,
+    *,
+    yes: bool,
+) -> int:
+    """Move the balance by a signed amount, such as +5:30 or -1:30.
+
+    For a balance brought in from elsewhere, or a correction to one.
+    `flexi balance log` lists it and `flexi balance undo` takes it back.
+    """
+    from flexi.cli import balance as balance_cli
+
+    return balance_cli.adjust(services, amount, reason, on, assume_yes=yes)
 
 
 @balance.command(name="log")

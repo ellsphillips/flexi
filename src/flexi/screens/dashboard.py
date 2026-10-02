@@ -11,7 +11,7 @@ screen invalidates the ledger cache once, and only interested modules rebuild.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, timedelta
 from types import MappingProxyType
 from typing import ClassVar, Final, Unpack
 
@@ -38,13 +38,16 @@ from flexi.components.options import ScreenOptions
 from flexi.components.progress import TimeProgress
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
+from flexi.domain.balance import BalanceSummary, expected_for
 from flexi.domain.format import clock as clock_time
-from flexi.domain.format import short_date
+from flexi.domain.format import hm, short_date
 from flexi.domain.period import Period
 from flexi.messages import DateSelected, Scope
 from flexi.screens.modals import (
     AbsenceBooking,
     AbsenceModal,
+    Adjustment,
+    AdjustmentModal,
     ConfirmModal,
     Correction,
     CorrectionModal,
@@ -56,6 +59,7 @@ from flexi.services.clock import ClockResult
 from flexi.services.outcome import Outcome
 from flexi.services.registry import (
     Services,
+    adjust_balance,
     available_toil_days,
     invalidate_services,
 )
@@ -103,6 +107,9 @@ class DashboardScreen(Screen[None]):
         Binding(
             CONFIG.hotkeys.book_other, "book('other')", "Other absence", show=False
         ),
+        # On the destinations, not the app: a q from a button on the settings
+        # or setup form would throw away what had been typed into it.
+        Binding("q", "app.quit", "Quit", show=True),
     ]
 
     def action_book(self, kind: str) -> None:
@@ -119,7 +126,13 @@ class DashboardScreen(Screen[None]):
             first_weekday=CONFIG.defaults.first_day_of_week,
         )
         self.now = wallclock.now()
+        self._today = self.now.date()
+        """The date the tick last saw, so it can tell when midnight passes."""
+        self._closed_overnight = False
+        """Whether the tick closed a session since the last `/`, so the next stops."""
         self._tick: Timer | None = None
+        self._shown: tuple[BalanceSummary, ...] = ()
+        """The minutes the records table and the wallet were last drawn at."""
 
     # ---- composition ----
 
@@ -142,6 +155,7 @@ class DashboardScreen(Screen[None]):
     def on_mount(self) -> None:
         self._sync_header()
         self._refresh_progress()
+        self._shown = self._shown_minutes()
         self._start_tick_if_open()
 
     def on_resize(self) -> None:
@@ -206,6 +220,7 @@ class DashboardScreen(Screen[None]):
             invalidate_services(self._services)
         for module in self.query(Module):
             module.rebuild_if(scope)
+        self._shown = self._shown_minutes()
         self._refresh_progress()
 
     def _refresh_progress(self) -> None:
@@ -243,21 +258,86 @@ class DashboardScreen(Screen[None]):
     def _on_tick(self) -> None:
         """A second passed. Redraw the two readouts that measure elapsed time.
 
+        Everything else that moves with the clock prints whole minutes, and a
+        year of records takes some fifty milliseconds to build, so it waits
+        for `TIME`: a figure on screen reaching its next minute.
+
         No `invalidate()`: nothing was written, and `LedgerService.days` always
-        rebuilds today, whose length changes every second. Clearing the memo
-        would throw away every other day in the period with it.
+        rebuilds today, which an open session lengthens a minute at a time.
+        Clearing the memo would throw away every other day in the period with it.
         """
         self.now = wallclock.now()
+        if self.now.date() != self._today:
+            self._turn_the_day()
+            return
         for module in (ClockModule, BalanceModule):
             for widget in self.query(module):
                 widget.rebuild()
+        shown = self._shown_minutes()
+        if shown != self._shown:
+            self._shown = shown
+            for panel in self.query(Module):
+                panel.rebuild_if(Scope.TIME)
         self._refresh_progress()
+
+    def _turn_the_day(self) -> None:
+        """Midnight passed under an open dashboard.
+
+        A session left running is closed at the auto-close time and announced,
+        as the next launch or `/` would close it; until then the balance counts
+        it to midnight. Nobody pressed anything, so the status bar says so too,
+        and the next `/` stops there as one that swept would. A period that
+        showed the old date moves to the new one, and the tick stops if nothing
+        is left on the clock.
+        """
+        was, self._today = self._today, self.now.date()
+        if self.sweep():
+            self._closed_overnight = True
+            self.status("Closed the session left running", Tone.WARN)
+        if self.period.contains(was):
+            self.period = self.period.go_to(self._today)
+        self.refresh_modules(Scope.ALL)
+        self._start_tick_if_open()
+
+    def _shown_minutes(self) -> tuple[BalanceSummary, ...]:
+        """Today, the period and the balance, in the whole minutes they print.
+
+        Punches count from the minute they show and an open session to the
+        minute on the clock, so these turn over as the wall clock's minute does.
+        """
+        ledger = self._services.ledger
+        today = self.now.date()
+        return (
+            ledger.summary(today, today, now=self.now).as_shown(),
+            ledger.summary(self.period.start, self.period.end, now=self.now).as_shown(),
+            ledger.balance(today, now=self.now).as_shown(),
+        )
 
     def on_unmount(self) -> None:
         if self._tick is not None:
             self._tick.stop()
 
     # ---- clocking ----
+
+    def sweep(self) -> bool:
+        """Close work left running on an earlier day, and say so.
+
+        Launch, `/` and the tick that sees the date turn sweep through here, so
+        none closes a session unannounced: the auto-close time can be hours
+        after the person left, and only they know when. `ClockService.clock_in`
+        sweeps again, but only after `/` has, so it finds nothing left to
+        close. Answers whether one was closed; redrawing is the caller's.
+        """
+        closed = self._services.clock.sweep()
+        for result in closed:
+            self.notify(
+                f"{result.message}. If you left earlier: open the day in Records, "
+                "press x on the session, then n.",
+                severity="warning",
+                timeout=10,
+                markup=False,
+            )
+        return bool(closed)
 
     def on_clock_module_toggle(self, event: ClockModule.Toggle) -> None:
         event.stop()
@@ -276,7 +356,20 @@ class DashboardScreen(Screen[None]):
         # A session left running overnight is drawn as closed the moment the
         # date turns, and `sweep` makes that true in the database. It runs
         # first, or the morning's `/` closes yesterday at this morning's time.
-        clock.sweep()
+        # A press that closed one stops there: past midnight it is as likely
+        # meant as a clock-out, and clocking in would open a session nobody
+        # is working. So does the first press after the tick closed one, unless
+        # something has been opened since.
+        overnight, self._closed_overnight = self._closed_overnight, False
+        if self.sweep() or (overnight and not clock.is_clocked_in()):
+            receipt = (
+                "Closed the session left running; press again to clock in",
+                Tone.WARN,
+            )
+            self.status(*receipt)
+            self.refresh_modules(Scope.CLOCK)
+            self._start_tick_if_open()
+            return receipt
         if clock.is_clocked_in():
             return self._report(clock.clock_out())
         return self._report(clock.clock_in())
@@ -309,7 +402,24 @@ class DashboardScreen(Screen[None]):
                 scope=Scope.CLOCK,
             )
 
-        self.app.push_screen(CorrectionModal(self._selected_day()), callback=record)
+        day = self._selected_day()
+        ledger = self._services.ledger.day(day)
+        self.app.push_screen(
+            CorrectionModal(
+                day,
+                tracking_since=self._services.settings.resolved().tracking_since,
+                # Recorded work tracks the day whatever `tracking_since` says,
+                # so ask what it expects once tracked, not while it is empty.
+                expected=expected_for(
+                    ledger.contracted,
+                    is_tracked=True,
+                    is_working_day=ledger.is_working_day,
+                    is_holiday=ledger.is_holiday,
+                    absences=ledger.absences,
+                ),
+            ),
+            callback=record,
+        )
 
     def _selected_day(self) -> date:
         """The day the records cursor is on, or the anchor if it is elsewhere."""
@@ -360,12 +470,51 @@ class DashboardScreen(Screen[None]):
         if event.key is None:
             return
         absence = row_ident(RowKind.ABSENCE, event.key)
+        session = row_ident(RowKind.SESSION, event.key)
         if absence is not None:
             self._delete_absence(int(absence))
+        elif session is not None and session.isdigit():
+            # Not a break, which is keyed after the session before it.
+            self._void_session(int(session))
         elif event.key.startswith((RowKind.DAY, RowKind.SESSION)):
+            self.status("Select a session to void or a booking to remove", Tone.WARN)
+
+    def _void_session(self, session_id: int) -> None:
+        """Ask before voiding a session, naming it and the way back."""
+        segment = self._services.clock.segment(session_id)
+        if segment is None:
+            self.status("That session has already gone", Tone.WARN)
+            return
+        if segment.end is None:
             self.status(
-                "Select an absence booking to remove; work records are kept", Tone.WARN
+                "Clock out first; a running session cannot be voided", Tone.WARN
             )
+            return
+        day = segment.start.date()
+        question = (
+            f"Void {clock_time(segment.start)} → {clock_time(segment.end)} on "
+            f"{short_date(day)} ({hm(segment.duration(self.now))})? It stops "
+            "counting; the clock record is kept. Add the real hours with n."
+        )
+        # A settlement is a fixed amount, sized to zero the balance at its date,
+        # and `first_line_after` is exclusive: a line drawn on the day covers it.
+        _, year_end = self._services.absence.leave_year_bounds(day)
+        line = self._services.adjustments.first_line_after(
+            day - timedelta(days=1), year_end
+        )
+        if line is not None:
+            question += (
+                " If you settled the balance to zero on or after this day, it will "
+                "no longer read zero."
+            )
+
+        def confirm(answer: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
+            if answer:
+                self._report(self._services.clock.void(session_id))
+
+        self.app.push_screen(
+            ConfirmModal(question, title="Void session"), callback=confirm
+        )
 
     def _delete_absence(self, absence_id: int) -> None:
         found = self._services.absence.by_id(absence_id)
@@ -389,6 +538,31 @@ class DashboardScreen(Screen[None]):
             ),
             callback=confirm,
         )
+
+    # ---- the balance ----
+
+    def action_adjust_balance(self) -> None:
+        """Bring a balance in, or correct it, from today.
+
+        Written by the registry function `flexi balance adjust` calls, so a date
+        the command line would refuse is refused here as well.
+        """
+
+        def adjust(adjustment: Adjustment | None) -> None:
+            if adjustment is None:
+                return
+            self._report(
+                adjust_balance(
+                    self._services,
+                    adjustment.amount,
+                    adjustment.reason,
+                    adjustment.when,
+                ),
+                # It moves every figure a corrected session moves.
+                scope=Scope.CLOCK,
+            )
+
+        self.app.push_screen(AdjustmentModal(wallclock.today()), callback=adjust)
 
     # ---- reporting ----
 

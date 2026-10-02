@@ -12,7 +12,7 @@ from threading import Lock, get_ident
 from time import sleep
 
 import pytest
-from textual.command import DiscoveryHit, Hit
+from textual.command import CommandPalette, DiscoveryHit, Hit
 from textual.notifications import Notification
 from textual.widgets import Input, RadioSet
 
@@ -21,7 +21,8 @@ from flexi.constants import AbsenceType, Granularity
 from flexi.context import command_app
 from flexi.models.database.engine import create_db_engine
 from flexi.provider import Command, FlexiCommands, commands
-from flexi.screens.modals import AbsenceModal
+from flexi.screens.help import HelpScreen
+from flexi.screens.modals import AbsenceModal, AdjustmentModal
 from flexi.screens.setup import SetupScreen
 from tests.conftest import settled
 from tests.database import create_schema
@@ -82,6 +83,87 @@ def unconfigured(tmp_path: Path) -> Path:
     return path
 
 
+# Opening it -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key", ["ctrl+p", "colon"])
+async def test_either_key_opens_the_palette(app_factory: AppFactory, key: str) -> None:
+    """ctrl+p is Quick Open in VS Code and Cursor on Windows and Linux, hence `:`.
+
+    Textual adds ctrl+p itself, and stops as soon as any other key is bound to
+    its palette action, so ctrl+p is checked as well.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press(key)
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandPalette)
+
+
+async def test_colon_typed_into_a_time_stays_there(unconfigured: Path) -> None:
+    """Setup is a screen and not a dialog, so the application's keys reach it."""
+    app = FlexiApp(db_path=unconfigured)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        field = showing(app, SetupScreen).query_one("#input-auto-close", Input)
+        field.focus()
+        field.value = ""
+
+        await pilot.press("1", "7", "colon", "0", "0")
+        await pilot.pause()
+
+        assert field.value == "17:00"
+        assert not isinstance(app.screen, CommandPalette)
+
+
+@pytest.mark.parametrize(
+    ("opener", "focus"),
+    [("A", "#modal-cancel"), ("v", None)],
+    ids=["dialog", "jump mode"],
+)
+async def test_colon_opens_nothing_over_a_dialog_or_jump_mode(
+    app_factory: AppFactory, opener: str, focus: str | None
+) -> None:
+    """Unlike ctrl+p, `:` is not priority, so a modal in front keeps it.
+
+    A colon is typed into times, and one that misses its field must not bury a
+    half-filled dialog under the palette. A button holds focus where there is
+    one, because a field takes the colon as typing whatever is bound.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press(opener)
+        await pilot.pause()
+        opened = app.screen
+        if focus is not None:
+            opened.query_one(focus).focus()
+            await pilot.pause()
+
+        await pilot.press("colon")
+        await pilot.pause()
+
+        assert app.screen is opened
+
+
+async def test_colon_opens_the_palette_from_help(app_factory: AppFactory) -> None:
+    """Help's caption names `:`, and where VS Code keeps ctrl+p it is the only key.
+
+    Help is modal, so the application's `:` stops short of it, as it does at a
+    dialog; help binds its own, having nothing half-filled to bury.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("question_mark")
+        await pilot.pause()
+        showing(app, HelpScreen)
+
+        await pilot.press("colon")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandPalette)
+
+
 # The catalogue --------------------------------------------------------------
 
 
@@ -99,11 +181,13 @@ async def test_palette_offers_every_keyless_action(
         assert [command.title for command in catalogue] == offered
         assert "Clock in or out" in offered
         assert "Help" in offered
+        assert "Quit" in offered
         assert "Go to Leave" in offered
         for granularity in Granularity:
             assert f"Period: {granularity.label.lower()}" in offered
         for kind in AbsenceType:
             assert f"Book {kind.phrase}…" in offered
+        assert "Adjust balance…" in offered
         assert "Refresh bank holidays" in offered
 
 
@@ -132,6 +216,7 @@ async def test_palette_hides_commands_needing_a_missing_screen(
 
         assert "Clock in or out" in offered
         assert "Help" in offered
+        assert "Quit" in offered
         assert not [title for title in offered if title.startswith("Go to")]
         assert not [title for title in offered if title.startswith("Period:")]
         assert "Refresh bank holidays" not in offered
@@ -158,11 +243,13 @@ async def test_palette_hides_commands_for_a_hidden_screen(
 
         assert "Go to Dashboard" in offered
         assert "Clock in or out" in offered
+        assert "Quit" in offered
         assert "Refresh bank holidays" in offered
         assert not [title for title in offered if title.startswith("Period:")]
         assert "Go to today" not in offered
         assert "Go to date…" not in offered
         assert not [title for title in offered if title.startswith("Book ")]
+        assert "Adjust balance…" not in offered
 
 
 # Searching ------------------------------------------------------------------
@@ -259,6 +346,39 @@ async def test_choosing_an_absence_entry_prefills_the_type(
         assert modal.query_one("#absence-date", Input).value == str(
             dashboard(app).period.anchor
         )
+
+
+async def test_choosing_adjust_balance_opens_the_prompt(
+    app_factory: AppFactory,
+) -> None:
+    """The way in for someone who never opens a shell to `flexi balance adjust`."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await run_command(app, "Adjust balance…")
+        await pilot.pause()
+
+        modal = showing(app, AdjustmentModal)
+        assert app.focused is modal.query_one("#adjustment-amount", Input)
+
+
+async def test_choosing_quit_closes_flexi_during_setup(unconfigured: Path) -> None:
+    """`COMMANDS` replaces Textual's providers, Quit included, so Flexi has its own.
+
+    Driven through the palette and not `run_command`: `action_quit` is a
+    coroutine, and the palette is what awaits it.
+    """
+    app = FlexiApp(db_path=unconfigured)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        showing(app, SetupScreen)
+
+        await pilot.press("ctrl+p", *"quit")
+        await app.workers.wait_for_complete()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert not app.is_running
 
 
 async def test_choosing_clock_in_or_out_clocks(app_factory: AppFactory) -> None:

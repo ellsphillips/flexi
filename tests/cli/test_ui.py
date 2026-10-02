@@ -401,7 +401,9 @@ def _no_terminal() -> Iterator[int]:
 def options() -> Sequence[Option[str]]:
     return (
         Option("open", "Open Flexi", "your records, as they are"),
-        Option("settings", "Change settings", "leave year, working days, region"),
+        Option(
+            "settings", "Change settings", "hours, leave year, working days, region"
+        ),
         Option("reset", "Start again", "erase 12 records", grave=True),
     )
 

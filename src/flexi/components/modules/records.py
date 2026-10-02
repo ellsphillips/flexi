@@ -4,7 +4,7 @@ A collapsed row is a whole day in one line; opening it shows the sessions and
 breaks behind the figures.
 
 Strips are painted into cells, not mounted: a widget per row would cost a layout
-pass per redraw, on the one widget that redraws every second.
+pass per redraw, and the table redraws every minute a session is open.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from flexi.components.options import ModuleOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
 from flexi.config import CONFIG
 from flexi.constants import DayKind, Granularity
-from flexi.domain.balance import BalanceSummary, accumulate
+from flexi.domain.balance import BalanceSummary, accumulate, standing
 from flexi.domain.format import clock, delta, hm, printable, whole_minutes
 from flexi.domain.ledger import DayLedger
 from flexi.domain.punch import Window, cell_count
@@ -86,7 +86,7 @@ class BookHere(Message):
 
 
 class DeleteHere(Message):
-    """Ask to remove the absence booking under the cursor."""
+    """Ask to remove the booking, or void the session, under the cursor."""
 
     def __init__(self, key: str | None) -> None:
         super().__init__()
@@ -113,7 +113,7 @@ class RecordsModule(Module):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.book_absence, "book_here", "Book absence", show=True),
-        Binding(CONFIG.hotkeys.delete, "delete_here", "Remove booking", show=False),
+        Binding(CONFIG.hotkeys.delete, "delete_here", "Remove or void", show=False),
     ]
 
     def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
@@ -171,17 +171,18 @@ class RecordsModule(Module):
         ledgers = self.services.ledger.days(period.start, period.end, now=self.now)
         window = self.services.ledger.window
 
-        # Accumulated once, by the domain, and handed to both places that draw
-        # it, so the total row, the subtitle and the wallet cannot disagree.
-        total = accumulate(ledgers)
+        # Totalled as the balance is, so the total row, the column above it and
+        # the wallet cannot disagree.
         groups = [self._group(ledger, window) for ledger in ledgers]
-        groups.append(self._total_group(total))
+        groups.append(self._total_group(standing(ledgers, self.now.date())))
         table.set_groups(groups)
 
         empty = self.query_one("#records-empty", Static)
         empty.display = not ledgers
         table.display = bool(ledgers)
-        self.set_subtitle(totals_subtitle(total))
+        # Progress against the whole period's hours, today's still to work and
+        # all, as the period rail measures it.
+        self.set_subtitle(totals_subtitle(accumulate(ledgers)))
 
     def _group(self, ledger: DayLedger, window: Window) -> RowGroup:
         parent = Row(
@@ -333,14 +334,17 @@ class RecordsModule(Module):
         Hours against expected is only part of it: a TOIL day spends the
         surplus that paid for it, and a correction moves the balance on its own.
         A column without them does not add up to the figure printed under it.
+        Today's hours still to work are not a shortfall until it ends, and a
+        day still to come has done nothing yet.
         """
-        if not (
+        today = self.now.date()
+        if ledger.date > today or not (
             ledger.expected or ledger.worked or ledger.toil_taken or ledger.adjustment
         ):
             return Text("")
         # From the figures the table prints, not the exact ones, so the column
         # adds up to the total under it on a day carrying seconds.
-        return self._signed(accumulate((ledger,)).as_shown().delta)
+        return self._signed(standing((ledger,), today).as_shown().delta)
 
     def _signed(self, value: timedelta) -> Text:
         if value > timedelta():

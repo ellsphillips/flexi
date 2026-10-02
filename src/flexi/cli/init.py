@@ -1,6 +1,6 @@
 """Set Flexi up, and start again when that is what is meant.
 
-``flexi init`` creates the database and asks the five questions; where there
+``flexi init`` creates the database and asks the six questions; where there
 are already records it shows what is there first.
 
 Erasing is a line on the menu, not a flag. It appears only when there is
@@ -161,7 +161,9 @@ def options(contents: Contents) -> list[ui.Option[Choice]]:
     return [
         ui.Option(Choice.OPEN, "Open Flexi", "your records, as they are"),
         ui.Option(
-            Choice.SETTINGS, "Change settings", "leave year, working days, region"
+            Choice.SETTINGS,
+            "Change settings",
+            "hours, leave year, working days, region",
         ),
         ui.Option(Choice.RESET, "Start again", erase, grave=True),
     ]

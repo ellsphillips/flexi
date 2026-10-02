@@ -34,6 +34,7 @@ from flexi.components.charts import (
     DivergingBars,
     WeekRibbon,
     YearHeatmap,
+    running_balance,
     week_columns,
 )
 from flexi.constants import AbsenceType, DayKind, Portion
@@ -48,6 +49,8 @@ MONDAY = date(2025, 6, 2)
 NOW = wallclock.local(datetime.combine(MONDAY, time(23, 59)))
 """When these ribbons are drawn: the end of the day, so a closed day redraws
 identically."""
+LATER = MONDAY + timedelta(weeks=4)
+"""A today after every day below, so each is over and counts in full."""
 
 AMENDED = Segment(
     session_id=1,
@@ -313,7 +316,7 @@ async def test_unrecorded_day_is_left_blank() -> None:
     """The grid starts on a Monday, so the first week is usually part empty."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([day(MONDAY + timedelta(days=2))], first_weekday=0)
+        heatmap.show([day(MONDAY + timedelta(days=2))], first_weekday=0, today=LATER)
         glyph, _ = heatmap._cell(MONDAY)
         assert glyph == " "
 
@@ -331,7 +334,7 @@ async def test_day_never_due_to_be_worked_is_neutral(
 ) -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([ledger], first_weekday=0)
+        heatmap.show([ledger], first_weekday=0, today=LATER)
         glyph, style = heatmap._cell(ledger.date)
         assert glyph == EMPTY
         assert style == heatmap.get_component_rich_style("chart--neutral")
@@ -340,7 +343,7 @@ async def test_day_never_due_to_be_worked_is_neutral(
 async def test_day_worked_to_contract_is_uncoloured() -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([day(MONDAY)], first_weekday=0)
+        heatmap.show([day(MONDAY)], first_weekday=0, today=LATER)
         glyph, style = heatmap._cell(MONDAY)
         assert glyph == HEAT
         assert style == heatmap.get_component_rich_style("chart--neutral")
@@ -357,6 +360,7 @@ async def test_ramp_ranks_days_by_how_far_off() -> None:
                 day(MONDAY + timedelta(days=2), effect=-timedelta(hours=4)),
             ],
             first_weekday=0,
+            today=LATER,
         )
         assert heatmap._cell(MONDAY)[1] == heatmap.get_component_rich_style(
             f"chart--surplus-{DIVERGING_STEPS}"
@@ -379,6 +383,7 @@ async def test_near_perfect_days_stay_pale() -> None:
                 for n in (0, 1)
             ],
             first_weekday=0,
+            today=LATER,
         )
         assert heatmap.scale == timedelta(hours=2)
         assert heatmap._cell(MONDAY)[1] == heatmap.get_component_rich_style(
@@ -386,11 +391,33 @@ async def test_near_perfect_days_stay_pale() -> None:
         )
 
 
+async def test_today_is_not_drawn_as_a_deficit_until_it_ends() -> None:
+    """Its hours still to work are held back, as the balance holds them.
+
+    Charged from midnight, a morning before the first punch would be the deepest
+    red of the year, and stretch the ramp to a whole day either side.
+    """
+    tuesday = MONDAY + timedelta(days=1)
+    heatmap = YearHeatmap()
+    async with mounted(heatmap):
+        heatmap.show(
+            [day(MONDAY, effect=timedelta(hours=1)), day(tuesday, effect=-CONTRACTED)],
+            first_weekday=0,
+            today=tuesday,
+        )
+        assert heatmap._cell(tuesday)[1] == heatmap.get_component_rich_style(
+            "chart--neutral"
+        )
+        assert heatmap.scale == timedelta(hours=2)
+
+
 async def test_grid_is_a_weekday_per_row_from_monday() -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap):
         heatmap.show(
-            [day(MONDAY + timedelta(days=n)) for n in range(14)], first_weekday=0
+            [day(MONDAY + timedelta(days=n)) for n in range(14)],
+            first_weekday=0,
+            today=LATER,
         )
         drawn = lines(heatmap)
         assert [row[0] for row in drawn[:7]] == list("MTWTFSS")
@@ -400,7 +427,9 @@ async def test_grid_is_a_weekday_per_row_from_monday() -> None:
 async def test_legend_names_both_ends_of_the_ramp() -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([day(MONDAY, effect=timedelta(hours=3))], first_weekday=0)
+        heatmap.show(
+            [day(MONDAY, effect=timedelta(hours=3))], first_weekday=0, today=LATER
+        )
         legend = lines(heatmap)[-1]
         assert legend.startswith("−3:00 ")
         assert legend.endswith(" +3:00")
@@ -412,7 +441,7 @@ async def test_day_written_up_afterwards_has_its_own_fill() -> None:
     """The ramp says how the day went; the fill says where the reading came from."""
     heatmap = YearHeatmap()
     async with mounted(heatmap):
-        heatmap.show([day(MONDAY, segments=(AMENDED,))], first_weekday=0)
+        heatmap.show([day(MONDAY, segments=(AMENDED,))], first_weekday=0, today=LATER)
 
         glyph, style = heatmap._cell(MONDAY)
         assert glyph == AMENDED_HEAT
@@ -426,6 +455,7 @@ async def test_punched_and_corrected_days_keep_their_fills() -> None:
         heatmap.show(
             [day(MONDAY, segments=(AMENDED,)), day(MONDAY + timedelta(days=1))],
             first_weekday=0,
+            today=LATER,
         )
 
         assert heatmap._cell(MONDAY)[0] == AMENDED_HEAT
@@ -441,7 +471,7 @@ def test_days_are_grouped_into_weeks_beginning_on_monday() -> None:
         day(MONDAY + timedelta(days=3), effect=timedelta(hours=2)),
         day(MONDAY + timedelta(days=7), effect=-timedelta(hours=1)),
     ]
-    assert week_columns(ledgers, first_weekday=0) == [
+    assert week_columns(ledgers, first_weekday=0, today=LATER) == [
         Column(label="2", value=3.0, readout="+3:00"),
         Column(label="9", value=-1.0, readout="−1:00"),
     ]
@@ -450,7 +480,7 @@ def test_days_are_grouped_into_weeks_beginning_on_monday() -> None:
 def test_midweek_start_is_dated_by_its_monday() -> None:
     """The demo data starts on a Wednesday and lands in that week's bar."""
     wednesday = MONDAY + timedelta(days=2)
-    assert week_columns([day(wednesday)], first_weekday=0)[0].label == "2"
+    assert week_columns([day(wednesday)], first_weekday=0, today=LATER)[0].label == "2"
 
 
 def test_absence_still_lands_in_its_week() -> None:
@@ -460,7 +490,23 @@ def test_absence_still_lands_in_its_week() -> None:
         absences=(AbsenceSlice(1, AbsenceType.ANNUAL, Portion.FULL),),
         effect=-CONTRACTED,
     )
-    assert week_columns([booked], first_weekday=0)[0].value == pytest.approx(-7.4)
+    (week,) = week_columns([booked], first_weekday=0, today=LATER)
+    assert week.value == pytest.approx(-7.4)
+
+
+def test_today_is_not_a_fall_until_it_ends() -> None:
+    """Its hours still to work are held back, by the bar and by the line alike."""
+    tuesday = MONDAY + timedelta(days=1)
+    ledgers = [
+        day(MONDAY, effect=timedelta(hours=1)),
+        day(tuesday, effect=-timedelta(hours=5)),
+    ]
+
+    assert week_columns(ledgers, first_weekday=0, today=tuesday) == [
+        Column(label="2", value=1.0, readout="+1:00")
+    ]
+    assert running_balance(ledgers, today=tuesday) == (1.0, 1.0)
+    assert running_balance(ledgers, today=LATER) == (1.0, -4.0)
 
 
 # ---- an arm is a distance from the baseline, never a value ----
@@ -518,7 +564,9 @@ async def test_heatmap_rows_start_on_the_configured_day() -> None:
     heatmap = YearHeatmap()
     async with mounted(heatmap, width=40):
         heatmap.show(
-            [day(MONDAY + timedelta(days=n)) for n in range(14)], first_weekday=6
+            [day(MONDAY + timedelta(days=n)) for n in range(14)],
+            first_weekday=6,
+            today=LATER,
         )
         drawn = lines(heatmap)
 

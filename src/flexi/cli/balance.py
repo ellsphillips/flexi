@@ -11,12 +11,18 @@ from datetime import date, timedelta
 import click
 
 from flexi import wallclock
-from flexi.cli import report
+from flexi.cli import report, ui
 from flexi.domain.format import delta, hm, long_date, printable, stamp
-from flexi.services.adjustments import OPENING_BALANCE
-from flexi.services.registry import Services, settlement_date, zero_balance
+from flexi.services.adjustments import SETTLED, parse_amount
+from flexi.services.registry import (
+    Services,
+    adjust_balance,
+    adjustment_refusal,
+    settlement_date,
+    zero_balance,
+)
 
-__all__ = ("NO_CALENDAR", "log", "show", "undo", "zero")
+__all__ = ("NO_CALENDAR", "adjust", "log", "show", "undo", "zero")
 
 NO_CALENDAR = (
     "\nNo bank holiday calendar: days off are counted as working days.\n"
@@ -35,8 +41,8 @@ def show(services: Services, as_of: date | None = None) -> int:
     now = wallclock.today()
     today = as_of or now
     if today > now:
-        # A future date charges every working day between now and then as
-        # unworked, so the figure would be a deficit of days not yet lived.
+        # Nothing after today counts, so a later date would only print
+        # today's balance under a date it has not reached.
         click.secho(
             f"{long_date(today)} has not happened; the balance runs to today",
             fg="yellow",
@@ -84,11 +90,11 @@ def zero(
     """
     when = settlement_date(as_of)
     if when >= wallclock.today():
-        # `zero_balance` refuses a future date, and the standing it would be
-        # sized from counts every day between now and then as unworked.
-        return report(zero_balance(services, when, reason=reason or OPENING_BALANCE))
+        # `zero_balance` refuses a date that has not finished, and the standing
+        # it would be sized from cannot see that date's hours yet.
+        return report(zero_balance(services, when, reason=reason or SETTLED))
 
-    standing = services.ledger.balance(when).delta
+    standing = services.ledger.balance(when).as_shown().delta
 
     click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
     if not assume_yes and not click.confirm(
@@ -97,13 +103,63 @@ def zero(
         click.echo("Left alone.", err=True)
         return 1
 
-    result = zero_balance(services, when, reason=reason or OPENING_BALANCE)
+    result = zero_balance(services, when, reason=reason or SETTLED)
     if report(result):
         return 1
 
-    now = services.ledger.balance(wallclock.today()).delta
+    now = services.ledger.balance(wallclock.today()).as_shown().delta
     click.echo(f"balance now   {delta(now)}")
     return 0
+
+
+def adjust(
+    services: Services,
+    amount: str,
+    reason: str | None,
+    on: date | None = None,
+    *,
+    assume_yes: bool = False,
+) -> int:
+    """Move the balance by a signed amount, showing the balance it makes first.
+
+    Declining exits 1, as declining a settlement does. With no terminal to ask
+    on, it refuses unless `--yes` was given: a pipe is not someone answering,
+    and one left open would never answer.
+    """
+    try:
+        change = parse_amount(amount)
+    except ValueError as error:
+        raise click.UsageError(str(error)) from error
+    why = (reason or "").strip()
+    if not why:
+        msg = "An adjustment needs a reason: say why with --reason"
+        raise click.UsageError(msg)
+
+    today = wallclock.today()
+    when = on or today
+    refusal = adjustment_refusal(services, when)
+    if refusal is not None:
+        click.secho(refusal, fg="red", err=True)
+        return 1
+
+    before = services.ledger.balance(today).as_shown().delta
+    click.echo(f"Adjusting the balance by {delta(change)} on {long_date(when)}")
+    click.echo(f"  {printable(why)}")
+    click.echo(f"\nBalance: {delta(before)} → {delta(before + change)}")
+
+    if not assume_yes:
+        if not ui.interactive():
+            click.secho(
+                "No terminal to ask on; add --yes to record it without asking.",
+                fg="yellow",
+                err=True,
+            )
+            return 1
+        if not click.confirm("\nRecord it?", default=True, err=True):
+            click.echo("Nothing was recorded.", err=True)
+            return 1
+
+    return report(adjust_balance(services, change, why, when))
 
 
 def log(services: Services) -> int:

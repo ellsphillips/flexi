@@ -109,6 +109,8 @@ class ExpandableTable(DataTable[RenderableType]):
         self.cursor_type = "row"
         self._expanded: set[str] = set()
         self._groups: tuple[RowGroup, ...] = ()
+        self._laid_out: tuple[tuple[str, ...], tuple[int, ...]] = ((), ())
+        """The row keys and column widths the last full redraw put on screen."""
 
     # --- content ----------------------------------------------------------
 
@@ -120,6 +122,7 @@ class ExpandableTable(DataTable[RenderableType]):
         go off the right edge.
         """
         self.clear(columns=True)
+        self._laid_out = ((), ())
         for spec in specs:
             if isinstance(spec, tuple):
                 label, width = spec
@@ -138,10 +141,23 @@ class ExpandableTable(DataTable[RenderableType]):
         The widget outlives its rows: the records table is rebuilt on every
         redraw, so `expanded` must answer "is any row open" and not "has any
         row ever been open".
+
+        The same rows under the same columns are rewritten in place: a redraw
+        that only moves the figures must leave the scroll where the reader put
+        it, and clearing the table scrolls it back to the cursor.
         """
         self._groups = tuple(groups)
         self._expanded &= {group.parent.key for group in self._groups}
-        self._redraw()
+        rows = self.visible_rows()
+        if self._laid_out != self._layout(rows):
+            self._redraw()
+            return
+        columns = self.ordered_columns
+        for row in rows:
+            for column, cell in zip(columns, row.cells, strict=False):
+                self.update_cell(
+                    row.key, column.key, cell, update_width=column.auto_width
+                )
 
     @property
     def groups(self) -> tuple[RowGroup, ...]:
@@ -168,9 +184,18 @@ class ExpandableTable(DataTable[RenderableType]):
         # to (0, 0).
         was_at = self.cursor_row
         self.clear()
-        for row in self.visible_rows():
+        rows = self.visible_rows()
+        for row in rows:
             self.add_row(*row.cells, key=row.key)
+        self._laid_out = self._layout(rows)
         self._restore_cursor(remembered, was_at)
+
+    def _layout(self, rows: list[Row]) -> tuple[tuple[str, ...], tuple[int, ...]]:
+        """The row keys in order, and the widths of the columns they sit under."""
+        return (
+            tuple(row.key for row in rows),
+            tuple(column.width for column in self.ordered_columns),
+        )
 
     def _restore_cursor(self, key: str | None, was_at: int = 0) -> None:
         """Put the cursor back on the row it was on, by key.

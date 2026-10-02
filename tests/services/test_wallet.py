@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+import time_machine
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
@@ -146,6 +147,31 @@ def test_available_toil_is_the_balance_in_days(services: Services) -> None:
     assert available_toil_days(services, MONDAY) == pytest.approx(1.0, abs=0.05)
 
 
+def test_toil_free_to_book_is_the_balance_as_shown(services: Services) -> None:
+    """The booking dialog's days come from the figure the headline shows.
+
+    A sick morning off a 7:25 day leaves the afternoon owing 3:42, so 13:00 to
+    16:59 banks the +0:17 the headline shows, and 17/445 of a day.
+    """
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="06-08",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+            contracted_minutes=445,
+        )
+    )
+    assert services.absence.book(MONDAY, AbsenceType.SICK, Portion.AM).success
+    services.clock.clock_in(now=datetime(2026, 6, 8, 13, 0, tzinfo=UTC))
+    services.clock.clock_out(now=datetime(2026, 6, 8, 16, 59, tzinfo=UTC))
+    invalidate_services(services)
+
+    shown = services.ledger.balance(MONDAY).as_shown().delta
+    assert shown == timedelta(minutes=17)
+    assert available_toil_days(services, MONDAY) == shown / timedelta(minutes=445)
+
+
 def test_toil_booked_on_a_new_holiday_is_freed(
     services: Services, session: Session
 ) -> None:
@@ -173,6 +199,30 @@ def test_the_period_figures_cover_only_the_shown_span(services: Services) -> Non
     data = services.wallet.compute(MONDAY, SUNDAY, today=date(2026, 6, 15))
     assert data.period.worked == timedelta(hours=8)
     assert data.balance.worked == timedelta(hours=20)
+
+
+def test_this_period_stops_at_today(services: Services) -> None:
+    """Thursday and Friday expect hours and have none yet, which is no deficit."""
+    work(services, MONDAY, hours=8)
+    wednesday = date(2026, 6, 10)
+    data = services.wallet.compute(
+        MONDAY, SUNDAY, today=wednesday, now=datetime(2026, 6, 10, 8, tzinfo=UTC)
+    )
+    assert data.period.delta == timedelta(hours=8) - CONTRACTED * 2
+    assert data.period.expected == CONTRACTED * 2
+
+
+def test_this_period_holds_back_the_day_the_toil_row_does(services: Services) -> None:
+    """Asked about Thursday on the Friday, both figures count Thursday in full.
+
+    The leave year opens on the Monday, so the two cover the same days.
+    """
+    work(services, MONDAY, hours=8)
+    with time_machine.travel(datetime(2026, 6, 12, 12, tzinfo=UTC), tick=False):
+        data = services.wallet.compute(MONDAY, SUNDAY, today=THURSDAY)
+
+    assert data.balance.delta == timedelta(hours=8) - CONTRACTED * 4
+    assert data.period.delta == data.balance.delta
 
 
 def test_the_leave_year_bounds_a_year(services: Services) -> None:

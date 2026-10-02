@@ -7,7 +7,7 @@ to a day, and what it leaves alone when the settings are edited afterwards.
 
 from __future__ import annotations
 
-from datetime import date, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import time_machine
 from sqlalchemy.orm import Session
@@ -30,11 +30,14 @@ def balance_hours(services: Services, as_of: date) -> float:
 def test_setting_up_mid_year_is_not_a_deficit(
     configure: Configured,
 ) -> None:
-    """An April leave year set up in August has a hundred empty days behind it."""
+    """An April leave year set up in August has a hundred empty days behind it.
+
+    None of them is owed, and nor is the setup day until it ends.
+    """
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
 
-        assert balance_hours(services, INSTALLED) == -CONTRACTED.total_seconds() / 3600
+        assert balance_hours(services, INSTALLED) == 0
 
 
 def test_without_a_tracking_date_every_day_still_counts(
@@ -147,14 +150,10 @@ def banked(services: Services, as_of: date) -> timedelta:
     return services.ledger.balance(as_of).delta
 
 
-def test_correcting_a_day_before_setup_banks_the_hours(
+def test_part_day_corrected_before_setup_shows_its_shortfall(
     configure: Configured,
 ) -> None:
-    """A punched session vouches for its own day; a correction does not.
-
-    Corrected hours went unrecorded because nothing was clocking, so the day
-    still expects nothing of itself.
-    """
+    """Recorded work tracks its day, so a morning falls short of the contract."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
         before = banked(services, INSTALLED)
@@ -162,35 +161,80 @@ def test_correcting_a_day_before_setup_banks_the_hours(
         services.clock.correct(BEFORE_SETUP, time(9, 0), time(12, 30))
         invalidate_services(services)
 
-        assert banked(services, INSTALLED) == before + timedelta(hours=3, minutes=30)
+        shortfall = timedelta(hours=3, minutes=30) - CONTRACTED
+        assert services.ledger.day(BEFORE_SETUP).delta == shortfall
+        assert banked(services, INSTALLED) == before + shortfall
 
 
-def test_full_day_corrected_before_setup_is_banked(
+def test_full_day_corrected_before_setup_banks_only_the_surplus(
     configure: Configured,
 ) -> None:
-    """A day Flexi never asked for work expects nothing, so work on it is surplus."""
+    """Eight hours against the contracted day is +0:36, as it is when punched."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
         before = banked(services, INSTALLED)
 
-        services.clock.correct(BEFORE_SETUP, time(9, 0), time(16, 24))
+        services.clock.correct(BEFORE_SETUP, time(9, 0), time(17, 0))
         invalidate_services(services)
 
-        assert banked(services, INSTALLED) == before + CONTRACTED
+        assert banked(services, INSTALLED) == before + timedelta(minutes=36)
 
 
-def test_corrected_day_before_setup_expects_nothing(
+def test_corrected_day_before_setup_expects_the_contract(
     configure: Configured,
 ) -> None:
-    """What a day expects and whether anything is known about it are two facts."""
+    """A correction tracks its day exactly as a punch does."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
         services.clock.correct(BEFORE_SETUP, time(9, 0), time(12, 30))
         invalidate_services(services)
 
         day = services.ledger.day(BEFORE_SETUP)
-        assert day.expected == timedelta()
-        assert day.kind is not DayKind.UNTRACKED, "there is work recorded on it"
+        assert day.expected == CONTRACTED
+        assert day.kind is DayKind.WORKING
+
+
+def test_filling_in_the_week_before_setup_counts_each_day(
+    configure: Configured,
+) -> None:
+    """Set up on a Wednesday, add Monday and Tuesday with `n`, punch Wednesday.
+
+    Eight hours against 7:24 is +0:36 three times, not two days of surplus.
+    """
+    setup_day = date(2026, 9, 30)
+    with time_machine.travel(datetime(2026, 9, 30, 17, 30, tzinfo=UTC), tick=False):
+        services = configure(tracking_since=setup_day)
+        for earlier in (date(2026, 9, 28), date(2026, 9, 29)):
+            assert services.clock.correct(earlier, time(9, 0), time(17, 0)).success
+        services.clock.clock_in(now=datetime(2026, 9, 30, 9, 10, tzinfo=UTC))
+        services.clock.clock_out(now=datetime(2026, 9, 30, 17, 10, tzinfo=UTC))
+        invalidate_services(services)
+
+        assert banked(services, setup_day) == timedelta(hours=1, minutes=48)
+
+
+def test_toil_previews_and_the_ledger_track_the_same_days(
+    configure: Configured,
+) -> None:
+    """`facts_between` decides tracking by the ledger's rule, or TOIL disagrees.
+
+    Before the stamp: an empty day, a corrected one, a punched one, a slip of
+    the finger that was voided, and another empty day.
+    """
+    with time_machine.travel(INSTALLED, tick=False):
+        services = configure(leave_year_start="04-06", tracking_since=INSTALLED)
+        services.clock.correct(BEFORE_SETUP, time(9, 0), time(12, 30))
+        work(services, BEFORE_SETUP + timedelta(days=1), hours=7.4)
+        work(services, BEFORE_SETUP + timedelta(days=2), hours=0.001)
+
+        start = BEFORE_SETUP - timedelta(days=1)
+        end = BEFORE_SETUP + timedelta(days=3)
+        facts = services.absence.facts_between(start, end)
+        ledgers = services.ledger.days(start, end)
+
+        previewed = [day.is_tracked for day in facts]
+        counted = [day.kind is not DayKind.UNTRACKED for day in ledgers]
+        assert previewed == counted == [False, True, True, False, False]
 
 
 def test_punch_before_setup_makes_a_working_day(
@@ -209,7 +253,7 @@ def test_punch_before_setup_makes_a_working_day(
 def test_correction_after_setup_meets_the_contract(
     configure: Configured,
 ) -> None:
-    """The carve-out stops at the stamp: past it, a half-day is a half-day."""
+    """A day the stamp covers measures a correction against the contract too."""
     tracked_day = INSTALLED - timedelta(days=1)
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=tracked_day)
@@ -245,7 +289,7 @@ def test_toil_day_from_before_setup_withdraws_nothing(
 def test_toil_day_the_stamp_covers_still_costs_a_day(
     configure: Configured,
 ) -> None:
-    """The carve-out stops at the stamp, exactly as it does for a correction."""
+    """Only an untracked day is spared: TOIL on one the stamp covers costs a day."""
     with time_machine.travel(INSTALLED, tick=False):
         services = configure(leave_year_start="04-06", tracking_since=LEAVE_YEAR_OPENED)
 

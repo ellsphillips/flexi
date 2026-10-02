@@ -20,6 +20,7 @@ from flexi.models.database.moment import moment_of
 from flexi.services.clock import CORRECTION_BACKWARDS, CORRECTION_EMPTY
 from flexi.services.registry import build_services
 from flexi.services.startup import close_stale_sessions
+from tests.services.conftest import CONTRACTED
 
 pytestmark = pytest.mark.usefixtures("in_london")
 
@@ -173,7 +174,9 @@ def test_stale_session_in_the_second_repeated_hour_closes_forward(
     services = build_services(session)
     assert services.clock.clock_in(now=_at(f"{FALLBACK}T01:30")).success
 
-    [closed] = close_stale_sessions(session, time(1, 45), today=date(2026, 10, 26))
+    [closed] = close_stale_sessions(
+        session, time(1, 45), contracted=CONTRACTED, today=date(2026, 10, 26)
+    )
 
     assert closed.clock_out_event is not None
     assert moment_of(closed.clock_out_event) - moment_of(

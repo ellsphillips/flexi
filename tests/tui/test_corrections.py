@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
 
+import pytest
 from textual.pilot import Pilot
 from textual.widgets import Digits, Input, Static
 
 from flexi.app import FlexiApp
 from flexi.components.expandable import ExpandableTable, RowKind
 from flexi.config import CONFIG
+from flexi.constants import DayKind
 from flexi.domain.format import digits as digits_of
 from flexi.domain.punch import Cell, strip
 from flexi.screens.modals import CorrectionModal, CorrectionsModal
+from flexi.services.registry import invalidate_services
 from tests.tui.conftest import (
     WIDE,
     AppFactory,
@@ -262,15 +265,124 @@ async def test_cancelling_the_correction_writes_nothing(
 async def test_recording_a_correction_moves_the_balance_on_screen(
     app_factory: AppFactory,
 ) -> None:
-    """Read off the widget: the arithmetic and the redraw are two separate things."""
+    """Read off the widget: the arithmetic and the redraw are two separate things.
+
+    Long enough to take today past its hours: short of them, it is still owed
+    nothing, and the balance stands where it did.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         digits = app.screen.query_one("#balance-digits", Digits)
         before = digits.value
 
-        await record(pilot, "6:00", "7:30")
+        await record(pilot, "5:00", "8:00")
 
         assert digits.value != before, "the readout still shows the old balance"
         summary = app.services.ledger.balance(dashboard(app).now.date())
         assert digits.value == digits_of(summary.delta)
+
+
+# ---- before setup ----
+
+SET_UP = date(2026, 6, 11)
+"""The seeded Thursday, standing in for the day Flexi was set up."""
+
+
+def track_from(app: FlexiApp, since: date, *, contracted_minutes: int = 444) -> None:
+    """Move the tracking stamp, and the contract with it, under the open app."""
+    stored = app.services.settings.get_settings()
+    assert stored is not None
+    stored.tracking_since = since
+    stored.contracted_minutes = contracted_minutes
+    invalidate_services(app.services)
+
+
+async def open_on(app: FlexiApp, pilot: Pilot[None], when: date) -> str:
+    """Open the correction modal on a date and read its caption."""
+    screen = dashboard(app)
+    screen.set_period(screen.period.go_to(when))
+    await pilot.pause()
+    await pilot.press(CONFIG.hotkeys.new_session)
+    await pilot.pause()
+    return str(showing(app, CorrectionModal).query_one(".caption", Static).render())
+
+
+async def test_a_day_before_setup_says_it_will_owe_the_contracted_day(
+    app_factory: AppFactory,
+) -> None:
+    """The length is the one set, so a 7:30 contract does not read as 7:24."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        track_from(app, SET_UP, contracted_minutes=450)
+
+        caption = await open_on(app, pilot, date(2026, 6, 8))
+
+        assert caption == (
+            "Flexi started tracking on Thu 11 Jun. "
+            "Work recorded here counts Mon 8 against your 7:30 day."
+        )
+
+
+async def test_an_empty_day_before_setup_warns_of_what_it_will_owe(
+    app_factory: AppFactory,
+) -> None:
+    """Untracked while empty, the day expects nothing until the work is saved."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        track_from(app, SET_UP)
+        when = date(2026, 4, 2)  # a Thursday before the seeded leave year
+        assert app.services.ledger.day(when).kind is DayKind.UNTRACKED
+
+        caption = await open_on(app, pilot, when)
+
+        assert caption == (
+            "Flexi started tracking on Thu 11 Jun. "
+            "Work recorded here counts Thu 2 against your 7:24 day."
+        )
+
+
+async def test_a_half_day_off_before_setup_says_it_will_owe_the_other_half(
+    app_factory: AppFactory,
+) -> None:
+    """The seeded Tuesday has its morning booked off, so it owes only the afternoon."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        track_from(app, SET_UP)
+
+        caption = await open_on(app, pilot, date(2026, 6, 9))
+
+        assert caption == (
+            "Flexi started tracking on Thu 11 Jun. "
+            "Work recorded here counts Tue 9 against your 3:42 day."
+        )
+
+
+@pytest.mark.parametrize(
+    "when",
+    [date(2026, 6, 6), date(2026, 5, 25), date(2026, 6, 5), SET_UP],
+    ids=[
+        "weekend-before-setup",
+        "bank-holiday-before-setup",
+        "booked-off-before-setup",
+        "setup-day",
+    ],
+)
+async def test_a_day_owing_nothing_new_keeps_the_usual_caption(
+    app_factory: AppFactory, when: date
+) -> None:
+    """Only a working day before setup starts owing the contract when worked.
+
+    A day booked off in full owes nothing, and refuses the work besides.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        track_from(app, SET_UP)
+
+        caption = await open_on(app, pilot, when)
+
+        assert caption.startswith("For a day you worked and did not clock.")

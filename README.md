@@ -59,25 +59,37 @@ uv run flexi
 
 ## First run
 
-Flexi asks for your leave-year start, annual entitlement, working days,
-UK bank-holiday division, and the time to close sessions left running overnight.
-Tracking starts that day; earlier days do not create a deficit.
+Flexi asks for your leave-year start, annual entitlement, working days, hours
+a day, UK bank-holiday division, and the time to close sessions left running
+overnight. Tracking starts that day; earlier days do not create a deficit. Record
+work on one of them and it counts against your contracted day.
+
+Hours a day default to 7:24 and accept `7:30`, `7h30` or `7.5`. A decimal is
+hours, so `7.5` is 7:30; `7.30`, which reads either way, is refused. One figure
+applies to every working day.
+
+Starting with a balance? Run `flexi balance adjust +5:30 --reason "Brought forward"`,
+or choose **Adjust balance…** from the command palette (`ctrl+p` or `:`).
 
 Press `f4` to change settings or set each leave year's entitlement.
-A new leave year needs its own allowance.
+A new leave year needs its own allowance. New hours a day recalculate every day
+already tracked, not only the days ahead, so `f4` asks before saving them.
 
-The interface currently uses **7 hours 24 minutes per working day**. The flexi
-balance restarts each leave year. Custom contracted hours, automatic balance
-carry, and import/export are not available yet.
+The flexi balance restarts each leave year. Automatic balance carry and
+import/export are not available yet.
 
 ## Working with Flexi
 
 ![The dashboard](https://raw.githubusercontent.com/ellsphillips/flexi/main/docs/shots/showcase-dashboard.svg)
 
 - **Clock in and out with `/`.** The dashboard shows worked time, expected hours,
-  breaks, and your running balance.
+  breaks, and your running balance. Today's surplus counts as soon as you work
+  it; a shortfall waits until the day ends.
 - **Add missed work with `n`.** Enter a completed session; overlapping work is
   refused. `N` lists these corrections.
+- **Fix a wrong session with `x`, then `n`.** `x` on a session voids it: it stops
+  counting, and its clock record is kept. A session you leave running is closed
+  at your auto-close time, and Flexi tells you what it counted.
 - **Inspect a day with `space`.** Expand its sessions, absences, and balance.
 - **Book leave with `f2`.** Annual, sick, TOIL, unpaid, or other absence, in whole
   or half days. Extend a selection with `shift` and an arrow.
@@ -96,11 +108,28 @@ are checked before booking. Two different half-day absences can share a date.
 | `d` · `w` · `m` · `y` | Day · week · month · leave year on the dashboard |
 | `[` · `]` · `t` · `g` | Previous period · next period · today · go to date |
 | `A` · `S` · `T` · `U` · `O` | Annual · sick · TOIL · unpaid · other leave |
-| `v` · `?` · `ctrl+p` | Jump mode · help · command palette |
+| `v` · `?` · `ctrl+p` or `:` | Jump mode · help · command palette |
+| `q` or `ctrl+q` | Quit (`q` on the dashboard, Leave and Insights) |
 
 The [keymap](https://github.com/ellsphillips/flexi/blob/main/docs/KEYMAP.md)
 lists every shortcut and explains remapping. Dates accept forms such as `12`,
 `12 Jun`, `2026-06-12`, `+3d`, and `-2w`.
+
+**In VS Code or Cursor**, the editor takes some keys before Flexi sees them:
+`ctrl+q` on macOS and Windows, `ctrl+p` on Windows and Linux, and `f1` and `f3`.
+Press `q` to quit from the dashboard, Leave or Insights, and `:` for the command
+palette, which offers Quit too and reaches every screen. To send those keys to
+Flexi instead, add `"terminal.integrated.sendKeybindingsToShell": true` to your
+settings, or release only these four:
+
+```json
+"terminal.integrated.commandsToSkipShell": [
+  "-workbench.action.quickOpenView",
+  "-workbench.action.quickOpen",
+  "-workbench.action.showCommands",
+  "-workbench.action.terminal.findNext"
+]
+```
 
 ## From the shell
 
@@ -112,6 +141,7 @@ flexi leave sick today pm
 flexi leave cancel next monday
 flexi balance show
 flexi balance zero --reason "Balance agreed with my manager"
+flexi balance adjust -0:45 --on yesterday --reason "Long lunch"
 flexi balance log
 flexi balance undo 3
 flexi holidays refresh
@@ -120,9 +150,19 @@ flexi holidays refresh
 Leave commands show a plan and ask before writing. `--dry-run` previews it;
 `--yes` skips confirmation. Declining exits with status 1.
 
-`balance zero` settles through yesterday by default. If work overlaps booked
-leave, clock-out asks you to remove the conflicting booking and retry; the
-session stays open. Clock records are retained as an audit trail.
+`balance adjust` moves the balance by a signed amount, such as `+5:30` or
+`-1:30`, from today or an earlier day of the leave year given with `--on`.
+That day has to come after any settlement, and after any adjustment that was
+itself given an earlier day, since Flexi cannot tell the two apart. It shows
+the balance before and after and asks first, as `balance zero` does; `--yes`
+skips the question, and is needed where there is no terminal to ask on.
+`balance log` lists every adjustment, and `balance undo` removes one.
+
+`balance zero` settles through yesterday by default. A half day off halves the
+hours a day expects, whichever side of noon you work the rest; only a day booked
+off in full refuses work. Clock records are retained as an audit trail. A session
+left running overnight is closed at your auto-close time by the next command,
+which says so on stderr.
 
 ## Your data
 

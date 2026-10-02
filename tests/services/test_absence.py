@@ -7,7 +7,7 @@ wording is a change in the interface.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
@@ -141,6 +141,25 @@ class TestRejections:
         result = absence.book(d, AbsenceType.SICK)
         assert result.success is False
 
+    @pytest.mark.parametrize(
+        ("asked", "refusal"),
+        [
+            (Portion.FULL, "Half of that day is already booked; remove it first"),
+            (Portion.AM, "That morning is already booked"),
+        ],
+    )
+    def test_reject_over_a_booked_half(
+        self, absence: AbsenceService, asked: Portion, refusal: str
+    ) -> None:
+        """A whole day cannot go over half of one, and a half cannot go twice."""
+        d = _next_weekday(date(2026, 6, 8), 0)
+        assert absence.book(d, AbsenceType.SICK, portion=Portion.AM).success
+
+        result = absence.book(d, AbsenceType.ANNUAL, portion=asked)
+
+        assert result.success is False
+        assert result.message == refusal
+
     def test_reject_when_bh_unavailable(self, tmp_path: Path) -> None:
         """Refuses when it cannot tell whether a date is a bank holiday.
 
@@ -187,38 +206,87 @@ class TestRejections:
         assert "recorded work" in result.message
 
     @pytest.mark.parametrize(
-        ("worked_from", "worked_to", "refused", "allowed"),
+        ("opened", "closed", "kind", "portion"),
         [
-            (9, 11, Portion.AM, Portion.PM),
-            (14, 16, Portion.PM, Portion.AM),
+            (time(8, 30), time(12, 30), AbsenceType.ANNUAL, Portion.PM),
+            (time(11, 0), time(16, 0), AbsenceType.SICK, Portion.AM),
         ],
     )
-    def test_half_day_refused_only_over_worked_half(
+    def test_half_day_is_booked_over_work_that_crosses_noon(
         self,
         absence: AbsenceService,
         session: Session,
-        worked_from: int,
-        worked_to: int,
-        refused: Portion,
-        allowed: Portion,
+        opened: time,
+        closed: time,
+        kind: AbsenceType,
+        portion: Portion,
     ) -> None:
-        """`Portion.FULL` returns before any time is compared.
+        """A half day is half the contract off, not the hours either side of noon.
 
-        Only a half day reaches the comparison between the aware datetimes
-        `moment_of` returns and the midday built beside them.
+        `expected_for` halves what the day asks for whenever the work happened.
+        The whole day still cannot be booked off over it.
         """
         d = _next_weekday(date(2026, 7, 6), 0)
         clock = build_services(session).clock
+        clock.clock_in(now=datetime.combine(d, opened, tzinfo=UTC))
+        clock.clock_out(now=datetime.combine(d, closed, tzinfo=UTC))
+
+        whole = absence.book(d, kind)
+        assert whole.success is False
+        assert "recorded work" in whole.message
+
+        half = absence.book(d, kind, portion=portion)
+        assert half.success is True, half.message
+
+    def test_second_half_over_work_is_refused(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """A morning and an afternoon are the whole day, and the day was worked."""
+        d = _next_weekday(date(2026, 7, 6), 0)
+        clock = build_services(session).clock
+        clock.clock_in(now=datetime.combine(d, time(9), tzinfo=UTC))
+        clock.clock_out(now=datetime.combine(d, time(11), tzinfo=UTC))
+
+        morning = absence.book(d, AbsenceType.SICK, portion=Portion.AM)
+        afternoon = absence.book(d, AbsenceType.ANNUAL, portion=Portion.PM)
+
+        assert morning.success is True, morning.message
+        assert afternoon.success is False
+        assert afternoon.message == "There is recorded work on that day"
+        assert [row.portion for row in absence.for_date(d)] == [Portion.AM]
+
+    def test_going_home_sick_after_lunch_halves_the_day(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """In at nine, home sick at one: four hours against half a day."""
+        d = date(2026, 6, 9)
+        clock = build_services(session).clock
+        clock.clock_in(now=datetime.combine(d, time(9), tzinfo=UTC))
+        clock.clock_out(now=datetime.combine(d, time(13), tzinfo=UTC))
+
+        result = absence.book(d, AbsenceType.SICK, portion=Portion.PM)
+
+        assert result.success is True, result.message
+        day = build_services(session).ledger.day(d)
+        assert (day.worked, day.expected, day.delta) == (
+            timedelta(hours=4),
+            timedelta(hours=3, minutes=42),
+            timedelta(minutes=18),
+        )
+
+    def test_afternoon_is_free_after_leaving_in_the_noon_minute(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """Out at 12:00:30 is the 12:00 the records show: the afternoon is free."""
+        d = _next_weekday(date(2026, 7, 6), 0)
+        clock = build_services(session).clock
         midnight = datetime.combine(d, datetime.min.time(), tzinfo=UTC)
-        clock.clock_in(now=midnight.replace(hour=worked_from))
-        clock.clock_out(now=midnight.replace(hour=worked_to))
+        clock.clock_in(now=midnight.replace(hour=9))
+        clock.clock_out(now=midnight.replace(hour=12, second=30))
 
-        over_the_work = absence.book(d, AbsenceType.SICK, portion=refused)
-        assert over_the_work.success is False
-        assert "recorded work" in over_the_work.message
+        result = absence.book(d, AbsenceType.SICK, portion=Portion.PM)
 
-        the_other_half = absence.book(d, AbsenceType.SICK, portion=allowed)
-        assert the_other_half.success is True, the_other_half.message
+        assert result.success is True, result.message
 
     def test_other_leave_needs_a_note(
         self, absence: AbsenceService, session: Session
@@ -401,10 +469,10 @@ class TestBalance:
 class TestOpenSessions:
     """How an open session weighs on a booking decision."""
 
-    def test_afternoon_is_bookable_mid_morning(
+    def test_running_session_leaves_one_half_bookable(
         self, absence: AbsenceService, session: Session
     ) -> None:
-        """An open session is worth what has been worked, not the whole day."""
+        """A session still running is recorded work, so the day cannot go in full."""
         clock = build_services(session).clock
         with time_machine.travel(datetime(2026, 6, 10, 10, 0, tzinfo=UTC), tick=False):
             clock.clock_in(now=datetime(2026, 6, 10, 8, 30, tzinfo=UTC))
@@ -416,31 +484,36 @@ class TestOpenSessions:
         assert morning.success is False
         assert "recorded work" in morning.message
 
-    def test_afternoon_is_not_bookable_once_worked(
+    def test_afternoon_is_bookable_once_worked(
         self, absence: AbsenceService, session: Session
     ) -> None:
+        """Still on the clock at one, and going home sick for the afternoon."""
         clock = build_services(session).clock
         with time_machine.travel(datetime(2026, 6, 10, 13, 0, tzinfo=UTC), tick=False):
             clock.clock_in(now=datetime(2026, 6, 10, 8, 30, tzinfo=UTC))
 
-            result = absence.book(MIDSUMMER.date(), AbsenceType.FLEXI, Portion.PM)
+            result = absence.book(MIDSUMMER.date(), AbsenceType.SICK, Portion.PM)
 
-        assert result.success is False
-        assert "recorded work" in result.message
+        assert result.success is True, result.message
 
     def test_session_left_open_yesterday_covers_that_day(
         self, absence: AbsenceService, session: Session
     ) -> None:
-        """Yesterday is over, so a missing clock-out is worth the rest of it."""
+        """Yesterday is over, so a missing clock-out is worth the rest of it.
+
+        And no more: it does not make every day since look worked.
+        """
         yesterday = date(2026, 6, 9)
         clock = build_services(session).clock
         with time_machine.travel(datetime(2026, 6, 9, 9, 0, tzinfo=UTC), tick=False):
             clock.clock_in(now=datetime(2026, 6, 9, 8, 30, tzinfo=UTC))
 
-        result = absence.book(yesterday, AbsenceType.FLEXI, Portion.PM)
+        that_day = absence.book(yesterday, AbsenceType.FLEXI)
+        today = absence.book(MIDSUMMER.date(), AbsenceType.FLEXI)
 
-        assert result.success is False
-        assert "recorded work" in result.message
+        assert that_day.success is False
+        assert "recorded work" in that_day.message
+        assert today.success is True, today.message
 
     def test_span_of_reads_the_clock_by_default(
         self, absence: AbsenceService, session: Session
@@ -452,6 +525,21 @@ class TestOpenSessions:
         _started, ended = span_of(running)
 
         assert ended == wallclock.now()
+
+    def test_span_of_reads_both_ends_to_the_minute(
+        self, absence: AbsenceService, session: Session
+    ) -> None:
+        """A verdict sees the minutes the records table shows, open or not."""
+        clock = build_services(session).clock
+        clock.clock_in(now=datetime(2026, 6, 10, 8, 30, 30, tzinfo=UTC))
+        running = sessions_on(session, MIDSUMMER.date())[0]
+
+        span = span_of(running, now=datetime(2026, 6, 10, 12, 0, 30, tzinfo=UTC))
+
+        assert span == (
+            datetime(2026, 6, 10, 8, 30, tzinfo=UTC),
+            datetime(2026, 6, 10, 12, 0, tzinfo=UTC),
+        )
 
 
 # ---------- what a TOIL booking costs ----------

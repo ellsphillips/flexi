@@ -70,6 +70,10 @@ class CommandDashboard(Protocol):
         """Open a booking prompt for ``kind`` on ``when``."""
         ...
 
+    def action_adjust_balance(self) -> None:
+        """Open the prompt that moves the balance by an amount."""
+        ...
+
 
 @runtime_checkable
 class CommandApplication(Protocol):
@@ -89,6 +93,10 @@ class CommandApplication(Protocol):
 
     def action_help(self) -> None:
         """Open the binding reference."""
+        ...
+
+    async def action_quit(self) -> None:
+        """Close the application."""
         ...
 
     def action_go_to(self, name: str) -> None:

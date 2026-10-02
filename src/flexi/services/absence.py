@@ -8,7 +8,8 @@ The rules SQLite cannot express, enforced here:
   ``(date, portion)``.
 * Two halves of different types are legal: a sick morning and an annual
   afternoon.
-* A half day may be booked over recorded work in the other half.
+* A half day may be booked over recorded work, whatever the hour; a booking
+  that would take the whole of a worked day off may not.
 * TOIL warns and does not block: an annual allowance is a limit set elsewhere,
   a flexi balance is the user's own arithmetic.
 """
@@ -17,20 +18,19 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass
-from datetime import date, datetime, time
+from dataclasses import dataclass, replace
+from datetime import date, datetime, time, timedelta
 from typing import NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.constants import AbsenceType, EventSource, Portion, Verdict
+from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.domain import leaveyear
 from flexi.domain.dates import days_between
 from flexi.domain.format import days as fmt_days
-from flexi.domain.format import plural, short_date
-from flexi.domain.ledger import MIDDAY_HOUR
+from flexi.domain.format import plural, short_date, to_the_minute, whole_minutes
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
 from flexi.services.bank_holidays import BankHolidayService
@@ -74,8 +74,8 @@ session is worth."""
 def covers_the_whole_day(booked: Iterable[Portion]) -> bool:
     """True when what is booked leaves no half of the day left to work.
 
-    The mirror of `DayFacts.has_work_in`, which lets a half day be booked over
-    work in the other half.
+    The one test both sides share: the clock refuses work on such a day, and
+    `clash_reason` a booking that would make a worked day one.
 
     Examples:
         >>> covers_the_whole_day([Portion.FULL])
@@ -222,37 +222,22 @@ class DayFacts:
     holiday_title: str | None
     booked: tuple[Portion, ...]
     worked: tuple[Span, ...]
+    worked_hours: timedelta
+    """How long the sessions begun on this date have run so far: the hours the
+    ledger counts on it. Not the length of ``worked``, which also holds a night
+    begun the day before, counted on that day."""
     is_tracked: bool = True
     """Whether the ledger expects anything of this date. False before tracking
-    started, unless the clock was punched on it; `LedgerService` reads the same
+    started, unless work is recorded on it; `LedgerService` reads the same
     rule, and a TOIL booking's arithmetic turns on it."""
-
-    @property
-    def midday(self) -> datetime:
-        """The boundary between the two halves of this date.
-
-        Localised, because the spans in ``worked`` are: comparing a naive wall
-        time against a stored aware one raises `TypeError`.
-        """
-        return wallclock.local(datetime.combine(self.date, time(MIDDAY_HOUR, 0)))
-
-    def has_work_in(self, portion: Portion) -> bool:
-        """True when recorded work overlaps the half of the day being booked."""
-        if not self.worked:
-            return False
-        if portion is Portion.FULL:
-            return True
-        midday = self.midday
-        return any(
-            start < midday if portion is Portion.AM else end > midday
-            for start, end in self.worked
-        )
 
 
 def clash_reason(facts: DayFacts, portion: Portion) -> str | None:
     """Why this part of the day is already spoken for, or ``None``.
 
-    Ordered cheapest first, and only the first is reported.
+    Ordered cheapest first, and only the first is reported. Recorded work
+    refuses only a booking that would leave none of the day to work: one half
+    off halves what `expected_for` asks of the day, whenever the hours fell.
     """
     if Portion.FULL in facts.booked:
         return "That day is already booked in full"
@@ -260,20 +245,32 @@ def clash_reason(facts: DayFacts, portion: Portion) -> str | None:
         return "Half of that day is already booked; remove it first"
     if portion in facts.booked:
         return f"That {portion.label.lower()} is already booked"
-    if facts.has_work_in(portion):
-        return "There is recorded work in that part of the day"
+    if facts.worked and covers_the_whole_day((*facts.booked, portion)):
+        return "There is recorded work on that day"
     return None
 
 
-def _draws_on_the_balance(facts: DayFacts, today: date) -> bool:
-    """True when booking TOIL on this date would move the flexi balance.
+def _drawn_from_the_balance(
+    facts: DayFacts, portion: Portion, today: date, contracted: timedelta
+) -> float:
+    """How many days of the flexi balance booking TOIL on this date would spend.
 
     A tracked day already past expects its contracted hours and already carries
     the shortfall for not getting them, so TOIL booked over it trades one for
     the other and leaves the balance where it was. A future tracked day reserves
-    time from the balance. An untracked day never withdraws from it.
+    the whole booking from the balance. Today does not owe its hours until it
+    ends, so a booking on it spends only the part its work has not covered: the
+    afternoon off after a five-hour morning costs the 2:24 still to work. An
+    untracked day never withdraws from it.
     """
-    return facts.date > today and facts.is_tracked
+    if not facts.is_tracked or facts.date < today:
+        return 0.0
+    if facts.date > today:
+        return portion.days
+    # What the day expects before this booking, in the ledger's whole minutes.
+    share = 1 - sum(taken.days for taken in facts.booked)
+    unworked = max(timedelta(), whole_minutes(contracted * share) - facts.worked_hours)
+    return min(portion.days, unworked / contracted) if contracted else 0.0
 
 
 def verdict_for(
@@ -411,7 +408,8 @@ class AbsencePlan:
     toil_available: float | None = None
     toil_cost: float | None = None
     """What this plan takes off the flexi balance, which is not its `cost`: a
-    tracked day already past relabels a shortfall the balance has counted.
+    tracked day already past relabels a shortfall the balance has counted, and
+    today's work so far pays for part of a booking on it.
     ``None`` is a plan built without a date to measure against, where every
     bookable day counts."""
     toil_balances: tuple[ToilBalance, ...] = ()
@@ -490,6 +488,27 @@ class AbsencePlan:
         if self.toil_balances:
             return _toil_warning(self.toil_balances)
         return overdraw(self.toil_after)
+
+
+def _still_agreed(current: AbsencePlan, confirmed: AbsencePlan) -> bool:
+    """True when ``current`` is the plan confirmed, or that plan for less TOIL.
+
+    Every minute an open session runs pays for a little more of TOIL booked on
+    today, so a preview answered a minute later has only got cheaper and has
+    nothing new to ask. A year left with less banked than the preview said is a
+    change.
+    """
+    unpriced = replace(
+        current,
+        toil_cost=confirmed.toil_cost,
+        toil_balances=confirmed.toil_balances,
+    )
+    return unpriced == confirmed and all(
+        now.after >= then.after
+        for now, then in zip(
+            current.toil_balances, confirmed.toil_balances, strict=True
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -763,7 +782,9 @@ class AbsenceService:
                 return AbsenceResult(False, decided.reason)
 
             today = wallclock.today()
-            charged = portion.days if _draws_on_the_balance(facts, today) else 0.0
+            charged = _drawn_from_the_balance(
+                facts, portion, today, self._settings.get_contracted()
+            )
             balances = (
                 self._toil_balances(
                     {self._settings.active_leave_year(day): charged},
@@ -809,19 +830,20 @@ class AbsenceService:
         # disagree about when now is.
         moment = wallclock.now()
         worked: defaultdict[date, list[Span]] = defaultdict(list)
-        punched: set[date] = set()
+        hours: defaultdict[date, timedelta] = defaultdict(timedelta)
+        recorded: set[date] = set()
         for session in sessions_touching(self._session, start, end):
             span = span_of(session, now=moment)
+            hours[session.work_date] += wallclock.elapsed(*span)
             last = max(session.work_date, span[1].date())
             for when in days_between(max(start, session.work_date), min(end, last)):
                 midnight = wallclock.local(datetime.combine(when, time.min))
                 if when == session.work_date or span[1] > midnight:
                     worked[when].append(span)
-            # A punch means Flexi was there that day, whatever the tracking
-            # stamp says; amended hours cannot vouch for it the same way, and
-            # `LedgerService` draws the same distinction.
-            if session.clock_in_event.source is not EventSource.AMENDED:
-                punched.add(session.work_date)
+            # Work recorded on a day tracks it whatever the tracking stamp
+            # says, punched or corrected, as it does in `LedgerService`: by the
+            # date the session is filed under, not every date it reaches.
+            recorded.add(session.work_date)
 
         return [
             DayFacts(
@@ -831,8 +853,9 @@ class AbsenceService:
                 holiday_title=None if titles is None else titles.get(when),
                 booked=tuple(booked[when]),
                 worked=tuple(worked[when]),
+                worked_hours=hours[when],
                 is_tracked=(
-                    tracking_since is None or when >= tracking_since or when in punched
+                    tracking_since is None or when >= tracking_since or when in recorded
                 ),
             )
             for when in days_between(start, end)
@@ -912,6 +935,7 @@ class AbsenceService:
         remaining = dict(opening)
         days: list[PlannedDay] = []
         today = wallclock.today()
+        contracted = self._settings.get_contracted()
         toil_cost = 0.0
         toil_costs: defaultdict[int, float] = defaultdict(float)
 
@@ -928,7 +952,11 @@ class AbsenceService:
             days.append(decided)
             if decided.verdict is not Verdict.BOOK:
                 continue
-            charged = portion.days if _draws_on_the_balance(facts, today) else 0.0
+            charged = (
+                _drawn_from_the_balance(facts, portion, today, contracted)
+                if absence_type.draws_down_balance
+                else 0.0
+            )
             toil_cost += charged
             toil_costs[active_year] += charged
             if absence_type.draws_down_entitlement and available is not None:
@@ -964,7 +992,7 @@ class AbsenceService:
                 note=plan.note,
                 available_toil_days=plan.toil_available,
             )
-            if current != plan:
+            if not _still_agreed(current, plan):
                 return RangeResult(skipped=((plan.start, PLAN_CHANGED),))
 
             booked: list[date] = []
@@ -1102,18 +1130,17 @@ class AbsenceService:
 
 
 def span_of(session: WorkSession, *, now: datetime | None = None) -> Span:
-    """When a session ran, resolved.
+    """When a session ran, resolved, to the minutes the records table shows.
 
     A session still open on its own day is worth what it has run so far, the
-    value `LedgerService` and the punch strip use; valued to the end of the day
-    it would cover an unworked afternoon and refuse a booking over it. One left
-    open on an earlier day is worth the rest of that day and no more, so a
-    clock-out that never came cannot make every evening since look worked.
+    value `LedgerService` and the punch strip use. One left open on an earlier
+    day is worth the rest of that day and no more, so a clock-out that never
+    came cannot make every evening since look worked.
     """
-    start = moment_of(session.clock_in_event)
+    start = to_the_minute(moment_of(session.clock_in_event))
     if session.clock_out_event is not None:
-        return start, moment_of(session.clock_out_event)
+        return start, to_the_minute(moment_of(session.clock_out_event))
     moment = wallclock.now() if now is None else now
     if session.work_date >= moment.date():
-        return start, moment
+        return start, to_the_minute(moment)
     return start, wallclock.local(datetime.combine(session.work_date, time.max))

@@ -20,6 +20,7 @@ from textual.widget import Widget
 
 from flexi.components.options import WidgetOptions
 from flexi.components.punch import PUNCH_CLASSES, render_strip
+from flexi.domain.balance import standing
 from flexi.domain.dates import week_start
 from flexi.domain.format import MINUS, delta, hm, signed_days
 from flexi.domain.format import days as fmt_days
@@ -326,15 +327,22 @@ class YearHeatmap(Widget):
     def __init__(self, **kwargs: Unpack[WidgetOptions]) -> None:
         super().__init__(**kwargs)
         self.ledgers: dict[date, DayLedger] = {}
+        self.effects: dict[date, timedelta] = {}
         self.scale = timedelta(hours=2)
         self.first_weekday = 0
         """Which day the rows start on; `render` can run before the first `show`."""
 
-    def show(self, ledgers: list[DayLedger], *, first_weekday: int) -> None:
+    def show(
+        self, ledgers: list[DayLedger], *, first_weekday: int, today: date
+    ) -> None:
         self.ledgers = {item.date: item for item in ledgers}
+        # What each day did to the balance as it stands, so today's hours still
+        # to work are not drawn as a deficit before it ends.
+        self.effects = {item.date: standing((item,), today).delta for item in ledgers}
         self.first_weekday = first_weekday
         worst = max(
-            (abs(item.balance_effect) for item in ledgers), default=timedelta(hours=2)
+            (abs(effect) for effect in self.effects.values()),
+            default=timedelta(hours=2),
         )
         # A floor on the scale, so a fortnight of near-perfect days is not
         # drawn as violently as a fortnight of disasters.
@@ -373,7 +381,7 @@ class YearHeatmap(Widget):
             if any(segment.amended for segment in ledger.segments)
             else HEAT
         )
-        effect = ledger.balance_effect
+        effect = self.effects[when]
         if effect == timedelta():
             return glyph, self.get_component_rich_style("chart--neutral")
         share = min(1.0, abs(effect) / self.scale)
@@ -403,36 +411,42 @@ class YearHeatmap(Widget):
         return text
 
 
-def running_balance(ledgers: Sequence[DayLedger]) -> tuple[float, ...]:
+def running_balance(ledgers: Sequence[DayLedger], *, today: date) -> tuple[float, ...]:
     """The flexi balance in hours after each day, in order.
 
-    A day off contributes what it withdrew, so a week of leave is flat;
-    `balance_effect` is the one place that rule lives.
+    A day off contributes what it withdrew, so a week of leave is flat, and
+    today only what it has gained so far; `standing` is the one place those
+    rules live.
     """
     return tuple(
         accumulate(
-            ledger.balance_effect.total_seconds() / SECONDS_PER_HOUR
+            standing((ledger,), today).delta.total_seconds() / SECONDS_PER_HOUR
             for ledger in ledgers
         )
     )
 
 
-def week_columns(ledgers: list[DayLedger], *, first_weekday: int) -> list[Column]:
+def week_columns(
+    ledgers: list[DayLedger], *, first_weekday: int, today: date
+) -> list[Column]:
     """Group a run of days into one bar per week, for :class:`DivergingBars`.
 
     ``first_weekday`` buckets and labels the bars, keeping them in step with the
     calendar drawn from the same setting.
     """
-    buckets: defaultdict[date, timedelta] = defaultdict(timedelta)
+    buckets: defaultdict[date, list[DayLedger]] = defaultdict(list)
     for ledger in ledgers:
-        buckets[week_start(ledger.date, first_weekday=first_weekday)] += (
-            ledger.balance_effect
-        )
+        buckets[week_start(ledger.date, first_weekday=first_weekday)].append(ledger)
+    # Floored term by term, the one rule every printed balance follows, so a
+    # bar cannot read a minute off the balance beside it.
+    shown = {
+        week: standing(days, today).as_shown().delta for week, days in buckets.items()
+    }
     return [
         Column(
             label=str(week.day),
             value=total.total_seconds() / SECONDS_PER_HOUR,
             readout=delta(total),
         )
-        for week, total in sorted(buckets.items())
+        for week, total in sorted(shown.items())
     ]

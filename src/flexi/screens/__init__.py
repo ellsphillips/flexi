@@ -49,6 +49,8 @@ if TYPE_CHECKING:
     from flexi.screens.modals import (
         AbsenceBooking,
         AbsenceModal,
+        Adjustment,
+        AdjustmentModal,
         ConfirmModal,
         Correction,
         CorrectionModal,
@@ -68,6 +70,7 @@ if TYPE_CHECKING:
     )
     from flexi.screens.setup import (
         ASK_WIDTH,
+        COMPACT_QUESTION_ROWS,
         FIELD_WIDTH,
         FORM_WIDTH,
         GUTTER,
@@ -112,6 +115,8 @@ _MODULE_EXPORTS: Final = MappingProxyType(
         "modals": (
             "AbsenceBooking",
             "AbsenceModal",
+            "Adjustment",
+            "AdjustmentModal",
             "ConfirmModal",
             "correction_line",
             "CorrectionsModal",
@@ -131,6 +136,7 @@ _MODULE_EXPORTS: Final = MappingProxyType(
         ),
         "setup": (
             "ASK_WIDTH",
+            "COMPACT_QUESTION_ROWS",
             "FIELD_WIDTH",
             "FORM_WIDTH",
             "GUTTER",
@@ -192,6 +198,8 @@ __all__ = (  # noqa: RUF022
     "working_day",
     "AbsenceBooking",
     "AbsenceModal",
+    "Adjustment",
+    "AdjustmentModal",
     "ConfirmModal",
     "correction_line",
     "CorrectionsModal",
@@ -207,6 +215,7 @@ __all__ = (  # noqa: RUF022
     "describe_working_days",
     "parse_answers",
     "ASK_WIDTH",
+    "COMPACT_QUESTION_ROWS",
     "FIELD_WIDTH",
     "FORM_WIDTH",
     "GUTTER",

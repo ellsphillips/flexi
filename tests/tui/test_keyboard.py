@@ -13,12 +13,15 @@ from typing import Any
 
 import pytest
 from textual.binding import Binding
+from textual.screen import Screen
 
 import flexi.screens
 from flexi.components.chrome import NavItemLabel, footer_key_cost, keys_that_fit
 from flexi.components.expandable import ExpandableTable
+from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings, declared_by_flexi
 from flexi.screens.insights import InsightsScreen
+from flexi.screens.leave import LeaveScreen
 from flexi.screens.modals import FlexiModal
 from tests.conftest import settled
 from tests.tui.conftest import WIDE, AppFactory, showing
@@ -109,6 +112,89 @@ def test_strip_reserves_room_for_its_notice(
     costs: list[int], budget: int, marker: int, shown: int
 ) -> None:
     assert keys_that_fit(costs, budget, marker) == shown
+
+
+# ---- quitting ----
+
+
+@pytest.mark.parametrize(
+    ("key", "destination"),
+    [("f1", DashboardScreen), ("f2", LeaveScreen), ("f3", InsightsScreen)],
+)
+async def test_q_quits_from_every_destination(
+    app_factory: AppFactory, key: str, destination: type[Screen[None]]
+) -> None:
+    """VS Code and Cursor keep ctrl+q for themselves on macOS and Windows."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press(key)
+        await pilot.pause()
+        showing(app, destination)
+
+        await pilot.press("q")
+        await pilot.pause()
+
+        assert not app.is_running
+
+
+@pytest.mark.parametrize(
+    ("opener", "focus"),
+    [
+        ("A", "#modal-cancel"),
+        ("v", None),
+        ("question_mark", None),
+        ("f4", "#btn-back"),
+    ],
+    ids=["dialog", "jump mode", "help", "settings"],
+)
+async def test_q_leaves_whatever_is_open_in_front(
+    app_factory: AppFactory, opener: str, focus: str | None
+) -> None:
+    """Quitting from a dialog or a form would throw away what was typed into it.
+
+    A button holds focus where there is one, because a text field takes the q
+    as typing whatever is bound. Settings is a screen and not a modal, so a q
+    bound on the app would reach it.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press(opener)
+        await pilot.pause()
+        opened = app.screen
+        if focus is not None:
+            opened.query_one(focus).focus()
+            await pilot.pause()
+
+        await pilot.press("q")
+        await pilot.pause()
+
+        assert app.is_running
+        assert app.screen is opened
+
+
+@pytest.mark.parametrize(
+    ("opener", "said"),
+    [("f1", "Press q or ctrl+q to quit"), ("f4", "Press ctrl+q to quit")],
+    ids=["dashboard", "settings"],
+)
+async def test_ctrl_c_names_every_key_that_quits_from_here(
+    app_factory: AppFactory, opener: str, said: str
+) -> None:
+    """ctrl+c is the reflex, and Textual's own answer names a single key.
+
+    Every key that quits is named, and only those that do: Settings binds no q.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press(opener)
+        await pilot.pause()
+        # A focused field would take ctrl+c as copy.
+        app.screen.set_focus(None)
+
+        await pilot.press("ctrl+c")
+        await pilot.pause()
+
+        assert said in [note.message for note in app._notifications]
 
 
 # ---- modals ----

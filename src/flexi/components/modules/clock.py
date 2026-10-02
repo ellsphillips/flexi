@@ -20,6 +20,7 @@ from flexi.components.common import Pill, Tone
 from flexi.components.modules.base import Module
 from flexi.components.options import ModuleOptions
 from flexi.components.punch import PunchStrip
+from flexi.domain.balance import worked_from
 from flexi.domain.format import clock, hm, hms
 from flexi.domain.ledger import DayLedger
 from flexi.messages import Scope
@@ -90,7 +91,10 @@ class ClockModule(Module):
         if self._ledger is None or not self._ledger.is_open:
             self.set_subtitle(today)
             return
-        self.set_subtitle(f"{hms(self._ledger.worked)} · {today}")
+        # The ledger counts the open session to the minute; the readout runs
+        # on to this second from the same minute, so it never looks stalled.
+        running = worked_from(self._ledger.segments, self.now)
+        self.set_subtitle(f"{hms(running)} · {today}")
 
     def _detail(self, ledger: DayLedger) -> str:
         """The one line under the strip: where today stands."""

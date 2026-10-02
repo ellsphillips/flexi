@@ -317,33 +317,58 @@ def test_half_day_off_leaves_the_other_half(ready: Services) -> None:
     assert ready.clock.get_open_session() is not None
 
 
-def test_clocking_into_a_booked_half_is_refused(ready: Services) -> None:
-    """A booked morning worked as well is paid for twice.
+@pytest.mark.parametrize("portion", [Portion.AM, Portion.PM])
+@pytest.mark.parametrize("arrival", [time(9), time(11, 30), time(12), time(14)])
+def test_half_day_off_never_refuses_a_clock_in(
+    ready: Services, portion: Portion, arrival: time
+) -> None:
+    """A half day is half the contract off, not the hours either side of noon.
 
-    Once out of the leave balance and once into the flexi balance. `correct`
-    draws the same line.
+    `expected_for` halves what the day asks for whenever the work happens, so
+    arriving at 11:30 after a morning at the dentist is an ordinary afternoon.
+    `correct` draws the same line.
     """
-    ready.absence.book(TUESDAY, AbsenceType.SICK, Portion.AM)
+    assert ready.absence.book(TUESDAY, AbsenceType.ANNUAL, portion).success
 
-    result = ready.clock.clock_in(now=datetime(2026, 8, 25, 9, 0))
+    result = ready.clock.clock_in(now=datetime.combine(TUESDAY, arrival))
 
-    assert result.success is False
-    assert result.message == "Cannot clock in during a booked morning"
-    assert ready.clock.get_open_session() is None
+    assert result.success is True, result.message
+    assert ready.clock.is_clocked_in()
+
+
+def test_clock_out_after_noon_keeps_the_afternoon_booked(ready: Services) -> None:
+    """In at 08:30, the afternoon booked at 09:00, out at 12:30."""
+    with time_machine.travel(
+        datetime(2026, 8, 25, 8, 30, tzinfo=UTC), tick=False
+    ) as traveller:
+        assert ready.clock.clock_in().success
+        traveller.move_to(datetime(2026, 8, 25, 9, 0, tzinfo=UTC))
+        assert ready.absence.book(TUESDAY, AbsenceType.ANNUAL, Portion.PM).success
+        traveller.move_to(datetime(2026, 8, 25, 12, 30, tzinfo=UTC))
+
+        result = ready.clock.clock_out()
+
+    assert result.success is True, result.message
+    assert [row.portion for row in ready.absence.for_date(TUESDAY)] == [Portion.PM]
 
 
 @pytest.mark.parametrize(
-    ("portion", "accepted"), [(Portion.AM, True), (Portion.PM, False)]
+    ("portion", "arrival", "home"),
+    [(Portion.PM, time(9), time(12, 42)), (Portion.AM, time(11, 30), time(15, 12))],
 )
-def test_noon_belongs_to_the_afternoon(
-    ready: Services, portion: Portion, accepted: bool
+def test_go_home_time_is_a_clock_out_the_clock_accepts(
+    ready: Services, portion: Portion, arrival: time, home: time
 ) -> None:
-    assert ready.absence.book(TUESDAY, AbsenceType.SICK, portion).success
+    """The clock card says when to go home, so going home then is accepted."""
+    assert ready.absence.book(TUESDAY, AbsenceType.ANNUAL, portion).success
+    assert ready.clock.clock_in(now=datetime.combine(TUESDAY, arrival)).success
+    now = datetime.combine(TUESDAY, arrival, tzinfo=UTC) + timedelta(hours=1)
 
-    result = ready.clock.clock_in(now=datetime(2026, 8, 25, 12, 0))
+    leave_at = ready.ledger.day(TUESDAY, now=now).leave_at
 
-    assert result.success is accepted
-    assert ready.clock.is_clocked_in() is accepted
+    assert leave_at == datetime.combine(TUESDAY, home, tzinfo=UTC)
+    result = ready.clock.clock_out(now=leave_at)
+    assert result.success is True, result.message
 
 
 # ---------- losing a race to another writer ----------

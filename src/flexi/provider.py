@@ -49,6 +49,11 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
             app.action_clock_toggle,
         ),
         Command("Help", "Every binding on this screen", app.action_help),
+        Command(
+            "Quit",
+            "Close Flexi. Bound to ctrl+q, and q on the dashboard, Leave and Insights",
+            app.action_quit,
+        ),
     ]
 
     if screen is None:
@@ -94,6 +99,11 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
                 "Book leave…",
                 "Open the leave year and book on it directly",
                 partial(app.action_go_to, "leave"),
+            ),
+            Command(
+                "Adjust balance…",
+                "Bring a balance in, or correct it, from today",
+                screen.action_adjust_balance,
             ),
         )
     )

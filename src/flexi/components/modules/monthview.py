@@ -70,7 +70,10 @@ class MonthView(Module):
 
     HELP_LABEL = "Calendar"
 
-    WATCHES: ClassVar[Scope] = Scope.ALL
+    # Not `TIME`: no cell changes as the minutes pass, only when the date does.
+    WATCHES: ClassVar[Scope] = (
+        Scope.CLOCK | Scope.ABSENCE | Scope.SETTINGS | Scope.PERIOD
+    )
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("left", "move(-1)", "Previous day", show=False),

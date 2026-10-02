@@ -7,7 +7,7 @@ UTC, would read back as "since 08:44" and count an hour it had not been.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy.orm import Session
@@ -58,6 +58,23 @@ def test_session_lasts_what_the_clock_says(session: Session) -> None:
 
     events = sorted(_stored(session))
     assert events[1] - events[0] == timedelta(hours=7, minutes=24)
+
+
+def test_a_session_counts_between_the_minutes_it_shows(session: Session) -> None:
+    """09:00:40 to 17:00:20 is kept as punched and counted as the 8:00 it shows.
+
+    The seconds stay for the audit trail and the under-a-minute rule. Counted
+    from them, the day would be 7:59:40 beside "09:00 → 17:00".
+    """
+    services = build_services(session)
+    services.clock.clock_in(now=datetime(2026, 6, 11, 9, 0, 40))
+    services.clock.clock_out(now=datetime(2026, 6, 11, 17, 0, 20))
+
+    assert sorted(_stored(session)) == [
+        datetime(2026, 6, 11, 9, 0, 40),
+        datetime(2026, 6, 11, 17, 0, 20),
+    ]
+    assert services.ledger.day(date(2026, 6, 11)).worked == timedelta(hours=8)
 
 
 def test_work_date_is_the_local_day(session: Session) -> None:

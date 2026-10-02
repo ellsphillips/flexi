@@ -19,14 +19,17 @@ from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
 
 from flexi.constants import AbsenceType, Portion
 from flexi.domain.dates import parse_date
-from flexi.domain.format import clock, hm, plural, short_date
+from flexi.domain.format import clock, hm, plural, short_date, stamp
 from flexi.domain.format import days as fmt_days
 from flexi.domain.ledger import Segment
+from flexi.services.adjustments import parse_amount
 from flexi.services.settings import parse_clock_time
 
 __all__ = (
     "AbsenceBooking",
     "AbsenceModal",
+    "Adjustment",
+    "AdjustmentModal",
     "ConfirmModal",
     "Correction",
     "CorrectionModal",
@@ -244,14 +247,21 @@ class AbsenceModal(FlexiModal[AbsenceBooking]):
         yield Static(self._allowance_hint(), classes="caption")
 
     def _allowance_hint(self) -> str:
-        """What is left of the annual allowance and of banked TOIL."""
+        """What is left of the annual allowance, and the TOIL free to book.
+
+        Not "banked", which is the dashboard's word for the whole balance: TOIL
+        already booked ahead is spoken for, and this is the balance without it.
+        A deficit leaves none free, not "-1.6 days" of it, and nor does a figure
+        that rounds to nothing.
+        """
         parts: list[str] = []
         if self._remaining is not None:
             left = self._remaining
             parts.append(f"{fmt_days(left)} {plural(left, 'day')} annual leave left")
         if self._toil_days is not None:
-            banked = round(self._toil_days, 1)
-            parts.append(f"{fmt_days(banked)} {plural(banked, 'day')} of TOIL banked")
+            free = round(self._toil_days, 1)
+            amount = f"{fmt_days(free)} {plural(free, 'day')} of" if free > 0 else "no"
+            parts.append(f"{amount} TOIL free to book")
         return " · ".join(parts)
 
     def result(self) -> AbsenceBooking:
@@ -329,14 +339,19 @@ class CorrectionModal(FlexiModal[Correction]):
 
     The day defaults to the one selected. The times use the clock-time grammar
     the rest of Flexi uses, so `9`, `9:15`, `9.15` and `9am` all read.
+    `expected` is what the day will ask for once work is recorded on it.
     """
 
     title_text: ClassVar[str] = "Record work"
     confirm_label: ClassVar[str] = "Record"
 
-    def __init__(self, day: date) -> None:
+    def __init__(
+        self, day: date, *, tracking_since: date | None, expected: timedelta
+    ) -> None:
         super().__init__()
         self._day = day
+        self._tracking_since = tracking_since
+        self._expected = expected
 
     @property
     def modal_title(self) -> str:
@@ -347,10 +362,26 @@ class CorrectionModal(FlexiModal[Correction]):
         yield Input("", id="correction-from", placeholder="9:00")
         yield Label("To", classes="overline")
         yield Input("", id="correction-to", placeholder="17:00")
-        yield Static(
-            "For a day you worked and did not clock. It counts for everything a "
-            "punched session counts for, and is drawn apart from one.",
-            classes="caption",
+        yield Static(self._caption(), classes="caption")
+
+    def _caption(self) -> str:
+        """What the work counts for, said plainly where it surprises.
+
+        A working day before setup expects nothing until work is recorded on
+        it, and then the contracted day less any leave booked on it, so a
+        morning shows a shortfall. A weekend, a bank holiday or a day booked
+        off in full expects nothing either way.
+        """
+        since = self._tracking_since
+        if since is None or self._day >= since or not self._expected:
+            return (
+                "For a day you worked and did not clock. It counts for everything "
+                "a punched session counts for, and is drawn apart from one."
+            )
+        return (
+            f"Flexi started tracking on {short_date(since)}. Work recorded here "
+            f"counts {stamp(self._day, '%a %-d')} against your "
+            f"{hm(self._expected)} day."
         )
 
     def on_mount(self) -> None:
@@ -429,6 +460,57 @@ def correction_line(segment: Segment) -> str:
     window = "open" if finish is None else f"{clock(segment.start)}–{clock(finish)}"
     length = "" if finish is None else f"  {hm(finish - segment.start)}"
     return f"{short_date(segment.start.date()):<12} {window}{length}"
+
+
+@dataclass(frozen=True, slots=True)
+class Adjustment:
+    """A signed amount to move the balance by, and why."""
+
+    when: date
+    amount: timedelta
+    reason: str
+
+
+class AdjustmentModal(FlexiModal[Adjustment]):
+    """Bring a balance in, or correct it, from the day the modal is opened on.
+
+    The amount is read by the parser `flexi balance adjust` uses, so `+5:30`,
+    `-1:30` and the `−1:30` Flexi draws all read the same here.
+    """
+
+    title_text: ClassVar[str] = "Adjust balance"
+    confirm_label: ClassVar[str] = "Adjust"
+
+    def __init__(self, when: date) -> None:
+        super().__init__()
+        self._when = when
+
+    @property
+    def modal_title(self) -> str:
+        return f"Adjust the balance on {short_date(self._when)}"
+
+    def compose_body(self) -> ComposeResult:
+        yield Label("Amount", classes="overline")
+        yield Input("", id="adjustment-amount", placeholder="+5:30")
+        yield Label("Reason", classes="overline")
+        yield Input("", id="adjustment-reason", placeholder="Brought forward")
+        yield Static(
+            "For a balance brought in from elsewhere, or a correction to this "
+            "one: +5:30 adds, −1:30 takes away. `flexi balance log` lists it, "
+            "and `flexi balance undo` takes it back.",
+            classes="caption",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#adjustment-amount", Input).focus()
+
+    def result(self) -> Adjustment:
+        amount = parse_amount(self.query_one("#adjustment-amount", Input).value)
+        reason = self.query_one("#adjustment-reason", Input).value.strip()
+        if not reason:
+            msg = "An adjustment needs a reason"
+            raise ValueError(msg)
+        return Adjustment(self._when, amount, reason)
 
 
 def selected_name(screen: DOMNode, selector: str, *, fallback: str) -> str:

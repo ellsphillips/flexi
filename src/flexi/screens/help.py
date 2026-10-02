@@ -30,6 +30,9 @@ class HelpScreen(ModalScreen[None]):
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss_help", "Close", show=True),
         Binding(CONFIG.hotkeys.help, "dismiss_help", "Close", show=False),
+        # The caption names `:`, but the application's `:` stops short of a
+        # modal. Help binds its own, having nothing half-filled to bury.
+        Binding("colon", "app.palette", "Command palette", show=False),
     ]
 
     def __init__(self, groups: dict[str, list[tuple[str, str]]]) -> None:
@@ -47,7 +50,7 @@ class HelpScreen(ModalScreen[None]):
                     for key, description in bindings:
                         yield KeyHint(key, description)
             yield Static(
-                "Anything without a key is in the command palette — ctrl+p.",
+                "Anything without a key is in the command palette — ctrl+p or :",
                 classes="caption",
             )
 

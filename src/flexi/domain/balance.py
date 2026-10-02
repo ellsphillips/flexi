@@ -14,8 +14,8 @@ year of rounding it gives a balance that disagrees with the sum of its rows.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta
 
 from flexi.constants import AbsenceType
 from flexi.domain.format import whole_minutes
@@ -26,6 +26,7 @@ __all__ = (
     "BalanceSummary",
     "accumulate",
     "expected_for",
+    "standing",
     "toil_taken_for",
     "worked_from",
 )
@@ -57,6 +58,10 @@ def expected_for(
     or a full day of absence of any type. Half the contract for one half-day;
     zero for two, even of different types.
 
+    In whole minutes, the unit every figure is drawn in: half of 7:25 is 3:42,
+    as its row prints it, so two half days total the 7:24 their rows add up to
+    and not 7:25.
+
     ``is_tracked`` has no default: true is the behaviour this argument exists
     to correct, and a caller must not reach it by forgetting.
     """
@@ -64,15 +69,18 @@ def expected_for(
         return ZERO
     booked = sum(slice_.portion.days for slice_ in absences)
     remaining = max(0.0, 1.0 - booked)
-    return contracted * remaining
+    return whole_minutes(contracted * remaining)
 
 
 def toil_taken_for(
     contracted: timedelta,
     absences: Iterable[AbsenceSlice],
 ) -> timedelta:
-    """How much of the balance a date's TOIL bookings withdrew."""
-    return sum(
+    """How much of the balance a date's TOIL bookings withdrew.
+
+    In whole minutes, as :func:`expected_for` is: half of 7:25 is 3:42.
+    """
+    taken = sum(
         (
             contracted * slice_.portion.days
             for slice_ in absences
@@ -80,6 +88,7 @@ def toil_taken_for(
         ),
         start=ZERO,
     )
+    return whole_minutes(taken)
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,3 +150,21 @@ def accumulate(ledgers: Iterable[DayLedger]) -> BalanceSummary:
             adjustment=ledger.adjustment,
         )
     return total
+
+
+def standing(ledgers: Iterable[DayLedger], today: date) -> BalanceSummary:
+    """Total a run of day ledgers as they stand on ``today``.
+
+    Today is not over. Its contracted hours are held back for as long as they
+    are still to be worked, so a morning opens on the balance the evening
+    before closed on, and a day cut short counts its shortfall once it ends.
+    The rest of it counts at once: a surplus, TOIL taken and a correction.
+    A day after today has not happened, and counts nothing.
+    """
+    return accumulate(
+        replace(ledger, expected=min(ledger.expected, ledger.worked))
+        if ledger.date == today
+        else ledger
+        for ledger in ledgers
+        if ledger.date <= today
+    )

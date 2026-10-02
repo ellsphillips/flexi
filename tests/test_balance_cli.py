@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 import time_machine
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from flexi.__main__ import cli
 from flexi.locations import database_file
@@ -100,12 +100,17 @@ def test_zeroing_leaves_today_alone(home: Path) -> None:
     """The line is drawn at the end of yesterday, so today counts normally.
 
     Absorbing today's contracted hours before they are worked would leave the
-    evening looking like unearned overtime.
+    evening looking like unearned overtime. Until today ends they are not owed,
+    so the line leaves nothing behind it; once it has, an unworked day is.
     """
     runner = CliRunner()
-    runner.invoke(cli, ["balance", "zero", "--yes"])
+    settled = runner.invoke(cli, ["balance", "zero", "--yes"])
+    assert "balance now   0:00" in settled.output
     assert balance_of(runner, YESTERDAY) == "0:00"
-    assert balance_of(runner) == "−7:24"
+    assert balance_of(runner) == "0:00"
+
+    with time_machine.travel(NOON + timedelta(days=1), tick=False):
+        assert balance_of(runner) == "−7:24"
 
 
 def test_zero_asks_before_it_writes(home: Path) -> None:
@@ -131,10 +136,9 @@ def test_settlement_question_is_asked_on_stderr(home: Path) -> None:
 def test_unfinished_day_is_refused_with_no_figure(
     home: Path,
 ) -> None:
-    """The standing it would be sized from is a projection.
+    """The standing it would be sized from cannot see that date's hours yet.
 
-    Every day between now and the date counts as zero hours worked, so printing
-    it first would offer several hundred hours as a reading.
+    Printing it first would offer a reading the line could not hold to.
     """
     result = CliRunner().invoke(cli, ["balance", "zero", "--as-of", "today", "--yes"])
 
@@ -166,12 +170,17 @@ def test_zero_is_refused_twice(home: Path) -> None:
 
 
 def test_settlement_can_be_taken_back(home: Path) -> None:
-    """Log names the row, undo removes it, and the balance returns."""
+    """Log names the row, undo removes it, and the balance returns.
+
+    Named a settlement, so it reads apart from an opening balance brought in
+    with `flexi balance adjust`.
+    """
     runner = CliRunner()
     runner.invoke(cli, ["balance", "zero", "--yes"])
 
     log = runner.invoke(cli, ["balance", "log"])
-    assert "opening balance" in log.output
+    assert "settled" in log.output
+    assert "opening balance" not in log.output
     row_id = log.output.split()[0]
 
     undone = runner.invoke(cli, ["balance", "undo", row_id])
@@ -210,3 +219,181 @@ def _balance_on(runner: CliRunner, typed: str) -> str:
     output = runner.invoke(cli, ["balance", "show", "--as-of", typed]).output
     line = next(row for row in output.splitlines() if row.startswith("balance"))
     return line.removeprefix("balance").strip()
+
+
+# Adjusting
+
+
+@pytest.fixture
+def at_a_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A terminal on both ends, so the question is asked and answered."""
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
+
+
+def adjust(runner: CliRunner, *args: str, answer: str | None = None) -> Result:
+    return runner.invoke(cli, ["balance", "adjust", *args], input=answer)
+
+
+def logged(runner: CliRunner) -> str:
+    return runner.invoke(cli, ["balance", "log"]).output
+
+
+def test_adjust_moves_the_balance(home: Path) -> None:
+    """An adjustment from today counts at once, before today's hours are owed."""
+    runner = CliRunner()
+    assert balance_of(runner) == "−5:24"
+
+    result = adjust(runner, "+5:30", "--reason", "Brought forward", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert "adjusted by +5:30" in result.stdout
+    assert balance_of(runner) == "+0:06"
+
+
+@pytest.mark.parametrize("typed", ["-1:30", "\N{MINUS SIGN}1:30"])
+def test_a_deficit_is_an_amount_not_an_option(home: Path, typed: str) -> None:
+    """Click reads `-1:30` as an option `-1` unless told otherwise.
+
+    U+2212 is the minus Flexi prints, so a figure pasted back has it.
+    """
+    runner = CliRunner()
+
+    result = adjust(runner, typed, "--reason", "Left early", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert "\N{MINUS SIGN}1:30  Left early" in logged(runner)
+
+
+@pytest.mark.parametrize(
+    ("typed", "said"), [("5", "use H:MM"), ("5:3", "use H:MM"), ("0:00", "nothing")]
+)
+def test_unreadable_or_zero_amount_is_a_usage_error(
+    home: Path, typed: str, said: str
+) -> None:
+    runner = CliRunner()
+
+    result = adjust(runner, typed, "--reason", "Brought forward", "--yes")
+
+    assert result.exit_code == 2
+    assert said in result.stderr
+    assert "No adjustments" in logged(runner)
+
+
+@pytest.mark.parametrize("reason", [None, "   "])
+def test_adjust_needs_a_reason(home: Path, reason: str | None) -> None:
+    """Every row is read back in `flexi balance log`, so each says why."""
+    runner = CliRunner()
+    given = () if reason is None else ("--reason", reason)
+
+    result = adjust(runner, "+5:30", *given, "--yes")
+
+    assert result.exit_code == 2
+    assert "--reason" in result.stderr
+    assert "No adjustments" in logged(runner)
+
+
+@pytest.mark.usefixtures("at_a_terminal")
+def test_adjust_shows_the_balance_it_makes_and_asks(home: Path) -> None:
+    """Declining exits 1 and writes nothing, as declining a settlement does."""
+    runner = CliRunner()
+
+    result = adjust(runner, "+5:30", "--reason", "Brought forward", answer="n\n")
+
+    assert result.exit_code == 1
+    assert "+5:30 on Wed 10 Jun 2026" in result.stdout
+    assert "Brought forward" in result.stdout
+    assert "−5:24 → +0:06" in result.stdout
+    assert "Record it?" in result.stderr, "the question is not the output"
+    assert "Nothing was recorded" in result.stderr
+    assert "No adjustments" in logged(runner)
+
+
+@pytest.mark.usefixtures("at_a_terminal")
+def test_adjust_records_what_was_agreed(home: Path) -> None:
+    runner = CliRunner()
+
+    result = adjust(runner, "+5:30", "--reason", "Brought forward", answer="y\n")
+
+    assert result.exit_code == 0, result.output
+    assert "+5:30  Brought forward" in logged(runner)
+
+
+def test_adjust_without_a_terminal_refuses_instead_of_asking(home: Path) -> None:
+    """A pipe is not someone answering, and a pipe left open would never answer."""
+    runner = CliRunner()
+
+    result = adjust(runner, "+5:30", "--reason", "Brought forward", answer="y\n")
+
+    assert result.exit_code == 1
+    assert "--yes" in result.stderr
+    assert "No adjustments" in logged(runner)
+
+
+def test_adjust_on_an_earlier_day_reads_the_shared_dates(home: Path) -> None:
+    """`--on` takes the words every other date option takes."""
+    runner = CliRunner()
+
+    result = adjust(runner, "-1:30", "--on", "yesterday", "--reason", "x", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert f"{YESTERDAY:%Y-%m-%d}" in logged(runner)
+
+
+@pytest.mark.parametrize(
+    ("when", "said"),
+    [("tomorrow", "has not happened"), ("2026-06-08", "Tue 9 Jun 2026")],
+)
+def test_adjust_outside_the_leave_year_so_far_is_refused(
+    home: Path, when: str, said: str
+) -> None:
+    """Refused before the plan, which would offer a figure that never counts."""
+    runner = CliRunner()
+
+    result = adjust(runner, "+1:00", "--on", when, "--reason", "x", "--yes")
+
+    assert result.exit_code == 1
+    assert said in result.stderr
+    assert "→" not in result.stdout
+    assert "No adjustments" in logged(runner)
+
+
+def test_adjust_behind_a_settlement_is_refused(home: Path) -> None:
+    runner = CliRunner()
+    assert runner.invoke(cli, ["balance", "zero", "--yes"]).exit_code == 0
+    line = logged(runner).split()[0]
+
+    result = adjust(runner, "+1:00", "--on", "yesterday", "--reason", "x", "--yes")
+
+    assert result.exit_code == 1
+    assert f"flexi balance undo {line}" in result.stderr
+    assert balance_of(runner, YESTERDAY) == "0:00"
+
+
+def test_a_balance_brought_in_can_be_corrected_the_next_day(home: Path) -> None:
+    """The README's examples a day apart: an opening balance is no settlement."""
+    runner = CliRunner()
+    with time_machine.travel(NOON - timedelta(days=1), tick=False):
+        brought = adjust(runner, "+5:30", "--reason", "Brought forward", "--yes")
+    assert brought.exit_code == 0, brought.output
+
+    result = adjust(
+        runner, "-0:45", "--on", "yesterday", "--reason", "Long lunch", "--yes"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert balance_of(runner) == "\N{MINUS SIGN}0:39"
+
+
+def test_adjustment_is_logged_and_can_be_taken_back(home: Path) -> None:
+    runner = CliRunner()
+    adjust(runner, "+5:30", "--reason", "Brought forward", "--yes")
+
+    log = logged(runner)
+    assert "2026-06-10" in log
+    assert "+5:30  Brought forward" in log
+
+    undone = runner.invoke(cli, ["balance", "undo", log.split()[0]])
+
+    assert undone.exit_code == 0
+    assert "No adjustments" in logged(runner)
+    assert balance_of(runner) == "−5:24"

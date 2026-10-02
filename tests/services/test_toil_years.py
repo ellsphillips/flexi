@@ -20,6 +20,11 @@ FIRST = date(2026, 10, 20)
 LATER = date(2026, 10, 21)
 
 
+def noon_on(day: date) -> datetime:
+    """When a reservation is read back: on its own day, once it has come."""
+    return datetime.combine(day, datetime.min.time(), tzinfo=UTC).replace(hour=12)
+
+
 @pytest.fixture
 def before_reset() -> Iterator[None]:
     with time_machine.travel(datetime(2026, 10, 16, 12, tzinfo=UTC), tick=False):
@@ -44,7 +49,8 @@ def test_next_year_inherits_neither_surplus_nor_deficit(
     result = tracked.absence.book_plan(plan)
     assert result.success
     assert result.warning == plan.warning
-    assert tracked.ledger.balance(FIRST).delta == -tracked.settings.get_contracted()
+    balance = tracked.ledger.balance(FIRST, now=noon_on(FIRST))
+    assert balance.delta == -tracked.settings.get_contracted()
 
 
 def test_direct_booking_also_uses_the_booked_year(tracked: Services) -> None:
@@ -110,7 +116,7 @@ def test_refused_days_in_next_year_cannot_consume_current_year_toil(
 def test_current_year_reservations_are_not_subtracted_twice(tracked: Services) -> None:
     assert tracked.absence.book(LAST, AbsenceType.FLEXI, Portion.AM).success
     contracted = tracked.settings.get_contracted()
-    assert tracked.adjustments.record(TODAY, contracted * 3, "opening balance").success
+    assert tracked.adjustments.record(TODAY, contracted * 2, "opening balance").success
     available = tracked.wallet.available_toil_days(TODAY)
     assert available == 1.5
     plan = tracked.absence.plan(
@@ -155,7 +161,8 @@ def test_future_reservations_before_tracking_do_not_spend_the_new_year(
     assert plan.toil_balances == (ToilBalance(2026, 0.0, -1.0),)
     assert plan.warning == "This takes the flexi balance 1 day into deficit"
     assert services.absence.book_plan(plan).success
-    assert services.ledger.balance(LATER).delta == -services.settings.get_contracted()
+    balance = services.ledger.balance(LATER, now=noon_on(LATER))
+    assert balance.delta == -services.settings.get_contracted()
 
 
 def test_new_future_reservation_invalidates_a_confirmed_preview(
@@ -175,7 +182,7 @@ def test_cli_warns_when_the_actual_next_year_balance_is_negative(
     tracked: Services, capsys: pytest.CaptureFixture[str]
 ) -> None:
     contracted = tracked.settings.get_contracted()
-    assert tracked.adjustments.record(TODAY, contracted * 11, "opening balance").success
+    assert tracked.adjustments.record(TODAY, contracted * 10, "opening balance").success
     assert tracked.wallet.available_toil_days(TODAY) == 10.0
     assert (
         run(
@@ -189,4 +196,4 @@ def test_cli_warns_when_the_actual_next_year_balance_is_negative(
         == 0
     )
     assert "1 day into deficit" in capsys.readouterr().out
-    assert tracked.ledger.balance(FIRST).delta == -contracted
+    assert tracked.ledger.balance(FIRST, now=noon_on(FIRST)).delta == -contracted
