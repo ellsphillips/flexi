@@ -31,6 +31,6 @@
  ╰──────────────────────────────────────────── to 11 Jun ─╯
  ╭─ The leave year ───────────────────────────────────────╮ ╭─ Annual leave ─────────────────────────────────────────╮
  │ M ·■■■·■■·■■                                           │ │ ██████████┃··········································· │
- │ T ■■■■■■■■■■                                           │ │ 4.5 taken · 20.5 left · pace 4.5                       │
+ │ T ■■■■■■■■■■                                           │ │ 4.5 booked · 20.5 left · pace 4.5                      │
 
 t Today p Period esc Back q Quit / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings
