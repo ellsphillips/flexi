@@ -43,8 +43,13 @@ $c-ink: #0F0E0D;
 $c-surface: #171614;
 $c-raised: #201E1B;
 
-/* Hairlines. Editorial layouts are ruled, not boxed. */
-$c-line: #2E2B27;
+/* Hairlines. Editorial layouts are ruled, not boxed.
+
+   `line` is kept light enough to reach a sixteen-colour terminal (`TERM=xterm`,
+   the Linux console) as bright black. At #2E2B27 Rich matched it to the black
+   `ink` becomes there, and every rule, track and empty strip drawn in it
+   vanished. `tests/tui/test_sixteen_colours.py` checks the screens for it. */
+$c-line: #302D29;
 $c-line-soft: #232019;
 $c-rule: #443F38;
 
