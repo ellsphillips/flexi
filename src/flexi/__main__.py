@@ -47,6 +47,7 @@ __all__ = (
     "LEFT_RUNNING",
     "NEEDS_TERMINAL",
     "NOT_INITIALISED",
+    "NOT_UNICODE",
     "UNREADABLE",
     "WINDOWS_TERMINALS",
     "FlexiApplication",
@@ -106,6 +107,10 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
     from flexi.cli import output, ui
 
     output.prepare(ctx)
+    encoding = output.unencodable()
+    if encoding is not None:
+        click.secho(NOT_UNICODE.format(encoding=encoding), fg="yellow", err=True)
+        ctx.exit(1)
     if ctx.invoked_subcommand is None and ui.interactive():
         # Before the imports below: on a first launch they take seconds, and a
         # terminal left blank for that long looks hung.
@@ -162,6 +167,12 @@ DEMO_NEEDS_TERMINAL = (
 
 WINDOWS_TERMINALS = "Run Flexi in Windows Terminal, PowerShell or Command Prompt."
 """Said on Windows only, where Git Bash and an IDE's output pane are no console."""
+
+NOT_UNICODE = (
+    "Flexi draws with Unicode, but this terminal's locale uses {encoding}. "
+    "Use a UTF-8 locale, such as `LC_ALL=en_GB.UTF-8 flexi`."
+)
+"""In ASCII, which every locale can show."""
 
 UNREADABLE = (
     "The database at {path} could not be read.\n"

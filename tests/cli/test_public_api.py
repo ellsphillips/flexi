@@ -78,6 +78,7 @@ CLI_ROUTES = {
     "monochrome": ("output", "monochrome"),
     "prepare": ("output", "prepare"),
     "tolerant": ("output", "tolerant"),
+    "unencodable": ("output", "unencodable"),
 }
 
 
