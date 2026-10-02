@@ -371,11 +371,12 @@ class DayLedger:
         ...
 ```
 
-`delta` is the day's hours against what it expected. `balance_effect` is what
-the running balance accumulates, and what the day's `±` column shows: a TOIL day
-expects nothing, so it scores no deficit for being unworked, and it spends a day
-of the surplus that paid for it. Today's shows only what it has gained so far,
-and a day still to come shows nothing (§1).
+`delta` is the day's hours against what it expected. `balance_effect` is what a
+finished day adds to the running balance: a TOIL day expects nothing, so it
+scores no deficit for being unworked, and it spends a day of the surplus that
+paid for it. `standing` counts a finished day the same way, today only for what
+it has gained so far, and a day still to come not at all (§1); the day's `±`
+column and every balance read it.
 
 Every duration that can still be running takes a `now`, so a widget redrawing on
 a timer says what the elapsed time is at the moment it draws, and no ledger

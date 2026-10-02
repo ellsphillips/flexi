@@ -117,7 +117,7 @@ class DayLedger:
 
     @property
     def balance_effect(self) -> timedelta:
-        """What this day contributes to the running flexi balance.
+        """What this day contributes to the running flexi balance once it is over.
 
         A TOIL day is a withdrawal: it expects nothing and so scores no deficit
         for being unworked, but it spends a day of the surplus that paid for it.
