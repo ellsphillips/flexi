@@ -233,12 +233,18 @@ try-release *args:
 [group('GitHub')]
 [script]
 ci branch:
-    import subprocess, sys
-    raise SystemExit(subprocess.call(["gh", "workflow", "run", "ci.yaml", "--ref", sys.argv[1]]))
+    import shutil, subprocess, sys
+    gh = shutil.which("gh")
+    if gh is None:
+        raise SystemExit("Install the GitHub CLI (gh), then sign in with gh auth login")
+    raise SystemExit(subprocess.call([gh, "workflow", "run", "ci.yaml", "--ref", sys.argv[1]]))
 
 # Retry GitHub preparation for a release PR; may commit generated changes to dev.
 [group('GitHub')]
 [script]
 release-retry pr:
-    import subprocess, sys
-    raise SystemExit(subprocess.call(["gh", "workflow", "run", "release-prepare.yaml", "--ref", "dev", "-f", f"pull_request={sys.argv[1]}"]))
+    import shutil, subprocess, sys
+    gh = shutil.which("gh")
+    if gh is None:
+        raise SystemExit("Install the GitHub CLI (gh), then sign in with gh auth login")
+    raise SystemExit(subprocess.call([gh, "workflow", "run", "release-prepare.yaml", "--ref", "dev", "-f", f"pull_request={sys.argv[1]}"]))

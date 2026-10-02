@@ -94,13 +94,17 @@ class Tasks:
             for line in log.read_text(encoding="utf-8").splitlines()
         ]
 
-    def run(self, *args: str, fail_at: int = 0) -> subprocess.CompletedProcess[str]:
+    def run(
+        self, *args: str, fail_at: int = 0, path: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         environment = dict(os.environ)
         environment.pop("HYPOTHESIS_PROFILE", None)
         environment.pop("FLEXI_LATE_CALLBACKS", None)
         environment.update(
             TASK_LOG=str(self.root / "calls.jsonl"), TASK_FAIL_AT=str(fail_at)
         )
+        if path is not None:
+            environment["PATH"] = str(path)
         return subprocess.run(  # noqa: S603 - discovered just and controlled copied recipes
             [
                 self.executable,
@@ -218,6 +222,49 @@ def test_justfile_is_formatted_by_the_just_ci_pins(
     assert formatting == [
         ("uvx", "--from", pinned[1], "just", "--unstable", "--fmt", *check)
     ]
+
+
+@pytest.mark.parametrize(
+    ("recipe", "argument", "workflow"),
+    [
+        ("ci", "fix/typo", "ci.yaml --ref fix/typo"),
+        ("release-retry", "42", "release-prepare.yaml --ref dev -f pull_request=42"),
+    ],
+)
+def test_github_recipes_run_the_github_cli_on_path(
+    tasks: Tasks, recipe: str, argument: str, workflow: str
+) -> None:
+    found = tasks.root / "bin"
+    found.mkdir()
+    (found / ("gh.exe" if sys.platform == "win32" else "gh")).touch(mode=0o755)
+
+    result = tasks.run(recipe, argument, path=found)
+
+    assert result.returncode == 0, result.stderr
+    gh = shutil.which("gh", path=str(found))
+    assert [call.args for call in tasks.calls] == [
+        (gh, "workflow", "run", *workflow.split())
+    ]
+
+
+@pytest.mark.parametrize(
+    ("recipe", "argument"), [("ci", "fix/typo"), ("release-retry", "42")]
+)
+def test_github_recipes_without_the_github_cli_say_how_to_get_it(
+    tasks: Tasks, recipe: str, argument: str
+) -> None:
+    """Not a FileNotFoundError traceback from inside `subprocess`."""
+    empty = tasks.root / "bin"
+    empty.mkdir()
+
+    result = tasks.run(recipe, argument, path=empty)
+
+    assert result.returncode != 0
+    assert "Install the GitHub CLI (gh), then sign in with gh auth login" in (
+        result.stderr
+    )
+    assert "Traceback" not in result.stderr
+    assert tasks.calls == []
 
 
 def test_release_title_is_one_literal_argument(tasks: Tasks) -> None:
