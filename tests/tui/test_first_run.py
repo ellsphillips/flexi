@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 import time_machine
+from textual.notifications import Notification
 from textual.pilot import Pilot
 from textual.widgets import Input, Label, Select, Static
 
@@ -192,6 +193,7 @@ async def test_cleared_region_is_asked_for_again(fresh_db: Path) -> None:
 
         assert NO_DIVISION in notices(app)
         showing(app, SetupScreen)
+        assert screen.focused is screen.query_one("#select-division", Select)
 
     with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
@@ -285,6 +287,71 @@ async def test_hours_a_day_that_cannot_be_used_are_refused(
 
     with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
+
+
+def refusals(app: FlexiApp) -> list[Notification]:
+    """The errors put in front of the user, oldest first."""
+    return [shown for shown in app._notifications if shown.severity == "error"]
+
+
+@pytest.mark.parametrize(
+    ("selector", "typed", "asked"),
+    [
+        ("#input-leave-start", "1 Apirl", "Leave year starts"),
+        ("#input-entitlement", "twenty-five", "Annual entitlement"),
+        ("#input-working-days", "whenever", "Working days"),
+        ("#input-hours", "7.30", "Hours a day"),
+        ("#input-auto-close", "half six", "Auto-close at"),
+    ],
+)
+async def test_refusal_names_the_question_and_goes_back_to_it(
+    fresh_db: Path, selector: str, typed: str, asked: str
+) -> None:
+    """The cursor stayed where enter was pressed, and the message named no question.
+
+    It goes back to the answer instead, with it selected to type over, and
+    every other answer is left as it was.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        field = screen.query_one(selector, Input)
+        field.value = typed
+        screen.query_one(Select).focus()
+        await pilot.pause()
+        answers = {each.id: each.value for each in screen.query(Input)}
+
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        [refused] = refusals(app)
+        assert refused.title == asked
+        assert screen.focused is field
+        assert field.selected_text == typed
+        assert {each.id: each.value for each in screen.query(Input)} == answers
+
+    with session_at(fresh_db) as session:
+        assert SettingsService(session).get_settings() is None
+
+
+async def test_the_first_answer_refused_is_the_first_asked(fresh_db: Path) -> None:
+    """Hours a day were read before the leave year, so two typos walked backwards."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-leave-start", Input).value = "1 Apirl"
+        screen.query_one("#input-hours", Input).value = "7.30"
+
+        screen.action_save()
+        await pilot.pause()
+
+        [refused] = refusals(app)
+        assert refused.title == "Leave year starts"
+        assert screen.focused is screen.query_one("#input-leave-start", Input)
 
 
 async def test_heading_counts_the_questions(fresh_db: Path) -> None:

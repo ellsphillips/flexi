@@ -30,7 +30,7 @@ from flexi.components.wordmark import Wordmark
 from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
 from flexi.domain.format import hm
-from flexi.screens.settings import ALL_REQUIRED, parse_answers
+from flexi.screens.settings import AnswerError, answer, parse_answers, refuse
 from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
@@ -436,25 +436,16 @@ class SetupScreen(Screen[bool]):
         self.action_save()
 
     def action_save(self) -> None:
-        """Write the answers, or say which one is not an answer yet.
+        """Write the answers, or go back to one that is not an answer yet.
 
         Every answer is parsed before anything is written, then settings and
         entitlement commit together, on the boundary `SettingsScreen._save` uses.
         """
-        entitlement_str = self.query_one("#input-entitlement", Input).value.strip()
-        if not entitlement_str:
-            self.notify(ALL_REQUIRED, severity="error")
-            return
-        try:
-            entitlement = parse_entitlement_days(entitlement_str)
-        except ValueError as error:
-            self.notify(str(error), severity="error")
-            return
-
         try:
             update = parse_answers(self)
-        except ValueError as error:
-            self.notify(str(error), severity="error")
+            entitlement = answer(self, "#input-entitlement", parse_entitlement_days)
+        except AnswerError as refusal:
+            refuse(refusal)
             return
 
         # The leave year, not the calendar year: `get_active_entitlement_days`

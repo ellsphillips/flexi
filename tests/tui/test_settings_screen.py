@@ -169,6 +169,25 @@ async def test_unreadable_time_is_refused(app_factory: AppFactory) -> None:
         assert row.auto_close_time != "half past six"
 
 
+async def test_refusal_goes_back_to_the_field_in_this_forms_words(
+    app_factory: AppFactory,
+) -> None:
+    """The first-run form asks "Auto-close at"; this one asks for a time."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        screen = showing(app, SettingsScreen)
+        field = screen.query_one("#input-auto-close", Input)
+        field.value = "half six"
+
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        [refused] = [n for n in app._notifications if n.severity == "error"]
+        assert refused.title == "Auto-close time"
+        assert screen.focused is field
+
+
 async def test_unusable_hours_a_day_are_refused(app_factory: AppFactory) -> None:
     """The setup form's parser, so the two forms refuse in the same words."""
     app = app_factory()
