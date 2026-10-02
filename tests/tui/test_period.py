@@ -7,12 +7,14 @@ from datetime import date, timedelta
 import pytest
 
 from flexi.app import FlexiApp
+from flexi.components.common import SHORT_ROWS
 from flexi.components.expandable import ExpandableTable, RowKind
 from flexi.components.modules.monthview import MonthView
 from flexi.config import CONFIG
 from flexi.constants import Granularity
 from flexi.domain.dates import DAYS_IN_WEEK
 from flexi.services.registry import invalidate_services
+from tests.conftest import settled
 from tests.tui.conftest import READABLE, WIDE, AppFactory, contrast, dashboard
 
 TODAY = date(2026, 6, 11)
@@ -308,3 +310,32 @@ async def test_calendar_names_the_period_it_is_windowing(
 
         view = app.screen.query_one(MonthView)
         assert view.border_subtitle == granularity.label
+
+
+# Room for the calendar ------------------------------------------------------
+
+
+async def test_a_short_terminal_has_no_room_for_the_calendar(
+    app_factory: AppFactory,
+) -> None:
+    """Windows Terminal opens at 120x30, where the calendar showed no days.
+
+    The column scrolled to reach it under a clock, a balance and a wallet that
+    already filled the screen. Without it, those three fit.
+    """
+    app = app_factory()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await settled(pilot)
+
+        assert app.screen.query_one(MonthView).display is False
+        assert app.screen.query_one("#dashboard-controls").max_scroll_y == 0
+
+
+async def test_the_calendar_is_back_where_it_fits(app_factory: AppFactory) -> None:
+    """The first height with room for the whole month, its border included."""
+    app = app_factory()
+    async with app.run_test(size=(120, SHORT_ROWS)) as pilot:
+        await settled(pilot)
+
+        assert app.screen.query_one(MonthView).display is True
+        assert app.screen.query_one("#dashboard-controls").max_scroll_y == 0

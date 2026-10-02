@@ -2,8 +2,9 @@
    The dashboard's layout
    ==========================================================================
    Terminal CSS has no media query, so the class is the query: `mark_width`
-   puts `-narrow` and `-tiny` on the screen from the terminal's width, never
-   from a widget's own, so a fold cannot change the measurement that caused it.
+   puts `-narrow` and `-tiny` on the screen from the terminal's width, and
+   `mark_height` puts `-short` on it from its height, never from a widget's
+   own, so a fold cannot change the measurement that caused it.
    ========================================================================== */
 
 #dashboard-body {
@@ -53,6 +54,13 @@ DashboardScreen.-tiny #dashboard-controls {
 
 DashboardScreen.-tiny #wallet-module,
 DashboardScreen.-tiny #balance-module {
+    display: none;
+}
+
+/* Under 38 rows the control column has no room for the calendar below the
+   other three, and the cut-off panel showed a heading and no days. It only
+   moves the period, which the period keys and `g` do as well. */
+DashboardScreen.-short #month-view {
     display: none;
 }
 

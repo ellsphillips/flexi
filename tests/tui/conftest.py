@@ -23,7 +23,7 @@ from flexi.screens.dashboard import DashboardScreen
 from flexi.services.samples import NOW, seed_demo
 from tests.database import create_schema
 
-WIDE = (120, 36)
+WIDE = (120, 40)
 
 type AppFactory = Callable[[], FlexiApp]
 

@@ -25,7 +25,7 @@ from textual.timer import Timer
 
 from flexi import wallclock
 from flexi.components.chrome import AppFooter, AppHeader
-from flexi.components.common import TINY_COLUMNS, Tone, mark_width
+from flexi.components.common import TINY_COLUMNS, Tone, mark_height, mark_width
 from flexi.components.expandable import RowKind, row_ident
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.balance import BalanceModule
@@ -169,6 +169,7 @@ class DashboardScreen(Screen[None]):
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)
+        mark_height(self, self.size.height)
         self._refresh_progress()
 
     def jump_targets(self) -> dict[str, str]:

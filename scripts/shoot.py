@@ -59,9 +59,10 @@ refuse_the_network()
 
 SHOTS = ROOT / "docs" / "shots"
 
-WIDE = (120, 36)
+WIDE = (120, 40)
 NARROW = (84, 28)
 TINY = (63, 22)  # one column under TINY_COLUMNS, so the -tiny rules apply
+SHORT = (120, 30)  # Windows Terminal's default, under SHORT_ROWS
 
 # The shots the README points at, sized to hold a whole feature.
 SHOWCASE = (128, 40)
@@ -87,6 +88,7 @@ SHOOTS: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
     ("leave-narrow", NARROW, ["f2"]),
     ("dashboard-narrow", NARROW, []),
     ("dashboard-tiny", TINY, []),
+    ("dashboard-short", SHORT, []),
 )
 
 
