@@ -366,6 +366,10 @@ class DashboardScreen(Screen[None]):
         receipt. That receipt is returned as well as shown: `/` is bound on the
         application, and from Leave or Insights this screen's footer sits under
         the one being read.
+
+        It acts on what the clock panel shows. When another process has
+        clocked in or out since the panel was drawn, the press catches the
+        board up and says so, and the next one acts.
         """
         clock = self._services.clock
         # A session left running overnight is drawn as closed the moment the
@@ -384,7 +388,24 @@ class DashboardScreen(Screen[None]):
             self.status(*receipt)
             self.refresh_modules(Scope.CLOCK)
             return receipt
-        if clock.is_clocked_in():
+        running = clock.get_open_session()
+        drawn = any(panel.shows_open for panel in self.query(ClockModule))
+        if (running is not None) != drawn:
+            # `flexi clock in` in another terminal, unseen by the panel this
+            # press was aimed at: acting on the database would do the opposite
+            # of the button under it, and clock out a session just begun.
+            self.refresh_modules(Scope.ALL)
+            opened = None if running is None else clock.segment(running.id)
+            if opened is None:
+                said = "Clocked out elsewhere; press again to clock in"
+            else:
+                said = (
+                    f"Clocked in elsewhere at {clock_time(opened.start)}; "
+                    "press again to clock out"
+                )
+            self.status(said, Tone.WARN)
+            return said, Tone.WARN
+        if running is not None:
             return self._report(clock.clock_out())
         return self._report(clock.clock_in())
 

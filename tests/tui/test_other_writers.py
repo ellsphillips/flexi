@@ -20,7 +20,7 @@ from flexi.constants import AbsenceType
 from flexi.screens.leave import LeaveScreen
 from flexi.services.registry import build_services
 from tests.conftest import session_at
-from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
+from tests.tui.conftest import WIDE, AppFactory, dashboard, showing, status_text
 
 MONDAY_NEXT = date(2026, 6, 15)
 """A working day after the frozen Thursday, with nothing booked on it."""
@@ -92,3 +92,58 @@ async def test_the_app_s_own_writes_do_not_set_off_the_poll(
             app.notice_other_writers()
 
         redraw.assert_not_called()
+
+
+async def test_slash_after_a_clock_in_elsewhere_does_not_clock_out(
+    app_factory: AppFactory, seeded_db: Path, unhurried: None
+) -> None:
+    """The press was aimed at the Arrive the panel showed, not at the database.
+
+    It redraws, says what happened, and waits for the next press to clock out.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("slash")
+        await pilot.pause()
+        with session_at(seeded_db) as other:
+            assert build_services(other).clock.clock_in().success
+
+        await pilot.press("slash")
+        await pilot.pause()
+
+        assert app.services.clock.is_clocked_in()
+        assert status_text(app) == (
+            "Clocked in elsewhere at 14:32; press again to clock out"
+        )
+        assert clock_button(app) == "Depart"
+
+        await pilot.press("slash")
+        await pilot.pause()
+
+        assert not app.services.clock.is_clocked_in()
+
+
+async def test_slash_after_a_clock_out_elsewhere_does_not_clock_in(
+    app_factory: AppFactory, seeded_db: Path, unhurried: None
+) -> None:
+    """The other way round: the panel said Depart, and someone already had."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        board = dashboard(app)
+        assert board._tick is not None
+        board._tick.pause()  # The open session's tick would catch up on its own.
+        with session_at(seeded_db) as other:
+            assert build_services(other).clock.clock_out().success
+
+        await pilot.press("slash")
+        await pilot.pause()
+
+        assert not app.services.clock.is_clocked_in()
+        assert status_text(app) == "Clocked out elsewhere; press again to clock in"
+        assert clock_button(app) == "Arrive"
+
+        await pilot.press("slash")
+        await pilot.pause()
+
+        assert app.services.clock.is_clocked_in()
