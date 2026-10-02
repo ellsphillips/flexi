@@ -205,6 +205,8 @@ The tick also watches the date. The first tick after midnight runs the clock
 sweep, which closes a session left running at the auto-close time and says so,
 as a launch or `/` would; moves a period that showed the old date onto the new
 one; redraws everything; and stops the tick if nothing is left on the clock.
+Nobody pressed anything, so the status bar says so as well, and the next `/`
+stops there, as one that swept would, rather than clocking in.
 
 ## 5. Screens, navigation and the command palette
 

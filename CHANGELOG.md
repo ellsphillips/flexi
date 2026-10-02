@@ -33,7 +33,8 @@ forward on launch, with a backup taken first.
 - **A dashboard that keeps up.** While you are on the clock, today's row, the
   period's total and the wallet move with the balance a minute at a time. Left
   open overnight, it closes a forgotten session at the auto-close time, says
-  what it counted, and moves on to the new day.
+  what it counted and moves on to the new day; the next `/` then stops rather
+  than clocking you in.
 - **Work you never clocked.** `n` records a stretch after the fact — a site
   visit, a morning the laptop stayed shut. It counts for everything a punched
   session counts for, and is drawn apart from one. An overlapping stretch is

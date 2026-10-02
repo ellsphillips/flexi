@@ -60,8 +60,10 @@ session is closed: changing it never reclassifies historical work.
 **A session left running is closed, and you are told.** Once the date has
 turned under an open session, whichever comes first — opening Flexi, pressing
 `/`, a dashboard left open past midnight, or any `flexi` command — closes it at
-the auto-close time and says what it counted. The `/` that closes it does not also clock in, since past midnight it is
-as likely meant as a clock-out: press it again to start the day.
+the auto-close time and says what it counted. The `/` that closes it does not
+also clock in, nor does the first `/` after an open dashboard closed it, since
+past midnight it is as likely meant as a clock-out: press it again to start the
+day.
 
 Clocking in is refused, on the status bar and never in a dialog, on a bank
 holiday and on a day booked off in full. Half a day booked off refuses nothing:
