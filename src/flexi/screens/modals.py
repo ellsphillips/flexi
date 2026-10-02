@@ -1,13 +1,15 @@
 """Modals, and the contract every one of them keeps.
 
-``escape`` cancels and dismisses with ``None``. ``enter`` confirms. ``tab``
-moves between fields. Enforced for every :class:`FlexiModal` subclass by
+``escape`` cancels and dismisses with ``None``. ``enter`` confirms, or moves to
+the next field a modal asks for while that one is empty. ``tab`` moves between
+fields. Enforced for every :class:`FlexiModal` subclass by
 tests/tui/test_keyboard.py.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, time, timedelta
+from itertools import pairwise
 from typing import ClassVar
 
 from textual.app import ComposeResult
@@ -63,6 +65,13 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
     line and the buttons stay put.
     """
 
+    field_order: ClassVar[tuple[str, ...]] = ()
+    """The fields every answer needs, as selectors, in the order they are asked.
+
+    `enter` in one of them while the next is still empty moves there, as `tab`
+    would, rather than confirming half an answer only to refuse it.
+    """
+
     @property
     def modal_title(self) -> str:
         """The title rendered for this modal instance."""
@@ -107,12 +116,24 @@ class FlexiModal[ResultT](ModalScreen[ResultT | None]):
 
     def action_confirm(self) -> None:
         """Validate and dismiss. Subclasses override :meth:`result`."""
+        unanswered = self._unanswered_next()
+        if unanswered is not None:
+            unanswered.focus()
+            return
         try:
             value = self.result()
         except ValueError as error:
             self.show_error(str(error))
             return
         self.dismiss(value)
+
+    def _unanswered_next(self) -> Input | None:
+        """The field after the focused one in :attr:`field_order`, if it is empty."""
+        fields = [self.query_one(selector, Input) for selector in self.field_order]
+        for field, following in pairwise(fields):
+            if field is self.focused and not following.value.strip():
+                return following
+        return None
 
     def result(self) -> ResultT:
         """The value this modal was opened to collect.
@@ -344,6 +365,7 @@ class CorrectionModal(FlexiModal[Correction]):
 
     title_text: ClassVar[str] = "Record work"
     confirm_label: ClassVar[str] = "Record"
+    field_order: ClassVar[tuple[str, ...]] = ("#correction-from", "#correction-to")
 
     def __init__(
         self, day: date, *, tracking_since: date | None, expected: timedelta
@@ -358,10 +380,12 @@ class CorrectionModal(FlexiModal[Correction]):
         return f"Record work on {short_date(self._day)}"
 
     def compose_body(self) -> ComposeResult:
+        # Marked as examples: a bare 9:00 reads as a time already filled in,
+        # the way the setup form's defaults are.
         yield Label("From", classes="overline")
-        yield Input("", id="correction-from", placeholder="9:00")
+        yield Input("", id="correction-from", placeholder="e.g. 9:00")
         yield Label("To", classes="overline")
-        yield Input("", id="correction-to", placeholder="17:00")
+        yield Input("", id="correction-to", placeholder="e.g. 17:00")
         yield Static(self._caption(), classes="caption")
 
     def _caption(self) -> str:
@@ -390,16 +414,19 @@ class CorrectionModal(FlexiModal[Correction]):
     def result(self) -> Correction:
         return Correction(
             day=self._day,
-            opened=self._time("#correction-from", "a start"),
-            closed=self._time("#correction-to", "an end"),
+            opened=self._time(
+                "#correction-from", "Type the time you started, like 9:00"
+            ),
+            closed=self._time(
+                "#correction-to", "Type the time you finished, like 17:00"
+            ),
         )
 
-    def _time(self, selector: str, what: str) -> time:
-        """One field, read as a clock time."""
+    def _time(self, selector: str, ask: str) -> time:
+        """One field, read as a clock time, or ``ask`` raised when it is empty."""
         typed = self.query_one(selector, Input).value.strip()
         if not typed:
-            msg = f"Give {what} time"
-            raise ValueError(msg)
+            raise ValueError(ask)
         return time(*parse_clock_time(typed))
 
 
@@ -480,6 +507,10 @@ class AdjustmentModal(FlexiModal[Adjustment]):
 
     title_text: ClassVar[str] = "Adjust balance"
     confirm_label: ClassVar[str] = "Adjust"
+    field_order: ClassVar[tuple[str, ...]] = (
+        "#adjustment-amount",
+        "#adjustment-reason",
+    )
 
     def __init__(self, when: date) -> None:
         super().__init__()
@@ -491,9 +522,9 @@ class AdjustmentModal(FlexiModal[Adjustment]):
 
     def compose_body(self) -> ComposeResult:
         yield Label("Amount", classes="overline")
-        yield Input("", id="adjustment-amount", placeholder="+5:30")
+        yield Input("", id="adjustment-amount", placeholder="e.g. +5:30")
         yield Label("Reason", classes="overline")
-        yield Input("", id="adjustment-reason", placeholder="Brought forward")
+        yield Input("", id="adjustment-reason", placeholder="e.g. Brought forward")
         yield Static(
             "For a balance brought in from elsewhere, or a correction to this "
             "one: +5:30 adds, −1:30 takes away. `flexi balance log` lists it, "
@@ -505,10 +536,16 @@ class AdjustmentModal(FlexiModal[Adjustment]):
         self.query_one("#adjustment-amount", Input).focus()
 
     def result(self) -> Adjustment:
-        amount = parse_amount(self.query_one("#adjustment-amount", Input).value)
+        typed = self.query_one("#adjustment-amount", Input).value
+        if not typed.strip():
+            # Asked before parsing: the parser quotes back what it could not
+            # read, and "'' is not an amount" quotes nothing.
+            msg = "Type an amount, like +5:30 or -1:30"
+            raise ValueError(msg)
+        amount = parse_amount(typed)
         reason = self.query_one("#adjustment-reason", Input).value.strip()
         if not reason:
-            msg = "An adjustment needs a reason"
+            msg = "Type a reason, like Brought forward"
             raise ValueError(msg)
         return Adjustment(self._when, amount, reason)
 

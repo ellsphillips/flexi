@@ -201,6 +201,72 @@ async def test_empty_field_is_asked_for_again(
         showing(app, CorrectionModal)
 
 
+async def test_examples_read_as_examples(app_factory: AppFactory) -> None:
+    """A bare `9:00` in grey looks like a time already given, as setup's do."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await pilot.press(CONFIG.hotkeys.new_session)
+        await pilot.pause()
+
+        modal = showing(app, CorrectionModal)
+        assert modal.query_one("#correction-from", Input).placeholder == "e.g. 9:00"
+        assert modal.query_one("#correction-to", Input).placeholder == "e.g. 17:00"
+
+
+async def test_enter_after_the_start_moves_to_the_end(
+    app_factory: AppFactory,
+) -> None:
+    """A start with no end is half an answer, so enter asks for the other half."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        when = dashboard(app).period.anchor
+        before = app.services.ledger.day(when).worked
+        await pilot.press(CONFIG.hotkeys.new_session)
+        await pilot.pause()
+        modal = showing(app, CorrectionModal)
+        modal.query_one("#correction-from", Input).value = "8:30"
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert showing(app, CorrectionModal) is modal
+        assert app.focused is modal.query_one("#correction-to", Input)
+        assert str(modal.query_one("#modal-error", Static).render()) == ""
+        assert app.services.ledger.day(when).worked == before
+
+
+@pytest.mark.parametrize(
+    ("opened", "closed", "said"),
+    [
+        ("", "17:00", "Type the time you started, like 9:00"),
+        ("8:30", "", "Type the time you finished, like 17:00"),
+    ],
+    ids=["no start", "no end"],
+)
+async def test_empty_time_says_what_to_type(
+    app_factory: AppFactory, opened: str, closed: str, said: str
+) -> None:
+    """Asked from the last field, where enter has nowhere further to go."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await pilot.press(CONFIG.hotkeys.new_session)
+        await pilot.pause()
+        modal = showing(app, CorrectionModal)
+        modal.query_one("#correction-from", Input).value = opened
+        modal.query_one("#correction-to", Input).value = closed
+        modal.query_one("#correction-to", Input).focus()
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert showing(app, CorrectionModal) is modal
+        assert str(modal.query_one("#modal-error", Static).render()) == said
+
+
 async def test_review_lists_the_corrections_in_the_period(
     app_factory: AppFactory,
 ) -> None:

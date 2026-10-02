@@ -116,12 +116,69 @@ async def test_adjustment_needs_a_reason(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
+        dashboard(app).action_adjust_balance()
+        await pilot.pause()
+        modal = showing(app, AdjustmentModal)
+        modal.query_one("#adjustment-amount", Input).value = "+5:30"
+        modal.query_one("#adjustment-reason", Input).value = "   "
+        modal.query_one("#adjustment-reason", Input).focus()
+        await pilot.pause()
 
-        modal = await adjust(app, pilot, "+5:30", "   ")
+        await pilot.press("enter")
+        await pilot.pause()
 
         assert showing(app, AdjustmentModal) is modal
-        assert "needs a reason" in error_on(modal)
+        assert error_on(modal) == "Type a reason, like Brought forward"
         assert app.services.adjustments.all() == []
+
+
+async def test_empty_amount_says_what_to_type(app_factory: AppFactory) -> None:
+    """Not "'' is not an amount", which quotes back nothing as if it were typed."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+
+        modal = await adjust(app, pilot, "", "Brought forward")
+
+        assert showing(app, AdjustmentModal) is modal
+        assert error_on(modal) == "Type an amount, like +5:30 or -1:30"
+        assert app.services.adjustments.all() == []
+
+
+async def test_enter_after_the_amount_moves_to_the_reason(
+    app_factory: AppFactory,
+) -> None:
+    """The amount alone is half an answer, and the reason is the half still empty."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        dashboard(app).action_adjust_balance()
+        await pilot.pause()
+        modal = showing(app, AdjustmentModal)
+        modal.query_one("#adjustment-amount", Input).value = "+3:15"
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert showing(app, AdjustmentModal) is modal
+        assert app.focused is modal.query_one("#adjustment-reason", Input)
+        assert error_on(modal) == ""
+        assert app.services.adjustments.all() == []
+
+
+async def test_examples_read_as_examples(app_factory: AppFactory) -> None:
+    """`+5:30` and `Brought forward` in grey look like answers already given."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        dashboard(app).action_adjust_balance()
+        await pilot.pause()
+
+        modal = showing(app, AdjustmentModal)
+        amount = modal.query_one("#adjustment-amount", Input)
+        reason = modal.query_one("#adjustment-reason", Input)
+        assert amount.placeholder == "e.g. +5:30"
+        assert reason.placeholder == "e.g. Brought forward"
 
 
 async def test_cancelling_writes_nothing(app_factory: AppFactory) -> None:
