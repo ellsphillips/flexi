@@ -6,13 +6,16 @@ from datetime import date, timedelta
 
 import pytest
 from textual.pilot import Pilot
-from textual.widgets import Button, Input, Static
+from textual.widgets import Button, Digits, Input, Static
 
 from flexi.app import FlexiApp
 from flexi.components.common import Gauge, Tone
+from flexi.components.modules.records import RecordsModule
 from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import AbsenceType, Portion, Verdict
+from flexi.domain.format import digits as digits_of
 from flexi.messages import Scope
+from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.leave import LeaveScreen, preview
 from flexi.screens.modals import (
     AbsenceModal,
@@ -27,10 +30,18 @@ from flexi.services.absence import (
     PlannedDay,
 )
 from flexi.services.settings import SettingsUpdate
-from tests.tui.conftest import WIDE, AppFactory, screen_text, showing, status_text
+from tests.tui.conftest import (
+    WIDE,
+    AppFactory,
+    dashboard,
+    screen_text,
+    showing,
+    status_text,
+)
 
 TODAY = date(2026, 6, 11)  # a Thursday
 FREE_MONDAY = date(2026, 6, 22)  # nothing booked on it in the seed
+WORKED_MONDAY = date(2026, 6, 8)  # in the dashboard's week, with hours recorded
 SATURDAY = date(2026, 6, 20)  # not a working day in the seed's pattern
 
 
@@ -698,6 +709,87 @@ async def test_booking_made_elsewhere_reaches_the_grid(
         assert str(calendar(app).border_subtitle) != before, (
             "the year's running total should have moved with it"
         )
+
+
+async def test_booking_here_reaches_the_dashboard(app_factory: AppFactory) -> None:
+    """The dashboard underneath draws the same allowance, and nothing else redraws it.
+
+    Going back pops the planner and resumes the dashboard as it was left.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        before = dashboard(app).query_one("#gauge-annual", Gauge).value
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        await pilot.press("A")
+        await pilot.pause()
+        planner = showing(app, LeaveScreen).query_one("#leave-gauge-annual", Gauge)
+
+        await pilot.press("f1")
+        await pilot.pause()
+
+        wallet = showing(app, DashboardScreen).query_one("#gauge-annual", Gauge)
+        assert before is not None
+        assert wallet.value == before + 1
+        assert wallet.readout == planner.readout
+
+
+async def test_removal_here_reaches_the_dashboard(app_factory: AppFactory) -> None:
+    app = app_factory()
+    app.services.absence.book(FREE_MONDAY, AbsenceType.ANNUAL)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        before = dashboard(app).query_one("#gauge-annual", Gauge).value
+        await open_leave(pilot)
+        calendar(app).go_to(FREE_MONDAY)
+        await pilot.pause()
+        await pilot.press("x")
+        await pilot.pause()
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        wallet = showing(app, DashboardScreen).query_one("#gauge-annual", Gauge)
+        assert before is not None
+        assert wallet.value == before - 1
+
+
+async def test_half_day_over_work_reaches_the_dashboard_balance(
+    app_factory: AppFactory,
+) -> None:
+    """A morning off a worked day halves what it expects, and so moves the balance.
+
+    The headline does not watch the period, so moving it would not fix a stale
+    one; the records under it are redrawn by the same write.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        board = dashboard(app)
+        assert board._tick is not None
+        # The seed's open session ticks once a second, and a tick redraws the
+        # balance whether or not the booking did.
+        board._tick.pause()
+        readout = board.query_one("#balance-digits", Digits)
+        records = board.query_one(RecordsModule)
+        before = (readout.value, str(records.border_subtitle))
+
+        await open_leave(pilot)
+        calendar(app).go_to(WORKED_MONDAY)
+        await pilot.pause()
+        await pilot.press("space", "A")
+        await pilot.pause()
+        assert app.services.absence.for_date(WORKED_MONDAY)[0].portion is Portion.AM
+
+        await pilot.press("f1")
+        await pilot.pause()
+
+        shown = app.services.ledger.balance(TODAY, now=board.now).as_shown()
+        assert readout.value == digits_of(shown.delta)
+        assert readout.value != before[0]
+        assert str(records.border_subtitle) != before[1]
 
 
 async def test_resize_before_mount_redraws_nothing(
