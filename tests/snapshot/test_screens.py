@@ -32,7 +32,7 @@ CASES: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
     ("dashboard-wide", WIDE, []),
     ("dashboard-month", WIDE, ["m"]),
     ("dashboard-day", WIDE, ["d"]),
-    ("records-expanded", WIDE, ["v", "r", "down", "down", "space"]),
+    ("records-expanded", WIDE, ["up", "space"]),
     ("jump-mode", WIDE, ["v"]),
     ("help", WIDE, ["question_mark"]),
     ("absence-modal", WIDE, ["A"]),

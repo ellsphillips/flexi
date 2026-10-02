@@ -25,4 +25,4 @@
  │                                                                                │
  ╰─────────────────────────────────────────────────────────────── 23:30 of 25:54 ─╯
 
-t Today p Period n Record work q Quit / Clock v Jump ? Help f1 Dashboard +3 more
+space Expand a Book absence t Today p Period n Record work / Clock ? Help +6 more

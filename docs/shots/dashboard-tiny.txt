@@ -19,4 +19,4 @@
  │  Thu 11   ───████████████▌───┊────     5:08    0:00       │
  ╰────────────────────────────────────────── 23:30 of 25:54 ─╯
 
-t Today p Period n Record work q Quit / Clock ? Help +5 more
+space Expand a Book absence t Today / Clock ? Help +8 more

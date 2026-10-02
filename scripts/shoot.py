@@ -69,14 +69,14 @@ SHOWCASE_TALL = (128, 46)
 
 SHOOTS: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
     ("showcase-dashboard", SHOWCASE, ["m"]),
-    ("showcase-records", SHOWCASE, ["v", "r", "down", "down", "space"]),
+    ("showcase-records", SHOWCASE, ["up", "space"]),
     ("showcase-leave", SHOWCASE, ["f2", "down", "shift+right", "shift+right"]),
     ("showcase-insights", SHOWCASE_TALL, ["f3"]),
     ("showcase-jump", SHOWCASE, ["v"]),
     ("dashboard-wide", WIDE, []),
     ("dashboard-month", WIDE, ["m"]),
     ("dashboard-day", WIDE, ["d"]),
-    ("records-expanded", WIDE, ["v", "r", "down", "down", "space"]),
+    ("records-expanded", WIDE, ["up", "space"]),
     ("jump-mode", WIDE, ["v"]),
     ("help", WIDE, ["question_mark"]),
     ("absence-modal", WIDE, ["A"]),

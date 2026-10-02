@@ -9,7 +9,7 @@ pass per redraw, and the table redraws every minute a session is open.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import ClassVar, Unpack
 
 from rich.text import Text
@@ -116,9 +116,16 @@ class RecordsModule(Module):
         Binding(CONFIG.hotkeys.delete, "delete_here", "Remove or void", show=False),
     ]
 
+    # The table is the stop, not the panel, where the arrows would do nothing.
+    # `a` and `x` still answer from the table inside, and `:focus-within`
+    # still lights the border.
+    can_focus = False
+
     def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="records-module", title="Records", **kwargs)
         self._strip_width = 24
+        self._anchor: date | None = None
+        """The anchor the cursor was last put on, so only a moved one moves it."""
 
     def compose(self) -> ComposeResult:
         yield ExpandableTable(id="records-table", zebra_stripes=False)
@@ -176,6 +183,11 @@ class RecordsModule(Module):
         groups = [self._group(ledger, window) for ledger in ledgers]
         groups.append(self._total_group(standing(ledgers, self.now.date())))
         table.set_groups(groups)
+        if period.anchor != self._anchor:
+            # A moved period puts the cursor on its anchor, the day `n` falls
+            # back on; a redraw that leaves the anchor leaves the cursor alone.
+            self._anchor = period.anchor
+            table.focus_key(row_key(RowKind.DAY, period.anchor))
 
         empty = self.query_one("#records-empty", Static)
         empty.display = not ledgers

@@ -3,34 +3,34 @@
 ────────────────────────▎                                                                       ────────────────────────
   TODAY ━━━━━━━━━━━━━━━━▎  Keyboard                                                             ━━━━━━━ 23:30 of 25:54
                         ▎
- ╭─ Clock ──────────────▎  Dashboard                                                            ──────────────────────╮
+ ╭─ Clock ──────────────▎  Records table                                                        ──────────────────────╮
  │ on the clock         ▎  ──────────────────────────────────────────────────────────────────    Worked   ±           │
  │ ───████████████▌───┊─▎                                                                           7:33   +0:09      │
- │ since 08:44 · go home▎   t  Today                                                                3:22   −0:20      │
- │                      ▎   [  Previous                                                             7:27   +0:03      │
- │            Depart    ▎   ]  Next                                                                 5:08    0:00      │
- ╰─────── 5:08:00 · 11/0▎   d  Day                                                                  TOIL              │
- ╭─ Balance ────────────▎   w  Week                                                                    —              │
- │    ╶╮    ╶╮ ╶─╮      ▎   m  Month                                                                   —              │
- │ ╶┼╴ │  :  │  ─┤      ▎   y  Year                                                                23:30   −0:08      │
- │    ╶┴╴   ╶┴╴╶─╯      ▎   p  Period                                                                                 │
- │        FLEXI BALANCE ▎   g  Go to date                                                                             │
- │   1:13 banked · +0.2 ▎   n  Record work                                                                            │
- ╰────────── 6 Apr 26–5 ▎   N  Corrections                                                                            │
- ╭─ Wallet ─────────────▎   A  Annual leave                                                                           │
- │ ANNUAL       20.5 lef▎   S  Sickness                                                                               │
- │ ━━━━━┿━━━━━━━━━━━━━━━▎   T  TOIL day                                                                               │
- │ TOIL          +1:13  ▎   U  Unpaid leave                                                                           │
- │ ━━━━━━━━━━━━━━━━━━━━━▎   O  Other absence                                                                          │
- │ SICK         1d · 1 o▎   q  Quit                                                                                   │
- ╰────────── −0:08 this ▎  Anywhere                                                                                   │
- ╭─ Calendar ───────────▎  ──────────────────────────────────────────────────────────────────                         │
- │  ‹       June 2026   ▎                                                                                             │
- │  M   T   W   T   F   ▎   ^q  Quit                                                                                  │
- │   1   2   3   4   5  ▎   /  Clock                                                         ▄                        │
- │   8   9  10  11  12  ▎   v  Jump                                                                                   │
- │  15  16  17  18  19  ▎   ?  Help                                                                                   │
- │  22  23  24  25  26  ▎   :  Command palette                                                                        │
+ │ since 08:44 · go home▎   home  First                                                             3:22   −0:20      │
+ │                      ▎   end  Last                                                               7:27   +0:03      │
+ │            Depart    ▎   ⏎  Open                                                                 5:08    0:00      │
+ ╰─────── 5:08:00 · 11/0▎   space  Expand                                                           TOIL              │
+ ╭─ Balance ────────────▎   shift+space  Expand all                                                    —              │
+ │    ╶╮    ╶╮ ╶─╮      ▎   j  Down                                                                    —              │
+ │ ╶┼╴ │  :  │  ─┤      ▎   k  Up                                                                  23:30   −0:08      │
+ │    ╶┴╴   ╶┴╴╶─╯      ▎  Records                                                                                    │
+ │        FLEXI BALANCE ▎  ──────────────────────────────────────────────────────────────────                         │
+ │   1:13 banked · +0.2 ▎                                                                                             │
+ ╰────────── 6 Apr 26–5 ▎   a  Book absence                                                                           │
+ ╭─ Wallet ─────────────▎   x  Remove or void                                                                         │
+ │ ANNUAL       20.5 lef▎  Dashboard                                                                                  │
+ │ ━━━━━┿━━━━━━━━━━━━━━━▎  ──────────────────────────────────────────────────────────────────▂                        │
+ │ TOIL          +1:13  ▎                                                                                             │
+ │ ━━━━━━━━━━━━━━━━━━━━━▎   t  Today                                                                                  │
+ │ SICK         1d · 1 o▎   [  Previous                                                                               │
+ ╰────────── −0:08 this ▎   ]  Next                                                                                   │
+ ╭─ Calendar ───────────▎   d  Day                                                                                    │
+ │  ‹       June 2026   ▎   w  Week                                                                                   │
+ │  M   T   W   T   F   ▎   m  Month                                                                                  │
+ │   1   2   3   4   5  ▎   y  Year                                                                                   │
+ │   8   9  10  11  12  ▎   p  Period                                                                                 │
+ │  15  16  17  18  19  ▎   g  Go to date                                                                             │
+ │  22  23  24  25  26  ▎   n  Record work                                                                            │
  │  29  30   1   2   3  ▎                                                                       ───── 23:30 of 25:54 ─╯
 
-t Today p Period n Record work q Quit / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings
+space Expand a Book absence t Today p Period n Record work q Quit / Clock v Jump ? Help f1 Dashboard f2 Leave +2 more

@@ -82,6 +82,13 @@ class DashboardScreen(Screen[None]):
 
     HELP_LABEL = "Dashboard"
 
+    AUTO_FOCUS: ClassVar[str] = "#records-table"
+    """The rows have the keyboard from the start, so the arrows, space and x work.
+
+    Textual applies it only while nothing on the screen has the focus, so
+    closing a dialog leaves the keyboard where it was.
+    """
+
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.today, "today", "Today", show=True),
         Binding(CONFIG.hotkeys.period_prev, "shift(-1)", "Previous", show=False),
@@ -143,7 +150,9 @@ class DashboardScreen(Screen[None]):
         # which leaves exactly one row for the rails to flow into.
         yield TimeProgress(id="time-progress")
         with Horizontal(id="dashboard-body"):
-            with VerticalScroll(id="dashboard-controls"):
+            # Not a stop of its own: it draws nothing to show it has the
+            # keyboard, and the panels inside it take the keys.
+            with VerticalScroll(id="dashboard-controls", can_focus=False):
                 yield ClockModule()
                 yield BalanceModule()
                 yield WalletModule()

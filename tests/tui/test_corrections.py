@@ -10,6 +10,7 @@ from textual.widgets import Digits, Input, Static
 
 from flexi.app import FlexiApp
 from flexi.components.expandable import ExpandableTable, RowKind
+from flexi.components.modules.clock import ClockModule
 from flexi.config import CONFIG
 from flexi.constants import DayKind
 from flexi.domain.format import digits as digits_of
@@ -45,11 +46,14 @@ async def record(pilot: Pilot[None], opened: str, closed: str) -> None:
 async def test_work_is_recorded_on_the_period_anchor(
     app_factory: AppFactory,
 ) -> None:
-    """With the table unfocused there is no cursor, so the anchor answers."""
+    """Away from the table, its cursor is not the day: the anchor answers."""
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         when = dashboard(app).period.anchor
+        table(app).focus_key(f"{RowKind.DAY}2026-06-08")
+        app.screen.query_one(ClockModule).focus()
+        await pilot.pause()
         before = app.services.ledger.day(when).worked
 
         await record(pilot, "6:00", "7:30")

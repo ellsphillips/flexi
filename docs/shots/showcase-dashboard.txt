@@ -37,4 +37,4 @@
                                    │  Tue 30   ────────────────────────────────────────────────        —                    ▇ │
                                    ╰──────────────────────────────────────────────────────────────────────── 53:25 of 144:18 ─╯
 
-t Today p Period n Record work q Quit / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings
+space Expand a Book absence t Today p Period n Record work q Quit / Clock v Jump ? Help f1 Dashboard f2 Leave +2 more

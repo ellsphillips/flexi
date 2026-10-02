@@ -13,6 +13,7 @@ from flexi.app import FlexiApp
 from flexi.components.expandable import (
     ExpandableTable,
     RowKind,
+    row_key,
 )
 from flexi.components.modules.records import DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
@@ -72,6 +73,101 @@ async def test_week_is_seven_rows_and_a_total(app_factory: AppFactory) -> None:
         rows = table(app).visible_rows()
         assert len([row for row in rows if row.kind == RowKind.DAY]) == 7
         assert rows[-1].key == "t-period"
+
+
+# --- the keyboard at launch -------------------------------------------------
+
+TODAY = date(2026, 6, 11)
+"""The Thursday the frozen clock is standing on."""
+
+
+async def test_the_rows_have_the_keyboard_from_launch(
+    app_factory: AppFactory,
+) -> None:
+    """The cursor starts on the day `n` records on, under the keys that move it."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+
+        assert app.focused is widget
+        assert widget.cursor_key == row_key(RowKind.DAY, TODAY)
+
+
+async def test_space_and_x_work_from_launch(app_factory: AppFactory) -> None:
+    """Open yesterday and void its first session, with no click and no jump."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+
+        await pilot.press("up", "space", "down", "x")
+        await pilot.pause()
+
+        assert "on Wed 10 Jun" in showing(app, ConfirmModal)._question
+
+
+async def test_the_cursor_follows_the_period_to_its_anchor(
+    app_factory: AppFactory,
+) -> None:
+    """Moving the period moves the cursor with it, so it and `n` agree."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+
+        await pilot.press("right_square_bracket")
+        await pilot.pause()
+
+        anchor = dashboard(app).period.anchor
+        assert anchor == TODAY + timedelta(days=7)
+        assert table(app).cursor_key == row_key(RowKind.DAY, anchor)
+
+
+async def test_a_redraw_leaves_the_cursor_where_it_was_put(
+    app_factory: AppFactory,
+) -> None:
+    """Only a moved anchor moves the cursor: a write or a minute does not."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await pilot.press("up", "up")
+        await pilot.pause()
+
+        dashboard(app).refresh_modules(Scope.ALL)
+        await pilot.pause()
+
+        assert table(app).cursor_key == row_key(RowKind.DAY, TODAY - timedelta(days=2))
+
+
+async def test_tab_comes_round_to_the_rows_through_live_stops(
+    app_factory: AppFactory,
+) -> None:
+    """No stop on the way is a container that shows nothing and does nothing.
+
+    The left column's scroller and the records panel were both stops, and on
+    either the arrows did nothing. Shift+Tab leaves the table as Tab does.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        stops = []
+        for _ in range(20):
+            await pilot.press("tab")
+            await pilot.pause()
+            if app.focused is widget:
+                break
+            stops.append(app.focused)
+
+        assert app.focused is widget, f"Tab never came back: {stops}"
+        dead = {
+            app.screen.query_one("#dashboard-controls"),
+            app.screen.query_one(RecordsModule),
+        }
+        assert not dead & set(stops), stops
+
+        await pilot.press("shift+tab")
+        await pilot.pause()
+        assert app.focused is stops[-1]
 
 
 async def test_space_opens_the_day_under_the_cursor(app_factory: AppFactory) -> None:
