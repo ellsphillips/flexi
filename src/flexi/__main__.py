@@ -275,6 +275,9 @@ class SignedArguments(click.Command):
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         from difflib import get_close_matches
 
+        if ctx.resilient_parsing:
+            # Completing a line, where a refusal would end in a traceback.
+            return super().parse_args(ctx, args)
         options: list[click.Parameter] = [
             param for param in self.get_params(ctx) if isinstance(param, click.Option)
         ]

@@ -932,6 +932,21 @@ def test_a_mistyped_option_is_not_blamed_on_the_date(
     assert booked_days(home) == []
 
 
+def test_completing_after_a_mistyped_option_refuses_nothing() -> None:
+    """Completion parses what it can, and a refusal there is a traceback."""
+    result = CliRunner().invoke(
+        cli,
+        prog_name="flexi",
+        env={
+            "_FLEXI_COMPLETE": "zsh_complete",
+            "COMP_WORDS": "flexi leave annual --dryrun ",
+            "COMP_CWORD": "4",
+        },
+    )
+
+    assert result.exit_code == 0, repr(result.exception)
+
+
 def test_a_word_after_a_double_dash_is_read_as_a_word(home: Path) -> None:
     """`--` ends the options, so what follows it is the date, however spelled."""
     result = CliRunner().invoke(cli, ["leave", "annual", "friday", "--", "--dry-run"])
