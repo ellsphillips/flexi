@@ -80,12 +80,14 @@ balance accumulates from that start, so a seed covering only the last six weeks
 would score every earlier working day as a full day's deficit.
 """
 
-# Arrival and departure minutes past 08:00 / 16:00, cycled by day index. Chosen
-# to produce a slightly positive balance with two obvious outliers: a long
-# Tuesday and a short Thursday.
+# Arrival minutes past 08:00, lunch minutes, and extra minutes worked in the
+# afternoon, cycled by day index. A day banks its extra and the minutes it
+# arrives before 09:00, and the ten together bank four minutes: a slightly
+# positive balance that stays within a few hours of zero all year, with two
+# obvious outliers, a long day and a short one.
 ARRIVALS = (42, 55, 38, 61, 47, 52, 44, 58, 40, 49)
 LUNCHES = (45, 30, 60, 40, 55, 35, 50, 45, 40, 30)
-EXTRAS = (0, 48, 5, -10, 12, 0, 25, -5, 18, 8)
+EXTRAS = (-55, 35, -45, -50, -20, -5, 0, -5, -35, 10)
 
 MAY, AUGUST = 5, 8
 
