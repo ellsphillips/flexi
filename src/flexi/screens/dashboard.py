@@ -219,7 +219,11 @@ class DashboardScreen(Screen[None]):
     # ---- redrawing ----
 
     def refresh_modules(self, scope: Scope) -> None:
-        """Invalidate once, then redraw only the modules that care."""
+        """Invalidate once, then redraw only the modules that care.
+
+        A change to the clock starts or stops the tick, whichever process made
+        it.
+        """
         self.now = wallclock.now()
         if scope & Scope.SETTINGS:
             self.period = self.period.with_year_start(
@@ -232,6 +236,8 @@ class DashboardScreen(Screen[None]):
             module.rebuild_if(scope)
         self._shown = self._shown_minutes()
         self._refresh_progress()
+        if scope & Scope.CLOCK:
+            self._start_tick_if_open()
 
     def _refresh_progress(self) -> None:
         """The two rails under the header: today, and the shown period."""
@@ -307,7 +313,6 @@ class DashboardScreen(Screen[None]):
         if self.period.contains(was):
             self.period = self.period.go_to(self._today)
         self.refresh_modules(Scope.ALL)
-        self._start_tick_if_open()
 
     def _shown_minutes(self) -> tuple[BalanceSummary, ...]:
         """Today, the period and the balance, in the whole minutes they print.
@@ -378,7 +383,6 @@ class DashboardScreen(Screen[None]):
             )
             self.status(*receipt)
             self.refresh_modules(Scope.CLOCK)
-            self._start_tick_if_open()
             return receipt
         if clock.is_clocked_in():
             return self._report(clock.clock_out())
@@ -593,7 +597,6 @@ class DashboardScreen(Screen[None]):
         self.status(*receipt)
         if success:
             self.refresh_modules(scope)
-            self._start_tick_if_open()
         return receipt
 
     def status(self, message: str, tone: Tone = Tone.NEUTRAL) -> None:
