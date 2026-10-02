@@ -8,6 +8,7 @@ what is checked is which database it was pointed at and whether it was opened.
 from __future__ import annotations
 
 import sqlite3
+import subprocess
 import sys
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing
@@ -328,6 +329,83 @@ def test_set_up_machine_opens_without_a_splash(
 
     assert result.exit_code == 0, result.output
     assert [(app.ran, app.show_splash) for app in opened] == [(True, False)]
+
+
+@pytest.mark.parametrize(
+    ("command", "said"),
+    [([], "Opening Flexi…"), (["--demo"], "Opening the Flexi demo with sample data…")],
+    ids=["flexi", "demo"],
+)
+def test_the_application_says_it_is_opening(
+    home: Path, monkeypatch: pytest.MonkeyPatch, command: list[str], said: str
+) -> None:
+    """A first launch spends seconds importing, and a blank terminal looks hung."""
+    at_a_terminal(monkeypatch)
+    instead_of_the_application(monkeypatch)
+
+    result = CliRunner().invoke(cli, command)
+
+    assert result.exit_code == 0, result.output
+    assert said in result.stderr
+
+
+def test_a_command_says_nothing_of_opening(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    at_a_terminal(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["balance", "show"])
+
+    assert result.exit_code == 0, result.output
+    assert "Opening" not in result.output
+
+
+def test_nothing_is_said_of_opening_without_a_terminal(home: Path) -> None:
+    assert "Opening" not in CliRunner().invoke(cli, []).output
+
+
+def test_opening_is_said_before_the_slow_imports() -> None:
+    """Pydantic, SQLAlchemy and Textual are what a first launch waits on.
+
+    A fresh interpreter refuses to import them at all, so saying it late fails
+    at once and never opens the application.
+    """
+    script = """
+import sys
+
+import click
+
+import flexi.cli.ui
+
+
+class Refused:
+    def find_spec(self, name, path=None, target=None):
+        if name.partition(".")[0] in {"alembic", "pydantic", "sqlalchemy", "textual"}:
+            raise AssertionError(f"{name} was imported before anything was said")
+
+
+def said(message, *_args, **_kwargs):
+    sys.exit(0 if "Opening" in str(message) else f"{message!r} was said first")
+
+
+flexi.cli.ui.interactive = lambda: True
+click.secho = said
+sys.meta_path.insert(0, Refused())
+
+from flexi.__main__ import cli
+
+cli([], prog_name="flexi")
+"""
+    finished = subprocess.run(  # noqa: S603 - fixed interpreter and in-repository script
+        [sys.executable, "-c", script],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=60,
+        check=False,
+    )
+
+    assert finished.returncode == 0, finished.stderr
 
 
 def test_bare_flexi_without_a_terminal_refuses(

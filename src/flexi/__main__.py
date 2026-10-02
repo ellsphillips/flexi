@@ -100,13 +100,21 @@ __all__ = (
 @click.pass_context
 def cli(ctx: click.Context, *, demo: bool = False) -> None:
     """Track flexitime from the terminal."""
-    from flexi.cli import output
-    from flexi.config import CONFIG_PROBLEM
+    from flexi.cli import output, ui
 
     output.prepare(ctx)
+    if ctx.invoked_subcommand is None and ui.interactive():
+        # Before the imports below: on a first launch they take seconds, and a
+        # terminal left blank for that long looks hung.
+        opening = (
+            "Opening the Flexi demo with sample data…" if demo else "Opening Flexi…"
+        )
+        click.secho(opening, dim=True, err=True)
 
     # Not at module scope: `flexi.config` costs pydantic, and `--version` and
     # `--help` are answered during parsing and never reach this callback.
+    from flexi.config import CONFIG_PROBLEM
+
     if CONFIG_PROBLEM:
         click.secho(CONFIG_PROBLEM, fg="yellow", err=True)
 
