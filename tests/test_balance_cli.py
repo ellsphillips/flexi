@@ -134,6 +134,16 @@ def test_enter_leaves_the_balance_alone(home: Path) -> None:
     assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
 
 
+def test_settling_with_nothing_to_answer_says_to_add_yes(home: Path) -> None:
+    """A scheduler gives no input, and gets what to add, not "Aborted!"."""
+    result = CliRunner().invoke(cli, ["balance", "zero"], input="")
+
+    assert result.exit_code == 1
+    assert "add --yes to settle it without asking" in result.stderr
+    assert "Aborted!" not in result.output
+    assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
+
+
 def test_settlement_question_is_asked_on_stderr(home: Path) -> None:
     """`flexi balance zero > log` must not send the question into the file."""
     result = CliRunner().invoke(cli, ["balance", "zero"], input="n\n")

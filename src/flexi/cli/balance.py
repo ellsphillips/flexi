@@ -101,9 +101,7 @@ def zero(
     standing = services.ledger.balance(when).as_shown().delta
 
     click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
-    if not assume_yes and not click.confirm(
-        "Settle it to zero?", default=False, err=True
-    ):
+    if not assume_yes and not ui.agreed("Settle it to zero?", doing="settle it"):
         click.echo("Left alone.", err=True)
         return 1
 
@@ -153,13 +151,9 @@ def adjust(
 
     if not assume_yes:
         if not ui.interactive():
-            click.secho(
-                "No terminal to ask on; add --yes to record it without asking.",
-                fg="yellow",
-                err=True,
-            )
+            click.secho(ui.UNANSWERED.format(doing="record it"), fg="yellow", err=True)
             return 1
-        if not click.confirm("\nRecord it?", default=False, err=True):
+        if not ui.agreed("\nRecord it?", doing="record it"):
             click.echo("Nothing was recorded.", err=True)
             return 1
 
@@ -206,13 +200,9 @@ def undo(services: Services, adjustment_id: int, *, assume_yes: bool = False) ->
 
     if not assume_yes:
         if not ui.interactive():
-            click.secho(
-                "No terminal to ask on; add --yes to remove it without asking.",
-                fg="yellow",
-                err=True,
-            )
+            click.secho(ui.UNANSWERED.format(doing="remove it"), fg="yellow", err=True)
             return 1
-        if not click.confirm("\nRemove it?", default=False, err=True):
+        if not ui.agreed("\nRemove it?", doing="remove it"):
             click.echo("Nothing was removed.", err=True)
             return 1
 

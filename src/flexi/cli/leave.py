@@ -20,6 +20,7 @@ from typing import Final, NamedTuple
 
 import click
 
+from flexi.cli import ui
 from flexi.constants import (
     CANCEL_WORD,
     AbsenceType,
@@ -205,7 +206,7 @@ def run(
         return 1
     if dry_run:
         return 0
-    if not assume_yes and not click.confirm("\nBook it?", default=False, err=True):
+    if not assume_yes and not ui.agreed("\nBook it?", doing="book it"):
         click.echo("Nothing was booked.", err=True)
         return 1
 
@@ -257,7 +258,7 @@ def cancel(
 
     if dry_run:
         return 0
-    if not assume_yes and not click.confirm("\nCancel these?", default=False, err=True):
+    if not assume_yes and not ui.agreed("\nCancel these?", doing="cancel them"):
         click.echo("Nothing was cancelled.", err=True)
         return 1
 

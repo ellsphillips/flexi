@@ -705,6 +705,38 @@ def test_confirmation_is_asked_on_stderr(
     assert "Booking annual leave" in result.stdout, "the plan is the output"
 
 
+def test_leave_with_nothing_to_answer_says_to_add_yes(home: Path) -> None:
+    """Cron and Task Scheduler give no input, and get what to add, not "Aborted!"."""
+    result = CliRunner().invoke(cli, ["leave", "annual", "friday"], input="")
+
+    assert result.exit_code == 1
+    assert "add --yes to book it without asking" in result.stderr
+    assert "Aborted!" not in result.output
+    assert booked_days(home) == []
+
+
+def test_cancelling_with_nothing_to_answer_says_to_add_yes(home: Path) -> None:
+    CliRunner().invoke(cli, ["leave", "annual", "friday", "--yes"])
+
+    result = CliRunner().invoke(cli, ["leave", "cancel", "friday"], input="")
+
+    assert result.exit_code == 1
+    assert "add --yes to cancel them without asking" in result.stderr
+    assert "Aborted!" not in result.output
+    assert booked_days(home) == [date(2026, 8, 14)]
+
+
+def test_a_piped_answer_is_read_like_a_typed_one(home: Path) -> None:
+    """`echo y | flexi leave annual friday` books, and cancels, as typing y does."""
+    booked = CliRunner().invoke(cli, ["leave", "annual", "friday"], input="y\n")
+    assert booked.exit_code == 0, booked.output
+    assert booked_days(home) == [date(2026, 8, 14)]
+
+    cancelled = CliRunner().invoke(cli, ["leave", "cancel", "friday"], input="y\n")
+    assert cancelled.exit_code == 0, cancelled.output
+    assert booked_days(home) == []
+
+
 def booked_days(db_path: Path) -> list[date]:
     engine = create_db_engine(db_path)
     session = get_session(engine)
