@@ -19,10 +19,11 @@ from flexi.components.modules.clock import ClockModule
 from flexi.components.modules.records import DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import ProgressRail, TimeProgress
+from flexi.config import CONFIG
 from flexi.constants import AbsenceType
 from flexi.messages import Scope
 from flexi.screens.dashboard import DashboardScreen
-from flexi.screens.modals import AbsenceModal, ConfirmModal
+from flexi.screens.modals import AbsenceModal, ConfirmModal, CorrectionModal
 from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import adjust_balance, zero_balance
 from flexi.theme import colour
@@ -581,7 +582,7 @@ async def test_x_on_a_booking_already_gone_says_so(
 # --- voiding a session from a row -------------------------------------------
 
 MONDAY = date(2026, 6, 8)
-"""The seed's Monday: 08:01 to 12:30, then 13:10 to 16:54."""
+"""The seed's Monday: 08:01 to 12:30, then 13:10 to 16:14."""
 
 DAY = timedelta(hours=7, minutes=24)
 
@@ -627,6 +628,34 @@ async def test_x_on_a_session_asks_before_it_voids_it(
         after = app.services.ledger.day(MONDAY).worked
         assert after == worked - timedelta(hours=4, minutes=29)
         assert key not in [row.key for row in table(app).visible_rows()]
+
+
+async def test_n_after_voiding_the_afternoon_records_on_its_day(
+    app_factory: AppFactory,
+) -> None:
+    """The way to fix a session: void it with `x`, then add the real hours with `n`.
+
+    The afternoon takes the lunch break above it when it goes, so the slot the
+    cursor was in holds Tuesday, and `n` follows the cursor.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        last = max(
+            app.services.clock.segments_on(MONDAY), key=lambda found: found.start
+        )
+        await on_session(app, pilot, f"{RowKind.SESSION}{last.session_id}")
+
+        await pilot.press("x")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert status_text(app) == "Voided 13:10 → 16:14 on Mon 8 Jun"
+
+        await pilot.press(CONFIG.hotkeys.new_session)
+        await pilot.pause()
+
+        assert showing(app, CorrectionModal)._day == MONDAY
 
 
 async def test_declining_the_question_leaves_the_session_alone(
