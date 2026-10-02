@@ -1118,6 +1118,34 @@ async def test_cursor_is_on_screen_in_a_january_year(
         )
 
 
+async def test_weekday_initials_head_a_year_opened_part_way(
+    app_factory: AppFactory,
+) -> None:
+    """Opened on June of a January year, the grid has scrolled past its heading.
+
+    Without it, booking "next Tuesday" means counting columns.
+    """
+    app = app_factory()
+    async with app.run_test(size=(120, 30)) as pilot:
+        settings = app.services.settings
+        current = settings.resolved()
+        settings.save_settings(
+            SettingsUpdate(
+                leave_year_start=(1, 1),
+                working_days=current.working_days,
+                division=current.division,
+                auto_close=current.auto_close,
+            )
+        )
+
+        await open_leave(pilot)
+        await pilot.pause()
+
+        grid = calendar(app)
+        assert grid.scroll_offset.y > 0, "June is months into the year"
+        assert grid.render_line(0).text.split() == ["M", "T", "W", "T", "F", "S", "S"]
+
+
 # ---- what the selection costs ----
 
 

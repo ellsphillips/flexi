@@ -20,7 +20,7 @@ from rich.segment import Segment
 from rich.style import Style
 from rich.text import Text
 from textual.binding import Binding, BindingType
-from textual.geometry import Region, Size
+from textual.geometry import Region, Size, Spacing
 from textual.message import Message
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
@@ -59,7 +59,7 @@ TOKEN: Final = 3
 """What a day always occupies: two columns for the number, one for the marker."""
 
 HEADING_ROW: Final = -2
-"""The weekday initials, drawn once above the whole grid."""
+"""The weekday initials: the first line, and kept on the top line as it scrolls."""
 
 TITLE_ROW: Final = -1
 """A month name. Every other row index is a week within its block."""
@@ -305,14 +305,30 @@ class YearCalendar(ScrollView, can_focus=True):
         line = self.row_of(when)
         if line is None:
             return
+        # The heading holds the top line, so the row above the cursor has to
+        # land under it.
         self.scroll_to_region(
-            Region(0, max(0, line - 1), self.grid_width, 3), animate=False
+            Region(0, max(0, line - 1), self.grid_width, 3),
+            spacing=Spacing(top=1),
+            animate=False,
         )
+
+    def action_page_down(self) -> None:
+        """A screen at a time, less the line the heading holds.
+
+        A whole height would carry the last week read under the heading.
+        """
+        self.scroll_relative(y=self.scrollable_content_region.height - 1, animate=False)
+
+    def action_page_up(self) -> None:
+        self.scroll_relative(y=1 - self.scrollable_content_region.height, animate=False)
 
     # --- drawing ----------------------------------------------------------
 
     def render_line(self, y: int) -> Strip:
-        line = y + int(self.scroll_offset.y)
+        # The heading stays on the top line, over whichever line the scroll
+        # has put there, so the columns are named however far down the year is.
+        line = y + int(self.scroll_offset.y) if y else 0
         if line >= len(self._rows):
             return Strip.blank(self.size.width, self.visual_style.rich_style)
         block, row = self._rows[line]
@@ -451,6 +467,9 @@ class YearCalendar(ScrollView, can_focus=True):
         # The grid starts inside the panel's border and padding, and the event
         # measures from the panel's own corner.
         offset -= self.gutter.top_left
+        if offset.y < 1:
+            # The heading, and the line out of sight under it.
+            return
         line = int(offset.y) + int(self.scroll_offset.y)
         # The columns are uneven (the remainder is spread over the first few),
         # so the edges are their running total and the column hit is where the

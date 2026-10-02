@@ -868,3 +868,78 @@ async def test_every_line_reaches_the_same_right_edge(width: int) -> None:
                 f"line {line} declares {strip.cell_length} and draws "
                 f"{len(strip.text)}: {strip.text!r}"
             )
+
+
+# The heading stays put
+
+INITIALS = ["M", "T", "W", "T", "F", "S", "S"]
+
+
+async def test_the_heading_stays_over_a_scrolled_grid() -> None:
+    """Scrolled away with the weeks, it left columns nobody could name."""
+    calendar = YearCalendar()
+    async with mounted(calendar, height=8) as pilot:
+        calendar.show(JUNE, JULY_END, {}, today=JUNE)
+        await pilot.pause()
+        calendar.go_to(JULY_END)
+        await pilot.pause()
+
+        assert calendar.scroll_offset.y > 0
+        assert text_of(calendar, 0).split() == INITIALS
+        line = calendar.row_of(JULY_END)
+        assert line is not None
+        shown_at = line - calendar.scroll_offset.y
+        assert 0 < shown_at < calendar.scrollable_content_region.height, (
+            "the last week is still reached, under the heading"
+        )
+
+
+async def test_the_cursor_is_never_under_the_heading() -> None:
+    """Scrolling back up stops with the week before the cursor in view."""
+    calendar = YearCalendar()
+    async with mounted(calendar, height=8) as pilot:
+        calendar.show(JUNE, JULY_END, {}, today=JUNE)
+        await pilot.pause()
+        calendar.go_to(JULY_END)
+        await pilot.pause()
+
+        monday = date(2026, 6, 22)
+        calendar.go_to(monday)
+        await pilot.pause()
+
+        line = calendar.row_of(monday)
+        assert line is not None
+        assert line - calendar.scroll_offset.y == 2, "the heading, a week, the cursor"
+
+
+async def test_clicking_the_heading_over_a_scrolled_grid_moves_nothing() -> None:
+    """The week it covers is out of sight, and so is the day a click there picked."""
+    calendar = YearCalendar()
+    async with mounted(calendar, height=8) as pilot:
+        calendar.show(JUNE, JULY_END, {}, today=JUNE)
+        await pilot.pause()
+        calendar.go_to(JULY_END)
+        await pilot.pause()
+        assert calendar.scroll_offset.y > 0
+
+        click_at(calendar, x=1, y=0)
+
+        assert calendar.selection.head == JULY_END
+
+
+async def test_paging_skips_no_week_under_the_heading() -> None:
+    """A page is the lines below the heading: a whole height hides one at each turn."""
+    calendar = YearCalendar()
+    async with mounted(calendar, height=8) as pilot:
+        calendar.show(JUNE, date(2026, 9, 30), {}, today=JUNE)
+        calendar.focus()
+        await pilot.pause()
+        page = calendar.scrollable_content_region.height - 1
+
+        await pilot.press("pagedown")
+        await pilot.pause()
+        assert calendar.scroll_offset.y == page, "the last line read is under it now"
+
+        await pilot.press("pagedown", "pageup")
+        await pilot.pause()
+        assert calendar.scroll_offset.y == page
