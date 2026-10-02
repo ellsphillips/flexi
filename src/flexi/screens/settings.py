@@ -304,8 +304,8 @@ class SettingsScreen(Screen[bool]):
         if self._adjustments.all():
             warning += (
                 "\n\nYour balance adjustments keep their recorded amounts and are "
-                "not recalculated, so a balance settled at 0:00 will no longer "
-                "read 0:00."
+                "not recalculated, so a balance you settled to zero will no "
+                "longer read zero."
             )
         return warning
 

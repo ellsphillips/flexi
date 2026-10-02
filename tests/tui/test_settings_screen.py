@@ -243,7 +243,10 @@ async def test_settlements_are_named_before_they_stop_matching(
 
         await change_hours(app, pilot, "7.5")
 
-        assert "balance adjustments keep their recorded amounts" in question_asked(app)
+        assert question_asked(app).endswith(
+            "Your balance adjustments keep their recorded amounts and are not "
+            "recalculated, so a balance you settled to zero will no longer read zero."
+        ), "worded as voiding a settled day words it"
 
 
 @pytest.mark.parametrize(
