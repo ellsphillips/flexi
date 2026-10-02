@@ -149,8 +149,8 @@ events, and the real hours go back on as a correction with a pair of its own.
 | `source` | `str` | `user` \| `system` \| `amended` |
 
 Both halves of the timestamp are needed. The wall reading is the punch strip, the
-work date and the midday split; the offset is why 22:00 on 24 October to 06:00 on
-25 October is nine hours and not eight.
+work date and the noon a half day's auto-close never comes before; the offset is
+why 22:00 on 24 October to 06:00 on 25 October is nine hours and not eight.
 
 `source` is a plain `VARCHAR` with no `CHECK`, because `0004` wrote it that way
 and `0010` reads it back to decide whose timestamps it may rewrite. A value

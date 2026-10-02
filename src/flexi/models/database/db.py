@@ -189,8 +189,8 @@ class ClockEvent(Base):
     UTC, so the instant is the one minus the other.
 
     Both halves are needed: the wall half gives the punch strip, the work date
-    and the midday split; the offset half is why 22:00 on 24 October to 06:00
-    on 25 October is nine hours and not eight.
+    and the noon a half day's auto-close never comes before; the offset half is
+    why 22:00 on 24 October to 06:00 on 25 October is nine hours and not eight.
     """
 
     __tablename__ = "clock_events"
