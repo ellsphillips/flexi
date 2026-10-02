@@ -138,7 +138,7 @@ class FlexiApp(TextualApp[None]):
             self.open_settings = False
             """Set by `flexi init` when the user chose to change settings."""
             self.demo = False
-            """Set by `flexi --demo`, whose records are samples that go on quitting."""
+            """Set by `flexi --demo`: the records are samples, deleted on quitting."""
             self._pushed: Screen[None] | None = None
             """The one destination open on top of the dashboard, if any.
 

@@ -73,8 +73,8 @@ UNANSWERED: Final = "No terminal to ask on; add --yes to {doing} without asking.
 def agreed(question: str, *, doing: str) -> bool:
     """Ask a yes-or-no question on stderr, where Enter means no.
 
-    An answer can come down a pipe. Input that ends before one does, as a
-    scheduler's and `< /dev/null` do, is told what to add in place of Click's
+    An answer can come down a pipe. When the input runs out before one does, as
+    a scheduler's and `< /dev/null` do, it says what to add in place of Click's
     bare "Aborted!". At a terminal, ctrl+c still aborts.
     """
     try:
