@@ -8,7 +8,7 @@ words.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
@@ -294,14 +294,16 @@ class SettingsScreen(Screen[bool]):
         """What a new length of day does to the days already counted.
 
         The balance is worked out afresh on every read, so a stored adjustment
-        is the one term that does not move with it.
+        is the one term that does not move with it. Only a settlement was sized
+        to zero the balance, and a balance brought in on the day it was made
+        never is one.
         """
         warning = (
             f"Every tracked day will be measured against {hm(hours)} instead of "
             f"{hm(was)}, including the days already past in this leave year, so "
             "the balance will change."
         )
-        if self._adjustments.all():
+        if self._adjustments.first_line_after(date.min, date.max) is not None:
             warning += (
                 "\n\nYour balance adjustments keep their recorded amounts and are "
                 "not recalculated, so a balance you settled to zero will no "

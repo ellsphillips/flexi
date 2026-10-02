@@ -24,6 +24,7 @@ from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.leave import LeaveScreen
 from flexi.screens.modals import ConfirmModal
 from flexi.screens.settings import SettingsScreen, describe_working_days
+from flexi.services.registry import adjust_balance
 from flexi.services.settings import parse_working_days
 from tests.conftest import settled
 from tests.database import create_schema
@@ -247,6 +248,21 @@ async def test_settlements_are_named_before_they_stop_matching(
             "Your balance adjustments keep their recorded amounts and are not "
             "recalculated, so a balance you settled to zero will no longer read zero."
         ), "worded as voiding a settled day words it"
+
+
+async def test_a_balance_brought_in_is_not_taken_for_a_settlement(
+    app_factory: AppFactory,
+) -> None:
+    """Dated the day it was made, it zeroed nothing that could stop reading zero."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        assert adjust_balance(
+            app.services, timedelta(hours=5, minutes=30), "Brought forward"
+        ).success
+
+        await change_hours(app, pilot, "7.5")
+
+        assert "settled" not in question_asked(app)
 
 
 @pytest.mark.parametrize(
