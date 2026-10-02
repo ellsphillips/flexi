@@ -115,8 +115,8 @@ there and offers to open Flexi, change settings, or start over.
 - **Entitlement is per leave year.** `f4` lists the years, edits any of them and
   adds the next.
 - **Hours a day can change.** `f4` asks first, because every tracked day is
-  measured again at the new length, and says when a balance adjustment will no
-  longer match.
+  measured again at the new length, and says when a balance you settled will
+  no longer read zero.
 
 ### Bank holidays
 
