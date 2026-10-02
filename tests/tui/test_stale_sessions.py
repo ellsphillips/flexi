@@ -26,7 +26,7 @@ from flexi.services.registry import build_services
 from flexi.services.settings import parse_settings
 from tests.conftest import sessions_on
 from tests.database import create_schema
-from tests.tui.conftest import WIDE, showing
+from tests.tui.conftest import WIDE, showing, status_text
 
 MONDAY = date(2026, 6, 8)
 MONDAY_NINE = datetime.combine(MONDAY, datetime.min.time(), tzinfo=UTC).replace(hour=9)
@@ -170,7 +170,10 @@ async def test_open_dashboard_closes_monday_when_the_date_turns(
 
 
 async def test_the_date_turning_says_what_it_closed(left_open: Path) -> None:
-    """Nobody pressed anything, so the notice is all that says Monday was cut."""
+    """Nobody pressed anything, so the notice says Monday was cut.
+
+    The notice is gone in seconds, so the status bar says so as well.
+    """
     app = FlexiApp(db_path=left_open)
     with time_machine.travel(MONDAY_FIVE, tick=False):
         async with app.run_test(size=WIDE) as pilot:
@@ -186,6 +189,67 @@ async def test_the_date_turning_says_what_it_closed(left_open: Path) -> None:
                 "If you left earlier: open the day in Records, press x on the "
                 "session, then n."
             ) in [notice.message for notice in app._notifications]
+            assert status_text(app) == "Closed the session left running"
+
+
+HALF_PAST_MIDNIGHT = JUST_AFTER_MIDNIGHT.replace(minute=30, second=0)
+
+
+async def test_the_first_key_after_midnight_does_not_clock_in(
+    left_open: Path,
+) -> None:
+    """The tick closed Monday unseen, so this `/` is as likely a clock-out.
+
+    It finds nothing left to sweep, and stops where a press that swept would:
+    clocking in would open a session nobody is working.
+    """
+    app = FlexiApp(db_path=left_open)
+    with time_machine.travel(MONDAY_FIVE, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            board = showing(app, DashboardScreen)
+
+            with time_machine.travel(JUST_AFTER_MIDNIGHT, tick=False):
+                board._on_tick()
+                await pilot.pause()
+
+            with time_machine.travel(HALF_PAST_MIDNIGHT, tick=False):
+                await pilot.press("slash")
+                await pilot.pause()
+
+                assert not app.services.clock.is_clocked_in()
+                assert status_text(app) == (
+                    "Closed the session left running; press again to clock in"
+                )
+
+                await pilot.press("slash")
+                await pilot.pause()
+
+                assert app.services.clock.is_clocked_in(), "the next press does"
+
+
+async def test_a_session_opened_since_midnight_is_closed_by_the_key(
+    left_open: Path,
+) -> None:
+    """Only a press that finds nothing open is spent on what midnight closed."""
+    app = FlexiApp(db_path=left_open)
+    with time_machine.travel(MONDAY_FIVE, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            board = showing(app, DashboardScreen)
+
+            with time_machine.travel(JUST_AFTER_MIDNIGHT, tick=False):
+                board._on_tick()
+                await pilot.pause()
+                # As `flexi clock in` from a shell would, unseen by the board.
+                assert app.services.clock.clock_in().success
+
+            with time_machine.travel(HALF_PAST_MIDNIGHT, tick=False):
+                await pilot.press("slash")
+                await pilot.pause()
+
+                assert not app.services.clock.is_clocked_in()
+                assert status_text(app) == "Clocked out at 00:30"
 
 
 async def test_a_day_view_of_monday_moves_on_to_tuesday(left_open: Path) -> None:

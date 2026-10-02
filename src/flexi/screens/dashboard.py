@@ -128,6 +128,8 @@ class DashboardScreen(Screen[None]):
         self.now = wallclock.now()
         self._today = self.now.date()
         """The date the tick last saw, so it can tell when midnight passes."""
+        self._closed_overnight = False
+        """Whether the tick closed a session since the last `/`, so the next stops."""
         self._tick: Timer | None = None
         self._shown: tuple[BalanceSummary, ...] = ()
         """The minutes the records table and the wallet were last drawn at."""
@@ -283,11 +285,15 @@ class DashboardScreen(Screen[None]):
 
         A session left running is closed at the auto-close time and announced,
         as the next launch or `/` would close it; until then the balance counts
-        it to midnight. A period that showed the old date moves to the new one,
-        and the tick stops if nothing is left on the clock.
+        it to midnight. Nobody pressed anything, so the status bar says so too,
+        and the next `/` stops there as one that swept would. A period that
+        showed the old date moves to the new one, and the tick stops if nothing
+        is left on the clock.
         """
         was, self._today = self._today, self.now.date()
-        self.sweep()
+        if self.sweep():
+            self._closed_overnight = True
+            self.status("Closed the session left running", Tone.WARN)
         if self.period.contains(was):
             self.period = self.period.go_to(self._today)
         self.refresh_modules(Scope.ALL)
@@ -352,8 +358,10 @@ class DashboardScreen(Screen[None]):
         # first, or the morning's `/` closes yesterday at this morning's time.
         # A press that closed one stops there: past midnight it is as likely
         # meant as a clock-out, and clocking in would open a session nobody
-        # is working.
-        if self.sweep():
+        # is working. So does the first press after the tick closed one, unless
+        # something has been opened since.
+        overnight, self._closed_overnight = self._closed_overnight, False
+        if self.sweep() or (overnight and not clock.is_clocked_in()):
             receipt = (
                 "Closed the session left running; press again to clock in",
                 Tone.WARN,
