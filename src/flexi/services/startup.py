@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from flexi import wallclock
 from flexi.constants import EventSource
 from flexi.domain.balance import worked_from
-from flexi.domain.format import short_date
+from flexi.domain.format import short_date, whole_minutes
 from flexi.domain.ledger import MIDDAY_HOUR
 from flexi.models.database.db import AbsenceDay, WorkSession
 from flexi.models.database.moment import moment_of
@@ -114,7 +114,10 @@ def _stopped_by_leave(
                 WorkSession.voided.is_(False),
             )
         )
-        owed = contracted / 2 - worked_from(map(segment_of, earlier), now=opened)
+        # Half the day as the ledger expects it, in whole minutes: a stop that
+        # keeps the clock-in's seconds then reads exactly that much after it.
+        half = whole_minutes(contracted / 2)
+        owed = half - worked_from(map(segment_of, earlier), now=opened)
         noon = wallclock.local(datetime.combine(ws.work_date, time(MIDDAY_HOUR)))
         stop = max(noon, wallclock.advance(opened, max(owed, timedelta())))
         explanation = (

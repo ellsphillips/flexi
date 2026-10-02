@@ -212,6 +212,28 @@ class TestHalfDayOff:
             "is booked off"
         )
 
+    @pytest.mark.parametrize("second", [0, 30, 59])
+    def test_an_odd_minute_day_closes_level_from_any_second(
+        self, services: Services, session: Session, second: int
+    ) -> None:
+        """Half of 7:25 is the 3:42 a row prints, whatever second the day began.
+
+        Half a minute more would close 09:00:30 at 12:43:00, a minute over.
+        """
+        stored = services.settings.get_settings()
+        assert stored is not None
+        stored.contracted_minutes = 7 * 60 + 25
+        session.commit()
+        assert services.absence.book(YESTERDAY, AbsenceType.ANNUAL, Portion.PM).success
+        opened = datetime.combine(YESTERDAY, time(9, 0, second), tzinfo=UTC)
+        assert services.clock.clock_in(now=opened).success
+
+        [closed] = services.clock.sweep()
+
+        day = build_services(session).ledger.day(YESTERDAY)
+        assert closed.message.startswith("Mon 10 Aug was left running and closed")
+        assert (day.worked, day.delta) == (timedelta(hours=3, minutes=42), timedelta())
+
     def test_breaks_are_not_counted_as_work(
         self, services: Services, session: Session
     ) -> None:
