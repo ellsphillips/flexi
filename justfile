@@ -60,9 +60,11 @@ check: lint types workflow-check
 [script]
 lint:
     import subprocess
+    # just's --fmt is unstable and its output changes between releases (1.49
+    # rewrote `set x := true` to `set x`); keep this pin in step with tests.yaml.
     for command in (["uv", "run", "--locked", "ruff", "check"],
                     ["uv", "run", "--locked", "ruff", "format", "--check"],
-                    ["just", "--unstable", "--fmt", "--check"]):
+                    ["uvx", "--from", "rust-just==1.46.0", "just", "--unstable", "--fmt", "--check"]):
         result = subprocess.call(command)
         if result:
             raise SystemExit(result)
@@ -85,7 +87,8 @@ fix:
     results = [subprocess.call(command) for command in (
         ["uv", "run", "--locked", "ruff", "check", "--fix"],
         ["uv", "run", "--locked", "ruff", "format"],
-        ["just", "--unstable", "--fmt"],
+        # Pinned as in lint: releases of just format the justfile differently.
+        ["uvx", "--from", "rust-just==1.46.0", "just", "--unstable", "--fmt"],
     )]
     raise SystemExit(next((result for result in results if result), 0))
 

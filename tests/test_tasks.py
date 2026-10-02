@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 JUSTFILE = Path(__file__).resolve().parent.parent / "justfile"
+WORKFLOW = JUSTFILE.parent / ".github" / "workflows" / "tests.yaml"
 pytestmark = pytest.mark.skipif(not JUSTFILE.is_file(), reason="no task file in sdist")
 
 RECORDER = """\
@@ -190,6 +191,33 @@ def test_testing_recipes_select_the_intended_budget_and_callback_delay(
     assert result.returncode == 0, result.stderr
     assert len(tasks.calls) == 1
     assert (tasks.calls[0].profile, tasks.calls[0].delay) == (profile, delay)
+
+
+@pytest.mark.skipif(not WORKFLOW.is_file(), reason="sdist")
+@pytest.mark.parametrize(
+    ("recipe", "check"),
+    [pytest.param("lint", ("--check",), id="lint"), pytest.param("fix", (), id="fix")],
+)
+def test_justfile_is_formatted_by_the_just_ci_pins(
+    tasks: Tasks, recipe: str, check: tuple[str, ...]
+) -> None:
+    """`--fmt` is unstable, and releases of just format one file differently.
+
+    Formatted by whichever just was on PATH, a clean checkout failed `just
+    check` from 1.49, and `just fix` wrote a justfile CI's own just rejects.
+    """
+    pinned = re.search(
+        r"uvx --from (rust-just==\S+) just ", WORKFLOW.read_text(encoding="utf-8")
+    )
+    assert pinned, "CI no longer pins the just it runs the recipes with"
+
+    result = tasks.run(recipe)
+
+    assert result.returncode == 0, result.stderr
+    formatting = [call.args for call in tasks.calls if "--fmt" in call.args]
+    assert formatting == [
+        ("uvx", "--from", pinned[1], "just", "--unstable", "--fmt", *check)
+    ]
 
 
 def test_release_title_is_one_literal_argument(tasks: Tasks) -> None:
