@@ -10,8 +10,8 @@ Three layers of discoverability, in the order a user meets them:
    when it does not. Shows the six or seven keys that matter on this screen.
 2. **`?`** — the help screen: every binding on the current screen, grouped by the
    widget that declared it, including the ones the strip dropped.
-3. **`ctrl+p`** — the command palette: every action, fuzzy-searchable, including
-   the ones that have no key at all.
+3. **`ctrl+p`** or **`:`** — the command palette: every action,
+   fuzzy-searchable, including the ones that have no key at all.
 
 Plus **`v`** — jump mode, which is navigation, not discovery.
 
@@ -27,13 +27,23 @@ one.
 | `/` | Clock in, or clock out. |
 | `v` | Jump mode. |
 | `?` | Help. |
-| `ctrl+p` | Command palette. |
+| `ctrl+p` `:` | Command palette. |
 | `f1` `f2` `f3` `f4` | Dashboard / Leave / Insights / Settings. |
 | `ctrl+q` | Quit. |
+| `q` | Quit, from the dashboard, Leave or Insights. |
 
 `escape` closes whatever is on top — a modal, the jump overlay, the help screen,
 or the screen `f2`/`f3`/`f4` pushed. Those screens bind it; the application does
 not, so on the dashboard it does nothing.
+
+`q` and `:` are for VS Code and Cursor, whose terminals keep `ctrl+q` (macOS,
+Windows) and `ctrl+p` (Windows, Linux) for the editor; the
+[README](../README.md#working-with-flexi) says how to hand those back. `q` is
+bound on the three destinations and not on the application, so it never quits
+from a dialog, the jump overlay, Settings or setup, where it would throw away
+what was typed. `:` opens the palette from any screen and from help, but not
+from a dialog or jump mode, nor from inside a text field, where a time is typed
+with one. `ctrl+c` answers with the keys that quit from where you are.
 
 `/` is bound at **app** level with `priority=True`, so it works from any screen
 and any focused widget — except inside an `Input` or a `TextArea`, where the app
@@ -47,9 +57,17 @@ table and from every figure derived from it. The threshold is
 `defaults.minimum_session_seconds`, 0–3600 seconds, and it is applied when that
 session is closed: changing it never reclassifies historical work.
 
+**A session left running is closed, and you are told.** Once the date has
+turned under an open session, whichever comes first — opening Flexi, pressing
+`/`, a dashboard left open past midnight, or any `flexi` command — closes it at
+the auto-close time and says what it counted. The `/` that closes it does not
+also clock in, nor does the first `/` after an open dashboard closed it, since
+past midnight it is as likely meant as a clock-out: press it again to start the
+day.
+
 Clocking in is refused, on the status bar and never in a dialog, on a bank
-holiday, on a day booked off in full, and during the half of a day that is booked
-— a booked morning leaves the afternoon workable.
+holiday and on a day booked off in full. Half a day booked off refuses nothing:
+it halves what the day expects, whichever side of noon the rest is worked.
 
 ---
 
@@ -77,11 +95,15 @@ Live when the table has focus.
 | `shift+space` | Expand or collapse every day. |
 | `home` `end` | First / last row. |
 | `a` | Book an absence on the day under the cursor. |
-| `x` | Remove the absence booking under the cursor. It asks first. |
+| `x` | Remove the absence booking, or void the session, under the cursor. It asks first. |
 
-`x` removes leave bookings. Clock records are retained as an audit trail.
-Use `n` to add work that was missed; editing or deleting an existing clocked
-session is not available in the interface.
+`x` on a session voids it: it stops counting everywhere, and its clock events
+are kept as the audit trail. To correct a session — a forgotten clock-out closed
+at the auto-close time, a late one, a mistyped correction — void it, then add
+the real hours with `n`. A running session cannot be voided until you clock
+out, and the question warns when the day is under a `balance zero` settlement,
+which will no longer read zero. Editing a session's times in place is not
+available.
 
 `left` and `right` are `DataTable`'s own column-cursor keys here. They do not
 step the period.
@@ -263,6 +285,8 @@ values such as `[/]` and nonprinting characters are refused.
 **A comma separates two keys**, as in `"t,ctrl+t"` above. For the comma key
 itself, write `comma`. A period can be written as `.` or `full_stop`.
 Avoid remapping screen actions to navigation keys consumed by focused widgets.
+Leave `q` and `:` free as well: they are fixed, and a hotkey set to either can
+take the key away from quitting or the palette.
 
 Two more rules: a hotkey must be one or more complete key names, and no key may
 be bound to two actions — Textual gives the key to one of them and says nothing
@@ -316,15 +340,16 @@ table and one key may only answer to one action across the whole file.
 Application *settings* — contracted minutes, leave year, working days, bank
 holiday division, auto-close time — are not here. They live in the database,
 because the balance depends on them. `f4` edits the leave year, working days,
-bank-holiday division, auto-close time, and annual entitlements. Contracted
-minutes are currently fixed at 444 per working day in the interface.
+hours a day, bank-holiday division, auto-close time, and annual entitlements.
 
 ---
 
 ## Rules for adding a binding
 
 1. **It goes in `config.py` under `hotkeys`**, and the `Binding` reads it from
-   there. No literal key strings in a widget.
+   there. No literal key strings in a widget, except for a key meant to stay
+   fixed, such as `escape`, `enter`, the arrows, `ctrl+q`, or the `q` and `:`
+   that stand in for keys VS Code keeps.
 2. **Decide `show`.** `show=True` means it competes for the key strip's limited
    width. A screen should show at most seven. Everything else is `show=False`
    and is found through `?` or the palette.

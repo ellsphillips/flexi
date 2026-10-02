@@ -189,8 +189,8 @@ class ClockEvent(Base):
     UTC, so the instant is the one minus the other.
 
     Both halves are needed: the wall half gives the punch strip, the work date
-    and the midday split; the offset half is why 22:00 on 24 October to 06:00
-    on 25 October is nine hours and not eight.
+    and the noon a half day's auto-close never comes before; the offset half is
+    why 22:00 on 24 October to 06:00 on 25 October is nine hours and not eight.
     """
 
     __tablename__ = "clock_events"
@@ -254,8 +254,9 @@ class WorkSession(Base):
     )
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     voided: Mapped[bool] = mapped_column(Boolean(), default=False, server_default="0")
-    """A corrected session. Clock events are immutable, so a correction inserts
-    a replacement pair and marks the original voided instead of editing it."""
+    """Struck from every figure, its events kept: too short to count, dated in
+    the future, or voided by hand before the real hours go back on as a
+    correction. Clock events are immutable, so a session is voided, not edited."""
 
     clock_in_event: Mapped[ClockEvent] = relationship(foreign_keys=[clock_in_id])
     clock_out_event: Mapped[ClockEvent | None] = relationship(

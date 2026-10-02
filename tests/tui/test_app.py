@@ -18,12 +18,14 @@ from flexi.app import FlexiApp
 from flexi.components.chrome import NavBar, VersionTag
 from flexi.components.modules.records import RecordsModule
 from flexi.constants import Division
-from flexi.context import flexi_app
+from flexi.context import command_app, flexi_app
 from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
 from flexi.models.database.engine import create_db_engine
+from flexi.provider import commands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.insights import InsightsScreen
 from flexi.screens.leave import LeaveScreen
+from flexi.screens.modals import GoToDateModal
 from flexi.screens.settings import SettingsScreen
 from flexi.screens.setup import SetupScreen
 from flexi.services.bank_holidays import CACHE_MAX_AGE, BankHolidayService
@@ -772,6 +774,38 @@ async def test_escape_from_a_destination_still_comes_home(
 
         showing(app, DashboardScreen)
         assert app.nav == "dashboard"
+
+
+async def test_leaving_from_the_palette_over_a_dialog_closes_both(
+    app_factory: AppFactory,
+) -> None:
+    """The palette's key outranks a dialog, so a destination can be chosen over one.
+
+    `Screen.dismiss` pops the top of the stack, which is the dialog and not the
+    screen that opened it. Leave was left behind with its result already given,
+    and leaving it again raised.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("f2")
+        await pilot.pause()
+        await pilot.press("g")
+        await pilot.pause()
+        showing(app, GoToDateModal)
+
+        palette = {command.title: command for command in commands(command_app(app))}
+        palette["Go to Insights"].run()
+        await pilot.pause()
+
+        assert [type(screen).__name__ for screen in app.screen_stack] == [
+            "Screen",
+            "DashboardScreen",
+            "InsightsScreen",
+        ]
+
+        await pilot.press("escape")
+        await pilot.pause()
+        showing(app, DashboardScreen)
 
 
 def test_flexi_app_satisfies_the_composed_contract(

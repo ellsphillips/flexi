@@ -1,6 +1,6 @@
 """What happens in the moment after the records are thrown away.
 
-`flexi init` -> Start again deletes the database and then asks the five
+`flexi init` -> Start again deletes the database and then asks the six
 questions again. The setup form is a Textual application, and `FlexiApp` builds
 an engine and opens a session before a screen is drawn, so the migration has to
 run between the delete and the form or the command dies with

@@ -26,6 +26,18 @@ balance(as_of) =  Σ worked_hours(d)            for d in leave_year_start..as_of
 The sum restarts at the leave-year boundary. On the 6th of April the balance is
 nought again, whatever it was on the 5th; nothing is carried forward.
 
+**Today is not over.** Until midnight its expected hours count only as far as
+they have been worked, `min(expected_hours(today), worked_hours(today))`, so a
+morning opens on the balance the evening before closed on and a surplus counts
+the minute it is earned. TOIL taken today and a correction dated today count at
+once. A day after today counts nothing: its hours are not owed and its TOIL is
+not yet taken. This is the balance *as it stands*
+(`flexi.domain.balance.standing`), and every figure that shows or spends the
+balance reads it: the headline, the wallet, the records' `±` column and totals,
+the running balance, weekly bars and heatmap in Insights, `flexi balance` and
+the TOIL free to book. Only the progress rails and the records subtitle measure
+the whole period's expected hours, as a target rather than a debt.
+
 **Adjustments are the only stored term.** Everything else is derived from clock
 events, so there is no total to edit when someone wants to draw a line under a
 period they never tracked. `flexi balance zero` writes one signed row instead,
@@ -37,14 +49,27 @@ like unearned overtime.
 
 `tracking_since` on the settings row is the other half of the same problem: days
 before the day Flexi was set up expect nothing, so installing in November does
-not open on seven months of deficit. It is `None` on databases migrated from
-before `0015`, and `None` means every day counts.
+not open on seven months of deficit. Work recorded on one of them, punched or
+added with `n`, tracks it like any later day. It is `None` on databases migrated
+from before `0015`, and `None` means every day counts.
+
+The balance those days left behind is brought in by hand.
+`flexi balance adjust`, and *Adjust balance…* in the command palette, write the
+same kind of row as a settlement: an opening balance carried from a spreadsheet,
+or a correction. It is dated today unless `--on` names an earlier day of the
+current leave year, since a row dated in an earlier year is never counted, and
+it lands after the latest row made after its own date. That row may be a
+settlement, which a row behind it would reopen: a reason is free text, so only
+the dates can tell. Only a finished day is settled, so a settlement is always
+made after its date, and a row dated the day it was made, as an opening balance
+brought in today is, never is one. For the same reason a settlement is refused
+behind any later row made after its date.
 
 `expected_hours(d)` is the crux:
 
 | Day | expected |
 |---|---|
-| Before `tracking_since`, with no punched session on it | `0` |
+| Before `tracking_since`, with no recorded work on it | `0` |
 | Not a working day (per `working_days`) | `0` |
 | Bank holiday in the configured division | `0` |
 | Whole-day absence of any type | `0` |
@@ -55,6 +80,11 @@ So a day you booked as annual leave neither earns nor costs flexi. A day you
 worked six hours against a 7.4-hour contract costs you 1.4 hours of balance. A
 Saturday you worked earns you the lot.
 
+`contracted_hours` is one figure for every date, asked at setup and edited in
+Settings. Changing it recalculates every tracked day, the past included, while
+an adjustment keeps the amount it was recorded with; that is why Settings asks
+before saving a new figure, and says so when one may be a settlement.
+
 `toil_taken_hours(d)` is a whole (or half) day of `FLEXI` absence valued at
 `contracted_hours` (or half). Taking a TOIL day is the *withdrawal* side of the
 same account the surplus accrues into, which is why TOIL is not counted as a
@@ -62,13 +92,24 @@ separate allowance the way annual leave is — it has no entitlement, only a
 balance.
 
 **Open sessions count.** If you are on the clock right now, `worked_hours(today)`
-includes the time since you clocked in, so the balance ticks up while you watch
-it. That is why the dashboard refreshes on a timer.
+includes the time since you clocked in, so the day fills while you watch it, and
+once its hours are met the balance ticks up with it. That is why the dashboard
+refreshes on a timer.
 
 **Precision.** All arithmetic is in whole seconds, held as `datetime.timedelta`.
 Hours only appear at the formatting boundary. Never store or compare a float of
 hours; `7.4` is not representable and a week of rounding it produces a balance
 that disagrees with the sum of its own rows.
+
+**Minutes.** A punch is stored as the clock read it, seconds and all, and read
+to the minute it shows. A session runs between the minutes of its two punches,
+so in at 09:00:40 and out at 17:00:20 is the 8:00 that `09:00 → 17:00` says. An
+open one runs to the current minute, and one left open on an earlier day to
+23:59, that day's last minute. Half a day is counted to the minute below,
+expected and withdrawn alike, so half of 7:25 is 3:42 and not 3:42:30. Every
+figure is drawn in whole minutes, each term floored before it is subtracted
+(`BalanceSummary.as_shown`), so a column adds up to the total under it and a
+balance reads the same wherever it is drawn.
 
 ---
 
@@ -81,11 +122,11 @@ that disagrees with the sum of its own rows.
 | `leave_year_start` | `str` "MM-DD" | Anniversary the allowances reset on. |
 | `working_days` | `str` "0,1,2,3,4" | Weekday indices, Monday = 0. |
 | `bank_holiday_division` | `str` | GOV.UK division: `england-and-wales`, `scotland`, `northern-ireland`. |
-| `auto_close_time` | `str` "HH:MM" | A session still open at this time on a later day is closed here, not left running. |
+| `auto_close_time` | `str` "HH:MM" | A session still open at this time on a later day is closed here, not left running. On a day with half of it booked off it closes once half the contracted day is worked, and never before noon. |
 | `contracted_minutes` | `int` | Minutes in a standard working day. Default `444` (7h 24m). |
 | `day_window_start` | `str` "HH:MM" | Left edge of the punch strip. Default `07:00`. |
 | `day_window_end` | `str` "HH:MM" | Right edge of the punch strip. Default `19:00`. |
-| `tracking_since` | `date \| None` | The day setup was answered. Days before it expect no work. `None` (pre-`0015` databases) means every day counts. |
+| `tracking_since` | `date \| None` | The day setup was answered. Days before it expect no work unless some is recorded on them. `None` (pre-`0015` databases) means every day counts. |
 
 A `CHECK` and a `UNIQUE` on `singleton_key` make this a true single-row table.
 
@@ -97,7 +138,8 @@ year the leave year *starts* in.
 ### `clock_events`
 
 Immutable, and enforced as such: `0012` installs a trigger that rejects any
-`UPDATE`. A correction inserts a replacement pair and voids the old session.
+`UPDATE`. A session is never edited: a wrong one is voided, which keeps its
+events, and the real hours go back on as a correction with a pair of its own.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -107,8 +149,8 @@ Immutable, and enforced as such: `0012` installs a trigger that rejects any
 | `source` | `str` | `user` \| `system` \| `amended` |
 
 Both halves of the timestamp are needed. The wall reading is the punch strip, the
-work date and the midday split; the offset is why 22:00 on 24 October to 06:00 on
-25 October is nine hours and not eight.
+work date and the noon a half day's auto-close never comes before; the offset is
+why 22:00 on 24 October to 06:00 on 25 October is nine hours and not eight.
 
 `source` is a plain `VARCHAR` with no `CHECK`, because `0004` wrote it that way
 and `0010` reads it back to decide whose timestamps it may rewrite. A value
@@ -131,7 +173,21 @@ in and straight back out is a slip of the finger, and it is voided, not
 deleted — the events stay, because they are immutable and the audit trail is the
 point, but the session is absent from the table and from every figure derived
 from it. The preference is bounded to 0–3600 seconds and is evaluated only when
-the session is closed, so a later config change never rewrites history.
+the session is closed, so a later config change never rewrites history. It
+measures the punches themselves, not the minutes they show, so thirty seconds
+across a minute boundary is still a slip.
+
+**A wrong session is voided by hand the same way.** `ClockService.void` takes
+any closed session — punched, auto-closed or corrected — out of every figure in
+one write, and keeps its events; the real hours then go back on as a
+correction. A running session is refused, because clocking out is what gives it
+an end.
+
+**The sweep says what it closed.** A session still open on an earlier date is
+closed at the auto-close time, which can be hours after the person left, so
+whichever surface ran the sweep reports the day, the close and what it counted:
+every command on stderr, the application as a notice at launch, on `/`, and when
+the date turns under an open dashboard.
 
 ### `absence_days`
 
@@ -168,8 +224,11 @@ it" — every holiday a working day, quietly.
 ### `balance_adjustments`
 
 `date` (when the correction takes effect), `minutes` (signed), `reason`,
-`created_at`. Written by `flexi balance zero` and by the settle action; removable
-by id through `flexi balance undo`.
+`created_at`. Written by `flexi balance zero`, with the reason `settled` unless
+one is given, and by `flexi balance adjust` or the palette's *Adjust balance…*;
+removable by id through `flexi balance undo`. `created_at` is UTC; read on the
+local clock against `date`, it is what tells a possible settlement from a
+correction.
 
 ---
 
@@ -197,15 +256,20 @@ objection only, cheapest first:
 3. No bank holiday calendar — so the day cannot be ruled out as one.
 4. The day *is* a bank holiday.
 5. A clash: the day is booked in full, or half-booked and a full day was asked
-   for, or that half is already booked, or there is recorded work in that half.
+   for, or that half is already booked, or there is recorded work on a day the
+   booking would take off in full — a whole day, or its second half.
 6. Annual leave beyond what the year has left. No entitlement recorded at all is
    not the same as none left, and refuses nothing.
 
 TOIL is warned about, never refused: a booking that would overdraw the balance
 goes in with a warning beside it.
 
-Clocking in is refused on a bank holiday, on a day booked off in full, and during
-a booked half — a booked morning leaves the afternoon workable.
+Clocking in is refused on a bank holiday and on a day booked off in full, a
+morning and an afternoon together included. One half booked off refuses no work,
+whatever the hour: it halves what the day expects, so arriving at 11:30 after a
+morning off, or leaving at 12:42 before an afternoon off, is an ordinary half
+day. A correction follows the same rule, and a clock-out that would run into a
+day booked off in full is refused and leaves the session open.
 
 Removing an absence restores the allowance it drew down. A booking on a day that
 a later change to the working pattern turned into a non-working day stays where
@@ -307,9 +371,12 @@ class DayLedger:
         ...
 ```
 
-`delta` is what the day's `±` column shows. `balance_effect` is what the running
-balance accumulates: a TOIL day expects nothing, so it scores no deficit for
-being unworked, and it spends a day of the surplus that paid for it.
+`delta` is the day's hours against what it expected. `balance_effect` is what a
+finished day adds to the running balance: a TOIL day expects nothing, so it
+scores no deficit for being unworked, and it spends a day of the surplus that
+paid for it. `standing` counts a finished day the same way, today only for what
+it has gained so far, and a day still to come not at all (§1); the day's `±`
+column and every balance read it.
 
 Every duration that can still be running takes a `now`, so a widget redrawing on
 a timer says what the elapsed time is at the moment it draws, and no ledger

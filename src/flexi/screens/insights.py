@@ -31,6 +31,7 @@ from flexi.components.plot import Plot
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity
 from flexi.context import service_app
+from flexi.domain.balance import standing
 from flexi.domain.format import day_month, delta, hm, stamp
 from flexi.domain.period import Period
 from flexi.domain.plot import Mark, Series
@@ -67,19 +68,20 @@ class BalanceHistory(Module):
 
     def rebuild(self) -> None:
         period = self.period
+        today = self.now.date()
         # Stop at today: a working day in the future expects hours and has none
         # recorded, so charting past it draws a cliff of deficits.
-        end = min(period.end, self.now.date())
+        end = min(period.end, today)
         if end < period.start:
             self.query_one("#balance-bars", DivergingBars).show([])
             self.set_subtitle("not started")
             return
         ledgers = self.services.ledger.days(period.start, end, now=self.now)
         self.query_one("#balance-bars", DivergingBars).show(
-            week_columns(ledgers, first_weekday=period.first_weekday)
+            week_columns(ledgers, first_weekday=period.first_weekday, today=today)
         )
-        total = self.services.ledger.summary(period.start, end, now=self.now)
-        self.set_subtitle(f"{delta(total.delta)} to {day_month(end)}")
+        total = standing(ledgers, today)
+        self.set_subtitle(f"{delta(total.as_shown().delta)} to {day_month(end)}")
 
 
 class RunningBalance(Module):
@@ -107,9 +109,10 @@ class RunningBalance(Module):
 
     def rebuild(self) -> None:
         period = self.period
+        today = self.now.date()
         # Stop at today: a working day in the future expects hours and has none
         # recorded, so carrying on draws a cliff into a debt no one has run up.
-        end = min(period.end, self.now.date())
+        end = min(period.end, today)
         chart = self.query_one("#balance-plot", Plot)
         if end < period.start:
             chart.show([], empty_message="Not started")
@@ -117,7 +120,7 @@ class RunningBalance(Module):
             return
 
         ledgers = self.services.ledger.days(period.start, end, now=self.now)
-        running = running_balance(ledgers)
+        running = running_balance(ledgers, today=today)
         chart.show(
             [Series("balance", running, Mark.LINE, "series")],
             rule=0.0,
@@ -125,8 +128,9 @@ class RunningBalance(Module):
         )
         # The line starts at zero on the period's first day: over the leave year
         # that is the balance, over a month only the drift within the month, so
-        # the two are captioned differently.
-        total = delta(timedelta(hours=running[-1]))
+        # the two are captioned differently. Summed again, not read off the
+        # plotted hours, and floored term by term as the dashboard floors it.
+        total = delta(standing(ledgers, today).as_shown().delta)
         if period.granularity is Granularity.YEAR:
             self.set_subtitle(f"{total} on {day_month(end)}")
         else:
@@ -208,14 +212,15 @@ class YearAtAGlance(Module):
         # The leave year the period is in, whatever the period has been zoomed
         # to, so the panel and the header name the same year.
         year = self.period.zoom(Granularity.YEAR)
-        end = min(year.end, self.now.date())
+        today = self.now.date()
+        end = min(year.end, today)
         heatmap = self.query_one("#heatmap", YearHeatmap)
         if end < year.start:
-            heatmap.show([], first_weekday=self.period.first_weekday)
+            heatmap.show([], first_weekday=self.period.first_weekday, today=today)
             self.set_subtitle("not started")
             return
         ledgers = self.services.ledger.days(year.start, end, now=self.now)
-        heatmap.show(ledgers, first_weekday=self.period.first_weekday)
+        heatmap.show(ledgers, first_weekday=self.period.first_weekday, today=today)
         worked = sum((item.worked for item in ledgers), start=timedelta())
         self.set_subtitle(f"{hm(worked)} worked")
 
@@ -231,6 +236,8 @@ class InsightsScreen(Screen[None]):
         Binding(CONFIG.hotkeys.period_next, "shift(1)", "Next", show=False),
         Binding(CONFIG.hotkeys.period_cycle, "cycle", "Period", show=True),
         Binding("escape", "back", "Back", show=True),
+        # On the destinations, not the app, as on the dashboard.
+        Binding("q", "app.quit", "Quit", show=True),
     ]
 
     def __init__(self, period: Period, **kwargs: Unpack[ScreenOptions]) -> None:

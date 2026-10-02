@@ -105,6 +105,10 @@ pythonpath = ["."]
 # `importlib` import mode so the doctest paths under src/ collect against an
 # installed flexi as well as against this checkout.
 addopts = "--doctest-modules --strict-markers --strict-config --import-mode=importlib -n auto --timeout=120"
+# Ten seconds inside `--timeout`. Windows has no SIGALRM, so pytest-timeout ends
+# an overrunning test by exiting its whole xdist worker, and the run reports a
+# bare crash. This dump reaches the worker's stderr first: which test, and where.
+faulthandler_timeout = 110
 
 [tool.coverage.run]
 branch = true

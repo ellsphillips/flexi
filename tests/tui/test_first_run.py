@@ -1,27 +1,27 @@
-"""Install, launch, answer five questions, and get to the dashboard."""
+"""Install, launch, answer six questions, and get to the dashboard."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 import time_machine
 from textual.pilot import Pilot
-from textual.widgets import Input, Select, Static
+from textual.widgets import Input, Label, Select, Static
 
 from flexi.app import FlexiApp
 from flexi.components.wordmark import Wordmark
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
-from flexi.screens.settings import NO_DIVISION
+from flexi.screens.settings import ALL_REQUIRED, NO_DIVISION
 from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
 from flexi.services.settings import SettingsService
 from flexi.theme import MARK_LIVE, TAIL, colour
 from tests.conftest import session_at
 from tests.database import create_schema
-from tests.tui.conftest import WIDE, showing
+from tests.tui.conftest import WIDE, screen_text, showing
 
 
 @pytest.fixture
@@ -233,6 +233,69 @@ async def test_what_was_answered_is_what_was_saved(fresh_db: Path) -> None:
         assert settings.get_active_entitlement_days(None) == 28.0
 
 
+async def test_hours_a_day_are_what_every_day_expects(fresh_db: Path) -> None:
+    """7:24 is offered, and a decimal is hours: 7.5 is half past, not 7:05."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        field = screen.query_one("#input-hours", Input)
+        assert field.value == "7:24"
+        field.value = "7.5"
+        await pilot.pause()
+
+        screen.action_save()
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert "0:00 of 7:30" in screen_text(app), "today expects the answer"
+
+    with session_at(fresh_db) as session:
+        assert SettingsService(session).get_contracted() == timedelta(minutes=450)
+
+
+@pytest.mark.parametrize(
+    ("typed", "said"),
+    [
+        ("", ALL_REQUIRED),
+        ("0", "more than 0:00"),
+        ("25", "no more than 24:00"),
+        ("seven", "not a length of time"),
+        ("7.24", "not a whole number of minutes"),
+        ("7.30", "could mean 7:30"),
+    ],
+)
+async def test_hours_a_day_that_cannot_be_used_are_refused(
+    fresh_db: Path, typed: str, said: str
+) -> None:
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-hours", Input).value = typed
+
+        screen.action_save()
+        await pilot.pause()
+
+        assert any(said in notice for notice in notices(app))
+        showing(app, SetupScreen)
+
+    with session_at(fresh_db) as session:
+        assert SettingsService(session).get_settings() is None
+
+
+async def test_heading_counts_the_questions(fresh_db: Path) -> None:
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await revealed(pilot)
+        screen = showing(app, SetupScreen)
+        assert len(screen.query(Question)) == 6
+        assert "Six questions" in screen_text(app)
+
+
 # ---- the year the allowance is filed under ----
 
 FEBRUARY = datetime(2026, 2, 16, 10, 0, tzinfo=UTC)
@@ -386,6 +449,23 @@ async def test_quit_key_quits_during_the_animation(
         await pilot.pause()
 
         assert not app.is_running
+
+
+async def test_q_is_typed_into_an_answer(fresh_db: Path) -> None:
+    """The dashboard quits on q; a question takes it as a letter."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await revealed(pilot)
+        field = showing(app, SetupScreen).query_one("#input-working-days", Input)
+        field.focus()
+        field.value = ""
+
+        await pilot.press("q")
+        await pilot.pause()
+
+        assert app.is_running
+        assert field.value == "q"
 
 
 async def test_tab_moves_between_the_questions_once_they_are_up(
@@ -672,3 +752,77 @@ async def test_only_the_marker_is_lit_on_the_rail(
         assert {tone for _, tone in drawn[1:-1] if tone != drawn[marker][1]} == {
             hairline
         }, "one weight for the whole line"
+
+
+# ---- a terminal too short for the spaced form ----
+
+
+@pytest.mark.parametrize("size", [(80, 24), (120, 40)])
+async def test_every_question_is_on_screen_and_reached_by_tab(
+    fresh_db: Path, size: tuple[int, int]
+) -> None:
+    """Twenty-four rows is shorter than the wordmark over the spaced-out form.
+
+    The row under each question goes first, so nothing waits below the fold
+    and tab still reaches every question in turn.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=size) as pilot:
+        await revealed(pilot)
+        screen = showing(app, SetupScreen)
+        assert screen.max_scroll_y == 0, "nothing should wait below the fold"
+
+        drawn = screen_text(app)
+        for question in screen.query(Question):
+            ask = str(question.query_one(".ask", Label).render())
+            assert ask in drawn
+            focused = screen.focused
+            assert focused is not None
+            assert question in focused.ancestors_with_self, f"tab missed {ask}"
+            await pilot.press("tab")
+            await pilot.pause()
+
+
+async def test_resizing_closes_the_form_up_and_opens_it_out(fresh_db: Path) -> None:
+    """The rail and the reveal are counted, so a resize has to count them again."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await revealed(pilot)
+        screen = showing(app, SetupScreen)
+        block = screen.query_one("#setup-questions")
+        spaced = block.region.height
+
+        await pilot.resize_terminal(80, 24)
+        await revealed(pilot)
+        assert block.region.height < spaced
+        assert screen.query_one(Rail).region.height == block.region.height
+        assert screen.max_scroll_y == 0
+
+        await pilot.resize_terminal(120, 40)
+        await revealed(pilot)
+        assert block.region.height == spaced
+        assert screen.query_one(Rail).region.height == spaced
+
+
+async def test_marker_steps_one_row_a_question_when_closed_up(
+    fresh_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The questions arrive closed up, and the marker lands beside the next one."""
+    monkeypatch.setattr("flexi.components.wordmark.wanted", lambda **_: True)
+    app = FlexiApp(db_path=fresh_db)
+    app.show_splash = True
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        screen = showing(app, SetupScreen)
+        screen.query_one(Wordmark).skip()
+        await revealed(pilot)
+
+        await pilot.press("tab")
+        for _ in range(12):
+            await pilot.pause()
+        await revealed(pilot)
+
+        rail = screen.query_one(Rail)
+        entitlement = screen.query_one("#ask-entitlement", Question)
+        assert rail.region.y + round(rail.marker) == entitlement.region.y
+        assert " " not in "".join(glyph for glyph, _ in _rail_column(app, rail))

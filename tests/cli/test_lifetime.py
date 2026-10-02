@@ -27,6 +27,7 @@ from flexi.__main__ import cli
 from flexi.locations import database_file
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.migrate import run_migrations
+from flexi.services.clock import ClockResult
 from flexi.services.registry import Services, build_services
 from flexi.services.settings import parse_settings
 
@@ -65,8 +66,9 @@ class ClosableSession:
 class PreparingClock:
     preparation: Preparation
 
-    def sweep(self) -> None:
+    def sweep(self) -> list[ClockResult]:
         self.preparation.run("sweep")
+        return []
 
 
 @dataclass(frozen=True, slots=True)

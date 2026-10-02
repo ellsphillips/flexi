@@ -250,6 +250,16 @@ def test_safe_option_is_first(populated: Path) -> None:
     assert not first.grave
 
 
+def test_settings_row_names_the_hours() -> None:
+    """The form it opens edits hours a day, as `f4` says in the app."""
+    settings = next(
+        option
+        for option in init_cli.options(init_cli.Contents())
+        if option.value == init_cli.Choice.SETTINGS
+    )
+    assert settings.hint == "hours, leave year, working days, region"
+
+
 def test_overview_lists_what_is_there(populated: Path) -> None:
     drawn = "\n".join(
         line.plain

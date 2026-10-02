@@ -93,6 +93,29 @@ def test_test_matrix_preserves_platform_python_and_timezone_coverage() -> None:
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_windows_suite_keeps_temporary_files_off_the_system_drive() -> None:
+    """Every Windows row moves `TEMP` and `TMP` before any test reads them."""
+    steps: list[dict[str, Any]] = _workflow("tests.yaml")["jobs"]["suite"]["steps"]
+    moves = [
+        index
+        for index, step in enumerate(steps)
+        if step.get("if") == "runner.os == 'Windows'"
+        and all(
+            f"{name}=$env:RUNNER_TEMP" in step.get("run", "")
+            for name in ("TEMP", "TMP")
+        )
+    ]
+    tests = [
+        index
+        for index, step in enumerate(steps)
+        if "pytest" in step.get("run", "") or "just test" in step.get("run", "")
+    ]
+    assert moves, "no Windows step moves TEMP and TMP to RUNNER_TEMP"
+    assert tests
+    assert moves[0] < min(tests)
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
 def test_called_workflows_exist_and_are_reusable() -> None:
     """`uses:` is a path, and a wrong one fails at the moment of releasing."""
     for name in _called(PIPELINES[0]):

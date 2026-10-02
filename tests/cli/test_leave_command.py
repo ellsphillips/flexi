@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 
 import click
 import pytest
@@ -333,6 +333,36 @@ def test_taking_toil_beyond_the_balance_warns(
     assert plan.toil_cost == 5.0
     assert plan.toil_after == -3.0
     assert "deficit" in render(plan)
+
+
+def test_a_banked_day_is_free_to_book_before_the_first_punch(
+    services: Services, session: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A week of +1:30 a day pays for Friday's TOIL at 08:45 on the Monday after."""
+    last_monday = date(2026, 8, 3)
+    settings = services.settings.get_settings()
+    assert settings is not None
+    settings.tracking_since = last_monday
+    session.commit()
+    for offset in range(5):
+        day = last_monday + timedelta(days=offset)
+        services.clock.clock_in(now=datetime.combine(day, time(8, 30)))
+        services.clock.clock_out(now=datetime.combine(day, time(17, 24)))
+
+    with time_machine.travel(datetime(2026, 8, 10, 8, 45), tick=False):
+        code = run(
+            services,
+            ("toil", "friday"),
+            note=None,
+            assume_yes=False,
+            dry_run=True,
+            today=MONDAY,
+        )
+
+    assert code == 0
+    printed = capsys.readouterr().out
+    assert "Fri 14 Aug" in printed
+    assert "deficit" not in printed
 
 
 def test_pre_tracking_toil_does_not_render_a_spurious_deficit(

@@ -13,16 +13,37 @@ forward on launch, with a backup taken first.
 
 - **One key for the clock.** `/` clocks in and out from any screen, and the
   status bar says what was recorded. A session left running past midnight is
-  closed at an auto-close time you choose, and the row says so.
+  closed at an auto-close time you choose, and Flexi says so with what it
+  counted: on launch, on stderr from any command, and on the `/` that finds it,
+  which then stops rather than clocking you in.
 - **The punch strip.** Every day is drawn as cells across the working day,
   filled where you were on the clock, with a tick where the contracted hours are
   met. Seven on one axis is a week's shape at a glance.
 - **Records that open.** `space` on a day shows the sessions behind the figure,
   the breaks between them, and how the total compares to what the day expected.
+- **Figures that add up.** A punch keeps its seconds but counts as the minute it
+  shows: in at 09:00 and out at 17:00 is 8:00, every column adds up to the total
+  under it, and a balance reads the same in the headline, the wallet, Insights
+  and the command line.
+- **Nothing owed before it is due.** Today's surplus counts the moment it is
+  worked, but its contracted hours are not owed until the day ends, so a morning
+  opens on last night's balance and a banked day can be booked as TOIL before the
+  first punch. Days still to come count nothing, so a month is not a column of
+  red −7:24s.
+- **A dashboard that keeps up.** While you are on the clock, today's row, the
+  period's total and the wallet move with the balance a minute at a time. Left
+  open overnight, it closes a forgotten session at the auto-close time, says
+  what it counted and moves on to the new day; the next `/` then stops rather
+  than clocking you in.
 - **Work you never clocked.** `n` records a stretch after the fact — a site
   visit, a morning the laptop stayed shut. It counts for everything a punched
   session counts for, and is drawn apart from one. An overlapping stretch is
   refused. `N` lists every correction in the period.
+- **A wrong session can be voided.** `x` on a session in an opened day asks,
+  then takes it out of every figure and keeps its clock record. Add the real
+  hours with `n`: the way back from a forgotten clock-out, a late one or a
+  mistyped correction. The question warns when a `balance zero` settlement
+  covers the day.
 - **A period you move.** `d`, `w`, `m`, `y` and `p` change the span; `[` and `]`
   step it; `t` returns to today; `g` takes a date typed however is quickest —
   `12`, `12 Jun`, `2026-06-12`, `+3d`, `-2w`.
@@ -36,6 +57,10 @@ forward on launch, with a backup taken first.
   annual leave. `shift` and an arrow extends the selection first.
 - **Half days.** `space` cycles a cell between a whole day, a morning and an
   afternoon, and a morning and an afternoon of different types can share a date.
+  A half day halves what the day expects, whichever side of noon you work the
+  rest: in at 11:30 after the dentist, or home sick at one, is recorded as it
+  happened. A session forgotten on a half day closes once half the day is
+  worked.
 - **Five kinds of absence** — annual, sick, TOIL, unpaid and other — where there
   were three.
 - **Refusals are per day and reported together.** Book a fortnight over a bank
@@ -51,13 +76,21 @@ not happened yet.
 
 ### Balance corrections
 
+- **A balance you already had comes with you.**
+  `flexi balance adjust +5:30 --reason "Brought forward"` moves the balance by a
+  signed amount, from today or an earlier day of the leave year given with
+  `--on`, and shows the balance before and after it asks. `-1:30` reads, and so
+  does the `−1:30` Flexi prints. **Adjust balance…** in the command palette does
+  the same from the dashboard.
 - `flexi balance zero` draws a line under everything up to a date, writing one
-  signed, dated, reasoned row. It settles to yesterday by default, because today
-  is not over.
+  signed, dated, reasoned row, `settled` unless you give a reason. It settles to
+  yesterday by default, because today is not over.
 - `flexi balance log` lists every correction, and `flexi balance undo <id>`
   removes one.
-- A settlement that an earlier one already covers is refused, not
-  double-counted.
+- A settlement dated before one already recorded is refused, not
+  double-counted, and a correction cannot be dated on or before a settlement.
+  Both rules treat an adjustment given an earlier day with `--on` as a
+  settlement, since Flexi cannot tell the two apart.
 
 ### The command line
 
@@ -72,13 +105,18 @@ there and offers to open Flexi, change settings, or start over.
 
 ### Setting up
 
-- **Five questions, once**: when the leave year starts, your entitlement, which
-  days you work, which bank holiday calendar, and when to auto-close a forgotten
-  session.
+- **Six questions, once**: when the leave year starts, your entitlement, which
+  days you work, how long your working day is, which bank holiday calendar, and
+  when to auto-close a forgotten session. Hours take `7:30`, `7h30` or `7.5`.
 - **Flexi stamps the day you set it up** and expects nothing of the days before
   it, so installing in November does not open you on seven months of deficit.
+  Fill one in with `n` and it counts against your contracted day, as a punched
+  day would.
 - **Entitlement is per leave year.** `f4` lists the years, edits any of them and
   adds the next.
+- **Hours a day can change.** `f4` asks first, because every tracked day is
+  measured again at the new length, and says when a balance you settled will
+  no longer read zero.
 
 ### Bank holidays
 
@@ -97,8 +135,8 @@ whole budget in front of every command.
   kept; `flexi init`'s reset takes one that is never aged out. Restoring is a
   file copy — see the README.
 - **A lock file** stops two copies migrating the same database at once.
-- **Clock events are immutable**, enforced in the database. Correcting a session
-  writes a replacement and voids the original, so the audit trail survives.
+- **Clock events are immutable**, enforced in the database. A session is never
+  edited: voiding it keeps its events, so the audit trail survives.
 - **A session under a minute never happened.** Clocking in and straight back out
   is discarded, and the events are kept.
 
@@ -109,8 +147,11 @@ three responsive layouts down to 64 columns. Colour is never the only encoding:
 every coloured cell, rule and bar sits beside a word or a signed number.
 
 `v` puts a one-key badge on every panel, and on the first nine day rows of the
-records table. `?` lists every binding on the screen. `ctrl+p` opens a command
-palette carrying every action, including those with no key.
+records table. `?` lists every binding on the screen. `ctrl+p` or `:` opens a
+command palette carrying every action, including Quit and those with no key.
+`q` quits from the dashboard, Leave and Insights. `:` and `q` are there for
+VS Code and Cursor, whose terminals keep `ctrl+p` and `ctrl+q` for the editor;
+the README has the setting that hands them back.
 
 ### Development and releases
 
@@ -121,7 +162,9 @@ palette carrying every action, including those with no key.
 
 ### Known limits
 
-A contract other than 37 hours cannot be set yet; there is no export, no import,
-and no `doctor` command. The flexi balance does not carry between leave years:
-it is the sum for the current one, so in April it starts again from nought. See
-[`docs/README.md`](docs/README.md) for the rest of the list.
+One length of day applies to every working day and every tracked day: hours
+that differ by weekday, or change from a given date, cannot be set yet. There is
+no export, no import, and no `doctor` command. The flexi balance does not carry
+between leave years: it is the sum for the current one, so in April it starts
+again from nought. See [`docs/README.md`](docs/README.md) for the rest of the
+list.

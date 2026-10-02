@@ -33,6 +33,19 @@ def test_batched_schema_matches_normal_creation(tmp_path: Path) -> None:
         batched.dispose()
 
 
+def test_suite_databases_commit_without_waiting_on_the_disk(tmp_path: Path) -> None:
+    """The conftest hook reaches an engine Flexi makes, beside its own pragma."""
+    engine = create_db_engine(tmp_path / "relaxed.db")
+    try:
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA synchronous").scalar_one() == 0
+            journal = connection.exec_driver_sql("PRAGMA journal_mode").scalar_one()
+            assert journal == "memory"
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
+    finally:
+        engine.dispose()
+
+
 def test_failed_schema_creation_leaves_no_partial_tables(tmp_path: Path) -> None:
     """A late DDL failure rolls back tables, indexes and after-create triggers."""
     engine = create_db_engine(tmp_path / "failed.db")

@@ -8,7 +8,7 @@ question and not a receipt.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 import time_machine
@@ -19,7 +19,8 @@ from flexi.constants import AbsenceType, Portion, Verdict
 from flexi.models.database.db import AbsenceDay, BankHolidayRefresh
 from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import Services, invalidate_services
-from tests.services.conftest import Configured, work
+from flexi.services.settings import parse_settings
+from tests.services.conftest import CONTRACTED, Configured, work
 
 MONDAY = date(2026, 8, 10)
 FRIDAY = date(2026, 8, 14)
@@ -247,6 +248,37 @@ def test_entitlement_changed_after_a_preview_refuses_it(
     assert _rows(session) == 0
 
 
+@pytest.mark.parametrize(
+    "kind", [kind for kind in AbsenceType if not kind.draws_down_balance]
+)
+def test_a_minute_worked_after_a_preview_of_other_leave_still_books_it(
+    services: Services, kind: AbsenceType
+) -> None:
+    """A morning off, previewed at 16:20:50 and confirmed at 16:21:10.
+
+    The afternoon's open session has run a minute longer by then, which changes
+    what TOIL on the morning would cost and nothing this booking depends on.
+    """
+    wednesday = MID_SPAN.date()
+    with time_machine.travel(
+        datetime.combine(wednesday, time(12, 30), tzinfo=UTC), tick=False
+    ):
+        assert services.clock.clock_in().success
+    with time_machine.travel(
+        datetime.combine(wednesday, time(16, 20, 50), tzinfo=UTC), tick=False
+    ):
+        plan = services.absence.plan(
+            wednesday, wednesday, kind, Portion.AM, note="Dentist"
+        )
+    with time_machine.travel(
+        datetime.combine(wednesday, time(16, 21, 10), tzinfo=UTC), tick=False
+    ):
+        result = services.absence.book_plan(plan)
+
+    assert plan.toil_cost == 0.0, "it spends none of the flexi balance"
+    assert result.booked == (wednesday,)
+
+
 def test_span_across_a_bank_holiday_books_the_rest(
     services: Services, session: Session
 ) -> None:
@@ -321,10 +353,14 @@ def test_toil_on_a_past_day_leaves_the_balance_alone(
 def test_span_charges_only_the_days_still_to_come(
     services: Services,
 ) -> None:
-    """Wednesday's preview of the whole week is about Thursday and Friday."""
+    """Wednesday's preview of the whole week is about Wednesday to Friday.
+
+    Monday and Tuesday have counted their shortfall already; Wednesday's waits
+    for the evening, so taking it off spends the balance as Friday does.
+    """
     with time_machine.travel(MID_SPAN, tick=False):
         plan = services.absence.plan(
-            MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=2.0
+            MONDAY, FRIDAY, AbsenceType.FLEXI, available_toil_days=3.0
         )
 
     assert len(plan.bookable) == 5
@@ -332,24 +368,164 @@ def test_span_charges_only_the_days_still_to_come(
     assert plan.warning is None
 
 
-def test_toil_before_tracking_began_matches_the_untracked_ledger(
-    configure: Configured,
-) -> None:
-    """A day Flexi was not watching expects nothing and withdraws no TOIL.
+def test_toil_today_spends_the_balance(services: Services) -> None:
+    """Free, a day off today would spend what the balance has banked twice."""
+    today = MID_SPAN.date()
+    with time_machine.travel(MID_SPAN, tick=False):
+        plan = services.absence.plan(
+            today, today, AbsenceType.FLEXI, available_toil_days=0.5
+        )
+        booked = services.absence.book(
+            today, AbsenceType.FLEXI, available_toil_days=0.5
+        )
 
-    Hours recorded after the fact are a memory of the day, not proof Flexi was
-    there for it, and that is the distinction the ledger draws.
-    """
-    services = configure(entitlement=(2025, 25.0), tracking_since=FRIDAY)
-    assert services.clock.correct(MONDAY, time(13, 0), time(17, 0)).success
-
-    plan = services.absence.plan(
-        MONDAY, MONDAY, AbsenceType.FLEXI, Portion.AM, available_toil_days=0.0
+    assert plan.toil_cost == 1.0
+    assert plan.warning == "This takes the flexi balance 0.5 days into deficit"
+    assert booked.warning == (
+        "Booked, but this takes the flexi balance 0.5 days into deficit"
     )
 
-    assert len(plan.bookable) == 1
-    assert plan.toil_after == 0.0
+
+def test_toil_today_spends_only_what_its_work_has_not_covered(
+    configure: Configured,
+) -> None:
+    """After five hours on Wednesday morning, its afternoon off costs 2:24.
+
+    That is all the day still asks for, so the +3:00 Tuesday banked pays for it
+    with no warning, and the balance moves by what the plan said it would.
+    """
+    tuesday, wednesday = date(2026, 8, 11), MID_SPAN.date()
+    services = configure(entitlement=(2025, 25.0), tracking_since=tuesday)
+    work(services, tuesday, hours=10.4, start_hour=7)
+    work(services, wednesday, hours=5, start_hour=7)
+
+    lunchtime = datetime.combine(wednesday, time(12, 30), tzinfo=UTC)
+    with time_machine.travel(lunchtime, tick=False):
+        available = services.wallet.available_toil_days()
+        plan = services.absence.plan(
+            wednesday,
+            wednesday,
+            AbsenceType.FLEXI,
+            Portion.PM,
+            available_toil_days=available,
+        )
+        booked = services.absence.book(
+            wednesday, AbsenceType.FLEXI, Portion.PM, available_toil_days=available
+        )
+        spent = available - services.wallet.available_toil_days()
+
+    assert plan.toil_cost == timedelta(hours=2, minutes=24) / CONTRACTED
+    assert spent == pytest.approx(plan.toil_cost)
     assert plan.warning is None
+    assert booked.warning is None
+
+
+def test_toil_today_confirmed_a_minute_cheaper_still_books(
+    services: Services,
+) -> None:
+    """The afternoon's open session has paid for another minute of the morning.
+
+    Previewed at 16:20:50, the morning off cost the 3:34 still to work; by the
+    answer at 16:21:10 it costs 3:33. A booking that has only got cheaper is
+    still the one agreed to.
+    """
+    wednesday = MID_SPAN.date()
+    with time_machine.travel(
+        datetime.combine(wednesday, time(12, 30), tzinfo=UTC), tick=False
+    ):
+        assert services.clock.clock_in().success
+    with time_machine.travel(
+        datetime.combine(wednesday, time(16, 20, 50), tzinfo=UTC), tick=False
+    ):
+        plan = services.absence.plan(
+            wednesday,
+            wednesday,
+            AbsenceType.FLEXI,
+            Portion.AM,
+            available_toil_days=1.0,
+        )
+    with time_machine.travel(
+        datetime.combine(wednesday, time(16, 21, 10), tzinfo=UTC), tick=False
+    ):
+        result = services.absence.book_plan(plan)
+
+    assert plan.toil_cost == timedelta(hours=3, minutes=34) / CONTRACTED
+    assert result.booked == (wednesday,)
+
+
+def test_a_night_begun_the_day_before_does_not_pay_for_today(
+    configure: Configured,
+) -> None:
+    """Tuesday's night shift counts on Tuesday, not on the afternoon taken off."""
+    tuesday, wednesday = date(2026, 8, 11), MID_SPAN.date()
+    services = configure(entitlement=(2025, 25.0), tracking_since=tuesday)
+    work(services, tuesday, hours=7.4, start_hour=22)
+
+    lunchtime = datetime.combine(wednesday, time(12, 30), tzinfo=UTC)
+    with time_machine.travel(lunchtime, tick=False):
+        plan = services.absence.plan(
+            wednesday,
+            wednesday,
+            AbsenceType.FLEXI,
+            Portion.PM,
+            available_toil_days=1.0,
+        )
+
+    assert len(plan.bookable) == 1
+    assert plan.toil_cost == 0.5
+
+
+def test_toil_today_on_a_zero_contract_does_not_divide_by_zero(
+    services: Services,
+) -> None:
+    """A day that asks for nothing leaves a booking on it nothing to spend."""
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="10-20",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+            contracted_minutes=0,
+        )
+    )
+    today = MID_SPAN.date()
+    with time_machine.travel(MID_SPAN, tick=False):
+        plan = services.absence.plan(
+            today, today, AbsenceType.FLEXI, available_toil_days=0.0
+        )
+
+    assert plan.toil_cost == 0.0
+
+
+@pytest.mark.parametrize(
+    "worked", [time(13, 0), time(9, 0)], ids=["the-other-half", "the-same-half"]
+)
+def test_toil_preview_on_a_day_corrected_before_tracking_matches_the_ledger(
+    configure: Configured, worked: time
+) -> None:
+    """Recorded work tracks the day, so TOIL on half of it relabels a shortfall.
+
+    The preview says the balance stays where it is, and the ledger agrees,
+    whichever side of noon the four hours fell.
+    """
+    with time_machine.travel(AFTER_THE_SPAN, tick=False):
+        services = configure(entitlement=(2025, 25.0), tracking_since=FRIDAY)
+        until = time(worked.hour + 4, worked.minute)
+        assert services.clock.correct(MONDAY, worked, until).success
+        before = services.ledger.day(MONDAY).balance_effect
+
+        plan = services.absence.plan(
+            MONDAY, MONDAY, AbsenceType.FLEXI, Portion.AM, available_toil_days=0.0
+        )
+        assert len(plan.bookable) == 1
+        assert plan.toil_after == 0.0
+        assert plan.warning is None
+        assert services.absence.book_plan(plan).success
+        invalidate_services(services)
+
+        day = services.ledger.day(MONDAY)
+        assert day.toil_taken == CONTRACTED / 2
+        assert day.balance_effect == before == timedelta(hours=4) - CONTRACTED
 
 
 def test_punched_day_before_tracking_is_counted(

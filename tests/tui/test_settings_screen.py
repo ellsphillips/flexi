@@ -7,7 +7,7 @@ branches: the service round-trips underneath them are covered by
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -17,10 +17,14 @@ from textual.widgets import Button, Input, Select
 from flexi.app import FlexiApp
 from flexi.components.yearcalendar import YearCalendar
 from flexi.constants import Division
+from flexi.context import command_app
 from flexi.models.database.engine import create_db_engine
+from flexi.provider import commands
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.leave import LeaveScreen
+from flexi.screens.modals import ConfirmModal
 from flexi.screens.settings import SettingsScreen, describe_working_days
+from flexi.services.registry import adjust_balance
 from flexi.services.settings import parse_working_days
 from tests.conftest import settled
 from tests.database import create_schema
@@ -63,6 +67,7 @@ async def test_fields_arrive_holding_what_is_stored(
             row.leave_year_start
         )
         assert screen.query_one("#input-working-days", Input).value == "Mon-Fri"
+        assert screen.query_one("#input-hours", Input).value == "7:24"
         assert screen.query_one("#input-auto-close", Input).value == row.auto_close_time
         assert screen.query_one("#select-division", Select).value == (
             row.bank_holiday_division
@@ -83,6 +88,7 @@ async def test_screen_opens_before_any_settings_exist(tmp_path: Path) -> None:
         screen = showing(app, SettingsScreen)
         assert screen.query_one("#input-leave-start", Input).value == "01-01"
         assert screen.query_one("#input-working-days", Input).value == "Mon-Fri"
+        assert screen.query_one("#input-hours", Input).value == "7:24"
         assert screen.query_one("#input-auto-close", Input).value == "18:00"
 
 
@@ -143,6 +149,159 @@ async def test_unreadable_time_is_refused(app_factory: AppFactory) -> None:
         row = app.services.settings.get_settings()
         assert row is not None
         assert row.auto_close_time != "half past six"
+
+
+async def test_unusable_hours_a_day_are_refused(app_factory: AppFactory) -> None:
+    """The setup form's parser, so the two forms refuse in the same words."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        screen = showing(app, SettingsScreen)
+        screen.query_one("#input-hours", Input).value = "0"
+
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        showing(app, SettingsScreen)
+        assert app.services.settings.get_contracted() == timedelta(minutes=444)
+
+
+# hours a day
+
+
+async def change_hours(app: FlexiApp, pilot: Pilot[None], typed: str) -> None:
+    """Type a new length of day into the form, and press Save."""
+    await open_settings(pilot)
+    showing(app, SettingsScreen).query_one("#input-hours", Input).value = typed
+    await pilot.click("#btn-save")
+    await pilot.pause()
+
+
+def question_asked(app: FlexiApp) -> str:
+    """The whole of the confirmation in front of the user, unwrapped."""
+    return str(showing(app, ConfirmModal).query_one(".modal-body Static").render())
+
+
+async def test_new_hours_a_day_ask_before_anything_moves(
+    app_factory: AppFactory,
+) -> None:
+    """Every tracked day is measured against the new length, so the past moves too."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await change_hours(app, pilot, "8h")
+
+        asked = question_asked(app)
+        assert "8:00 instead of 7:24" in asked
+        assert "days already past in this leave year" in asked
+        assert "adjustment" not in asked, "there is nothing settled to warn about"
+        assert app.services.settings.get_contracted() == timedelta(minutes=444)
+
+        await pilot.click("#modal-confirm")
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert app.services.settings.get_contracted() == timedelta(hours=8)
+        assert "of 8:00" in screen_text(app), "today is measured against it"
+
+
+async def test_declining_new_hours_writes_nothing_and_keeps_the_form(
+    app_factory: AppFactory,
+) -> None:
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await change_hours(app, pilot, "8h")
+
+        await pilot.click("#modal-cancel")
+        await pilot.pause()
+
+        screen = showing(app, SettingsScreen)
+        assert screen.query_one("#input-hours", Input).value == "8h"
+        assert app.services.settings.get_contracted() == timedelta(minutes=444)
+
+
+async def test_the_same_hours_written_another_way_ask_nothing(
+    app_factory: AppFactory,
+) -> None:
+    """`7.4` is 7:24, so no tracked day moves and there is nothing to ask."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await change_hours(app, pilot, "7.4")
+
+        showing(app, DashboardScreen)
+        assert app.services.settings.get_contracted() == timedelta(minutes=444)
+
+
+async def test_settlements_are_named_before_they_stop_matching(
+    app_factory: AppFactory,
+) -> None:
+    """`balance zero` stores a fixed amount, sized against the old day."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        app.services.adjustments.record(
+            date(2026, 5, 29), timedelta(hours=-2), "settled with my manager"
+        )
+
+        await change_hours(app, pilot, "7.5")
+
+        assert question_asked(app).endswith(
+            "Your balance adjustments keep their recorded amounts and are not "
+            "recalculated, so if you settled a balance to zero, it will no longer "
+            "read zero."
+        ), "worded as voiding a settled day words it"
+
+
+async def test_a_balance_brought_in_is_not_taken_for_a_settlement(
+    app_factory: AppFactory,
+) -> None:
+    """Dated the day it was made, it zeroed nothing that could stop reading zero."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        assert adjust_balance(
+            app.services, timedelta(hours=5, minutes=30), "Brought forward"
+        ).success
+
+        await change_hours(app, pilot, "7.5")
+
+        assert "settled" not in question_asked(app)
+
+
+@pytest.mark.parametrize(
+    ("under", "chosen", "left"),
+    [
+        ("dashboard", "Go to Dashboard", ["Screen", "DashboardScreen"]),
+        ("leave", "Go to Insights", ["Screen", "DashboardScreen", "InsightsScreen"]),
+    ],
+)
+async def test_leaving_from_the_palette_over_the_question_closes_the_form(
+    app_factory: AppFactory, under: str, chosen: str, left: list[str]
+) -> None:
+    """The palette's key outranks the question, so a destination can be chosen.
+
+    `Screen.dismiss` pops the top of the stack, which is the question and not
+    the form that asked it. The form left behind has already given its result,
+    and closing it again raised.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        app.action_go_to(under)
+        await pilot.pause()
+        await change_hours(app, pilot, "8h")
+        showing(app, ConfirmModal)
+
+        palette = {command.title: command for command in commands(command_app(app))}
+        palette[chosen].run()
+        await pilot.pause()
+
+        assert [type(screen).__name__ for screen in app.screen_stack] == left
+        assert app._settings is None
+        assert app.services.settings.get_contracted() == timedelta(minutes=444), (
+            "a question nobody answered changes nothing"
+        )
+
+        await pilot.press("escape")
+        await pilot.pause()
+        showing(app, DashboardScreen)
 
 
 # entitlements
@@ -451,17 +610,17 @@ async def test_every_entitlement_year_can_be_reached(app_factory: AppFactory) ->
             app.services.settings.save_entitlement(year, days)
 
         await open_settings(pilot)
-        assert "2026" in screen_text(app)
 
-        field = showing(app, SettingsScreen).query_one("#ent-2028", Input)
-        field.focus()
-        await pilot.pause()
-        await settled(pilot)
-        await pilot.wait_for_scheduled_animations()
-        await pilot.pause()
+        for year in (2026, 2027, 2028):
+            field = showing(app, SettingsScreen).query_one(f"#ent-{year}", Input)
+            field.focus()
+            await pilot.pause()
+            await settled(pilot)
+            await pilot.wait_for_scheduled_animations()
+            await pilot.pause()
 
-        assert field.has_focus
-        assert "2028" in screen_text(app), "the field holding focus is drawn"
+            assert field.has_focus
+            assert str(year) in screen_text(app), "the field holding focus is drawn"
 
 
 async def test_short_terminal_can_reach_the_whole_form(

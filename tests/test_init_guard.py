@@ -29,7 +29,13 @@ def _run(*args: str) -> click.testing.Result:
 
 @pytest.mark.parametrize(
     "command",
-    [["clock", "in"], ["clock", "out"], ["balance", "show"], ["balance", "log"]],
+    [
+        ["clock", "in"],
+        ["clock", "out"],
+        ["balance", "show"],
+        ["balance", "log"],
+        ["balance", "adjust", "+5:30", "--reason", "Brought forward", "--yes"],
+    ],
 )
 def test_command_needing_setup_refuses(command: list[str]) -> None:
     result = _run(*command)

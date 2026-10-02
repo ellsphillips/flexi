@@ -1,13 +1,14 @@
-"""Changing the four answers given at setup, and the leave for each year.
+"""Changing the five answers given at setup, and the leave for each year.
 
-The first-run form asks the same four questions of the same four widget ids, so
+The first-run form asks the same five questions of the same five widget ids, so
 parsing them lives in :func:`parse_answers` and both screens refuse in the same
 words.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from datetime import date, timedelta
 from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
@@ -20,10 +21,13 @@ from textual.widgets import Button, Footer, Input, Label, Select, Static
 from flexi.components.options import ScreenOptions
 from flexi.constants import Division
 from flexi.domain.dates import DAY_NAMES
+from flexi.domain.format import hm
+from flexi.screens.modals import ConfirmModal
 from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
     SettingsUpdate,
+    parse_contracted_minutes,
     parse_entitlement_days,
     parse_settings,
 )
@@ -41,7 +45,7 @@ NO_DIVISION = "Select a bank holiday region"
 
 
 def parse_answers(node: Widget) -> SettingsUpdate:
-    """Parse the four answers shared by setup and settings forms.
+    """Parse the five answers shared by setup and settings forms.
 
     Nothing is persisted here, so both forms can validate all their other
     fields before opening one settings transaction.
@@ -52,10 +56,11 @@ def parse_answers(node: Widget) -> SettingsUpdate:
     """
     leave_start = node.query_one("#input-leave-start", Input).value.strip()
     working_days = node.query_one("#input-working-days", Input).value.strip()
+    hours = node.query_one("#input-hours", Input).value.strip()
     division = node.query_one("#select-division", Select).value
     auto_close = node.query_one("#input-auto-close", Input).value.strip()
 
-    if not all([leave_start, working_days, auto_close]):
+    if not all([leave_start, working_days, hours, auto_close]):
         raise ValueError(ALL_REQUIRED)
     if not isinstance(division, str):
         raise ValueError(NO_DIVISION)  # noqa: TRY004 - invalid user selection
@@ -64,6 +69,7 @@ def parse_answers(node: Widget) -> SettingsUpdate:
         working_days=working_days,
         bank_holiday_division=division,
         auto_close_time=auto_close,
+        contracted_minutes=parse_contracted_minutes(hours),
     )
 
 
@@ -136,6 +142,7 @@ class SettingsScreen(Screen[bool]):
     def __init__(self, services: Services, **kwargs: Unpack[ScreenOptions]) -> None:
         super().__init__(**kwargs)
         self._svc = services.settings
+        self._adjustments = services.adjustments
         self.entitlement_drafts = {
             entitlement.year: str(entitlement.days)
             for entitlement in self._svc.all_entitlements()
@@ -149,6 +156,7 @@ class SettingsScreen(Screen[bool]):
         month, day = self._svc.get_leave_year_start()
         leave_start = f"{month:02d}-{day:02d}"
         working = describe_working_days(self._svc.get_working_day_indices())
+        hours = hm(self._svc.get_contracted())
         division = self._svc.get_division().value
         auto_close = f"{self._svc.get_auto_close_time():%H:%M}"
 
@@ -163,6 +171,10 @@ class SettingsScreen(Screen[bool]):
                 with Horizontal(classes="settings-row"):
                     yield Label("Working days")
                     yield Input(working, id="input-working-days", placeholder="Mon-Fri")
+
+                with Horizontal(classes="settings-row"):
+                    yield Label("Hours a day")
+                    yield Input(hours, id="input-hours", placeholder="H:MM")
 
                 with Horizontal(classes="settings-row"):
                     yield Label("Bank holiday region")
@@ -233,6 +245,9 @@ class SettingsScreen(Screen[bool]):
         cannot be read leaves nothing written. Nothing invalidates the ledger
         cache on this path: the application hangs that off `dismiss(True)`, and
         a rejection does not dismiss.
+
+        A new length of day asks first: every tracked day is measured against
+        it, the ones already past included.
         """
         allowances: dict[int, float] = {}
         rejected: list[str] = []
@@ -257,9 +272,44 @@ class SettingsScreen(Screen[bool]):
             self.notify(str(error), severity="error")
             return
 
-        self._svc.save_settings_and_entitlements(update, allowances)
+        was, hours = self._svc.get_contracted(), update.contracted
+        if hours is None or hours == was:
+            self._commit(update, allowances)
+            return
 
+        def confirm(answer: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
+            if answer:
+                self._commit(update, allowances)
+
+        self.app.push_screen(
+            ConfirmModal(self._warning(was, hours), title="Change hours a day?"),
+            callback=confirm,
+        )
+
+    def _commit(self, update: SettingsUpdate, allowances: Mapping[int, float]) -> None:
+        self._svc.save_settings_and_entitlements(update, allowances)
         self.dismiss(True)
+
+    def _warning(self, was: timedelta, hours: timedelta) -> str:
+        """What a new length of day does to the days already counted.
+
+        The balance is worked out afresh on every read, so a stored adjustment
+        is the one term that does not move with it. Only a settlement was sized
+        to zero the balance, and a balance brought in on the day it was made
+        never is one.
+        """
+        warning = (
+            f"Every tracked day will be measured against {hm(hours)} instead of "
+            f"{hm(was)}, including the days already past in this leave year, so "
+            "the balance will change."
+        )
+        if self._adjustments.first_line_after(date.min, date.max) is not None:
+            warning += (
+                "\n\nYour balance adjustments keep their recorded amounts and are "
+                "not recalculated, so if you settled a balance to zero, it will "
+                "no longer read zero."
+            )
+        return warning
 
     def action_back(self) -> None:
         self.dismiss(False)

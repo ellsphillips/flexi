@@ -2,23 +2,33 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import time_machine
-from textual.widgets import Button, Input, Switch
+from textual.widgets import Button, Digits, Input, Switch
 
 from flexi.app import FlexiApp
+from flexi.components.common import Gauge
+from flexi.components.expandable import ExpandableTable, RowKind, row_key
+from flexi.components.modules.balance import BalanceModule
 from flexi.components.modules.clock import ClockModule
+from flexi.components.modules.monthview import MonthView
+from flexi.components.modules.records import RecordsModule
+from flexi.components.modules.wallet import WalletModule
+from flexi.components.progress import ProgressRail
 from flexi.constants import ClockAction
+from flexi.domain.format import hm
 from flexi.messages import Scope
 from flexi.models.database.db import ClockEvent, WorkSession
 from flexi.models.database.engine import create_db_engine, get_session
 from flexi.models.database.moment import moment_of
 from flexi.services.registry import build_services
 from flexi.services.settings import parse_settings
-from tests.conftest import sessions_on
+from tests.conftest import sessions_on, settled
 from tests.database import create_schema
 from tests.tui.conftest import WIDE, AppFactory, dashboard, status_text
 
@@ -181,11 +191,19 @@ async def test_write_through_the_screen_moves_the_tick(
         assert screen._tick is None, "a closed session left the timer running"
 
 
+# ---- the live tick ----
+
+A_MINUTE_ON = datetime(2026, 6, 11, 14, 33, tzinfo=UTC)
+"""A minute after the frozen afternoon, the seed's session still open."""
+
+
 async def test_tick_keeps_every_day_but_today(app_factory: AppFactory) -> None:
     """`LedgerService.days` rebuilds today unconditionally, so a tick need not.
 
     An open session's length changes every second and is never memoised;
     clearing the whole memo would throw away every other day in the period.
+    That holds on the tick a minute turns over on too, which redraws the
+    records table and the wallet.
     """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -200,6 +218,149 @@ async def test_tick_keeps_every_day_but_today(app_factory: AppFactory) -> None:
         assert app.services.ledger.day(yesterday) is kept, (
             "an unwritten day was rebuilt because a second passed"
         )
+
+        with time_machine.travel(A_MINUTE_ON, tick=False):
+            screen._on_tick()
+            await pilot.pause()
+
+            assert app.services.ledger.day(yesterday) is kept, (
+                "an unwritten day was rebuilt because a minute passed"
+            )
+
+
+async def test_a_minute_on_the_clock_reaches_every_figure(
+    app_factory: AppFactory,
+) -> None:
+    """Today's row, the period's total and the wallet move with the rails.
+
+    The rails and the balance redraw on every tick. Left behind, the table
+    reads the minute the session was last written in, beside a rail and a
+    balance that have moved on.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await settled(pilot)
+        screen = dashboard(app)
+        records = screen.query_one(RecordsModule)
+        today = row_key(RowKind.DAY, A_MINUTE_ON.date())
+        before = str(records.table.get_row(today)[2])
+
+        with time_machine.travel(A_MINUTE_ON, tick=False):
+            screen._on_tick()
+            await pilot.pause()
+
+            day = screen.query_one("#rail-day", ProgressRail)
+            period = screen.query_one("#rail-period", ProgressRail)
+            worked = str(records.table.get_row(today)[2])
+            total = records.table.get_row(row_key(RowKind.TOTAL, "period"))
+            assert worked == hm(day.done) != before
+            assert str(total[2]) == hm(period.done)
+            assert str(records.border_subtitle) == (
+                f"{hm(period.done)} of {hm(period.total)}"
+            )
+            wallet = screen.query_one(WalletModule)
+            assert str(wallet.border_subtitle) == f"{total[3]} this period"
+            toil = screen.query_one("#gauge-toil", Gauge).readout
+            balance = screen.query_one("#balance-digits", Digits).value
+            assert toil.split()[0] == balance
+
+
+async def test_seconds_leave_the_table_and_the_wallet_alone(
+    app_factory: AppFactory,
+) -> None:
+    """Both print whole minutes, so only a minute turning over redraws them.
+
+    In a year view a records rebuild takes some fifty milliseconds. The
+    balance still redraws on every tick, and the calendar on neither. The
+    seconds after a minute turns are as quiet as the seconds before it.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await settled(pilot)
+        screen = dashboard(app)
+        assert screen._tick is not None
+        screen._tick.pause()  # Each tick below is the test's own.
+
+        with ExitStack() as stack:
+            calls = [
+                stack.enter_context(
+                    patch.object(
+                        kind, "rebuild", autospec=True, side_effect=kind.rebuild
+                    )
+                )
+                for kind in (RecordsModule, WalletModule, BalanceModule, MonthView)
+            ]
+            for second in (59, 30, 1):
+                moment = A_MINUTE_ON - timedelta(seconds=second)
+                with time_machine.travel(moment, tick=False):
+                    screen._on_tick()
+            assert [call.call_count for call in calls] == [0, 0, 3, 0]
+
+            with time_machine.travel(A_MINUTE_ON, tick=False):
+                screen._on_tick()
+            assert [call.call_count for call in calls] == [1, 1, 4, 0]
+
+            for second in (1, 30):
+                moment = A_MINUTE_ON + timedelta(seconds=second)
+                with time_machine.travel(moment, tick=False):
+                    screen._on_tick()
+            assert [call.call_count for call in calls] == [1, 1, 6, 0], (
+                "a minute already drawn was drawn again"
+            )
+
+
+async def test_a_period_key_leaves_the_next_tick_nothing_to_redraw(
+    app_factory: AppFactory,
+) -> None:
+    """Moving the period draws the minute it is, so no tick catches up on it.
+
+    Otherwise every key that moves a year view would build its records twice.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await settled(pilot)
+        screen = dashboard(app)
+        assert screen._tick is not None
+        screen._tick.pause()  # Each tick below is the test's own.
+        screen.action_zoom("year")
+
+        with ExitStack() as stack:
+            calls = [
+                stack.enter_context(
+                    patch.object(
+                        kind, "rebuild", autospec=True, side_effect=kind.rebuild
+                    )
+                )
+                for kind in (RecordsModule, WalletModule)
+            ]
+            screen._on_tick()
+            assert [call.call_count for call in calls] == [0, 0]
+
+
+async def test_first_tick_of_a_new_day_moves_the_dashboard_on(
+    app_factory: AppFactory,
+) -> None:
+    """Off the clock nothing ticks, so the tick learns the date late.
+
+    A dashboard left open overnight catches up on the first tick after the
+    morning's `/`, and keeps ticking for the session that opened.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.press("slash")  # out, on Thursday afternoon
+        await pilot.pause()
+        screen = dashboard(app)
+        assert screen._tick is None
+
+        saturday = datetime(2026, 6, 13, 10, 0, tzinfo=UTC)
+        with time_machine.travel(saturday, tick=False):
+            await pilot.press("slash")
+            await pilot.pause()
+            screen._on_tick()
+            await pilot.pause()
+
+            assert screen.period.anchor == saturday.date()
+            assert screen._tick is not None, "Saturday is on the clock"
 
 
 # ---- the day turning under an open session ----
@@ -239,19 +400,22 @@ def monday_open(tmp_path: Path) -> Path:
     return path
 
 
-async def test_key_after_midnight_starts_today(
+async def test_key_after_midnight_closes_monday_and_stops_there(
     monday_open: Path,
 ) -> None:
-    """The key acts on the day the panel is showing.
+    """The press that sweeps is spent saying so; the next one starts today.
 
-    Left running overnight the panel reads today's ledger, so the morning's
-    `/` opens today and leaves Monday to the sweep.
+    Left running overnight the panel reads today's ledger, and the sweep closes
+    Monday at its auto-close time. Past midnight that press is as likely meant
+    as a clock-out, and clocking in on it would open a session nobody works.
     """
     app = FlexiApp(db_path=monday_open)
     with time_machine.travel(MONDAY_FIVE, tick=False):
         async with app.run_test(size=WIDE) as pilot:
             await pilot.pause()
             assert app.services.clock.is_clocked_in()
+            records = dashboard(app).query_one("#records-table", ExpandableTable)
+            assert records.toggle(f"{RowKind.DAY}{MONDAY}"), "Monday opens"
 
             with time_machine.travel(TUESDAY_TEN, tick=False):
                 await pilot.press("slash")
@@ -265,8 +429,41 @@ async def test_key_after_midnight_starts_today(
                 worked = moment_of(closed) - moment_of(monday[0].clock_in_event)
                 assert worked < timedelta(hours=24), f"Monday was recorded as {worked}"
 
+                assert not app.services.clock.is_clocked_in()
+                assert status_text(app) == (
+                    "Closed the session left running; press again to clock in"
+                )
+                drawn = [str(row.cells[1]) for row in records.visible_rows()]
+                assert any("09:00 → 18:00  auto-closed" in text for text in drawn), (
+                    "Monday is still drawn as running"
+                )
+                assert dashboard(app)._tick is None, "nothing is running to tick"
+
+                await pilot.press("slash")
+                await pilot.pause()
+
                 tuesday = sessions_on(app._session, TUESDAY_TEN.date())
-                assert len(tuesday) == 1, "the key should have started a new day"
+                assert len(tuesday) == 1, "the next press should start the day"
+
+
+async def test_key_after_midnight_says_what_it_closed(monday_open: Path) -> None:
+    """The sweep the key runs is announced as the one at launch is."""
+    app = FlexiApp(db_path=monday_open)
+    with time_machine.travel(MONDAY_FIVE, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+
+            with time_machine.travel(TUESDAY_TEN, tick=False):
+                await pilot.press("slash")
+                await pilot.pause()
+
+                assert any(
+                    notice.message.startswith(
+                        "Mon 8 Jun was left running and closed at 18:00 "
+                        "(9:00 counted). If you left earlier"
+                    )
+                    for notice in app._notifications
+                )
 
 
 async def test_rollback_refusal_keeps_the_dashboard_off_the_clock(
@@ -287,3 +484,107 @@ async def test_rollback_refusal_keeps_the_dashboard_off_the_clock(
             assert not app.screen.query_one("#clock-switch", Switch).value
             assert str(app.screen.query_one("#clock-button", Button).label) == "Arrive"
             assert app.services.clock.segments_on(date(2026, 6, 11)) == before
+
+
+# ---- the live tick, on presses that carry seconds ----
+
+
+@pytest.fixture
+def pressed_on_the_second(tmp_path: Path) -> Path:
+    """Monday worked and Tuesday on the clock, punched as a person punches.
+
+    A press lands on any second; the demo seed punches on the minute.
+    """
+    path = tmp_path / "flexi.db"
+    engine = create_db_engine(path)
+    create_schema(engine)
+    session = get_session(engine)
+
+    services = build_services(session)
+    services.settings.save_settings(
+        parse_settings(
+            leave_year_start="04-06",
+            working_days="0,1,2,3,4",
+            bank_holiday_division="england-and-wales",
+            auto_close_time="18:00",
+        )
+    )
+    services.clock.clock_in(now=datetime(2026, 6, 8, 9, 0, 13, tzinfo=UTC))
+    services.clock.clock_out(now=datetime(2026, 6, 8, 17, 0, 51, tzinfo=UTC))
+    services.clock.clock_in(now=datetime(2026, 6, 9, 9, 0, 37, tzinfo=UTC))
+    session.close()
+    engine.dispose()
+    return path
+
+
+async def test_every_figure_turns_its_minute_with_the_wall_clock(
+    pressed_on_the_second: Path,
+) -> None:
+    """Today's row and the period's total keep step with the rails above them.
+
+    Tuesday was clocked in at 09:00:37 and Monday's punches carry seconds too,
+    but each counts from the minute it shows, so the rails, redrawn every tick,
+    and the table, redrawn on `TIME`, gain their minute on the same tick.
+    """
+    app = FlexiApp(db_path=pressed_on_the_second)
+    with time_machine.travel(TUESDAY_TEN, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await settled(pilot)
+            screen = dashboard(app)
+            assert screen._tick is not None
+            screen._tick.pause()  # Each tick below is the test's own.
+            records = screen.query_one(RecordsModule)
+            day = screen.query_one("#rail-day", ProgressRail)
+            period = screen.query_one("#rail-period", ProgressRail)
+
+            for second in range(61):
+                moment = TUESDAY_TEN + timedelta(seconds=second)
+                with time_machine.travel(moment, tick=False):
+                    screen._on_tick()
+                today = records.table.get_row(row_key(RowKind.DAY, moment.date()))
+                total = records.table.get_row(row_key(RowKind.TOTAL, "period"))
+                drawn = (str(today[2]), str(total[2]), str(records.border_subtitle))
+                assert drawn == (
+                    hm(day.done),
+                    hm(period.done),
+                    f"{hm(period.done)} of {hm(period.total)}",
+                ), f"behind the rails at {moment:%H:%M:%S}"
+
+
+TUESDAY_FIVE = datetime(2026, 6, 9, 17, 0, tzinfo=UTC)
+
+
+async def test_a_surplus_reaches_every_balance_on_the_same_tick(
+    pressed_on_the_second: Path,
+) -> None:
+    """Past its hours, today's next minute moves every balance on screen at once.
+
+    A surplus counts as soon as it is worked, so the headline and the TOIL row,
+    redrawn every tick, and the period's total and the wallet's, redrawn on
+    `TIME`, all gain the minute on the tick the wall clock's minute turns.
+    """
+    app = FlexiApp(db_path=pressed_on_the_second)
+    with time_machine.travel(TUESDAY_FIVE - timedelta(seconds=30), tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await settled(pilot)
+            screen = dashboard(app)
+            assert screen._tick is not None
+            screen._tick.pause()  # Each tick below is the test's own.
+            records = screen.query_one(RecordsModule)
+            wallet = screen.query_one(WalletModule)
+
+            drawn: list[tuple[str, str]] = []
+            for second in range(-30, 31):
+                moment = TUESDAY_FIVE + timedelta(seconds=second)
+                with time_machine.travel(moment, tick=False):
+                    screen._on_tick()
+                total = records.table.get_row(row_key(RowKind.TOTAL, "period"))
+                balance = screen.query_one("#balance-digits", Digits).value
+                toil = screen.query_one("#gauge-toil", Gauge).readout
+                assert (str(wallet.border_subtitle), toil.split()[0]) == (
+                    f"{total[3]} this period",
+                    balance,
+                ), f"a minute apart at {moment:%H:%M:%S}"
+                drawn.append((str(total[3]), balance))
+
+    assert drawn[0] == drawn[29] != drawn[30] == drawn[-1], "turned at 17:00:00"

@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta
 from flexi import wallclock
 from flexi.constants import AbsenceType
 from flexi.domain import leaveyear
+from flexi.domain.balance import standing
 from flexi.domain.wallet import Allowance, WalletData
 from flexi.services.absence import AbsenceService
 from flexi.services.ledger import LedgerService
@@ -41,13 +42,20 @@ class WalletService:
         now: datetime | None = None,
     ) -> WalletData:
         """The wallet as at ``today``, with ``start``–``end`` as the shown period."""
-        today = today or wallclock.today()
+        moment = wallclock.local(now) if now is not None else wallclock.now()
+        today = today or moment.date()
         year_start, year_end = self._absence.leave_year_bounds(today)
         elapsed = leaveyear.fraction_elapsed(year_start, year_end, today)
         contracted = self._settings.get_contracted()
 
-        balance = self._ledger.balance(today, now=now)
-        period = self._ledger.summary(start, end, now=now)
+        # In the whole minutes the headline and the records print, so the TOIL
+        # row and "this period" cannot round the same seconds another way, and
+        # with the same day's hours still to work held back: the day `now` falls
+        # on, which is the one the ledger counts as today.
+        balance = self._ledger.balance(today, now=now).as_shown()
+        period = standing(
+            self._ledger.days(start, end, now=now), moment.date()
+        ).as_shown()
         balance_days = balance.delta / contracted if contracted else 0.0
 
         return WalletData(
@@ -95,7 +103,7 @@ class WalletService:
         contracted = self._settings.get_contracted()
         if not contracted:
             return 0.0
-        banked = self._ledger.balance(today).delta / contracted
+        banked = self._ledger.balance(today).as_shown().delta / contracted
         _, year_end = self._absence.leave_year_bounds(today)
         committed = self._absence.count_days(
             AbsenceType.FLEXI, today + timedelta(days=1), year_end, valid_only=True

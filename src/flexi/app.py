@@ -90,6 +90,10 @@ class FlexiApp(TextualApp[None]):
         ),
         Binding(CONFIG.hotkeys.toggle_jump_mode, "toggle_jump_mode", "Jump", show=True),
         Binding(CONFIG.hotkeys.help, "help", "Help", show=True),
+        # A second key for the palette, as VS Code and Cursor keep ctrl+p on
+        # Windows and Linux. Not priority, unlike ctrl+p, so a colon that misses
+        # its time field cannot open the palette over a dialog.
+        Binding("colon", "palette", "Command palette", show=False),
         *[
             Binding(item.key, f"go_to('{item.screen}')", item.label, show=True)
             for item in NAV_ITEMS
@@ -149,10 +153,11 @@ class FlexiApp(TextualApp[None]):
 
     def on_mount(self) -> None:
         if self.services.settings.is_setup_complete():
+            board = DashboardScreen(self.services, id="dashboard")
             # The CLI sweeps when it opens the database, and so does this: a
             # session left open overnight otherwise draws as still running.
-            self.services.clock.sweep()
-            self.push_screen(DashboardScreen(self.services, id="dashboard"))
+            board.sweep()
+            self.push_screen(board)
             if self.open_settings:
                 # Held like any other form, so `f4` cannot push a second over
                 # it and `f1` can close it.
@@ -365,14 +370,15 @@ class FlexiApp(TextualApp[None]):
 
         `_pushed` is cleared before the dismissal, so the callback can tell "this
         screen was replaced" from "the user left it". Settings is closed first,
-        because it sits on top and `Screen.dismiss` pops whatever is on top of
-        the stack, not the screen it was called on.
+        because it sits on top and is held apart: popped with anything else left
+        over the destination, it would still be held, and `f4` could not open
+        another.
         """
         self._close_settings()
         if self._pushed is None:
             return
         leaving, self._pushed = self._pushed, None
-        leaving.dismiss(None)
+        self._dismiss(leaving, None)
 
     def _close_settings(self) -> None:
         """Dismiss the settings form if one is open, clearing `_settings` first.
@@ -383,7 +389,20 @@ class FlexiApp(TextualApp[None]):
         if self._settings is None:
             return
         form, self._settings = self._settings, None
-        form.dismiss(False)
+        self._dismiss(form, False)
+
+    def _dismiss[ResultT](self, screen: Screen[ResultT], result: ResultT) -> None:
+        """Dismiss a screen, popping whatever is still open over it first.
+
+        `Screen.dismiss` pops the top of the stack, not the screen it is called
+        on, and the command palette can choose a destination over a dialog. Left
+        to itself, the dismissal would pop the dialog and leave the screen behind
+        with its result already given, which raises when it is closed again.
+        Popping runs no callback, so a question nobody answered changes nothing.
+        """
+        while self.screen is not screen and screen in self.screen_stack:
+            self.pop_screen()
+        screen.dismiss(result)
 
     def _back(self, screen: Screen[None], _result: object = None) -> None:
         """Return the nav bar to the dashboard when a pushed screen is dismissed.
@@ -448,7 +467,9 @@ class FlexiApp(TextualApp[None]):
         """Stand `/` down while an Input or TextArea has focus.
 
         The binding is `priority=True`, so it runs before the focused widget and
-        would otherwise eat the slash out of a date being typed.
+        would otherwise eat the slash out of a date being typed. `:` needs none:
+        a focused field withholds the keys it types from every binding, priority
+        or not, and Textual recognises `colon` as one of them but not `slash`.
         """
         del parameters
         if action != "clock_toggle":
@@ -475,6 +496,23 @@ class FlexiApp(TextualApp[None]):
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen(collect_bindings(self.screen)))
+
+    def action_palette(self) -> None:
+        """Open the command palette from `:`.
+
+        Its own action, not a second key for `command_palette`: binding one
+        stops Textual adding ctrl+p.
+        """
+        self.action_command_palette()
+
+    def action_help_quit(self) -> None:
+        """Answer ctrl+c with every key that quits from here, not only the first."""
+        keys = [
+            key
+            for key, active in self.active_bindings.items()
+            if active.binding.action in {"quit", "app.quit"}
+        ]
+        self.notify(f"Press {' or '.join(keys)} to quit", title="Do you want to quit?")
 
     # jump mode ---------------------------------------------------------------
 

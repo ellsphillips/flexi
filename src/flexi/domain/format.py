@@ -28,6 +28,7 @@ __all__ = (
     "signed_days",
     "spoken",
     "stamp",
+    "to_the_minute",
     "whole_minutes",
 )
 
@@ -242,6 +243,22 @@ def clock(moment: datetime) -> str:
         '09:12'
     """
     return moment.strftime("%H:%M")
+
+
+def to_the_minute(moment: datetime) -> datetime:
+    """A moment as the minute :func:`clock` prints it.
+
+    A punch keeps its seconds, and a span measured between two of them can
+    disagree with the times printed at its ends: 09:00:40 to 17:00:20 is
+    7:59:40, drawn ``7:59`` beside ``09:00`` and ``17:00``. Measured between
+    the minutes those ends show it is ``8:00``, and a column of such spans
+    adds up to the total under it.
+
+    Examples:
+        >>> to_the_minute(datetime(2026, 6, 11, 9, 0, 40))
+        datetime.datetime(2026, 6, 11, 9, 0)
+    """
+    return moment.replace(second=0, microsecond=0)
 
 
 def spoken(span: timedelta) -> str:

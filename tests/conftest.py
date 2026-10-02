@@ -30,8 +30,10 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 from hypothesis import settings
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, event, select
+from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import ConnectionPoolEntry
 from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 
@@ -75,6 +77,26 @@ atexit.register(shutil.rmtree, os.environ["XDG_CONFIG_HOME"], ignore_errors=True
 
 # So a failed `__all__` check names the module, not `assert False`.
 pytest.register_assert_rewrite("tests.public_api")
+
+
+@event.listens_for(Engine, "connect")
+def _commit_without_waiting_on_the_disk(
+    dbapi_connection: DBAPIConnection, _connection_record: ConnectionPoolEntry
+) -> None:
+    """Let every database the suite opens commit to memory, not to the disk.
+
+    A test database is thrown away, so it needs neither the flush behind each
+    commit nor a journal file created and deleted around it. On a hosted
+    runner's system drive those cost 20 to 36 ms a commit, against 0.06 ms
+    without them, and a Windows worker committing a month of punches outran
+    `--timeout`. A rollback journal held in memory is still a rollback journal:
+    locking and rollback behave as they do in Flexi. Registered on the class, so
+    the engines the app and Alembic make for themselves are covered too.
+    """
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA synchronous = OFF")
+    cursor.execute("PRAGMA journal_mode = MEMORY")
+    cursor.close()
 
 
 def pytest_configure(config: pytest.Config) -> None:

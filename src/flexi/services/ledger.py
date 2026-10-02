@@ -22,10 +22,12 @@ from flexi.domain.balance import (
     BalanceSummary,
     accumulate,
     expected_for,
+    standing,
     toil_taken_for,
     worked_from,
 )
 from flexi.domain.dates import days_between
+from flexi.domain.format import to_the_minute
 from flexi.domain.ledger import AbsenceSlice, DayLedger, Segment
 from flexi.domain.punch import Window
 from flexi.models.database.db import (
@@ -133,7 +135,11 @@ class LedgerService:
         session valued yesterday must reach its day-end cutoff after midnight.
         """
         self.refresh_revision()
-        moment = wallclock.local(now) if now is not None else wallclock.now()
+        # To the minute, as `segment_of` reads a punch: an open session is worth
+        # the minutes the clock shows, so its day stays in whole minutes.
+        moment = to_the_minute(
+            wallclock.local(now) if now is not None else wallclock.now()
+        )
         today = moment.date()
 
         wanted = days_between(start, end)
@@ -158,11 +164,14 @@ class LedgerService:
         """The running flexi balance, from the start of the leave year to a date.
 
         Accumulated on every read, never stored, so a corrected session or a
-        changed contract takes effect everywhere at once.
+        changed contract takes effect everywhere at once. Read as it stands
+        now, so today's hours still to work are not owed until it ends.
         """
-        as_of = as_of or wallclock.today()
+        today = (wallclock.local(now) if now is not None else wallclock.now()).date()
+        as_of = as_of or today
         month, day = self._settings.get_leave_year_start()
-        return self.summary(leaveyear.start_of(as_of, month, day), as_of, now=now)
+        start = leaveyear.start_of(as_of, month, day)
+        return standing(self.days(start, as_of, now=now), today)
 
     # Building.
 
@@ -191,10 +200,12 @@ class LedgerService:
             )
             title = holidays.get(when)
             is_working = when.weekday() in working_days
-            # A real punch tracks the day whatever `tracking_since` says; an
-            # amended one cannot, since nothing was clocking at the time.
-            punched = any(not segment.amended for segment in segments)
-            is_tracked = tracking_since is None or when >= tracking_since or punched
+            # Recorded work tracks the day whatever `tracking_since` says, a
+            # correction as much as a punch: expecting nothing of a worked day
+            # would bank every hour of it as surplus.
+            is_tracked = (
+                tracking_since is None or when >= tracking_since or bool(segments)
+            )
 
             worked = worked_from(
                 segments, now=moment if when >= today else end_of_day(when)
@@ -214,9 +225,7 @@ class LedgerService:
                     slices,
                     segments,
                     is_working=is_working,
-                    # Broader than the test `expected` uses: a corrected
-                    # pre-setup day asks for nothing but is still known about.
-                    is_tracked=is_tracked or bool(segments),
+                    is_tracked=is_tracked,
                 ),
                 is_working_day=is_working,
                 contracted=contracted,
@@ -288,17 +297,27 @@ class LedgerService:
 
 
 def end_of_day(day: date) -> datetime:
-    """The last moment of a date.
+    """The last minute of a date.
 
     An unclosed session is worth the rest of its own day, not every hour since,
-    so a past day's open session stops at midnight.
+    so a past day's open session stops here: at 23:59, in the whole minutes
+    every other figure is counted in, and not a microsecond before midnight.
     """
-    return wallclock.local(datetime.combine(day, time.max))
+    return wallclock.local(datetime.combine(day, time(23, 59)))
 
 
 def segment_of(row: WorkSession) -> Segment:
-    start = moment_of(row.clock_in_event)
-    end = moment_of(row.clock_out_event) if row.clock_out_event is not None else None
+    """A session as a segment, between the minutes its punches show.
+
+    The events keep their seconds for the audit trail and the under-a-minute
+    rule; every figure drawn from a segment is in the minutes printed beside it.
+    """
+    start = to_the_minute(moment_of(row.clock_in_event))
+    end = (
+        to_the_minute(moment_of(row.clock_out_event))
+        if row.clock_out_event is not None
+        else None
+    )
     return Segment(
         session_id=row.id,
         start=start,
