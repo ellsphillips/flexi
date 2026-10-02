@@ -69,7 +69,7 @@ hours, so `7.5` is 7:30; `7.30`, which reads either way, is refused. One figure
 applies to every working day.
 
 Starting with a balance? Run `flexi balance adjust +5:30 --reason "Brought forward"`,
-or choose **Adjust balance…** from the command palette (`ctrl+p`).
+or choose **Adjust balance…** from the command palette (`ctrl+p` or `:`).
 
 Press `f4` to change settings or set each leave year's entitlement.
 A new leave year needs its own allowance. New hours a day recalculate every day
