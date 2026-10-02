@@ -59,7 +59,7 @@ TOKEN: Final = 3
 """What a day always occupies: two columns for the number, one for the marker."""
 
 HEADING_ROW: Final = -2
-"""The weekday initials: the first line, and kept on the top line as it scrolls."""
+"""The weekday initials: the first line, and held there however far it scrolls."""
 
 TITLE_ROW: Final = -1
 """A month name. Every other row index is a week within its block."""
@@ -387,10 +387,10 @@ class YearCalendar(ScrollView, can_focus=True):
             text = f" {when.day:>2}"
             word, glyph = self._label(ledger)
             if glyph:
-                # Only the glyph says half the day is gone, and the colour says
-                # the type at any width, so the word is what gives way: to the
-                # room the date, the glyph, a space before each and the gutter
-                # leave it.
+                # The glyph is all that says half the day is gone, and the
+                # colour says the type at any width, so the word gives way. It
+                # gets what the date, the glyph, a space before each and the
+                # gutter leave, and nothing below three letters.
                 word = word[: width - len(text) - 4]
                 word = f"{word} {glyph}" if len(word) >= _SHORTEST_WORD else glyph
             if word:

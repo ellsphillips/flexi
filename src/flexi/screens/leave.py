@@ -422,7 +422,7 @@ class LeaveScreen(Screen[None]):
         self, message: str, *, ok: bool, warning: str | None = None
     ) -> None:
         # Every open screen, this one included: the dashboard underneath draws
-        # the same allowances, and the balance a booking can move, and nothing
+        # the same allowances and the balance a booking can move, and nothing
         # redraws it when this screen closes.
         refreshing_app(self.app).refresh_open_screens(Scope.ABSENCE)
         self.status(
