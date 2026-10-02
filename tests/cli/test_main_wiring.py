@@ -304,6 +304,20 @@ def test_closed_setup_form_leaves_the_guard_up(
     assert "Setup was not completed" in result.output
 
 
+def test_closed_setup_form_says_nothing_was_kept_and_how_to_finish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Named by no command: a visitor who ran `uvx flexi` has no `flexi`."""
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
+    instead_of_the_application(monkeypatch)
+
+    result = CliRunner().invoke(cli, [])
+
+    assert "none of your answers were saved" in result.stderr
+    assert "Run Flexi again to finish it" in result.stderr
+    assert str(database_file()) in result.stderr
+
+
 def test_set_up_machine_opens_without_a_splash(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -568,6 +582,13 @@ def test_command_before_setup_is_refused(
     assert "not set up on this machine yet" in result.output
     assert "flexi init" in result.output
     assert not database_file().exists(), "refusing must not leave a database behind"
+
+
+def test_the_guard_points_at_flexi_itself() -> None:
+    """The README describes `flexi init` only as a reset, so `flexi` comes first."""
+    result = CliRunner().invoke(cli, ["clock", "in"])
+
+    assert "Run `flexi` (or `flexi init`) to choose" in result.stderr
 
 
 def test_ignored_preferences_go_to_stderr(
@@ -970,6 +991,21 @@ def test_reset_keeps_a_snapshot_then_asks_again(
     assert "Erased. Snapshot kept at" in result.output
     assert [app.show_splash for app in opened] == [True], "a first run all over again"
     assert list(backups_directory().glob("*.bak")), "the only way back"
+
+
+def test_the_snapshot_path_is_printed_whole(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a narrow terminal too: the snapshot holds everything that was erased."""
+    monkeypatch.setenv("COLUMNS", "40")
+    choosing(monkeypatch, init_cli.Choice.RESET)
+    monkeypatch.setattr("flexi.cli.ui.type_the_word", lambda *_a, **_k: True)
+    instead_of_the_application(monkeypatch, answering_the_questions)
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    (taken,) = backups_directory().glob("pre-init*.bak")
+    assert str(taken) in result.output
 
 
 def test_reset_forgets_the_memoised_setup(

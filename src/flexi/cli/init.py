@@ -209,9 +209,16 @@ def confirm_reset(contents: Contents) -> bool:
     return ui.type_the_word(CONFIRM_WORD, f"Type {CONFIRM_WORD!r} to continue")
 
 
-def settled(message: str) -> None:
-    """Close the rail with something having happened."""
-    ui.write([ui.step(message, tone=ui.Tone.DONE, marker="●"), ui.tail()])
+def settled(message: str, path: Path | None = None) -> None:
+    """Close the rail with something having happened, and where it went.
+
+    The path is the one line not cropped at the terminal's edge, and wraps
+    instead: a snapshot's may be the only way back to what was erased.
+    """
+    ui.write([ui.step(message, tone=ui.Tone.DONE, marker="●")])
+    if path is not None:
+        ui.console().print(ui.body(str(path)), soft_wrap=True)
+    ui.write([ui.tail()])
 
 
 def reset(db_path: Path) -> Path | None:

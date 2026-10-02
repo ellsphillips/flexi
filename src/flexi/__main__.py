@@ -135,7 +135,8 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
 
 NOT_INITIALISED = (
     "Flexi is not set up on this machine yet.\n"
-    "Run `flexi init` to choose your leave year, working days and bank holidays."
+    "Run `flexi` (or `flexi init`) to choose your leave year, working days and "
+    "bank holidays."
 )
 
 NEEDS_TERMINAL = (
@@ -437,7 +438,7 @@ def erase(db_path: Path) -> None:
     taken = init_cli.reset(db_path)
     setup_service.forget(db_path)
     if taken is not None:
-        init_cli.settled(f"Erased. Snapshot kept at {taken}")
+        init_cli.settled("Erased. Snapshot kept at", taken)
 
 
 def ask_the_questions(
@@ -456,7 +457,12 @@ def ask_the_questions(
     run_app(ctx, launch(splash=True))
 
     if not set_up_here():
-        click.echo("Setup was not completed.")
+        # Naming no command: whoever ran `uvx flexi` has no `flexi` to run.
+        click.echo(
+            "Setup was not completed, so none of your answers were saved.\n"
+            f"Run Flexi again to finish it. Its database is at {db_path}.",
+            err=True,
+        )
         ctx.exit(1)
     if not then_open:
         click.secho(f"Flexi is set up. Its records are at {db_path}.", fg="green")
