@@ -278,15 +278,13 @@ class DashboardScreen(Screen[None]):
     def _turn_the_day(self) -> None:
         """Midnight passed under an open dashboard.
 
-        A session left running is closed at the auto-close time, as the next
-        launch or `/` would close it; until then the balance counts it to
-        midnight. A period that showed the old date moves to the new one, and
-        the tick stops if nothing is left on the clock.
+        A session left running is closed at the auto-close time and announced,
+        as the next launch or `/` would close it; until then the balance counts
+        it to midnight. A period that showed the old date moves to the new one,
+        and the tick stops if nothing is left on the clock.
         """
         was, self._today = self._today, self.now.date()
-        # The same sweep launch and `/` run: whatever reports what one closed
-        # belongs beside each call.
-        self._services.clock.sweep()
+        self.sweep()
         if self.period.contains(was):
             self.period = self.period.go_to(self._today)
         self.refresh_modules(Scope.ALL)
@@ -315,11 +313,11 @@ class DashboardScreen(Screen[None]):
     def sweep(self) -> bool:
         """Close work left running on an earlier day, and say so.
 
-        Launch and `/` sweep through here, so neither closes a session
-        unannounced: the auto-close time can be hours after the person left,
-        and only they know when. `ClockService.clock_in` sweeps again, but
-        only after `/` has, so it finds nothing left to close. Answers whether
-        one was closed; redrawing is the caller's.
+        Launch, `/` and the tick that sees the date turn sweep through here, so
+        none closes a session unannounced: the auto-close time can be hours
+        after the person left, and only they know when. `ClockService.clock_in`
+        sweeps again, but only after `/` has, so it finds nothing left to
+        close. Answers whether one was closed; redrawing is the caller's.
         """
         closed = self._services.clock.sweep()
         for result in closed:

@@ -169,6 +169,25 @@ async def test_open_dashboard_closes_monday_when_the_date_turns(
                 assert board._tick is None, "nothing is open, so nothing ticks"
 
 
+async def test_the_date_turning_says_what_it_closed(left_open: Path) -> None:
+    """Nobody pressed anything, so the notice is all that says Monday was cut."""
+    app = FlexiApp(db_path=left_open)
+    with time_machine.travel(MONDAY_FIVE, tick=False):
+        async with app.run_test(size=WIDE) as pilot:
+            await pilot.pause()
+            board = showing(app, DashboardScreen)
+
+            with time_machine.travel(JUST_AFTER_MIDNIGHT, tick=False):
+                board._on_tick()
+                await pilot.pause()
+
+            assert (
+                "Mon 8 Jun was left running and closed at 18:00 (9:00 counted). "
+                "If you left earlier: open the day in Records, press x on the "
+                "session, then n."
+            ) in [notice.message for notice in app._notifications]
+
+
 async def test_a_day_view_of_monday_moves_on_to_tuesday(left_open: Path) -> None:
     """The header names the day the dashboard moved to, not the one it left."""
     app = FlexiApp(db_path=left_open)
