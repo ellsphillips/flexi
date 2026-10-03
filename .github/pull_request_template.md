@@ -11,4 +11,5 @@
 - [ ] `just check`
 - [ ] `just test`
 - [ ] `just shots`, if the interface moved
-- [ ] A note under `## Unreleased` in `CHANGELOG.md`, if users will notice
+- [ ] A note under `## Unreleased` in `CHANGELOG.md` (`## 0.2.0` until it is
+      released), if users will notice
