@@ -152,7 +152,7 @@ Configure a GitHub trusted publisher for **`flexi-test` on TestPyPI** and
 | Workflow filename | `release.yaml` | `release.yaml` |
 | Environment | `testpypi` | `pypi` |
 
-[Trusted publishing supports both indexes](https://docs.pypi.org/trusted-publishers/using-a-publisher/#publishing-to-indices-other-than-pypi)
+[Trusted publishing supports both indexes](https://docs.pypi.org/trusted-publishers/using-a-publisher/)
 with short-lived credentials. Do not store a PyPI or TestPyPI API token in
 GitHub; configure both publishers before merging the release.
 
