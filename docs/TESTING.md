@@ -133,6 +133,10 @@ What to cover here, at minimum:
 - The layering test (`tests/test_layering.py`): `domain/` imports neither
   `textual` nor `sqlalchemy`; `components/` and `screens/` do not import
   `sqlalchemy`.
+- Nothing a screen draws vanishes in sixteen colours
+  (`tests/tui/test_sixteen_colours.py`): every glyph keeps an ANSI colour apart
+  from its ground once Rich has matched both, which is what `TERM=xterm` without
+  `COLORTERM` and the Linux console get.
 
 ## 4. Snapshot tests
 
@@ -159,10 +163,12 @@ Rules that keep them useful:
 - **Freeze time.** Every case runs inside `time_machine.travel` at
   `flexi.services.samples.NOW` against the seeded database, otherwise the diff is
   the clock.
-- **Pin the widths the case is about.** The three are 120×36 (wide), 84×28
-  (narrow) and 64×22 (tiny). The dashboard is pinned at all three, leave at wide
-  and narrow, insights at 120×36 and 120×44, and the rest at wide only. The
-  responsive rules in `DESIGN-SYSTEM.md` §6 only exist where they are pinned.
+- **Pin the sizes the case is about.** The four are 120×40 (wide), 84×28
+  (narrow), 63×22 (tiny, a column under `TINY_COLUMNS`) and 120×30 (short,
+  Windows Terminal's default, under `SHORT_ROWS`). The dashboard is pinned at
+  all four, leave at wide and narrow, insights at 120×40 and 120×44, and the
+  rest at wide only. The responsive rules in `DESIGN-SYSTEM.md` §6 only exist
+  where they are pinned.
 - **Regenerate, then read the diff.** `just shots` rewrites
   both the SVGs and the text; the diff is what you review before committing.
 - **A version bump is a visual change.** The header carries `v0.2.0`, so every
@@ -196,15 +202,19 @@ rsvg-convert -w 1600 docs/shots/dashboard-wide.svg -o /tmp/dashboard-wide.png
 
 The demo seeds a leave year of plausible data — some overtime, one short day, a
 week of annual leave, the year's bank holidays, a sick day, a half day and a TOIL
-day — so the shots show the interesting cases and not an empty database. It lives
-in `flexi/services/samples.py` and is what `flexi --demo` runs, which makes it
-the same data a reviewer, a snapshot test and a new user all see.
+day — so the shots show the interesting cases and not an empty database. Its
+working days follow a ten-day cycle with a long day and a short one, the rest
+either side of the contract, and the ten bank four minutes between them, so the
+balance stays within a few hours of zero all year. It lives in
+`flexi/services/samples.py` and is what `flexi --demo` runs, which makes it the
+same data a reviewer, a snapshot test and a new user all see.
 
 Everything is derived from the anchor it is handed. The snapshots pass `ANCHOR`,
 a fixed Thursday, because a committed SVG cannot move; `--demo` passes today,
 along with the wall time that day has reached, so nothing is seeded that has not
 happened yet. `--demo` builds it in a temporary directory and throws it away on
-exit.
+exit, and on macOS and Linux when its window is closed or the process is sent
+`SIGTERM`.
 
 ## 6. Running
 
@@ -327,7 +337,8 @@ and not with `TZ`, which is a POSIX idea `time.tzset` implements and Windows
 does not have. Two tests are skipped there and say so: the pty reader in
 `tests/cli/test_terminal.py`, which needs a terminal Windows has no equivalent
 of, and the pair in `tests/services/test_setup.py` that need a file `chmod`
-can genuinely deny.
+can genuinely deny. That pair skips under root as well, which reads past any
+mode, and root is who a container runs as by default.
 
 The workflow files themselves are checked by the linter that knows about them:
 
