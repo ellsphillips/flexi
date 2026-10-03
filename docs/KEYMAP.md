@@ -7,8 +7,8 @@ discoverable without reading this file?**
 Three layers of discoverability, in the order a user meets them:
 
 1. **The key strip** — the footer, trimmed to what actually fits, with `+n more`
-   when it does not. Shows the six or seven keys that matter on this screen, and
-   keeps `/` and `?` when it has to drop others.
+   when it does not. Shows as many of the keys that matter on this screen as
+   fit, and keeps `/` and `?` when it has to drop others.
 2. **`?`** — the help screen: every binding on the current screen, grouped by the
    widget that declared it, including the ones the strip dropped.
 3. **`ctrl+p`** or **`:`** — the command palette: Flexi's commands,
