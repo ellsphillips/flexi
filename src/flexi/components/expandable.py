@@ -16,6 +16,7 @@ from typing import ClassVar, Unpack
 
 from rich.console import RenderableType
 from textual.binding import Binding, BindingType
+from textual.geometry import Region, Spacing
 from textual.message import Message
 from textual.widgets import DataTable
 from textual.widgets.data_table import CellDoesNotExist, RowDoesNotExist
@@ -279,8 +280,27 @@ class ExpandableTable(DataTable[RenderableType]):
         self._redraw()
         if cursor_inside:
             self.focus_key(parent)
+        if expanded:
+            self._scroll_group_into_view(group)
         self.post_message(self.Expanded(parent, expanded=expanded))
         return expanded
+
+    def _scroll_group_into_view(self, group: RowGroup) -> None:
+        """Bring an opened group's rows on screen, its parent first if not all fit.
+
+        Opened on the last row in view, they would land below it, and the key
+        would look to have done nothing. Deferred, as the table's own cursor
+        scroll is, until the rows just added count towards the height.
+        """
+        header = self.header_height if self.show_header else 0
+        top = header + self.get_row_index(group.parent.key)
+        self.call_after_refresh(
+            self.scroll_to_region,
+            Region(0, top, 1, 1 + len(group.children)),
+            spacing=Spacing(top=header),
+            animate=False,
+            x_axis=False,
+        )
 
     def expand_all(self, *, expanded: bool | None = None) -> None:
         """Open or close every expandable row.

@@ -257,6 +257,34 @@ async def test_space_opens_the_day_under_the_cursor(app_factory: AppFactory) -> 
         assert any(row.key.startswith(RowKind.SESSION) for row in widget.visible_rows())
 
 
+@pytest.mark.parametrize(
+    ("keys", "saturday_in_view"),
+    [(("down",), False), (("down", "down", "up"), True)],
+    ids=["on-the-last-row-in-view", "one-row-above-it"],
+)
+async def test_space_near_the_foot_of_the_table_shows_what_it_opened(
+    app_factory: AppFactory, keys: tuple[str, ...], *, saturday_in_view: bool
+) -> None:
+    """At 80x24 the week runs on below the table, and an opened day ran with it.
+
+    On the last row in view, space looked to do nothing. On the row above, the
+    table scrolled up one and hid what it had opened.
+    """
+    app = app_factory()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settled(pilot)
+        await pilot.press(*keys)
+        assert table(app).cursor_key == row_key(RowKind.DAY, TODAY + timedelta(days=1))
+        assert ("Sat 13" in screen_text(app)) is saturday_in_view
+
+        await pilot.press("space")
+        await pilot.pause()
+
+        drawn = screen_text(app)
+        assert "Fri 12" in drawn, "the day stays in view"
+        assert "└ expected" in drawn, "and so do the rows it opened"
+
+
 async def test_expanding_does_not_move_the_cursor(app_factory: AppFactory) -> None:
     """The cursor is restored by key, so rows inserted above do not move it."""
     app = app_factory()
