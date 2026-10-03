@@ -195,12 +195,12 @@ flexi holidays refresh
 ```
 
 Leave commands show a plan, such as `5 working days, 5 days of annual leave`,
-and ask before writing; `--dry-run` shows the plan and stops. Every question
-defaults to No, so `enter` declines, and declining exits with status 1. `--yes`
-skips confirmation; use it where nothing can answer, such as cron or Task
-Scheduler. Without it there, a command that would ask says `--yes` is needed
-and exits 1. `flexi leave` and `balance zero` still read an answer piped to
-them; `balance adjust` and `balance undo` ask only at a terminal. A mistyped
+and ask before writing; `--dry-run` shows the plan and stops. Every yes-or-no
+question defaults to No, so `enter` declines, and declining exits with status 1.
+`--yes` skips confirmation; use it where nothing can answer, such as cron or
+Task Scheduler. Without it there, a command that would ask says `--yes` is
+needed and exits 1. `flexi leave` and `balance zero` still read an answer piped
+to them; `balance adjust` and `balance undo` ask only at a terminal. A mistyped
 option is reported as unknown, with any real one it is close to, and `-h` works
 as `--help` does.
 
