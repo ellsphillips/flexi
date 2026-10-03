@@ -1,6 +1,8 @@
 # Developer tasks
 
-Use Python 3.12–3.14, uv 0.9.26 or newer, and just 1.46 or newer.
+You need Git, uv 0.9.26 or newer, and just 1.46 or newer. uv downloads the
+Python this project pins (3.13) when it is needed, so you don't have to install
+Python; 3.12–3.14 are supported.
 [Install just](https://just.systems/man/en/installation.html) with uv or your
 operating system's package manager. These tools are for working on a checkout;
 installing and using Flexi does not require just.

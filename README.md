@@ -276,10 +276,14 @@ for details and vulnerability reporting.
 
 ## Development
 
-`just` runs the project's named development tasks. Use Python 3.12–3.14,
-uv 0.9.26 or newer, and just 1.46 or newer. From a checkout of this repository:
+`just` runs the project's named development tasks. You need Git, uv 0.9.26 or
+newer, and just 1.46 or newer. uv downloads the Python this project pins (3.13)
+when it is needed, so you don't have to install Python; 3.12–3.14 are
+supported. To start:
 
 ```bash
+git clone https://github.com/ellsphillips/flexi
+cd flexi
 uv tool install "rust-just>=1.46"
 just setup
 ```

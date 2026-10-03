@@ -1,7 +1,9 @@
 # Contributing
 
-Use Python 3.12–3.14, uv 0.9.26 or newer, and just 1.46 or newer. See
-[Developer tasks](docs/TASKS.md) for installation and the recipe reference.
+You need Git, uv 0.9.26 or newer, and just 1.46 or newer. uv downloads the
+Python this project pins (3.13) when it is needed, so you don't have to install
+Python; 3.12–3.14 are supported. See [Developer tasks](docs/TASKS.md) for
+installation and the recipe reference.
 
 ```bash
 uv tool install "rust-just>=1.46"
