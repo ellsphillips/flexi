@@ -133,36 +133,59 @@ settings, or release only these four:
 
 ## From the shell
 
+The same records, from a script or another terminal. These examples write to
+your real records, as `--demo` takes no command, and run in this order on a new
+install:
+
 ```bash
 flexi clock in
 flexi clock out
-flexi leave annual mon to fri
-flexi leave sick today pm
-flexi leave cancel next monday
+flexi leave annual next monday to friday
+flexi leave sick last wednesday pm
+flexi leave cancel next monday to friday
 flexi balance show
-flexi balance zero --reason "Balance agreed with my manager"
 flexi balance adjust -0:45 --on yesterday --reason "Long lunch"
+flexi balance zero --reason "Balance agreed with my manager"
 flexi balance log
-flexi balance undo 3
+flexi balance undo 2   # an id that balance log lists
 flexi holidays refresh
 ```
 
-Leave commands show a plan and ask before writing. `--dry-run` previews it;
-`--yes` skips confirmation. Declining exits with status 1.
+Leave commands show a plan, such as `5 working days, 5 days of annual leave`,
+and ask before writing; `--dry-run` shows the plan and stops. Every question
+defaults to No, so `enter` declines, and declining exits with status 1. `--yes`
+skips confirmation; use it where nothing can answer, such as cron or Task
+Scheduler. Without it there, a command that would ask says `--yes` is needed
+and exits 1, though an answer piped in is still read. A mistyped option is
+reported with the nearest real one, and `-h` works as `--help` does.
+
+In `flexi leave`, a date with no year is the next one to come: `15 jun` typed
+in October is next June, so give the year, `2026-06-15`, for a day already
+past. The plan shows the year of a date in another year, and says how many days
+fall outside the current leave year.
 
 `balance adjust` moves the balance by a signed amount, such as `+5:30` or
 `-1:30`, from today or an earlier day of the leave year given with `--on`.
 That day has to come after any settlement, and after any adjustment that was
 itself given an earlier day, since Flexi cannot tell the two apart. It shows
-the balance before and after and asks first, as `balance zero` does; `--yes`
-skips the question, and is needed where there is no terminal to ask on.
-`balance log` lists every adjustment, and `balance undo` removes one.
+the balance before and after and asks first. Quote a date with a space in it,
+as in `--on "last friday"`; a bare `friday` means the next one, which has not
+happened yet. `balance log` lists every adjustment with its id, and
+`balance undo` shows the one you name and asks before removing it.
 
-`balance zero` settles through yesterday by default. A half day off halves the
+`balance zero` settles through yesterday by default, under the reason `settled`
+unless you give one. Tracking starts on your first day, so until a finished day
+has a balance there is nothing to settle: `balance zero` says so without asking,
+as it does when a later adjustment is in the way. A half day off halves the
 hours a day expects, whichever side of noon you work the rest; only a day booked
-off in full refuses work. Clock records are retained as an audit trail. A session
-left running overnight is closed at your auto-close time by the next command,
-which says so on stderr.
+off in full refuses work. Clock records are retained as an audit trail. A
+session left running overnight is closed at your auto-close time by the next
+command, which says so on stderr.
+
+An open Flexi window picks up what these commands write within about two
+seconds, and `t` on the dashboard catches up at once. Press `/` before it has
+caught up and Flexi says what changed instead of doing the opposite of what the
+Clock panel shows: `Clocked in elsewhere at 09:12; press again to clock out`.
 
 ## Your data
 
