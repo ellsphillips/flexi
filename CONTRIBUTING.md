@@ -21,6 +21,10 @@ into it. Release pull requests go from `dev` into `main`, with a title such as
 screenshots on `dev` before review and merge. See
 [`docs/RELEASING.md`](docs/RELEASING.md) for the checks and publishing procedure.
 
+Without write access, fork the repository, push your branch to your fork, and
+open the pull request against `dev` here. A maintainer may need to approve CI on
+your first pull request.
+
 To try the staged release with an authenticated GitHub CLI, run
 `just try-release` from the checkout. It separately tests the
 TestPyPI `flexi-test` wheel and the production `flexi` CI wheel, built from the
@@ -32,7 +36,11 @@ to try the production CI wheel's interactive demo after both checks. See
 production publishing still requires the owner's approval.
 
 The hooks run CI's static checks — ruff, the formatter, mypy and
-`uv lock --check` — through the locked environment. They do not run the suite.
+`uv lock --check` — through the locked environment, by calling `uv`. They do not
+run the suite. Some Git apps on macOS don't load your shell's PATH and report
+`Executable uv not found`: commit from a terminal, start the app from one, or
+add uv's directory (usually `~/.local/bin`) to the app's PATH.
+
 Run `just check` and `just test` before pushing. CI tests the proposed merge on
 pull requests into `dev` or `main`, including the supported operating systems and
 interpreters. A push without an open pull request does not start CI. To check a
@@ -44,6 +52,9 @@ just ci YOUR_BRANCH
 
 A manual run provides early feedback; the pull request still needs its own
 passing checks. Merging a release into `main` starts the full release checks.
+`just ci` starts CI in the repository gh resolves to and needs write access
+there. On a fork, enable Actions in its Actions tab, then run
+`gh workflow run ci.yaml --repo YOUR_NAME/flexi --ref YOUR_BRANCH`.
 
 ## The layout
 
