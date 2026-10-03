@@ -116,9 +116,10 @@ outside this one, and how many days fall outside the current leave year.
 confirmation exits 1 so a script can tell.
 
 Every question takes `enter` as no. Where nothing can answer, as under cron, a
-command that would ask says `--yes` is needed in place of a bare `Aborted!`, and
-an answer piped in is still read. A mistyped option is reported as one, with the
-nearest real option, rather than as a bad date, and `-h` works as `--help` does.
+command that would ask says `--yes` is needed in place of a bare `Aborted!`;
+`flexi leave` and `balance zero` still read an answer piped to them. A mistyped
+option is reported as one, with any real option it is close to, rather than as a
+bad date, and `-h` works as `--help` does.
 
 `flexi init` sets a machine up, and run again where records exist it says what is
 there and offers to open Flexi, change settings, or start over. Starting over

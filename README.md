@@ -199,8 +199,10 @@ and ask before writing; `--dry-run` shows the plan and stops. Every question
 defaults to No, so `enter` declines, and declining exits with status 1. `--yes`
 skips confirmation; use it where nothing can answer, such as cron or Task
 Scheduler. Without it there, a command that would ask says `--yes` is needed
-and exits 1, though an answer piped in is still read. A mistyped option is
-reported with the nearest real one, and `-h` works as `--help` does.
+and exits 1. `flexi leave` and `balance zero` still read an answer piped to
+them; `balance adjust` and `balance undo` ask only at a terminal. A mistyped
+option is reported as unknown, with any real one it is close to, and `-h` works
+as `--help` does.
 
 In `flexi leave`, a date with no year is the next one to come: `15 jun` typed
 in October is next June, so give the year, `2026-06-15`, for a day already
