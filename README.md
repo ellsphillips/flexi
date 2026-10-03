@@ -39,9 +39,7 @@ uvx flexi --demo
 The first run downloads Flexi's packages, and Python where yours is older, so it
 can take up to half a minute; later runs open in a second or two. The demo says
 it holds sample data, and deletes it when you quit, or on macOS and Linux when
-you close the window. On a working day its sample session is still running, so
-a demo opened late in the evening shows those hours banked. Without `--demo`,
-Flexi sets up your own records.
+you close the window. Without `--demo`, Flexi sets up your own records.
 
 To update an installed copy, quit Flexi and run `uv tool upgrade flexi`. On
 Windows, uv cannot replace or remove Flexi while a copy is open and reports os
@@ -200,10 +198,7 @@ and ask before writing; `--dry-run` shows the plan and stops. Every yes-or-no
 question defaults to No, so `enter` declines, and declining exits with status 1.
 `--yes` skips confirmation; use it where nothing can answer, such as cron or
 Task Scheduler. Without it there, a command that would ask says `--yes` is
-needed and exits 1. `flexi leave` and `balance zero` still read an answer piped
-to them; `balance adjust` and `balance undo` ask only at a terminal. A mistyped
-option is reported as unknown, with any real one it is close to, and `-h` works
-as `--help` does.
+needed and exits 1.
 
 In `flexi leave`, a date with no year is the next one to come: `15 jun` typed
 in October is next June, so give the year, `2026-06-15`, for a day already
@@ -220,13 +215,11 @@ happened yet. `balance log` lists every adjustment with its id, and
 `balance undo` shows the one whose id you give and asks before removing it.
 
 `balance zero` settles through yesterday by default, under the reason `settled`
-unless you give one. Tracking starts on your first day, so until a finished day
-has a balance there is nothing to settle: `balance zero` says so without asking,
-as it does when a later adjustment is in the way. A half day off halves the
-hours a day expects, whichever side of noon you work the rest; only a day booked
-off in full refuses work. Clock records are retained as an audit trail. A
-session left running overnight is closed at your auto-close time by the next
-command, which says so on stderr.
+unless you give one; on your first day there is nothing to settle yet, and it
+says so. A half day off halves the hours a day expects, whichever side of noon
+you work the rest; only a day booked off in full refuses work. Clock records are
+retained as an audit trail. A session left running overnight is closed at your
+auto-close time by the next command, which says so on stderr.
 
 An open Flexi window picks up what these commands write within about two
 seconds, and `t` on the dashboard catches up at once. Press `/` before it has
