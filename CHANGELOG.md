@@ -195,19 +195,20 @@ SSH sessions give, and the Linux console.
 
 `v` puts a one-key badge on every panel, and on the first nine day rows of the
 records table. `?` lists every binding on the screen, and the key strip keeps
-`/` and `?` when it drops others. `ctrl+p` or `:` opens a command palette
-carrying every action, including Quit and those with no key. `q` quits from the
-dashboard, Leave and Insights. `:` and `q` are there for VS Code and Cursor,
-whose terminals keep `ctrl+p` and `ctrl+q` for the editor; the README has the
-setting that hands them back.
+`/` and `?` when it drops others. `ctrl+p` or `:` opens a command palette of
+Flexi's commands, including Quit and those with no key; the period and booking
+ones are there while the dashboard is in front. `q` quits from the dashboard,
+Leave and Insights. `:` and `q` are there for VS Code and Cursor, whose
+terminals keep `ctrl+p` and `ctrl+q` for the editor; the README has the setting
+that hands them back.
 
 ### Development and releases
 
 - Documented `just` commands cover development, testing and temporary package
-  installation checks. `just check` and `just fix` format the justfile with a
-  pinned just, so a newer one on the path cannot fail a clean checkout; the
-  GitHub recipes ask for the GitHub CLI when it is missing; and the suite passes
-  when run as root, as in a container.
+  installation checks. `just check` checks the justfile's formatting and
+  `just fix` reformats it, both with a pinned just, so a newer one on the path
+  cannot fail a clean checkout; the GitHub recipes ask for the GitHub CLI when
+  it is missing; and the suite passes when run as root, as in a container.
 - Each release is installed and checked from TestPyPI before it reaches PyPI,
   and publishing it there needs the owner's approval.
 
