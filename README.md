@@ -12,16 +12,23 @@ account required.
 
 ## Install
 
-Requires Python 3.12 or newer. Tested on Python 3.12–3.14 with macOS, Linux,
-and Windows. Use a terminal with Unicode and colour support; on Windows,
+Flexi needs Python 3.12 or newer, but with uv you don't need to install it
+yourself: uv downloads one if your system's is older (macOS ships 3.9, Debian 12
+has 3.11). Tested on Python 3.12–3.14 with macOS, Linux, and Windows. Use a
+terminal with Unicode and colour support and a UTF-8 locale; on Windows,
 [Windows Terminal](https://aka.ms/terminal) is recommended.
 
-With [uv](https://docs.astral.sh/uv/getting-started/installation/):
+With [uv](https://docs.astral.sh/uv/getting-started/installation/), in a new
+terminal once uv is installed:
 
 ```bash
 uv tool install flexi
 flexi
 ```
+
+It prints `Opening Flexi…` straight away. The first launch after installing or
+upgrading can take several seconds while Python prepares its files; later
+launches open in about a second.
 
 Try it with sample data:
 
@@ -29,20 +36,34 @@ Try it with sample data:
 uvx flexi --demo
 ```
 
-The demo uses a temporary database and removes it on exit. To update an installed
-copy, run `uv tool upgrade flexi`. If your shell cannot find the command, run
-`uv tool update-shell` and restart the terminal.
+The first run downloads Flexi's packages, and Python where yours is older, so it
+can take up to half a minute; later runs open in a second or two. The demo says
+it holds sample data, and deletes it when you quit, or on macOS and Linux when
+you close the window. On a working day its sample session is still running, so
+a demo opened late in the evening shows those hours banked. Without `--demo`,
+Flexi sets up your own records.
+
+To update an installed copy, quit Flexi and run `uv tool upgrade flexi`. On
+Windows, uv cannot replace or remove Flexi while a copy is open and reports os
+error 32 or 5: quit every copy and run the same command again. If your shell
+cannot find the command, run `uv tool update-shell` and restart the terminal.
 
 <details>
 <summary>Other installation methods</summary>
 
-With pipx:
+pipx and pip use a Python you already have, which must be 3.12 or newer; on
+older systems, use uv.
+
+With [pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html):
 
 ```bash
 pipx install flexi
 ```
 
-With pip, inside an existing virtual environment:
+If your shell cannot find `flexi`, run `pipx ensurepath` and open a new
+terminal.
+
+With pip, inside a virtual environment created with Python 3.12 or newer:
 
 ```bash
 python -m pip install flexi
