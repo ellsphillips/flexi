@@ -93,7 +93,9 @@ def test_a_demo_hung_up_twice_exits_and_takes_its_records(tmp_path: Path) -> Non
         demo.send_signal(signal.SIGHUP)
         drained(controller, demo, 30)
 
-        assert demo.wait(timeout=5) == 128 + signal.SIGHUP
+        # 129 is the handler unwinding. A runner stalled long enough to deliver
+        # the second hang-up after the handlers are back sees the default action.
+        assert demo.wait(timeout=5) in {128 + signal.SIGHUP, -signal.SIGHUP}
     finally:
         demo.kill()
         demo.wait()
