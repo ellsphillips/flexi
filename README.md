@@ -177,8 +177,9 @@ settings, or release only these four:
 ## From the shell
 
 The same records, from a script or another terminal. These examples write to
-your real records, as `--demo` takes no command, and run in this order on a new
-install, unless today is a bank holiday or the first day of your leave year:
+your real records, as `--demo` takes no command. On a new install they run in
+this order on an ordinary working day; near a bank holiday, or on the first day
+of your leave year, one may have nothing to do and exits 1 saying why:
 
 ```bash
 flexi clock in
