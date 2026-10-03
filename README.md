@@ -178,7 +178,7 @@ settings, or release only these four:
 
 The same records, from a script or another terminal. These examples write to
 your real records, as `--demo` takes no command, and run in this order on a new
-install:
+install, unless today is a bank holiday or the first day of your leave year:
 
 ```bash
 flexi clock in
