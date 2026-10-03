@@ -237,21 +237,41 @@ Clock panel shows: `Clocked in elsewhere at 09:12; press again to clock out`.
 | macOS / Linux | `~/.local/share/flexi/db.db` | `~/.config/flexi/config.yaml` |
 | Windows | `%LOCALAPPDATA%\flexi\db.db` | `%APPDATA%\flexi\config.yaml` |
 
-Absolute `XDG_DATA_HOME` and `XDG_CONFIG_HOME` values override these locations.
-Flexi never writes the preferences file and reports invalid settings at startup.
-Uninstalling the app leaves your records intact.
+In PowerShell these are `$env:LOCALAPPDATA\flexi\db.db` and
+`$env:APPDATA\flexi\config.yaml`; the `%…%` form works in Command Prompt, the
+Run dialog and File Explorer's address bar. Absolute `XDG_DATA_HOME` and
+`XDG_CONFIG_HOME` values override these locations. Flexi never writes the
+preferences file and reports invalid settings at startup.
 
-**Backups are automatic.** Schema upgrades take a snapshot first and retain the
-newest ten in the data directory's `backups` folder. Resetting with `flexi init`
-asks for confirmation, then writes and verifies a protected backup before
-removing all records. Reset backups are kept until you remove them.
+To uninstall, quit Flexi and run `uv tool uninstall flexi` (or
+`pipx uninstall flexi`). Your records stay where the table shows; to remove them
+as well, delete the folder that holds `db.db`, `backups` included, and the
+preferences file if you created one.
+
+**Flexi does not back up your records on a schedule.** It takes a snapshot
+before a schema upgrade and keeps the newest ten. On a machine that is already
+set up, `flexi init` can also reset: it asks for confirmation, then writes and
+verifies a protected backup before removing all records, and keeps that backup
+until you remove it. Both go to the `backups` folder beside `db.db`, on the same
+disk, so include the folder that holds `db.db` in your own backups, or close
+Flexi and copy `db.db` somewhere else.
 
 **To restore:** close every copy of Flexi, copy a `.bak` file over `db.db`, and
-start Flexi. An older schema is upgraded automatically, with another backup first.
+start Flexi. A name such as `pre-init_db_<time>.bak` carries the UTC time the
+copy was taken. An older schema is upgraded automatically, with another snapshot
+first.
 
-Flexi fetches UK bank holidays from GOV.UK and checks PyPI for updates. Neither
-request includes your timesheet or settings. Records and backups are unencrypted;
-see the [security policy](https://github.com/ellsphillips/flexi/blob/main/SECURITY.md)
+Flexi reads the system clock and time zone. Containers and many cloud servers
+run on UTC, so set your zone first, for example `export TZ=Europe/London`
+(Ubuntu images also need `apt install tzdata`).
+
+Each time the app opens, setup and `--demo` included but not the `flexi`
+subcommands, Flexi asks PyPI for the latest version number. It downloads
+GOV.UK's bank-holiday list when the cached copy is more than a week old, and
+`flexi holidays refresh` fetches it on demand. Neither request includes your
+timesheet or settings, and the update check cannot be turned off yet. Records
+and backups are unencrypted; see the
+[security policy](https://github.com/ellsphillips/flexi/blob/main/SECURITY.md)
 for details and vulnerability reporting.
 
 ## Development
