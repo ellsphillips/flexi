@@ -133,13 +133,15 @@ once at the edge:
 ```python
 def service_app[ResultT](app: TextualApp[ResultT]) -> ServiceApplication: ...
 def command_app[ResultT](app: TextualApp[ResultT]) -> CommandApplication: ...
+def refreshing_app[ResultT](app: TextualApp[ResultT]) -> RefreshingApplication: ...
 def flexi_app[ResultT](app: TextualApp[ResultT]) -> FlexiApplication: ...
 ```
 
 `ServiceApplication` is the registry, `CommandApplication` is the navigation and
-palette actions, and `FlexiApplication` composes both. A dashboard module needs
-the first and not the second. None of them imports `flexi.app`, so the
-presentation graph has no cycle.
+palette actions, `RefreshingApplication` is `refresh_open_screens`, and
+`FlexiApplication` composes all three. A dashboard module needs the first and
+not the second; the Leave screen needs the third to redraw what lies under it.
+None of them imports `flexi.app`, so the presentation graph has no cycle.
 
 `LedgerService` computes a `DayLedger` per date and memoises per rebuild
 generation, so a records table showing 31 days makes one pass over the period
@@ -171,6 +173,15 @@ A module never writes. It posts a message the screen handles — `BookHere`,
 `DeleteHere`, `BookRequested` — and the screen does the writing, the reporting
 and the redraw.
 
+The dashboard redraws itself through `refresh_modules`, because while it is in
+front it is the only screen on the stack that can redraw. A write made anywhere
+else ends in `FlexiApp.refresh_open_screens(scope)`, which invalidates the
+services once and calls `refresh_modules(scope)` on every screen on the stack:
+a booking on the pushed Leave screen, `/` pressed from Leave or Insights, a
+settings save, a bank-holiday refresh, and another process's write (below).
+Rebuilding only the screen that wrote would leave the dashboard underneath
+showing the allowance from before.
+
 `Scope` is a flag set (`CLOCK | ABSENCE | SETTINGS | PERIOD | TIME`) so clocking
 in does not rebuild the calendar's bank-holiday markers. Modules declare what
 they care about:
@@ -186,9 +197,12 @@ declaration, not an edit to a method in a different file.
 ### The live tick
 
 The dashboard starts a `set_interval` only while a session is open, and stops it
-on clock-out and on unmount. The interval is `defaults.tick_seconds`, one second
-by default: the clock module's subtitle is a running duration, and a
-minute-grained clock that jumps in 60-second steps looks broken.
+on clock-out and on unmount. `refresh_modules` starts or stops it on any redraw
+whose scope includes `Scope.CLOCK`, so a session opened or closed by another
+process starts or stops the tick as one opened here does. The interval is
+`defaults.tick_seconds`, one second by default: the clock module's subtitle is a
+running duration, and a minute-grained clock that jumps in 60-second steps looks
+broken.
 
 Every tick redraws the clock module, the balance module and the two progress
 rails. The records table and the wallet print whole minutes, and a year of
@@ -207,6 +221,23 @@ as a launch or `/` would; moves a period that showed the old date onto the new
 one; redraws everything; and stops the tick if nothing is left on the clock.
 Nobody pressed anything, so the status bar says so as well, and the next `/`
 stops there, as one that swept would, rather than clocking in.
+
+### Other processes
+
+`flexi clock in` in a second terminal, a logon script or another copy of Flexi
+writes to the same database, and nothing in this process hears of it. So the
+app asks SQLite: every `OTHER_WRITERS_SECONDS` (two seconds) it reads
+`PRAGMA data_version` through `LedgerService.revision()`, and calls
+`refresh_open_screens()` when it has moved. SQLite moves `data_version` only for
+a commit made on another connection, so the app's own writes, which redraw as
+they are made, never come round a second time, and nothing is held locked
+between looks.
+
+`/` does not wait for the next look. `toggle_clock` compares the open session
+in the database with what the Clock panel last drew, and when they disagree it
+redraws everything and says what happened elsewhere instead of acting: acting
+on the database would do the opposite of the button the press was aimed at. `t`
+redraws with `Scope.ALL`, so it catches up at once as well.
 
 ## 5. Screens, navigation and the command palette
 
@@ -236,11 +267,15 @@ destination before setup is answered is refused with a notification.
 `FlexiApp.COMMANDS = {FlexiCommands}` replaces Textual's stock providers, so the
 palette carries Flexi's commands and nothing else — including its own Quit, the
 way out when a terminal keeps `ctrl+q` for itself. `commands(app)` builds the
-catalogue: clock in or out, help, quit, go to each screen, a period per
-granularity, go to today, go to a date, book leave, adjust the balance, book each
-absence type on the selected day, and refresh bank holidays. On the setup screen,
-where there is no dashboard, only the first three appear — every other entry is
-drawn from the period the dashboard holds.
+catalogue: clock in or out, help, quit, go to each screen, refresh bank
+holidays, adjust the balance, a period per granularity, go to today, go to a
+date, book leave, and book each absence type on the selected day. On the setup
+screen, where there is no dashboard, only the first three appear. Going to a
+screen, refreshing bank holidays and adjusting the balance need only a dashboard
+on the stack, so they appear on every other screen; *Adjust balance…* dates from
+today, not from the period, and brings the dashboard to the front first, since
+its result is reported on the dashboard's status bar. The rest are drawn from
+the period the dashboard holds, so they appear only while it is in front.
 
 ## 6. The records table
 
@@ -274,11 +309,19 @@ class ExpandableTable(DataTable):
 
 A `RowGroup` is a parent row plus its children; `set_groups` flattens it
 according to `expanded`, preserving the cursor by key and not by index — an
-expansion above the cursor must not move it. Expansion state is pruned to the
-groups currently loaded, so `expanded` answers "open now" and not "ever opened".
+expansion above the cursor must not move it. When the cursor's row has gone, as
+a voided session's has, the cursor stays in that row's day: on whichever of the
+day's rows now holds its place, or on the day itself, so `n` after `x` records
+on the day just voided. Expansion state is pruned to the groups currently
+loaded, so `expanded` answers "open now" and not "ever opened".
 When the rows and the column widths are the ones already on screen, the cells
 are rewritten in place: clearing the table would scroll it back to the cursor,
 once a minute, under whoever was reading further down.
+
+`RecordsModule` puts the cursor on the period's anchor only when the anchor
+moves, so launch, `t`, `g` and the period keys land it on the day `n` falls back
+on, and a redraw that does not move the anchor, as the tick's and another
+process's do, leaves the cursor where the reader put it.
 
 Row keys are typed by prefix: `d-<iso>` for a day, `s-<id>` for a session,
 `a-<id>` for an absence slice, `t-<iso>` for a total. Every handler switches on
