@@ -395,6 +395,10 @@ def unwound_on_hangup() -> Iterator[None]:
     stands by default, and the demo's temporary database outlives it. Raised as
     `SystemExit` instead, with the status a shell gives the signal, they unwind.
     Windows has no SIGHUP, and ends a console's process its own way.
+
+    Only the first is raised. A window closed over zsh hangs its job up twice,
+    and a second `SystemExit` would cut Textual's teardown short, leaving its
+    input thread to hold the process open for ever.
     """
     if sys.platform == "win32":  # pragma: no cover - POSIX takes the branch below
         yield
@@ -403,6 +407,8 @@ def unwound_on_hangup() -> Iterator[None]:
     import signal
 
     def unwind(signum: int, _frame: FrameType | None) -> NoReturn:
+        for hangup in hangups:
+            signal.signal(hangup, signal.SIG_IGN)
         raise SystemExit(128 + signum)
 
     hangups = (signal.SIGHUP, signal.SIGTERM)

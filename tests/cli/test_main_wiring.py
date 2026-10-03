@@ -239,6 +239,48 @@ def test_demo_database_is_removed_when_the_window_closes(
     assert restored is stand_in, "the handler from before the demo is put back"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGHUP")
+def test_a_second_hangup_lets_the_first_finish_unwinding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A window closed over zsh hangs the demo up twice, some 4 ms apart.
+
+    The second landed in Textual's teardown and cut it short, and the input
+    thread the teardown would have stopped kept the process running for ever.
+    The stand-in's `finally` is that teardown.
+    """
+    hangups: list[int] = [getattr(signal, name) for name in ("SIGHUP", "SIGTERM")]
+    caught: list[int] = []
+    finished: list[bool] = []
+
+    def stand_in(received: int, _frame: object) -> None:
+        caught.append(received)
+
+    def hung_up_twice(_app: _Opened) -> None:
+        try:
+            os.kill(os.getpid(), hangups[0])
+        finally:
+            for signum in hangups:
+                os.kill(os.getpid(), signum)
+            finished.append(True)
+
+    at_a_terminal(monkeypatch)
+    opened = instead_of_the_application(monkeypatch, hung_up_twice)
+    originals = [signal.signal(signum, stand_in) for signum in hangups]
+    try:
+        with pytest.raises(SystemExit) as ended:
+            main.run_demo(click.Context(cli))
+    finally:
+        for signum, original in zip(hangups, originals, strict=True):
+            signal.signal(signum, original)
+
+    assert finished == [True], "the teardown ran to its end"
+    assert ended.value.code == 128 + hangups[0]
+    assert caught == [], "nor were the later ones handed to the handler from before"
+    assert opened[0].db_path is not None
+    assert not opened[0].db_path.parent.exists()
+
+
 def test_demo_is_opened_as_one(monkeypatch: pytest.MonkeyPatch) -> None:
     """So the application can say the records are samples, and go when it does."""
     at_a_terminal(monkeypatch)
