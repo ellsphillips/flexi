@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "flexi"
 version = "0.2.0"
-description = "A terminal application for tracking flexitime."
+description = "A terminal application for tracking flexitime on UK schemes."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
