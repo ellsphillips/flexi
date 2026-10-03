@@ -82,21 +82,32 @@ uv run flexi
 
 ## First run
 
-Flexi asks for your leave-year start, annual entitlement, working days, hours
-a day, UK bank-holiday division, and the time to close sessions left running
-overnight. Tracking starts that day; earlier days do not create a deficit. Record
-work on one of them and it counts against your contracted day.
+Run `flexi` (or `flexi init`) and answer six questions: your leave-year start,
+annual entitlement, working days, hours a day, UK bank-holiday division, and the
+time to close sessions left running overnight. An answer that can't be used is
+named in the error, and the cursor goes back to it. Cancel with `escape` and
+none of your answers are saved; run Flexi again to finish.
 
 Hours a day default to 7:24 and accept `7:30`, `7h30` or `7.5`. A decimal is
 hours, so `7.5` is 7:30; `7.30`, which reads either way, is refused. One figure
 applies to every working day.
 
+The leave-year start is a day and month, such as `1 Apr`, `1 April`,
+`6th April` or `April 6`, and the note beside it reads the date back as you
+type. Numbers that read both ways are refused in the same way: `01/04` could be
+1 April or 4 January, where `30/09` can only be 30 September.
+
+Tracking starts that day; earlier days do not create a deficit. To record an
+earlier day, move to it in Records and press `n`; it then counts against your
+contracted day.
+
 Starting with a balance? Run `flexi balance adjust +5:30 --reason "Brought forward"`,
 or choose **Adjust balance…** from the command palette (`ctrl+p` or `:`).
 
-Press `f4` to change settings or set each leave year's entitlement.
-A new leave year needs its own allowance. New hours a day recalculate every day
-already tracked, not only the days ahead, so `f4` asks before saving them.
+Press `f4` to change settings or set each leave year's entitlement. It opens
+with the cursor in the leave-year start, written in words. A new leave year
+needs its own allowance. New hours a day recalculate every day already tracked,
+not only the days ahead, so `f4` asks before saving them.
 
 The flexi balance restarts each leave year. Automatic balance carry and
 import/export are not available yet.
@@ -105,19 +116,27 @@ import/export are not available yet.
 
 ![The dashboard](https://raw.githubusercontent.com/ellsphillips/flexi/main/docs/shots/showcase-dashboard.svg)
 
+The records table has the keyboard when the dashboard opens: `↑` `↓` or `j` `k`
+move between days, and `space`, `x`, `a` and `n` act on the day under the
+cursor. `tab` moves between the panels, and `v` then `r` brings you back.
+
 - **Clock in and out with `/`.** The dashboard shows worked time, expected hours,
   breaks, and your running balance. Today's surplus counts as soon as you work
   it; a shortfall waits until the day ends.
 - **Add missed work with `n`.** Enter a completed session; overlapping work is
   refused. `N` lists these corrections.
-- **Fix a wrong session with `x`, then `n`.** `x` on a session voids it: it stops
-  counting, and its clock record is kept. A session you leave running is closed
-  at your auto-close time, and Flexi tells you what it counted.
+- **Fix a wrong session with `x`, then `n`.** `x` on a session, in a day opened
+  with `space`, voids it: it stops counting, and its clock record is kept. The
+  cursor stays in that day, so `n` adds the real hours there. A session you
+  leave running is closed at your auto-close time, and Flexi tells you what it
+  counted.
 - **Inspect a day with `space`.** Expand its sessions, absences, and balance.
 - **Book leave with `f2`.** Annual, sick, TOIL, unpaid, or other absence, in whole
   or half days. Extend a selection with `shift` and an arrow.
 - **Review trends with `f3`.** See running balances, weekly comparisons, leave
-  usage, and the year at a glance.
+  usage, and the year at a glance. The annual leave panel sets what is booked
+  against the pace, the days an even spread of the allowance would have used by
+  today.
 
 ![The leave year](https://raw.githubusercontent.com/ellsphillips/flexi/main/docs/shots/showcase-leave.svg)
 
@@ -135,8 +154,9 @@ are checked before booking. Two different half-day absences can share a date.
 | `q` or `ctrl+q` | Quit (`q` on the dashboard, Leave and Insights) |
 
 The [keymap](https://github.com/ellsphillips/flexi/blob/main/docs/KEYMAP.md)
-lists every shortcut and explains remapping. Dates accept forms such as `12`,
-`12 Jun`, `2026-06-12`, `+3d`, and `-2w`.
+lists every shortcut and explains remapping. Dates in commands and the
+go-to-date box accept forms such as `12`, `12 Jun`, `2026-06-12`, `+3d`, and
+`-2w`.
 
 **In VS Code or Cursor**, the editor takes some keys before Flexi sees them:
 `ctrl+q` on macOS and Windows, `ctrl+p` on Windows and Linux, and `f1` and `f3`.
