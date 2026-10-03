@@ -74,10 +74,10 @@ so the columns are named on the month the screen opens on, not only in April.
 
 ### Narrow, under 100 columns — one column
 
-The rail's 36 cells would leave the calendar 28 — four days of a week — so the
-rail goes. The calendar takes the width, the wallet becomes one line under it
-(`ANNUAL 20.5 left · TOIL +15:48`) with the selection on the line below, and the
-legend is reachable through `?`.
+The rail's 34 cells would leave most days too narrow to name what is booked on
+them, so the rail goes. The calendar takes the width, the wallet becomes one line
+under it (`ANNUAL 20.5 left · TOIL +1:13`) with the selection on the line below,
+and the legend is reachable through `?`.
 
 ### Tiny, under 64 columns
 
