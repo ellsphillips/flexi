@@ -15,18 +15,20 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from flexi.__main__ import cli
+from flexi.__main__ import NOT_UNICODE, cli
 from flexi.cli import output
 
 
 class _Stream(io.TextIOWrapper):
-    """A cp1252 text stream that answers ``isatty`` as told."""
+    """A cp1252 text stream, unless told otherwise, that answers ``isatty`` as told."""
 
-    def __init__(self, *, tty: bool, newline: str | None = None) -> None:
+    def __init__(
+        self, *, tty: bool, newline: str | None = None, encoding: str = "cp1252"
+    ) -> None:
         self.bytes = io.BytesIO()
         self._tty = tty
         super().__init__(
-            self.bytes, encoding="cp1252", errors="strict", newline=newline
+            self.bytes, encoding=encoding, errors="strict", newline=newline
         )
 
     def isatty(self) -> bool:
@@ -104,6 +106,46 @@ def test_stream_without_reconfigure_is_skipped(
     output.tolerant()
 
     assert plain.getvalue() == ""
+
+
+def test_a_terminal_that_cannot_draw_the_glyphs_is_named(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No 8-bit code page has a minus sign, an arrow and a box rule all at once."""
+    _both(monkeypatch, _Stream(tty=True))
+
+    assert output.unencodable() == "cp1252"
+
+
+@pytest.mark.parametrize(
+    "stream",
+    [
+        pytest.param(_Stream(tty=True, encoding="utf-8"), id="a UTF-8 terminal"),
+        pytest.param(_Stream(tty=False), id="a pipe, which tolerant makes UTF-8"),
+        pytest.param(io.StringIO(), id="a stream with no encoding"),
+    ],
+)
+def test_other_streams_are_not_named(
+    monkeypatch: pytest.MonkeyPatch, stream: io.TextIOBase
+) -> None:
+    _both(monkeypatch, stream)
+
+    assert output.unencodable() is None
+
+
+@pytest.mark.parametrize(
+    "command", [[], ["--demo"], ["balance", "show"]], ids=["flexi", "demo", "report"]
+)
+def test_a_terminal_that_cannot_draw_is_told_so_in_one_line(
+    monkeypatch: pytest.MonkeyPatch, command: list[str]
+) -> None:
+    """Not a traceback from a report, nor escapes in place of the borders."""
+    monkeypatch.setattr("flexi.cli.output.unencodable", lambda: "ISO8859-1")
+
+    result = CliRunner().invoke(cli, command)
+
+    assert result.exit_code == 1
+    assert result.output == NOT_UNICODE.format(encoding="ISO8859-1") + "\n"
 
 
 def test_posix_terminal_needs_no_ansi_flag(

@@ -13,6 +13,7 @@ import sys
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 
+import click
 import pytest
 from rich.console import Console
 from rich.text import Text
@@ -241,6 +242,21 @@ def test_interactive_needs_a_tty_on_both_ends(
     monkeypatch.setattr(sys, "stderr", _Tty(tty=stderr_is_a_tty))
 
     assert prompt.interactive() is expected
+
+
+def test_interrupting_at_a_terminal_still_aborts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only input that ran out is told about --yes; ctrl+c means stop."""
+
+    def interrupted(*_args: object, **_kwargs: object) -> bool:
+        raise click.Abort
+
+    monkeypatch.setattr("click.confirm", interrupted)
+    monkeypatch.setattr(sys, "stdin", _Tty(tty=True))
+
+    with pytest.raises(click.Abort):
+        prompt.agreed("Book it?", doing="book it")
 
 
 def test_prompts_are_written_to_stderr(

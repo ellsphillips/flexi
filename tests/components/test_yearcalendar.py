@@ -33,6 +33,7 @@ from flexi.components.yearcalendar import (
     BLANK,
     FULL,
     HOLIDAY,
+    LABELLED_CELL,
     MIN_CELL,
     MORNING,
     SPLIT,
@@ -302,6 +303,47 @@ async def test_a_wide_tile_spells_out_the_booking() -> None:
         assert cal._day_segment(when, 12).text == " 11 annual  "
 
 
+@pytest.mark.parametrize("kind", list(AbsenceType))
+async def test_a_half_day_keeps_its_glyph_at_every_labelled_width(
+    kind: AbsenceType,
+) -> None:
+    """Only the glyph says half the day is gone; colour says the type at any width.
+
+    So the word is what gives way. The panel beside the grid is the only other
+    place a morning is told from a whole day.
+    """
+    morning, afternoon = date(2026, 6, 11), date(2026, 6, 12)
+    ledgers = {
+        morning: day(morning, absences=(booked(kind, Portion.AM),)),
+        afternoon: day(afternoon, absences=(booked(kind, Portion.PM),)),
+    }
+    async with shown(ledgers) as calendar:
+        for when, glyph in ((morning, MORNING), (afternoon, AFTERNOON)):
+            for width in range(LABELLED_CELL, LABELLED_CELL + 5):
+                text = calendar._day_segment(when, width).text
+                assert glyph in text, f"{text!r} at {width} columns"
+                assert len(text) == width
+                assert text.startswith(f" {when.day} "), "the date keeps its column"
+
+
+@pytest.mark.parametrize(
+    ("width", "drawn"),
+    [
+        (9, f" 11 {MORNING}    "),
+        (10, f" 11 ann {MORNING} "),
+        (11, f" 11 annu {MORNING} "),
+        (12, f" 11 annua {MORNING} "),
+        (13, f" 11 annual {MORNING} "),
+    ],
+)
+async def test_a_half_day_shortens_its_word_to_fit(width: int, drawn: str) -> None:
+    """Under three letters the word goes: "an" and "to" read as other words."""
+    when = date(2026, 6, 11)
+    ledger = day(when, absences=(booked(AbsenceType.ANNUAL, Portion.AM),))
+    async with shown({when: ledger}) as calendar:
+        assert calendar._day_segment(when, width).text == drawn
+
+
 async def test_a_narrow_tile_carries_the_number_and_a_glyph() -> None:
     """Under nine columns there is no room for a word."""
     when = date(2026, 6, 11)
@@ -320,17 +362,17 @@ async def test_a_tile_paints_every_column_it_was_given() -> None:
 @pytest.mark.parametrize(
     ("ledger", "expected"),
     [
-        pytest.param(None, "", id="a day outside the year says nothing"),
-        pytest.param(day(JUNE), "", id="an ordinary working day says nothing"),
-        pytest.param(day(JUNE, holiday="Whitsun"), "hol", id="a bank holiday"),
+        pytest.param(None, ("", ""), id="a day outside the year says nothing"),
+        pytest.param(day(JUNE), ("", ""), id="an ordinary working day says nothing"),
+        pytest.param(day(JUNE, holiday="Whitsun"), ("hol", ""), id="a bank holiday"),
         pytest.param(
             day(JUNE, absences=(booked(AbsenceType.FLEXI),)),
-            "toil",
+            ("toil", ""),
             id="TOIL is booked as flexi and read as TOIL",
         ),
         pytest.param(
             day(JUNE, absences=(booked(AbsenceType.SICK, Portion.AM),)),
-            f"sick {MORNING}",
+            ("sick", MORNING),
             id="a half day names the half",
         ),
         pytest.param(
@@ -341,13 +383,13 @@ async def test_a_tile_paints_every_column_it_was_given() -> None:
                     booked(AbsenceType.FLEXI, Portion.PM, absence_id=2),
                 ),
             ),
-            "part day",
+            ("part day", ""),
             id="two bookings will not both fit",
         ),
     ],
 )
 async def test_a_tile_says_what_is_on_the_day(
-    ledger: DayLedger | None, expected: str
+    ledger: DayLedger | None, expected: tuple[str, str]
 ) -> None:
     """Two half-day bookings have no room to name either, so the tile says so."""
     async with shown() as calendar:
@@ -826,3 +868,78 @@ async def test_every_line_reaches_the_same_right_edge(width: int) -> None:
                 f"line {line} declares {strip.cell_length} and draws "
                 f"{len(strip.text)}: {strip.text!r}"
             )
+
+
+# The heading stays put
+
+INITIALS = ["M", "T", "W", "T", "F", "S", "S"]
+
+
+async def test_the_heading_stays_over_a_scrolled_grid() -> None:
+    """Scrolled away with the weeks, it left columns nobody could name."""
+    calendar = YearCalendar()
+    async with mounted(calendar, height=8) as pilot:
+        calendar.show(JUNE, JULY_END, {}, today=JUNE)
+        await pilot.pause()
+        calendar.go_to(JULY_END)
+        await pilot.pause()
+
+        assert calendar.scroll_offset.y > 0
+        assert text_of(calendar, 0).split() == INITIALS
+        line = calendar.row_of(JULY_END)
+        assert line is not None
+        shown_at = line - calendar.scroll_offset.y
+        assert 0 < shown_at < calendar.scrollable_content_region.height, (
+            "the last week is still reached, under the heading"
+        )
+
+
+async def test_the_cursor_is_never_under_the_heading() -> None:
+    """Scrolling back up stops with the week before the cursor in view."""
+    calendar = YearCalendar()
+    async with mounted(calendar, height=8) as pilot:
+        calendar.show(JUNE, JULY_END, {}, today=JUNE)
+        await pilot.pause()
+        calendar.go_to(JULY_END)
+        await pilot.pause()
+
+        monday = date(2026, 6, 22)
+        calendar.go_to(monday)
+        await pilot.pause()
+
+        line = calendar.row_of(monday)
+        assert line is not None
+        assert line - calendar.scroll_offset.y == 2, "the heading, a week, the cursor"
+
+
+async def test_clicking_the_heading_over_a_scrolled_grid_moves_nothing() -> None:
+    """The week it covers is out of sight, and so is the day a click there picked."""
+    calendar = YearCalendar()
+    async with mounted(calendar, height=8) as pilot:
+        calendar.show(JUNE, JULY_END, {}, today=JUNE)
+        await pilot.pause()
+        calendar.go_to(JULY_END)
+        await pilot.pause()
+        assert calendar.scroll_offset.y > 0
+
+        click_at(calendar, x=1, y=0)
+
+        assert calendar.selection.head == JULY_END
+
+
+async def test_paging_skips_no_week_under_the_heading() -> None:
+    """A page is the lines below the heading: a whole height hides one at each turn."""
+    calendar = YearCalendar()
+    async with mounted(calendar, height=8) as pilot:
+        calendar.show(JUNE, date(2026, 9, 30), {}, today=JUNE)
+        calendar.focus()
+        await pilot.pause()
+        page = calendar.scrollable_content_region.height - 1
+
+        await pilot.press("pagedown")
+        await pilot.pause()
+        assert calendar.scroll_offset.y == page, "the last line read is under it now"
+
+        await pilot.press("pagedown", "pageup")
+        await pilot.pause()
+        assert calendar.scroll_offset.y == page

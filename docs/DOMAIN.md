@@ -119,7 +119,7 @@ balance reads the same wherever it is drawn.
 
 | Column | Type | Meaning |
 |---|---|---|
-| `leave_year_start` | `str` "MM-DD" | Anniversary the allowances reset on. |
+| `leave_year_start` | `str` "MM-DD" | Anniversary the allowances reset on. The forms take it in words, `6 Apr`, and refuse two numbers that read both ways, such as `01/04`; only the stored value is month first. |
 | `working_days` | `str` "0,1,2,3,4" | Weekday indices, Monday = 0. |
 | `bank_holiday_division` | `str` | GOV.UK division: `england-and-wales`, `scotland`, `northern-ireland`. |
 | `auto_close_time` | `str` "HH:MM" | A session still open at this time on a later day is closed here, not left running. On a day with half of it booked off it closes once half the contracted day is worked, and never before noon. |
@@ -226,9 +226,10 @@ it" — every holiday a working day, quietly.
 `date` (when the correction takes effect), `minutes` (signed), `reason`,
 `created_at`. Written by `flexi balance zero`, with the reason `settled` unless
 one is given, and by `flexi balance adjust` or the palette's *Adjust balance…*;
-removable by id through `flexi balance undo`. `created_at` is UTC; read on the
-local clock against `date`, it is what tells a possible settlement from a
-correction.
+removable by id through `flexi balance undo`, after showing the row and asking.
+An id is used again once the newest row has gone, which is why `undo` shows the
+row before it removes it. `created_at` is UTC; read on the local clock against
+`date`, it is what tells a possible settlement from a correction.
 
 ---
 

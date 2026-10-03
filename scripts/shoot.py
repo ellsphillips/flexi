@@ -59,9 +59,10 @@ refuse_the_network()
 
 SHOTS = ROOT / "docs" / "shots"
 
-WIDE = (120, 36)
+WIDE = (120, 40)
 NARROW = (84, 28)
 TINY = (63, 22)  # one column under TINY_COLUMNS, so the -tiny rules apply
+SHORT = (120, 30)  # Windows Terminal's default, under SHORT_ROWS
 
 # The shots the README points at, sized to hold a whole feature.
 SHOWCASE = (128, 40)
@@ -69,14 +70,14 @@ SHOWCASE_TALL = (128, 46)
 
 SHOOTS: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
     ("showcase-dashboard", SHOWCASE, ["m"]),
-    ("showcase-records", SHOWCASE, ["v", "r", "down", "down", "space"]),
+    ("showcase-records", SHOWCASE, ["up", "space"]),
     ("showcase-leave", SHOWCASE, ["f2", "down", "shift+right", "shift+right"]),
     ("showcase-insights", SHOWCASE_TALL, ["f3"]),
     ("showcase-jump", SHOWCASE, ["v"]),
     ("dashboard-wide", WIDE, []),
     ("dashboard-month", WIDE, ["m"]),
     ("dashboard-day", WIDE, ["d"]),
-    ("records-expanded", WIDE, ["v", "r", "down", "down", "space"]),
+    ("records-expanded", WIDE, ["up", "space"]),
     ("jump-mode", WIDE, ["v"]),
     ("help", WIDE, ["question_mark"]),
     ("absence-modal", WIDE, ["A"]),
@@ -87,6 +88,7 @@ SHOOTS: tuple[tuple[str, tuple[int, int], list[str]], ...] = (
     ("leave-narrow", NARROW, ["f2"]),
     ("dashboard-narrow", NARROW, []),
     ("dashboard-tiny", TINY, []),
+    ("dashboard-short", SHORT, []),
 )
 
 

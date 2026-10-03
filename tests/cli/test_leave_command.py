@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from flexi.cli.leave import Request, parse_request, render, run
 from flexi.constants import AbsenceType, Portion
 from flexi.models.database.db import AbsenceDay, BankHolidayCache, BankHolidayRefresh
+from flexi.services.absence import AbsencePlan
 from flexi.services.registry import Services, build_services
 from flexi.services.settings import parse_settings
 
@@ -52,6 +53,13 @@ def services(session: Session) -> Services:
 
 def _booked(session: Session) -> list[AbsenceDay]:
     return session.query(AbsenceDay).order_by(AbsenceDay.date).all()
+
+
+def planned(services: Services, plan: AbsencePlan, today: date = MONDAY) -> str:
+    """The plan as `flexi leave` shows it on ``today``."""
+    return render(
+        plan, today=today, leave_year=services.absence.leave_year_bounds(today)
+    )
 
 
 # The grammar ----------------------------------------------------------------
@@ -216,11 +224,90 @@ def test_render_names_the_bank_holiday(services: Services) -> None:
     plan = services.absence.plan(
         date(2026, 8, 28), date(2026, 9, 2), AbsenceType.ANNUAL
     )
-    shown = render(plan)
+    shown = planned(services, plan)
 
     assert "Summer bank holiday" in shown
     assert "not a working day" in shown
     assert "3 days" in shown
+
+
+@pytest.mark.parametrize(
+    ("end", "kind", "portion", "said"),
+    [
+        (
+            FRIDAY,
+            AbsenceType.ANNUAL,
+            Portion.FULL,
+            "5 working days, 5 days of annual leave",
+        ),
+        (MONDAY, AbsenceType.SICK, Portion.PM, "1 working day, 0.5 days of sickness"),
+    ],
+)
+def test_the_plan_says_what_it_costs(
+    services: Services, end: date, kind: AbsenceType, portion: Portion, said: str
+) -> None:
+    """Not "1 day, 0.5 used", which left unsaid what was used, and of what."""
+    plan = services.absence.plan(MONDAY, end, kind, portion)
+
+    assert said in planned(services, plan)
+
+
+def test_a_day_this_year_is_shown_without_its_year(services: Services) -> None:
+    shown = planned(services, services.absence.plan(MONDAY, MONDAY, AbsenceType.SICK))
+
+    assert "  Mon 10 Aug\n" in shown
+    assert "current leave year" not in shown
+
+
+def test_a_day_in_another_year_is_shown_with_it(services: Services) -> None:
+    """`15 jun` typed in August is next June, and only the year says so."""
+    june = date(2027, 6, 15)
+
+    shown = planned(services, services.absence.plan(june, june, AbsenceType.SICK))
+
+    assert "  Tue 15 Jun 2027\n" in shown
+    assert "1 day outside the current leave year, 20 Oct 2025 to 19 Oct 2026" in shown
+
+
+def test_a_span_into_the_next_leave_year_says_how_much_is_outside(
+    services: Services,
+) -> None:
+    """Friday 16 to Wednesday 21 October: the leave year turns on the Tuesday."""
+    plan = services.absence.plan(
+        date(2026, 10, 16), date(2026, 10, 21), AbsenceType.SICK
+    )
+
+    shown = planned(services, plan)
+
+    assert "2 days outside the current leave year, 20 Oct 2025 to 19 Oct 2026" in shown
+
+
+def test_an_allowance_in_another_leave_year_is_named(services: Services) -> None:
+    """It is not this year's allowance that moves, so the line says whose."""
+    services.settings.save_entitlement(2026, 30.0)
+    november = date(2026, 11, 2)
+
+    plan = services.absence.plan(november, november, AbsenceType.ANNUAL)
+
+    assert "Annual leave 2026: 30 → 29 days left" in planned(services, plan)
+
+
+def test_a_cancellation_in_another_year_is_shown_with_it(
+    services: Services, capsys: pytest.CaptureFixture[str]
+) -> None:
+    june = date(2027, 6, 15)
+    assert services.absence.book(june, AbsenceType.SICK).success
+
+    run(
+        services,
+        ("cancel", "2027-06-15"),
+        note=None,
+        assume_yes=False,
+        dry_run=True,
+        today=MONDAY,
+    )
+
+    assert "  Tue 15 Jun 2027   Sickness" in capsys.readouterr().out
 
 
 def test_holiday_title_cannot_carry_terminal_escapes(
@@ -241,7 +328,7 @@ def test_holiday_title_cannot_carry_terminal_escapes(
     session.commit()
     built = build_services(session)
 
-    shown = render(built.absence.plan(TUESDAY, TUESDAY, AbsenceType.ANNUAL))
+    shown = planned(built, built.absence.plan(TUESDAY, TUESDAY, AbsenceType.ANNUAL))
 
     assert "PWNED" in shown, "the words survive; the instructions do not"
     assert "\x1b" not in shown
@@ -251,7 +338,7 @@ def test_holiday_title_cannot_carry_terminal_escapes(
 
 def test_render_shows_the_allowance_moving(services: Services) -> None:
     plan = services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL)
-    assert "25 → 20 days left" in render(plan)
+    assert "25 → 20 days left" in planned(services, plan)
 
 
 def test_render_keeps_cross_year_allowances_separate(
@@ -272,7 +359,7 @@ def test_render_keeps_cross_year_allowances_separate(
         date(2026, 12, 30), date(2027, 1, 5), AbsenceType.ANNUAL
     )
 
-    shown = render(plan)
+    shown = planned(services, plan)
     assert "Annual leave 2026: 1 → 0 days left" in shown
     assert "Annual leave 2027: 2 → 0 days left" in shown
 
@@ -313,7 +400,7 @@ def test_annual_leave_does_not_warn_about_flexi(
     plan = services.absence.plan(
         MONDAY, FRIDAY, AbsenceType.ANNUAL, available_toil_days=-90.0
     )
-    assert "deficit" not in render(plan)
+    assert "deficit" not in planned(services, plan)
 
 
 def test_taking_toil_beyond_the_balance_warns(
@@ -332,7 +419,7 @@ def test_taking_toil_beyond_the_balance_warns(
 
     assert plan.toil_cost == 5.0
     assert plan.toil_after == -3.0
-    assert "deficit" in render(plan)
+    assert "deficit" in planned(services, plan)
 
 
 def test_a_banked_day_is_free_to_book_before_the_first_punch(
@@ -380,7 +467,7 @@ def test_pre_tracking_toil_does_not_render_a_spurious_deficit(
 
     assert plan.cost == 2.0
     assert plan.toil_cost == 0.0
-    assert "deficit" not in render(plan)
+    assert "deficit" not in planned(services, plan)
 
 
 # Cancelling -----------------------------------------------------------------
@@ -535,7 +622,7 @@ def test_already_booked_day_is_shown_as_refused(
         today=MONDAY,
     )
 
-    shown = render(services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL))
+    shown = planned(services, services.absence.plan(MONDAY, FRIDAY, AbsenceType.ANNUAL))
 
     assert "✗" in shown, "the clash is marked as turned down, not passed over"
     assert "4 days" in shown, "and the rest of the week is still bookable"

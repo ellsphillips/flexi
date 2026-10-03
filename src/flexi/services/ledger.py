@@ -108,6 +108,10 @@ class LedgerService:
         if completed is self._session:
             self.invalidate()
 
+    def revision(self) -> LedgerRevision:
+        """Where the source rows stand, for telling when another process moved them."""
+        return ledger_revision(self._session)
+
     def refresh_revision(self) -> None:
         """Invalidate when another connection committed since the last read."""
         current = ledger_revision(self._session)

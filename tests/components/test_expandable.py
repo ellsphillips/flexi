@@ -348,6 +348,56 @@ async def test_cursor_falls_to_the_last_row() -> None:
         assert table.cursor_key == row_key(RowKind.DAY, TUESDAY)
 
 
+async def test_a_removed_row_gives_its_place_to_the_next_in_its_day() -> None:
+    """Voiding a morning leaves the afternoon under the cursor."""
+    table = ExpandableTable()
+    async with mounted(table) as pilot:
+        monday = day(MONDAY, "morning", "afternoon")
+        await table_of(pilot, monday, day(TUESDAY))
+        table.toggle(monday.parent.key)
+        table.focus_key(monday.children[0].key)
+
+        table.set_groups([RowGroup(monday.parent, monday.children[1:]), day(TUESDAY)])
+        await pilot.pause()
+
+        assert table.cursor_key == monday.children[1].key
+
+
+async def test_a_removed_row_leaves_the_cursor_in_its_day() -> None:
+    """The slot the row left can hold the next day, and `n` reads the cursor.
+
+    Voiding the only session on a day that expects nothing leaves the day no
+    rows to open, so the cursor goes to the day itself.
+    """
+    table = ExpandableTable()
+    async with mounted(table) as pilot:
+        monday = day(MONDAY, "overtime")
+        await table_of(pilot, monday, day(TUESDAY))
+        table.toggle(monday.parent.key)
+        table.focus_key(monday.children[0].key)
+
+        table.set_groups([day(MONDAY), day(TUESDAY)])
+        await pilot.pause()
+
+        assert table.cursor_key == monday.parent.key
+
+
+async def test_closing_every_day_leaves_the_cursor_on_its_own() -> None:
+    """shift+space from inside a day takes away every row it could stay on."""
+    table = ExpandableTable()
+    async with mounted(table) as pilot:
+        await table_of(
+            pilot, day(MONDAY, "morning", "afternoon"), day(TUESDAY, "all day")
+        )
+        table.expand_all(expanded=True)
+        table.focus_key(f"s-{MONDAY}-1")
+
+        table.expand_all(expanded=False)
+        await pilot.pause()
+
+        assert table.cursor_key == row_key(RowKind.DAY, MONDAY)
+
+
 async def test_emptied_table_has_no_cursor_key() -> None:
     """The fallback reaches for `row_count - 1`, which on an empty table is -1."""
     table = ExpandableTable()

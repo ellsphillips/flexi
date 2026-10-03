@@ -52,6 +52,11 @@ class ClockModule(Module):
     def on_mount(self) -> None:
         self.rebuild()
 
+    @property
+    def shows_open(self) -> bool:
+        """Whether the panel was last drawn on the clock: what a press aims at."""
+        return self._ledger is not None and self._ledger.is_open
+
     # --- drawing ----------------------------------------------------------
 
     def rebuild(self) -> None:
@@ -136,6 +141,5 @@ class ClockModule(Module):
         that write posts ``Changed`` just as a press does.
         """
         event.stop()
-        on_clock = self._ledger is not None and self._ledger.is_open
-        if event.value != on_clock:
+        if event.value != self.shows_open:
             self.post_message(self.Toggle())

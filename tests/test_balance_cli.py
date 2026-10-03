@@ -124,6 +124,26 @@ def test_zero_asks_before_it_writes(home: Path) -> None:
     assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
 
 
+def test_enter_leaves_the_balance_alone(home: Path) -> None:
+    """Enter means no at every question that writes, as it does for leave."""
+    result = CliRunner().invoke(cli, ["balance", "zero"], input="\n")
+
+    assert result.exit_code == 1
+    assert "Settle it to zero? [y/N]" in result.stderr
+    assert "Left alone" in result.stderr
+    assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
+
+
+def test_settling_with_nothing_to_answer_says_to_add_yes(home: Path) -> None:
+    """A scheduler gives no input, and gets what to add, not "Aborted!"."""
+    result = CliRunner().invoke(cli, ["balance", "zero"], input="")
+
+    assert result.exit_code == 1
+    assert "add --yes to settle it without asking" in result.stderr
+    assert "Aborted!" not in result.output
+    assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
+
+
 def test_settlement_question_is_asked_on_stderr(home: Path) -> None:
     """`flexi balance zero > log` must not send the question into the file."""
     result = CliRunner().invoke(cli, ["balance", "zero"], input="n\n")
@@ -160,6 +180,16 @@ def test_non_utf8_reason_is_refused_before_the_write(
     assert "No adjustments" in CliRunner().invoke(cli, ["balance", "log"]).output
 
 
+def test_a_blank_reason_is_settled_as_none(home: Path) -> None:
+    """Not refused once the question has been answered yes."""
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["balance", "zero", "--reason", "   "], input="y\n")
+
+    assert result.exit_code == 0, result.output
+    assert "settled" in runner.invoke(cli, ["balance", "log"]).output
+
+
 def test_zero_is_refused_twice(home: Path) -> None:
     """The second one would be a row that does nothing."""
     runner = CliRunner()
@@ -167,6 +197,43 @@ def test_zero_is_refused_twice(home: Path) -> None:
     again = runner.invoke(cli, ["balance", "zero", "--yes"])
     assert again.exit_code == 1
     assert "already zero" in again.output
+
+
+def test_nothing_to_settle_is_said_without_asking(home: Path) -> None:
+    """A yes answered with a refusal is a question that should not have been asked.
+
+    Every first day of tracking reads 0:00 through yesterday. The exit is still
+    1, as for any settlement not written.
+    """
+    runner = CliRunner()
+    runner.invoke(cli, ["balance", "zero", "--yes"])
+
+    result = runner.invoke(cli, ["balance", "zero"], input="y\n")
+
+    assert result.exit_code == 1
+    assert "Settle it to zero?" not in result.stderr
+    assert (
+        "The balance as at Tue 9 Jun 2026 is already zero; nothing to settle"
+        in result.stderr
+    )
+
+
+def test_a_line_already_drawn_is_refused_before_asking(home: Path) -> None:
+    """Settling behind a later line is refused, and before the figure and question."""
+    runner = CliRunner()
+    with time_machine.travel(NOON + timedelta(days=2), tick=False):
+        # Back-dated, so it may be a settlement, and on Thursday, after Tuesday.
+        drawn = adjust(runner, "+1:00", "--on", "yesterday", "--reason", "x", "--yes")
+        assert drawn.exit_code == 0, drawn.output
+
+        result = runner.invoke(
+            cli, ["balance", "zero", "--as-of", YESTERDAY.isoformat()], input="y\n"
+        )
+
+    assert result.exit_code == 1
+    assert "An adjustment is already recorded on Thu 11 Jun 2026" in result.stderr
+    assert "Settle it to zero?" not in result.stderr
+    assert "balance as at" not in result.stdout
 
 
 def test_settlement_can_be_taken_back(home: Path) -> None:
@@ -183,9 +250,9 @@ def test_settlement_can_be_taken_back(home: Path) -> None:
     assert "opening balance" not in log.output
     row_id = log.output.split()[0]
 
-    undone = runner.invoke(cli, ["balance", "undo", row_id])
+    undone = runner.invoke(cli, ["balance", "undo", row_id, "--yes"])
     assert undone.exit_code == 0
-    assert "removed" in undone.output
+    assert "Removed" in undone.output
 
     assert balance_of(runner, YESTERDAY) != "0:00"
 
@@ -265,6 +332,27 @@ def test_a_deficit_is_an_amount_not_an_option(home: Path, typed: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("typed", "said"),
+    [
+        ("--dry-run", "No such option '--dry-run'."),
+        ("--yse", "No such option '--yse'. Did you mean '--yes'?"),
+    ],
+)
+def test_an_unknown_option_is_not_an_extra_argument(
+    home: Path, typed: str, said: str
+) -> None:
+    """Unknown options are let through as words, so that `-1:30` is an amount."""
+    runner = CliRunner()
+
+    result = adjust(runner, "-1:30", "--reason", "Left early", typed)
+
+    assert result.exit_code == 2
+    assert said in result.stderr
+    assert "unexpected extra argument" not in result.output
+    assert "No adjustments" in logged(runner)
+
+
+@pytest.mark.parametrize(
     ("typed", "said"), [("5", "use H:MM"), ("5:3", "use H:MM"), ("0:00", "nothing")]
 )
 def test_unreadable_or_zero_amount_is_a_usage_error(
@@ -276,6 +364,23 @@ def test_unreadable_or_zero_amount_is_a_usage_error(
 
     assert result.exit_code == 2
     assert said in result.stderr
+    assert "No adjustments" in logged(runner)
+
+
+@pytest.mark.parametrize("typed", ["-1h", "-1h30"])
+def test_an_amount_with_an_h_in_it_is_not_a_call_for_help(
+    home: Path, typed: str
+) -> None:
+    """`-h` is help as a word of its own, never one Click finds inside `-1h`.
+
+    Help exits 0, which a script adjusting with --yes would take for written.
+    """
+    runner = CliRunner()
+
+    result = adjust(runner, typed, "--reason", "Late meeting", "--yes")
+
+    assert result.exit_code == 2
+    assert f"'{typed}' is not an amount: use H:MM" in result.stderr
     assert "No adjustments" in logged(runner)
 
 
@@ -304,6 +409,19 @@ def test_adjust_shows_the_balance_it_makes_and_asks(home: Path) -> None:
     assert "Brought forward" in result.stdout
     assert "−5:24 → +0:06" in result.stdout
     assert "Record it?" in result.stderr, "the question is not the output"
+    assert "Nothing was recorded" in result.stderr
+    assert "No adjustments" in logged(runner)
+
+
+@pytest.mark.usefixtures("at_a_terminal")
+def test_enter_records_no_adjustment(home: Path) -> None:
+    """Enter means no, as it does at every other question that writes."""
+    runner = CliRunner()
+
+    result = adjust(runner, "+5:30", "--reason", "Brought forward", answer="\n")
+
+    assert result.exit_code == 1
+    assert "Record it? [y/N]" in result.stderr
     assert "Nothing was recorded" in result.stderr
     assert "No adjustments" in logged(runner)
 
@@ -392,8 +510,68 @@ def test_adjustment_is_logged_and_can_be_taken_back(home: Path) -> None:
     assert "2026-06-10" in log
     assert "+5:30  Brought forward" in log
 
-    undone = runner.invoke(cli, ["balance", "undo", log.split()[0]])
+    undone = runner.invoke(cli, ["balance", "undo", log.split()[0], "--yes"])
 
     assert undone.exit_code == 0
     assert "No adjustments" in logged(runner)
     assert balance_of(runner) == "−5:24"
+
+
+# Taking one back
+
+
+def undo(runner: CliRunner, *args: str, answer: str | None = None) -> Result:
+    return runner.invoke(cli, ["balance", "undo", *args], input=answer)
+
+
+@pytest.mark.usefixtures("at_a_terminal")
+def test_undo_shows_the_row_and_asks_first(home: Path) -> None:
+    """An id is reused once the newest row goes, so a remembered one may be stale.
+
+    Declining exits 1 and removes nothing, as declining every other write does.
+    """
+    runner = CliRunner()
+    adjust(runner, "+1:00", "--reason", "Late meeting", "--yes")
+    row_id = logged(runner).split()[0]
+
+    result = undo(runner, row_id, answer="n\n")
+
+    assert result.exit_code == 1
+    assert "+1:00  Late meeting" in result.stdout, "the row, as the log lists it"
+    assert "Remove it? [y/N]" in result.stderr, "the question is not the output"
+    assert "Nothing was removed" in result.stderr
+    assert "Late meeting" in logged(runner)
+
+
+@pytest.mark.usefixtures("at_a_terminal")
+def test_undo_names_the_row_it_removed(home: Path) -> None:
+    """Said in full, so a row removed by mistake can be entered again."""
+    runner = CliRunner()
+    adjust(runner, "+1:00", "--reason", "Late meeting", "--yes")
+    row_id = logged(runner).split()[0]
+
+    result = undo(runner, row_id, answer="y\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"Removed {row_id}: +1:00 on 10 Jun 2026, Late meeting" in result.stdout
+    assert "No adjustments" in logged(runner)
+
+
+def test_undo_without_a_terminal_refuses_instead_of_asking(home: Path) -> None:
+    """As adjust does: a pipe is not someone answering."""
+    runner = CliRunner()
+    adjust(runner, "+1:00", "--reason", "Late meeting", "--yes")
+    row_id = logged(runner).split()[0]
+
+    result = undo(runner, row_id, answer="y\n")
+
+    assert result.exit_code == 1
+    assert "add --yes to remove it without asking" in result.stderr
+    assert "Late meeting" in logged(runner)
+
+
+def test_undo_of_a_missing_id_points_at_the_log(home: Path) -> None:
+    result = undo(CliRunner(), "3", "--yes")
+
+    assert result.exit_code == 1
+    assert "No adjustment 3; `flexi balance log` lists them" in result.stderr

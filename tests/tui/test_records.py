@@ -13,16 +13,21 @@ from flexi.app import FlexiApp
 from flexi.components.expandable import (
     ExpandableTable,
     RowKind,
+    row_key,
 )
+from flexi.components.modules.clock import ClockModule
+from flexi.components.modules.monthview import MonthView
 from flexi.components.modules.records import DeleteHere, RecordsModule
 from flexi.components.modules.wallet import BookRequested, WalletModule
 from flexi.components.progress import ProgressRail, TimeProgress
+from flexi.config import CONFIG
 from flexi.constants import AbsenceType
 from flexi.messages import Scope
 from flexi.screens.dashboard import DashboardScreen
-from flexi.screens.modals import AbsenceModal, ConfirmModal
+from flexi.screens.modals import AbsenceModal, ConfirmModal, CorrectionModal
 from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import adjust_balance, zero_balance
+from flexi.theme import colour
 from tests.conftest import sessions_on, settled
 from tests.tui.conftest import (
     WIDE,
@@ -74,6 +79,167 @@ async def test_week_is_seven_rows_and_a_total(app_factory: AppFactory) -> None:
         assert rows[-1].key == "t-period"
 
 
+# --- the keyboard at launch -------------------------------------------------
+
+TODAY = date(2026, 6, 11)
+"""The Thursday the frozen clock is standing on."""
+
+
+async def test_the_rows_have_the_keyboard_from_launch(
+    app_factory: AppFactory,
+) -> None:
+    """The cursor starts on the day `n` records on, under the keys that move it."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+
+        assert app.focused is widget
+        assert widget.cursor_key == row_key(RowKind.DAY, TODAY)
+
+
+async def test_space_and_x_work_from_launch(app_factory: AppFactory) -> None:
+    """Open yesterday and void its first session, with no click and no jump."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+
+        await pilot.press("up", "space", "down", "x")
+        await pilot.pause()
+
+        assert "on Wed 10 Jun" in showing(app, ConfirmModal)._question
+
+
+async def test_the_cursor_follows_the_period_to_its_anchor(
+    app_factory: AppFactory,
+) -> None:
+    """Moving the period moves the cursor with it, so it and `n` agree."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+
+        await pilot.press("right_square_bracket")
+        await pilot.pause()
+
+        anchor = dashboard(app).period.anchor
+        assert anchor == TODAY + timedelta(days=7)
+        assert table(app).cursor_key == row_key(RowKind.DAY, anchor)
+
+
+async def test_a_redraw_leaves_the_cursor_where_it_was_put(
+    app_factory: AppFactory,
+) -> None:
+    """Only a moved anchor moves the cursor: a write or a minute does not."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await pilot.press("up", "up")
+        await pilot.pause()
+
+        dashboard(app).refresh_modules(Scope.ALL)
+        await pilot.pause()
+
+        assert table(app).cursor_key == row_key(RowKind.DAY, TODAY - timedelta(days=2))
+
+
+async def test_a_cancelled_dialog_leaves_the_cursor_where_it_was(
+    app_factory: AppFactory,
+) -> None:
+    """The rows take the keyboard once; after that it is the user's to move.
+
+    Taking it back whenever the dashboard showed again would put the cursor
+    back on today after every cancelled `n`.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await pilot.press("up", "up", "n")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert app.focused is table(app)
+        assert table(app).cursor_key == row_key(RowKind.DAY, TODAY - timedelta(days=2))
+
+
+async def test_closing_help_leaves_the_calendar_the_keyboard(
+    app_factory: AppFactory,
+) -> None:
+    """The screen's own focus comes back with it, not the rows' first claim."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        calendar = app.screen.query_one(MonthView)
+        calendar.focus()
+        await pilot.pause()
+
+        await pilot.press("question_mark")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert app.focused is calendar
+
+
+def cursor_ground(widget: ExpandableTable) -> str:
+    """The colour behind the row under the cursor, as `#rrggbb`."""
+    ground = widget.get_component_rich_style("datatable--cursor").bgcolor
+    assert ground is not None
+    assert ground.triplet is not None
+    return ground.triplet.hex
+
+
+async def test_the_cursor_is_lit_only_while_the_rows_have_the_keyboard(
+    app_factory: AppFactory,
+) -> None:
+    """Away from the table its cursor steps back, as the theme's blurred cursor.
+
+    Lit, it reads as the day the keys act on, and away from the table `n` acts
+    on the anchor instead.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        assert cursor_ground(widget) == colour("c-accent-deep").lower()
+
+        app.screen.query_one(ClockModule).focus()
+        await pilot.pause()
+
+        assert cursor_ground(widget) == colour("c-line-soft").lower()
+
+
+async def test_tab_comes_round_to_the_rows_through_live_stops(
+    app_factory: AppFactory,
+) -> None:
+    """No stop on the way is a container that shows nothing and does nothing.
+
+    The left column's scroller and the records panel were both stops, and on
+    either the arrows did nothing. Shift+Tab leaves the table as Tab does.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        widget = table(app)
+        stops = []
+        for _ in range(20):
+            await pilot.press("tab")
+            await pilot.pause()
+            if app.focused is widget:
+                break
+            stops.append(app.focused)
+
+        assert app.focused is widget, f"Tab never came back: {stops}"
+        dead = {
+            app.screen.query_one("#dashboard-controls"),
+            app.screen.query_one(RecordsModule),
+        }
+        assert not dead & set(stops), stops
+
+        await pilot.press("shift+tab")
+        await pilot.pause()
+        assert app.focused is stops[-1]
+
+
 async def test_space_opens_the_day_under_the_cursor(app_factory: AppFactory) -> None:
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
@@ -89,6 +255,35 @@ async def test_space_opens_the_day_under_the_cursor(app_factory: AppFactory) -> 
 
         assert len(widget.visible_rows()) > before
         assert any(row.key.startswith(RowKind.SESSION) for row in widget.visible_rows())
+
+
+@pytest.mark.parametrize(
+    ("keys", "saturday_in_view"),
+    [(("down",), False), (("down", "down", "up"), True)],
+    ids=["on-the-last-row-in-view", "one-row-above-it"],
+)
+async def test_space_near_the_foot_of_the_table_shows_what_it_opened(
+    app_factory: AppFactory, keys: tuple[str, ...], *, saturday_in_view: bool
+) -> None:
+    """At 80x24 the week runs on below the table, and an opened day ran with it.
+
+    On the last row in view, space looked to do nothing. On the row above, the
+    table scrolled up one and hid what it had opened.
+    """
+    app = app_factory()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await settled(pilot)
+        await pilot.press(*keys)
+        assert table(app).cursor_key == row_key(RowKind.DAY, TODAY + timedelta(days=1))
+        assert ("Sat 13" in screen_text(app)) is saturday_in_view
+
+        await pilot.press("space")
+        # The scroll that brings the rows into view runs after a refresh.
+        await settled(pilot)
+
+        drawn = screen_text(app)
+        assert "Fri 12" in drawn, "the day stays in view"
+        assert "└ expected" in drawn, "and so do the rows it opened"
 
 
 async def test_expanding_does_not_move_the_cursor(app_factory: AppFactory) -> None:
@@ -455,7 +650,7 @@ async def test_x_on_a_booking_already_gone_says_so(
 # --- voiding a session from a row -------------------------------------------
 
 MONDAY = date(2026, 6, 8)
-"""The seed's Monday: 08:01 to 12:30, then 13:10 to 16:54."""
+"""The seed's Monday: 08:01 to 12:30, then 13:10 to 16:14."""
 
 DAY = timedelta(hours=7, minutes=24)
 
@@ -501,6 +696,34 @@ async def test_x_on_a_session_asks_before_it_voids_it(
         after = app.services.ledger.day(MONDAY).worked
         assert after == worked - timedelta(hours=4, minutes=29)
         assert key not in [row.key for row in table(app).visible_rows()]
+
+
+async def test_n_after_voiding_the_afternoon_records_on_its_day(
+    app_factory: AppFactory,
+) -> None:
+    """The way to fix a session: void it with `x`, then add the real hours with `n`.
+
+    The afternoon takes the lunch break above it when it goes, so the slot the
+    cursor was in holds Tuesday, and `n` follows the cursor.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        last = max(
+            app.services.clock.segments_on(MONDAY), key=lambda found: found.start
+        )
+        await on_session(app, pilot, f"{RowKind.SESSION}{last.session_id}")
+
+        await pilot.press("x")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert status_text(app) == "Voided 13:10 → 16:14 on Mon 8 Jun"
+
+        await pilot.press(CONFIG.hotkeys.new_session)
+        await pilot.pause()
+
+        assert showing(app, CorrectionModal)._day == MONDAY
 
 
 async def test_declining_the_question_leaves_the_session_alone(

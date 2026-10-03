@@ -187,11 +187,14 @@ async def test_a_badge_for_a_missing_panel_moves_nothing(
 async def test_a_row_badge_for_a_missing_table_moves_nothing(
     app_factory: AppFactory,
 ) -> None:
-    """A row key is resolved against the table, not against the DOM."""
+    """A row key is resolved against the table, not against the DOM.
+
+    Jump mode takes the focus when it opens. A row badge with no table to put
+    it in gives it to nothing, and the screen's own choice went with the panel.
+    """
     app = app_factory()
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
-        before = app.focused
 
         await pilot.press("v")
         await pilot.pause()
@@ -201,7 +204,7 @@ async def test_a_row_badge_for_a_missing_table_moves_nothing(
         await pilot.press("4")
         await pilot.pause()
 
-        assert app.focused is before
+        assert app.focused is None
 
 
 async def test_row_badges_need_a_records_table(

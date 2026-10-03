@@ -30,12 +30,14 @@ from flexi.components.wordmark import Wordmark
 from flexi.constants import DEFAULT_DIVISION, Division
 from flexi.domain import leaveyear
 from flexi.domain.format import hm
-from flexi.screens.settings import ALL_REQUIRED, parse_answers
+from flexi.screens.settings import AnswerError, answer, parse_answers, refuse
 from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
+    LEAVE_YEAR_HINT,
+    describe_leave_year_start,
     parse_entitlement_days,
-    parse_month_day,
+    read_leave_year_start,
 )
 from flexi.theme import MARK_DONE, MARK_LIVE, RAIL_SETTLED, TAIL, colour
 
@@ -61,8 +63,14 @@ __all__ = (
     "sized",
 )
 
-LEAVE_YEAR_START = "04-06"
-"""What the first question is pre-filled with, not the stored default."""
+LEAVE_YEAR_START = "6 Apr"
+"""What the first question is pre-filled with, not the stored default.
+
+In words: the form refuses `04-06`, which is 4 June written day first.
+"""
+
+_OFFERED = "6 April, for most schemes"
+"""The note beside the start the form offers, until another is typed."""
 
 GUTTER = "  "
 """Indent to the left of the rail, so it sits off the edge of the terminal."""
@@ -89,15 +97,19 @@ Long enough to read as travel, short enough that holding tab still moves.
 """
 
 RAIL_WIDTH = 5
-ASK_WIDTH = 22
-FIELD_WIDTH = 24
-NOTE_WIDTH = 36
+ASK_WIDTH = 20
+FIELD_WIDTH = 21
+NOTE_WIDTH = 32
 FORM_WIDTH = RAIL_WIDTH + ASK_WIDTH + FIELD_WIDTH + NOTE_WIDTH
 """The four columns of a question, and the width of everything on this screen.
 
 Fixed in Python, not left to `width: auto`: the wordmark has to match the
 questions' width to centre over them, and an auto column takes the width of its
 widest child.
+
+Seventy-eight in all, inside the eighty columns a terminal opens at, so no note
+runs off the right edge; a note gets its column less two cells of padding. The
+field is as narrow as the list of regions goes before it wraps Northern Ireland.
 """
 
 
@@ -271,8 +283,12 @@ class SetupScreen(Screen[bool]):
         return [
             Question(
                 "Leave year starts",
-                Input(LEAVE_YEAR_START, id="input-leave-start", placeholder="MM-DD"),
-                "6 April, for most schemes",
+                Input(
+                    LEAVE_YEAR_START,
+                    id="input-leave-start",
+                    placeholder=LEAVE_YEAR_START,
+                ),
+                _OFFERED,
                 id="ask-leave-start",
             ),
             Question(
@@ -288,7 +304,7 @@ class SetupScreen(Screen[bool]):
             Question(
                 "Working days",
                 Input("Mon-Fri", id="input-working-days", placeholder="Mon-Fri"),
-                "or Tue, Thu if you work part time",
+                "or Tue, Thu for part time",
                 id="ask-working-days",
             ),
             Question(
@@ -337,17 +353,24 @@ class SetupScreen(Screen[bool]):
                     )
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Keep the entitlement note on the year the typed start files it under."""
+        """Say how the typed start reads, and the year its allowance is filed under."""
         if event.input.id != "input-leave-start":
             return
+        note = self.query_one("#ask-leave-start", Question).query_one(".note", Static)
         try:
-            year = entitlement_year(event.value)
+            start = read_leave_year_start(event.value)
         except ValueError:
-            # Half a date is not an answer yet; the note keeps the last year
-            # it could work out.
+            # Half a date is not an answer yet: the note says how to write one,
+            # and the allowance stays on the last year it could work out.
+            note.update(LEAVE_YEAR_HINT)
             return
+        note.update(
+            _OFFERED
+            if event.value == LEAVE_YEAR_START
+            else f"starts {describe_leave_year_start(start)}"
+        )
         self.query_one("#ask-entitlement", Question).query_one(".note", Static).update(
-            f"days for {year}, halves allowed"
+            f"days for {entitlement_year(event.value)}, halves allowed"
         )
 
     def on_mount(self) -> None:
@@ -432,25 +455,16 @@ class SetupScreen(Screen[bool]):
         self.action_save()
 
     def action_save(self) -> None:
-        """Write the answers, or say which one is not an answer yet.
+        """Write the answers, or go back to one that is not an answer yet.
 
         Every answer is parsed before anything is written, then settings and
         entitlement commit together, on the boundary `SettingsScreen._save` uses.
         """
-        entitlement_str = self.query_one("#input-entitlement", Input).value.strip()
-        if not entitlement_str:
-            self.notify(ALL_REQUIRED, severity="error")
-            return
-        try:
-            entitlement = parse_entitlement_days(entitlement_str)
-        except ValueError as error:
-            self.notify(str(error), severity="error")
-            return
-
         try:
             update = parse_answers(self)
-        except ValueError as error:
-            self.notify(str(error), severity="error")
+            entitlement = answer(self, "#input-entitlement", parse_entitlement_days)
+        except AnswerError as refusal:
+            refuse(refusal)
             return
 
         # The leave year, not the calendar year: `get_active_entitlement_days`
@@ -466,7 +480,7 @@ class SetupScreen(Screen[bool]):
 
 def entitlement_year(start: str) -> int:
     """The leave year an allowance typed today would be filed under."""
-    return leaveyear.active_year(wallclock.today(), *parse_month_day(start))
+    return leaveyear.active_year(wallclock.today(), *read_leave_year_start(start))
 
 
 def form_rows(questions: int, question_rows: int = QUESTION_ROWS) -> int:

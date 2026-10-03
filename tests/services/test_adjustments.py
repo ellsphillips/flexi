@@ -144,6 +144,26 @@ def test_removing_one_puts_the_balance_back(services: Services) -> None:
     assert services.ledger.balance(MONDAY).adjustment == timedelta()
 
 
+def test_removing_one_names_what_went(services: Services) -> None:
+    """The message is the only record of the row, so it can be entered again.
+
+    The reason is drawn at a terminal, so it loses the characters one obeys.
+    """
+    recorded = services.adjustments.record(
+        MONDAY, -timedelta(minutes=45), "Long\x1b]0;forged\x07 lunch"
+    )
+    assert recorded.adjustment is not None
+    row_id = recorded.adjustment.id
+
+    result = services.adjustments.remove(row_id)
+
+    assert result.success
+    assert result.message == (
+        f"Removed {row_id}: −0:45 on 8 Jun 2026, Long]0;forged lunch"
+    )
+    assert services.adjustments.get(row_id) is None
+
+
 def test_removal_reserves_an_adjustment_before_reading_it(
     services: Services,
     session: Session,

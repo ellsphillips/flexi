@@ -110,6 +110,9 @@ jobs:
       - run: uv sync --locked --dev
 
       # Exercise the developer recipes once on each OS without adding matrix jobs.
+      # The justfile's lint and fix recipes format it with this same just: keep
+      # the pins in step, as test_justfile_is_formatted_by_the_just_ci_pins
+      # checks.
       - name: Test the developer recipes
         if: matrix.python == '3.13' && matrix.tz == 'UTC'
         run: uvx --from rust-just==1.46.0 just test tests/test_tasks.py -q -n 0

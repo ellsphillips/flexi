@@ -8,6 +8,8 @@
      reverted the fix and watched the test go red — a test that passes either
      way is not a regression guard. -->
 
-- [ ] `uv run pytest -q`
-- [ ] `uv run pre-commit run --all-files`
-- [ ] Screenshots regenerated (`uv run python scripts/shoot.py`) if the interface moved
+- [ ] `just check`
+- [ ] `just test`
+- [ ] `just shots`, if the interface moved
+- [ ] A note under `## Unreleased` in `CHANGELOG.md` (`## 0.2.0` until it is
+      released), if users will notice

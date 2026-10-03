@@ -239,13 +239,17 @@ async def test_burndown_with_no_entitlement_says_so() -> None:
 
 
 async def test_burndown_fills_left_and_prints_its_figures() -> None:
+    """Booked, not taken: the count holds leave still to come.
+
+    It runs to the end of the leave year, as the Leave screen's total does.
+    """
     chart = Burndown()
     async with mounted(chart, width=20):
         chart.show(15.0, 25.0, 12.0)
         track, caption = lines(chart)
         assert track.startswith(FULL)
         assert track.endswith(EMPTY)
-        assert caption == "10 taken · 15 left · pace 12"
+        assert caption == "10 booked · 15 left · pace 12"
 
 
 async def test_burndown_signs_an_overspent_remainder() -> None:
@@ -253,7 +257,7 @@ async def test_burndown_signs_an_overspent_remainder() -> None:
     chart = Burndown()
     async with mounted(chart, width=20):
         chart.show(-2.0, 25.0, 12.0)
-        assert lines(chart)[1] == "27 taken · −2 left · pace 12"
+        assert lines(chart)[1] == "27 booked · −2 left · pace 12"
 
 
 async def test_burndown_with_no_pace_has_no_mark() -> None:

@@ -63,15 +63,32 @@ async def test_fields_arrive_holding_what_is_stored(
         row = app.services.settings.get_settings()
         assert row is not None
 
-        assert screen.query_one("#input-leave-start", Input).value == (
-            row.leave_year_start
-        )
+        assert row.leave_year_start == "04-06"
+        assert screen.query_one("#input-leave-start", Input).value == "6 Apr"
         assert screen.query_one("#input-working-days", Input).value == "Mon-Fri"
         assert screen.query_one("#input-hours", Input).value == "7:24"
         assert screen.query_one("#input-auto-close", Input).value == row.auto_close_time
         assert screen.query_one("#select-division", Select).value == (
             row.bank_holiday_division
         )
+
+
+async def test_typing_straight_away_corrects_the_first_field(
+    app_factory: AppFactory,
+) -> None:
+    """Left to Textual, the scrolling body took focus and the keys went nowhere."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        screen = showing(app, SettingsScreen)
+        field = screen.query_one("#input-leave-start", Input)
+        assert screen.focused is field
+
+        await pilot.press(*"09-30", "enter")
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert stored_start(app) == "09-30", "what was typed replaced what was there"
 
 
 async def test_screen_opens_before_any_settings_exist(tmp_path: Path) -> None:
@@ -86,7 +103,7 @@ async def test_screen_opens_before_any_settings_exist(tmp_path: Path) -> None:
         app.push_screen(SettingsScreen(app.services))
         await pilot.pause()
         screen = showing(app, SettingsScreen)
-        assert screen.query_one("#input-leave-start", Input).value == "01-01"
+        assert screen.query_one("#input-leave-start", Input).value == "1 Jan"
         assert screen.query_one("#input-working-days", Input).value == "Mon-Fri"
         assert screen.query_one("#input-hours", Input).value == "7:24"
         assert screen.query_one("#input-auto-close", Input).value == "18:00"
@@ -100,7 +117,7 @@ async def test_saving_writes_every_field(app_factory: AppFactory) -> None:
     async with app.run_test(size=WIDE) as pilot:
         await open_settings(pilot)
         screen = showing(app, SettingsScreen)
-        screen.query_one("#input-leave-start", Input).value = "04-01"
+        screen.query_one("#input-leave-start", Input).value = "1 Apr"
         screen.query_one("#input-working-days", Input).value = "0,1,2,3"
         screen.query_one("#input-auto-close", Input).value = "17:30"
         screen.query_one("#select-division", Select).value = Division.SCOTLAND.value
@@ -149,6 +166,57 @@ async def test_unreadable_time_is_refused(app_factory: AppFactory) -> None:
         row = app.services.settings.get_settings()
         assert row is not None
         assert row.auto_close_time != "half past six"
+
+
+async def test_refusal_goes_back_to_the_field_in_this_forms_words(
+    app_factory: AppFactory,
+) -> None:
+    """The first-run form asks "Auto-close at"; this one asks for a time."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        screen = showing(app, SettingsScreen)
+        field = screen.query_one("#input-auto-close", Input)
+        field.value = "half six"
+
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        [refused] = [n for n in app._notifications if n.severity == "error"]
+        assert refused.title == "Auto-close time"
+        assert screen.focused is field
+
+
+async def test_the_start_shown_in_words_saves_as_it_was(
+    app_factory: AppFactory,
+) -> None:
+    """Shown as `04-06`, the stored start would be refused: it reads two ways."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        await pilot.click("#btn-save")
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+        assert stored_start(app) == "04-06"
+
+
+async def test_a_start_that_reads_two_ways_is_refused(app_factory: AppFactory) -> None:
+    """Settings is where a misread start is put right, so it reads it as setup does."""
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        await open_settings(pilot)
+        await pilot.press(*"01/09", "enter")
+        await pilot.pause()
+
+        screen = showing(app, SettingsScreen)
+        [refused] = [n for n in app._notifications if n.severity == "error"]
+        assert refused.title == "Leave year start"
+        assert refused.message == (
+            "'01/09' could be 1 September or 9 January: type 1 Sep or 9 Jan"
+        )
+        assert screen.focused is screen.query_one("#input-leave-start", Input)
+        assert stored_start(app) == "04-06"
 
 
 async def test_unusable_hours_a_day_are_refused(app_factory: AppFactory) -> None:

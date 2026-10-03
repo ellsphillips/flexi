@@ -14,11 +14,21 @@ import sys
 
 import click
 
-__all__ = ("PLAIN_TERMINALS", "enable_ansi", "monochrome", "prepare", "tolerant")
+__all__ = (
+    "PLAIN_TERMINALS",
+    "enable_ansi",
+    "monochrome",
+    "prepare",
+    "tolerant",
+    "unencodable",
+)
 
 PLAIN_TERMINALS = frozenset({"dumb", "unknown"})
 """``TERM`` values that mean the terminal draws text and nothing else."""
 
+
+_GLYPHS = "−→─━│●…"
+"""A sample of what Flexi draws with: a minus sign, an arrow, rules and marks."""
 
 _VIRTUAL_TERMINAL_PROCESSING = 0x0004
 """Console mode bit that makes a console interpret escape sequences."""
@@ -82,6 +92,23 @@ def tolerant() -> None:
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper) and not stream.isatty():
             stream.reconfigure(encoding=encoding, errors="replace")
+
+
+def unencodable() -> str | None:
+    """The encoding of a terminal stream that cannot draw Flexi, if there is one.
+
+    `tolerant` makes a pipe UTF-8, but a terminal keeps its locale's encoding,
+    and an 8-bit one has no minus sign or box rule: a report raises
+    `UnicodeEncodeError` and the application draws escapes for its borders.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        encoding = getattr(stream, "encoding", None)
+        if encoding and stream.isatty():
+            try:
+                _GLYPHS.encode(encoding)
+            except UnicodeEncodeError:
+                return str(encoding)
+    return None
 
 
 def prepare(ctx: click.Context) -> None:

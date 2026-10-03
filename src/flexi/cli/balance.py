@@ -13,12 +13,14 @@ import click
 from flexi import wallclock
 from flexi.cli import report, ui
 from flexi.domain.format import delta, hm, long_date, printable, stamp
+from flexi.models.database.db import BalanceAdjustment
 from flexi.services.adjustments import SETTLED, parse_amount
 from flexi.services.registry import (
     Services,
     adjust_balance,
     adjustment_refusal,
     settlement_date,
+    settlement_refusal,
     zero_balance,
 )
 
@@ -86,24 +88,25 @@ def zero(
     Records one signed adjustment and deletes nothing, so the clock events that
     produced the balance stay where they are and `flexi balance undo` can take
     the line back. Declining exits 1, as declining a booking does, so a script
-    chaining on `&&` can tell the write did not happen.
+    chaining on `&&` can tell the write did not happen. So does a refusal, which
+    comes before the question: a yes answered with a no is a question that
+    should not have been asked.
     """
     when = settlement_date(as_of)
-    if when >= wallclock.today():
-        # `zero_balance` refuses a date that has not finished, and the standing
-        # it would be sized from cannot see that date's hours yet.
-        return report(zero_balance(services, when, reason=reason or SETTLED))
+    refusal = settlement_refusal(services, when)
+    if refusal is not None:
+        click.secho(refusal, fg="red", err=True)
+        return 1
 
     standing = services.ledger.balance(when).as_shown().delta
 
     click.echo(f"balance as at {long_date(when)} is {delta(standing)}")
-    if not assume_yes and not click.confirm(
-        "Settle it to zero?", default=True, err=True
-    ):
+    if not assume_yes and not ui.agreed("Settle it to zero?", doing="settle it"):
         click.echo("Left alone.", err=True)
         return 1
 
-    result = zero_balance(services, when, reason=reason or SETTLED)
+    # A blank one is no reason given, and not a refusal after the question.
+    result = zero_balance(services, when, reason=(reason or "").strip() or SETTLED)
     if report(result):
         return 1
 
@@ -149,17 +152,21 @@ def adjust(
 
     if not assume_yes:
         if not ui.interactive():
-            click.secho(
-                "No terminal to ask on; add --yes to record it without asking.",
-                fg="yellow",
-                err=True,
-            )
+            click.secho(ui.UNANSWERED.format(doing="record it"), fg="yellow", err=True)
             return 1
-        if not click.confirm("\nRecord it?", default=True, err=True):
+        if not ui.agreed("\nRecord it?", doing="record it"):
             click.echo("Nothing was recorded.", err=True)
             return 1
 
     return report(adjust_balance(services, change, why, when))
+
+
+def _listed(row: BalanceAdjustment) -> str:
+    """One correction as `log` lists it, and `undo` shows it back."""
+    return (
+        f"{row.id:>4}  {row.date:%Y-%m-%d}  "
+        f"{delta(timedelta(minutes=row.minutes)):>9}  {printable(row.reason)}"
+    )
 
 
 def log(services: Services) -> int:
@@ -168,13 +175,36 @@ def log(services: Services) -> int:
     if not rows:
         click.echo("No adjustments.")
     for row in rows:
-        click.echo(
-            f"{row.id:>4}  {row.date:%Y-%m-%d}  "
-            f"{delta(timedelta(minutes=row.minutes)):>9}  {printable(row.reason)}"
-        )
+        click.echo(_listed(row))
     return 0
 
 
-def undo(services: Services, adjustment_id: int) -> int:
-    """Remove a correction by its id, as listed by `log`."""
+def undo(services: Services, adjustment_id: int, *, assume_yes: bool = False) -> int:
+    """Remove a correction by its id, as listed by `log`, once it has been shown.
+
+    An id is used again once the newest row has gone, so one typed from memory
+    or the shell's history may name another row by now. Declining exits 1, and
+    with no terminal to ask on it refuses unless `--yes` was given, as `adjust`
+    does.
+    """
+    row = services.adjustments.get(adjustment_id)
+    if row is None:
+        click.secho(
+            f"No adjustment {adjustment_id}; `flexi balance log` lists them",
+            fg="red",
+            err=True,
+        )
+        return 1
+
+    click.echo("Removing")
+    click.echo(_listed(row))
+
+    if not assume_yes:
+        if not ui.interactive():
+            click.secho(ui.UNANSWERED.format(doing="remove it"), fg="yellow", err=True)
+            return 1
+        if not ui.agreed("\nRemove it?", doing="remove it"):
+            click.echo("Nothing was removed.", err=True)
+            return 1
+
     return report(services.adjustments.remove(adjustment_id))

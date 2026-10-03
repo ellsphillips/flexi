@@ -9,6 +9,7 @@ someone with a year of records who must not be sent to ``flexi init``.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 from collections.abc import Iterator
@@ -36,14 +37,15 @@ def build(db: Path, *statements: str) -> None:
 
 
 needs_permissions = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="chmod on Windows sets the read-only bit and cannot deny a read",
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="chmod cannot deny a read on Windows or to root",
 )
 """The two tests below need a file the current user cannot open.
 
 `Path.chmod` on Windows maps the whole mode onto the read-only attribute, so
 `chmod(0o000)` leaves a file every process can still read. Denying a read there
-means an ACL. What is skipped is the arrangement, not the behaviour.
+means an ACL. Root reads past any mode, and root is who a container runs as by
+default. What is skipped is the arrangement, not the behaviour.
 """
 
 

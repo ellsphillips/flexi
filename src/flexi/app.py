@@ -54,13 +54,23 @@ from flexi.services.bank_holidays import (
     BankHolidayFetcher,
     fetch_bank_holiday_index,
 )
+from flexi.services.ledger import LedgerRevision
 from flexi.services.registry import build_services, invalidate_services
 from flexi.theme import THEME_NAME, flexi_theme
 from flexi.versioning import UPGRADE_HINT, available_update
 
-__all__ = ("UPDATE_NOTICE_SECONDS", "FlexiApp")
+__all__ = ("DEMO_NOTICE", "OTHER_WRITERS_SECONDS", "UPDATE_NOTICE_SECONDS", "FlexiApp")
 
 UPDATE_NOTICE_SECONDS = 10
+
+DEMO_NOTICE = "This is sample data. Changes here are deleted when you quit."
+
+OTHER_WRITERS_SECONDS = 2.0
+"""How often an open app looks for writes made by another process.
+
+`flexi clock in` in a second terminal, a logon script, another copy of Flexi:
+nothing here hears of those, so the app asks the database instead.
+"""
 
 
 class FlexiApp(TextualApp[None]):
@@ -127,6 +137,8 @@ class FlexiApp(TextualApp[None]):
             """Set by `flexi init` on a first run, to play the splash."""
             self.open_settings = False
             """Set by `flexi init` when the user chose to change settings."""
+            self.demo = False
+            """Set by `flexi --demo`: the records are samples, deleted on quitting."""
             self._pushed: Screen[None] | None = None
             """The one destination open on top of the dashboard, if any.
 
@@ -144,6 +156,8 @@ class FlexiApp(TextualApp[None]):
             self._shutdown_event = Event()
             self.latest_release = ""
             """The published version superseding this one, once one is known."""
+            self._seen: LedgerRevision | None = None
+            """Where the database stood when the app last looked."""
             self._database_lifetime = construction.pop_all()
 
     # lifecycle ---------------------------------------------------------------
@@ -175,6 +189,8 @@ class FlexiApp(TextualApp[None]):
                 SetupScreen(self.services, animate=plays),
                 callback=self._on_setup_done,
             )
+        if self.demo:
+            self.notify(DEMO_NOTICE, title="Demo", timeout=UPDATE_NOTICE_SECONDS)
         self._check_for_updates()
         self.refresh_holidays()
         if CONFIG_PROBLEM:
@@ -183,6 +199,8 @@ class FlexiApp(TextualApp[None]):
             self.notify(
                 CONFIG_PROBLEM, severity="warning", timeout=UPDATE_NOTICE_SECONDS
             )
+        self._seen = self.services.ledger.revision()
+        self.set_interval(OTHER_WRITERS_SECONDS, self.notice_other_writers)
 
     def _on_setup_done(self, completed: bool | None) -> None:  # noqa: FBT001 - Textual passes a dismissal result positionally
         if not completed:
@@ -267,6 +285,20 @@ class FlexiApp(TextualApp[None]):
 
     def holidays_refreshed(self) -> None:
         """Redraw the open screens: every figure depends on which days are off."""
+        self.refresh_open_screens()
+
+    def notice_other_writers(self) -> None:
+        """Redraw the open screens when another process has written.
+
+        SQLite moves `data_version` only for a commit made on another
+        connection, so this app's own writes, which redraw as they are made,
+        never come round a second time. Nothing stays locked between looks, so
+        a write from the shell is never kept waiting.
+        """
+        seen = self.services.ledger.revision()
+        if seen == self._seen:
+            return
+        self._seen = seen
         self.refresh_open_screens()
 
     @textual_work(thread=True, exit_on_error=False)

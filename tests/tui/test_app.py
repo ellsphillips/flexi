@@ -10,13 +10,15 @@ from threading import get_ident
 import httpx
 import pytest
 from sqlalchemy import delete, update
+from textual._context import active_app
 from textual.pilot import Pilot
 from textual.widgets import Input, Select
 
 import flexi
-from flexi.app import FlexiApp
+from flexi.app import DEMO_NOTICE, FlexiApp
 from flexi.components.chrome import NavBar, VersionTag
 from flexi.components.modules.records import RecordsModule
+from flexi.config import CONFIG
 from flexi.constants import Division
 from flexi.context import command_app, flexi_app
 from flexi.models.database.db import BankHolidayCache, BankHolidayRefresh
@@ -206,16 +208,20 @@ async def test_redraw_during_mount_is_not_a_crash(
 ) -> None:
     """`refresh_open_screens` can reach a dashboard whose cells are not composed.
 
-    It runs off the message loop when the bank holiday worker finishes, so it
-    lands between two levels of the tree and raises `NoMatches` on a worker.
-    `is_mounted` goes true before a widget's own children arrive, so there is no
-    flag to wait on instead.
+    A finished holiday fetch or a write from another process can land between
+    two levels of the tree, and raise `NoMatches`. `is_mounted` goes true before
+    a widget's own children arrive, so there is no flag to wait on instead.
+
+    Both run on the application's own loop, so the hammer runs with the
+    application active, as they do. A redraw can start the live tick, and a
+    timer started without it dies at its first tick, a second in.
     """
     app = FlexiApp(db_path=seeded_db)
     ticks = 0
 
     async def redraw_throughout_mounting() -> None:
         nonlocal ticks
+        active_app.set(app)
         for _ in range(MOUNT_TICKS):
             app.refresh_open_screens()
             ticks += 1
@@ -227,6 +233,7 @@ async def test_redraw_during_mount_is_not_a_crash(
         # Awaiting inside the block re-raises whatever the task hit; an
         # unretrieved exception from a dead task is only a log line.
         await hammer
+        await pilot.pause(CONFIG.defaults.tick_seconds * 1.5)
 
     assert ticks == MOUNT_TICKS
 
@@ -332,6 +339,20 @@ async def test_newer_release_is_announced_with_the_command(
         assert announced, "a newer version should be announced"
         assert "99.0.0" in announced[0]
         assert UPGRADE_HINT in announced[0]
+
+
+async def test_the_demo_says_its_records_are_samples(app_factory: AppFactory) -> None:
+    """Someone else's day, clocked into, should not look as if it counts or lasts."""
+    app = app_factory()
+    app.demo = True
+    async with app.run_test(size=WIDE) as pilot:
+        assert DEMO_NOTICE in await said(app, pilot)
+
+
+async def test_real_records_are_not_called_samples(app_factory: AppFactory) -> None:
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        assert DEMO_NOTICE not in await said(app, pilot)
 
 
 async def test_being_up_to_date_says_nothing(app_factory: AppFactory) -> None:
@@ -442,7 +463,7 @@ async def test_dashboard_opens_with_the_answers_from_setup(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         screen = showing(app, SetupScreen)
-        screen.query_one("#input-leave-start", Input).value = "04-06"
+        screen.query_one("#input-leave-start", Input).value = "6 Apr"
         screen.query_one("#input-entitlement", Input).value = "28"
         screen.query_one("#input-working-days", Input).value = "Tue-Thu"
         screen.query_one("#select-division", Select).value = "scotland"
@@ -535,7 +556,7 @@ async def test_calendar_is_fetched_for_the_chosen_division(
     async with app.run_test(size=WIDE) as pilot:
         await pilot.pause()
         screen = showing(app, SetupScreen)
-        screen.query_one("#input-leave-start", Input).value = "04-06"
+        screen.query_one("#input-leave-start", Input).value = "6 Apr"
         screen.query_one("#input-entitlement", Input).value = "28"
         screen.query_one("#input-working-days", Input).value = "Tue-Thu"
         screen.query_one("#select-division", Select).value = "scotland"

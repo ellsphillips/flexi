@@ -24,7 +24,7 @@ from flexi.models.database.moment import moment_of
 from flexi.screens.dashboard import DashboardScreen
 from flexi.services.registry import build_services
 from flexi.services.settings import parse_settings
-from tests.conftest import sessions_on
+from tests.conftest import session_at, sessions_on
 from tests.database import create_schema
 from tests.tui.conftest import WIDE, showing, status_text
 
@@ -241,8 +241,11 @@ async def test_a_session_opened_since_midnight_is_closed_by_the_key(
             with time_machine.travel(JUST_AFTER_MIDNIGHT, tick=False):
                 board._on_tick()
                 await pilot.pause()
-                # As `flexi clock in` from a shell would, unseen by the board.
-                assert app.services.clock.clock_in().success
+                # As `flexi clock in` from a shell would, and the poll draws.
+                with session_at(left_open) as shell:
+                    assert build_services(shell).clock.clock_in().success
+                app.notice_other_writers()
+                await pilot.pause()
 
             with time_machine.travel(HALF_PAST_MIDNIGHT, tick=False):
                 await pilot.press("slash")

@@ -249,8 +249,10 @@ class Burndown(Widget):
             if self.remaining < 0
             else fmt_days(self.remaining)
         )
+        # Booked, not taken: the count runs to the end of the leave year, so it
+        # holds leave still to come, as the Leave screen's total does.
         text.append(
-            f"{fmt_days(spent)} taken · {left} left"
+            f"{fmt_days(spent)} booked · {left} left"
             f" · pace {fmt_days(round(self.pace or 0, 1))}",
             label,
         )

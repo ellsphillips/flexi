@@ -20,7 +20,7 @@ from rich.segment import Segment
 from rich.style import Style
 from rich.text import Text
 from textual.binding import Binding, BindingType
-from textual.geometry import Region, Size
+from textual.geometry import Region, Size, Spacing
 from textual.message import Message
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
@@ -59,7 +59,7 @@ TOKEN: Final = 3
 """What a day always occupies: two columns for the number, one for the marker."""
 
 HEADING_ROW: Final = -2
-"""The weekday initials, drawn once above the whole grid."""
+"""The weekday initials: the first line, and held there however far it scrolls."""
 
 TITLE_ROW: Final = -1
 """A month name. Every other row index is a week within its block."""
@@ -76,6 +76,9 @@ MIN_CELL: Final = 4
 There is no maximum: a day is a tile, taking an equal share of the full width
 and painting its own ground, so no panel is left unpainted.
 """
+
+_SHORTEST_WORD: Final = 3
+"""Fewer letters than this read as another word ("an", "to"), not a short one."""
 
 FULL: Final = "●"
 MORNING: Final = "◐"
@@ -302,14 +305,30 @@ class YearCalendar(ScrollView, can_focus=True):
         line = self.row_of(when)
         if line is None:
             return
+        # The heading holds the top line, so the row above the cursor has to
+        # land under it.
         self.scroll_to_region(
-            Region(0, max(0, line - 1), self.grid_width, 3), animate=False
+            Region(0, max(0, line - 1), self.grid_width, 3),
+            spacing=Spacing(top=1),
+            animate=False,
         )
+
+    def action_page_down(self) -> None:
+        """A screen at a time, less the line the heading holds.
+
+        A whole height would carry the last week read under the heading.
+        """
+        self.scroll_relative(y=self.scrollable_content_region.height - 1, animate=False)
+
+    def action_page_up(self) -> None:
+        self.scroll_relative(y=1 - self.scrollable_content_region.height, animate=False)
 
     # --- drawing ----------------------------------------------------------
 
     def render_line(self, y: int) -> Strip:
-        line = y + int(self.scroll_offset.y)
+        # The heading stays on the top line, over whichever line the scroll
+        # has put there, so the columns are named however far down the year is.
+        line = y + int(self.scroll_offset.y) if y else 0
         if line >= len(self._rows):
             return Strip.blank(self.size.width, self.visual_style.rich_style)
         block, row = self._rows[line]
@@ -365,29 +384,36 @@ class YearCalendar(ScrollView, can_focus=True):
         ledger = self.ledgers.get(when)
         style = self._day_style(when, ledger)
         if width >= LABELLED_CELL:
-            label = self._label(ledger)
-            text = f" {when.day:>2} {label}" if label else f" {when.day:>2}"
+            text = f" {when.day:>2}"
+            word, glyph = self._label(ledger)
+            if glyph:
+                # The glyph is all that says half the day is gone, and the
+                # colour says the type at any width, so the word gives way. It
+                # gets what the date, the glyph, a space before each and the
+                # gutter leave, and nothing below three letters.
+                word = word[: width - len(text) - 4]
+                word = f"{word} {glyph}" if len(word) >= _SHORTEST_WORD else glyph
+            if word:
+                text = f"{text} {word}"
             return Segment(text[: width - 1].ljust(width), style)
         token = f"{when.day:>2}{self._marker(ledger)}"
         return Segment(token.rjust(width - 1) + BLANK, style)
 
-    def _label(self, ledger: DayLedger | None) -> str:
-        """What is on the day, in a word."""
+    def _label(self, ledger: DayLedger | None) -> tuple[str, str]:
+        """What is on the day, in a word, and the glyph for half a day."""
         if ledger is None:
-            return ""
+            return "", ""
         if ledger.is_holiday:
-            return "hol"
+            return "hol", ""
         if not ledger.absences:
-            return ""
+            return "", ""
         if len(ledger.absences) > 1:
-            return "part day"
+            return "part day", ""
         slice_ = ledger.absences[0]
         word = slice_.type.short.lower()
-        return (
-            word
-            if slice_.portion is Portion.FULL
-            else f"{word} {PORTION_GLYPH[slice_.portion]}"
-        )
+        if slice_.portion is Portion.FULL:
+            return word, ""
+        return word, PORTION_GLYPH[slice_.portion]
 
     def _marker(self, ledger: DayLedger | None) -> str:
         """The glyph says how much of the day; the colour says what kind."""
@@ -441,6 +467,9 @@ class YearCalendar(ScrollView, can_focus=True):
         # The grid starts inside the panel's border and padding, and the event
         # measures from the panel's own corner.
         offset -= self.gutter.top_left
+        if offset.y < 1:
+            # The heading, and the line out of sight under it.
+            return
         line = int(offset.y) + int(self.scroll_offset.y)
         # The columns are uneven (the remainder is spread over the first few),
         # so the edges are their running total and the column hit is where the

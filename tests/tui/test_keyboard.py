@@ -16,7 +16,12 @@ from textual.binding import Binding
 from textual.screen import Screen
 
 import flexi.screens
-from flexi.components.chrome import NavItemLabel, footer_key_cost, keys_that_fit
+from flexi.components.chrome import (
+    BindingHint,
+    NavItemLabel,
+    footer_key_cost,
+    keys_that_fit,
+)
 from flexi.components.expandable import ExpandableTable
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.help import HelpScreen, collect_bindings, declared_by_flexi
@@ -93,6 +98,25 @@ async def test_key_strip_says_how_many_it_dropped(app_factory: AppFactory) -> No
             str(widget.render()) for widget in app.screen.query("OverflowLabel")
         )
         assert "more" in text
+
+
+async def test_a_crowded_strip_keeps_the_clock_and_help(
+    app_factory: AppFactory,
+) -> None:
+    """A focused table's keys come first, and must not push `/` and `?` off.
+
+    `/` is what Flexi is for and `?` lists whatever the strip had to drop, so
+    at 80 columns the others give way, from the end, in their place.
+    """
+    app = app_factory()
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.screen.query_one("#records-table", ExpandableTable).focus()
+        await settled(pilot)
+
+        shown = [hint.description for hint in app.screen.query(BindingHint)]
+        assert shown[0] == "Expand", "the row's own keys still lead"
+        assert {"Clock", "Help"} <= set(shown), shown
+        assert shown.index("Clock") < shown.index("Help"), "in their declared order"
 
 
 def test_entry_costs_two_strings_and_a_margin() -> None:
