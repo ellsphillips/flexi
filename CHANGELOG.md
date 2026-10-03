@@ -195,7 +195,7 @@ SSH sessions give, and the Linux console.
 
 `v` puts a one-key badge on every panel, and on the first nine day rows of the
 records table. `?` lists every binding on the screen, and the key strip keeps
-`/` and `?` however narrow it gets. `ctrl+p` or `:` opens a command palette
+`/` and `?` when it drops others. `ctrl+p` or `:` opens a command palette
 carrying every action, including Quit and those with no key. `q` quits from the
 dashboard, Leave and Insights. `:` and `q` are there for VS Code and Cursor,
 whose terminals keep `ctrl+p` and `ctrl+q` for the editor; the README has the
