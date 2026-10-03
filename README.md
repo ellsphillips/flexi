@@ -84,9 +84,9 @@ uv run flexi
 
 Run `flexi` (or `flexi init`) and answer six questions: your leave-year start,
 annual entitlement, working days, hours a day, UK bank-holiday division, and the
-time to close sessions left running overnight. An answer that can't be used is
-named in the error, and the cursor goes back to it. Cancel with `escape` and
-none of your answers are saved; run Flexi again to finish.
+time to close sessions left running overnight. If an answer can't be used, the
+error is titled with its question and the cursor goes back to it. Cancel with
+`escape` and none of your answers are saved; run Flexi again to finish.
 
 Hours a day default to 7:24 and accept `7:30`, `7h30` or `7.5`. A decimal is
 hours, so `7.5` is 7:30; `7.30`, which reads either way, is refused. One figure
@@ -94,7 +94,7 @@ applies to every working day.
 
 The leave-year start is a day and month, such as `1 Apr`, `1 April`,
 `6th April` or `April 6`, and the note beside it reads the date back as you
-type. Numbers that read both ways are refused in the same way: `01/04` could be
+type. As with `7.30`, numbers that read both ways are refused: `01/04` could be
 1 April or 4 January, where `30/09` can only be 30 September.
 
 Tracking starts that day; earlier days do not create a deficit. To record an
@@ -265,8 +265,8 @@ Flexi reads the system clock and time zone. Containers and many cloud servers
 run on UTC, so set your zone first, for example `export TZ=Europe/London`
 (Ubuntu images also need `apt install tzdata`).
 
-Each time the app opens, setup and `--demo` included but not the `flexi`
-subcommands, Flexi asks PyPI for the latest version number. It downloads
+Each time the app opens (setup and `--demo` included, but not the `flexi`
+subcommands), Flexi asks PyPI for the latest version number. It downloads
 GOV.UK's bank-holiday list when the cached copy is more than a week old, and
 `flexi holidays refresh` fetches it on demand. Neither request includes your
 timesheet or settings, and the update check cannot be turned off yet. Records
