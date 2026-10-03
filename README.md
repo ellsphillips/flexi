@@ -190,7 +190,7 @@ flexi balance show
 flexi balance adjust -0:45 --on yesterday --reason "Long lunch"
 flexi balance zero --reason "Balance agreed with my manager"
 flexi balance log
-flexi balance undo 2   # an id that balance log lists
+flexi balance undo 2
 flexi holidays refresh
 ```
 
@@ -216,7 +216,7 @@ itself given an earlier day, since Flexi cannot tell the two apart. It shows
 the balance before and after and asks first. Quote a date with a space in it,
 as in `--on "last friday"`; a bare `friday` means the next one, which has not
 happened yet. `balance log` lists every adjustment with its id, and
-`balance undo` shows the one you name and asks before removing it.
+`balance undo` shows the one whose id you give and asks before removing it.
 
 `balance zero` settles through yesterday by default, under the reason `settled`
 unless you give one. Tracking starts on your first day, so until a finished day
