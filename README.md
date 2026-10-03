@@ -92,10 +92,10 @@ Hours a day default to 7:24 and accept `7:30`, `7h30` or `7.5`. A decimal is
 hours, so `7.5` is 7:30; `7.30`, which reads either way, is refused. One figure
 applies to every working day.
 
-The leave-year start is a day and month, such as `1 Apr`, `1 April`,
-`6th April` or `April 6`, and the note beside it reads the date back as you
-type. As with `7.30`, numbers that read both ways are refused: `01/04` could be
-1 April or 4 January, where `30/09` can only be 30 September.
+The leave-year start is offered as `6 Apr` and takes a day and month, such as
+`1 Apr`, `1 April`, `6th April` or `April 6`; the note beside it reads the date
+back as you type. As with `7.30`, numbers that read both ways are refused:
+`01/04` could be 1 April or 4 January, where `30/09` can only be 30 September.
 
 Tracking starts that day; earlier days do not create a deficit. To record an
 earlier day, move to it in Records and press `n`; it then counts against your
@@ -251,10 +251,10 @@ preferences file if you created one.
 **Flexi does not back up your records on a schedule.** It takes a snapshot
 before a schema upgrade and keeps the newest ten. On a machine that is already
 set up, `flexi init` can also reset: it asks for confirmation, then writes and
-verifies a protected backup before removing all records, and keeps that backup
-until you remove it. Both go to the `backups` folder beside `db.db`, on the same
-disk, so include the folder that holds `db.db` in your own backups, or close
-Flexi and copy `db.db` somewhere else.
+verifies a protected backup before removing all records, prints its path, and
+keeps it until you remove it. Both go to the `backups` folder beside `db.db`, on
+the same disk, so include the folder that holds `db.db` in your own backups, or
+close Flexi and copy `db.db` somewhere else.
 
 **To restore:** close every copy of Flexi, copy a `.bak` file over `db.db`, and
 start Flexi. A name such as `pre-init_db_<time>.bak` carries the UTC time the
