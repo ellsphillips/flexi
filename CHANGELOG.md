@@ -127,10 +127,12 @@ questions says nothing was saved and how to finish, and a command run before
 setup points at `flexi`.
 
 Launching the application prints `Opening Flexi…` before the slow imports, so a
-first launch is never a blank terminal. In a locale that is not UTF-8, Flexi
-says to use one rather than failing to draw. The update notice says to quit
-Flexi before upgrading; on Windows a running copy makes uv report the upgrade
-as failed.
+first launch is never a blank terminal. Started where there is no terminal to
+draw on, the demo says it needs one without pointing at commands a `uvx` visitor
+does not have, and on Windows Flexi names the consoles that will do. In a locale
+that is not UTF-8, Flexi says to use one rather than failing to draw. The update
+notice says to quit Flexi before upgrading; on Windows a running copy makes uv
+report the upgrade as failed.
 
 `flexi --demo` opens a leave year of sample records whose balance stays within a
 few hours of zero whatever the date. It says the records are samples, and
