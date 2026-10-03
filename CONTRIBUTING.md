@@ -38,8 +38,8 @@ production publishing still requires the owner's approval.
 The hooks run CI's static checks — ruff, the formatter, mypy and
 `uv lock --check` — through the locked environment, by calling `uv`. They do not
 run the suite. Some Git apps on macOS don't load your shell's PATH and report
-`Executable uv not found`: commit from a terminal, start the app from one, or
-add uv's directory (usually `~/.local/bin`) to the app's PATH.
+``Executable `uv` not found``: commit from a terminal, start the app from one,
+or add uv's directory (usually `~/.local/bin`) to the app's PATH.
 
 Run `just check` and `just test` before pushing. CI tests the proposed merge on
 pull requests into `dev` or `main`, including the supported operating systems and
