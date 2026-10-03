@@ -7,11 +7,13 @@ discoverable without reading this file?**
 Three layers of discoverability, in the order a user meets them:
 
 1. **The key strip** — the footer, trimmed to what actually fits, with `+n more`
-   when it does not. Shows the six or seven keys that matter on this screen.
+   when it does not. Shows the six or seven keys that matter on this screen, and
+   keeps `/` and `?` however narrow it gets.
 2. **`?`** — the help screen: every binding on the current screen, grouped by the
    widget that declared it, including the ones the strip dropped.
-3. **`ctrl+p`** or **`:`** — the command palette: every action,
-   fuzzy-searchable, including the ones that have no key at all.
+3. **`ctrl+p`** or **`:`** — the command palette: Flexi's commands,
+   fuzzy-searchable, including the ones that have no key at all. The period and
+   booking commands are offered while the dashboard is in front.
 
 Plus **`v`** — jump mode, which is navigation, not discovery.
 
@@ -48,7 +50,16 @@ with one. `ctrl+c` answers with the keys that quit from where you are.
 `/` is bound at **app** level with `priority=True`, so it works from any screen
 and any focused widget — except inside an `Input` or a `TextArea`, where the app
 stands it down and the field gets the key. That exception is correct: typing a
-date into "go to date" must be able to contain a slash.
+date into "go to date" must be able to contain a slash. `f4` opens with the
+cursor in its first field, so there `/`, `v` and `?` are typed into it until
+`tab` moves on.
+
+`/` acts on what the Clock panel shows. When a `flexi clock` command or another
+window has clocked in or out since the panel was drawn, the press redraws it and
+says so — `Clocked in elsewhere at 09:12; press again to clock out` — and the
+next press acts. Doing what the database says would do the opposite of the
+button on screen. An open window catches up on such writes by itself within
+about two seconds, and `t` on the dashboard does so at once.
 
 **A session under a minute never happened.** Clocking in and straight back out is
 a slip of the finger. The clock-out reports `Discarded — under 1 minute on the
@@ -80,12 +91,14 @@ it halves what the day expects, whichever side of noon the rest is worked.
 | `d` `w` `m` `y` | Set granularity to day / week / month / leave year. Keeps the anchor. |
 | `p` | Cycle granularity forward: `d → w → m → y → d`. |
 | `[` `]` | Previous / next period. |
-| `t` | Today. Resets the anchor, keeps the granularity. |
+| `t` | Today. Resets the anchor, keeps the granularity, and reads everything again, so what another process wrote shows at once. |
 | `g` | Go to date — a modal that accepts `12`, `12 Jun`, `2026-06-12`, `+3d`, `-2w`. |
 
 ### Records table
 
-Live when the table has focus.
+The table has focus when the dashboard opens; the cursor starts on today and
+follows the period's anchor. These keys work while it has focus: `tab` moves
+on to the other panels, and `v` then `r` comes back.
 
 | Key | Action |
 |---|---|
@@ -100,10 +113,10 @@ Live when the table has focus.
 `x` on a session voids it: it stops counting everywhere, and its clock events
 are kept as the audit trail. To correct a session — a forgotten clock-out closed
 at the auto-close time, a late one, a mistyped correction — void it, then add
-the real hours with `n`. A running session cannot be voided until you clock
-out, and the question warns when the day is under a `balance zero` settlement,
-which will no longer read zero. Editing a session's times in place is not
-available.
+the real hours with `n`; the cursor stays in the voided session's day, so `n`
+records there. A running session cannot be voided until you clock out, and the
+question warns when the day is under a `balance zero` settlement, which will no
+longer read zero. Editing a session's times in place is not available.
 
 `left` and `right` are `DataTable`'s own column-cursor keys here. They do not
 step the period.
@@ -140,7 +153,8 @@ Live when the month grid has focus.
 | `,` `.` | Browse to the previous / next month without moving the period. |
 
 A click on a day is the same request an arrow key makes. The grid returns to the
-anchor's month the next time the anchor moves.
+anchor's month the next time the anchor moves. It is hidden under 100 columns
+and under 38 rows, where the period keys do its job.
 
 ---
 
@@ -160,7 +174,7 @@ The whole screen acts on the cursor, or the range you extended it into.
 | `g` `t` | Go to a date · today. |
 | `[` `]` | A month at a time, clamped into a shorter one. |
 | `home` `end` | The first and last day of the leave year. |
-| `pgup` `pgdn` | Scroll a screen at a time. The cursor stays where it is. |
+| `pgup` `pgdn` | Scroll a screen at a time, less the weekday heading pinned at the top. The cursor stays where it is. |
 
 `O` goes straight to the modal, because other absence needs a note and a note
 needs somewhere to be typed.
@@ -194,6 +208,9 @@ Every modal, without exception:
 `enter` stands down while a button other than Confirm holds focus, so it presses
 that button instead. Otherwise the key that reaches Cancel on "Remove leave?"
 would be the key that removes the leave.
+
+In Record work and Adjust balance, `enter` in a field whose next field is still
+empty moves there, as `tab` would, rather than confirming half an answer.
 
 A modal that breaks one of these is a bug. They are asserted for every modal by
 `tests/tui/test_keyboard.py::test_every_modal_binds_escape_and_enter`, which
@@ -265,7 +282,9 @@ from every screen would drop the misses silently instead.
 
 Optional, hand-written, and never written by Flexi. It lives at
 `~/.config/flexi/config.yaml`, or `%APPDATA%\flexi\config.yaml` on Windows, or
-under `XDG_CONFIG_HOME` when that holds an absolute path.
+under `XDG_CONFIG_HOME` when that holds an absolute path. In PowerShell the
+Windows path is `$env:APPDATA\flexi\config.yaml`; the `%…%` form works in
+Command Prompt, the Run dialog and File Explorer's address bar.
 
 ```yaml
 hotkeys:
