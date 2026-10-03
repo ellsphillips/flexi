@@ -278,7 +278,8 @@ async def test_space_near_the_foot_of_the_table_shows_what_it_opened(
         assert ("Sat 13" in screen_text(app)) is saturday_in_view
 
         await pilot.press("space")
-        await pilot.pause()
+        # The scroll that brings the rows into view runs after a refresh.
+        await settled(pilot)
 
         drawn = screen_text(app)
         assert "Fri 12" in drawn, "the day stays in view"
