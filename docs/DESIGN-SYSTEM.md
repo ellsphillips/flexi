@@ -320,8 +320,10 @@ fold from changing the measurement that caused it.
 | < 64 | Balance and wallet go too, leaving the clock strip and records. The rest is one jump away. |
 
 Under 100 columns the header on the dashboard, Leave and Insights drops the
-version stamp, so the period label keeps its month: after `[` or `g`, nothing
-else on a narrow screen names it.
+version stamp, so down to about 76 columns the period label keeps its month:
+after `[` or `g`, nothing else on a narrow screen names it. Below that the
+navigation leaves it too little room, and under 64 columns only its first
+letters show.
 
 | Height | Dashboard |
 |---|---|
