@@ -263,21 +263,33 @@ just test-late -q
 
 This uses the CI property-test profile and sets `FLEXI_LATE_CALLBACKS=0.05`.
 
-`pilot.pause()` drains the messages queued at the moment it is called. Work that
-a *layout* schedules — `RecordsModule` measuring its strip column, the key strip
-recomposing — may or may not have landed by the time it returns, and which of
-those happens is a property of how loaded the machine is, not of the
-code. On a laptop it lands early and every test passes. On a three-core runner
-it lands a moment later, on top of whatever the test had just set up: a table the
-test emptied fills again, a ledger cache the test just invalidated refills.
+Textual's `pilot.pause()` returns once the process has used no CPU for a
+moment, and a process descheduled on a loaded runner uses none either. So
+`tests/conftest.py` keeps pausing until every message posted to the app and its
+screens has been read, any layout owed has been done, and any terminal resize
+has reached the screens: a bubbled `Input.Changed`, or the `Resize` a widget
+sizes itself from, no longer lands after the assertion.
+`tests/test_suite_settings.py` holds it to that with an idle check that passes
+at once.
+
+What a pause cannot see is work deferred with `call_after_refresh`.
+`RecordsModule` measuring its strip column, the key strip recomposing — either
+may or may not have landed by the time a pause returns, and which of those
+happens is a property of how loaded the machine is, not of the code. On a
+laptop it lands early and every test passes. On a three-core runner it lands a
+moment later, on top of whatever the test had just set up: a table the test
+emptied fills again, a ledger cache the test just invalidated refills.
 
 That variable puts every deferred callback behind a timer, which is the one thing
 `pause` cannot drain, so a loaded runner's ordering is reproducible on an idle
-machine in twenty seconds. **It is expected to be green**, and a test that passes
-without it and fails with it has not found a bug — it is asserting on a screen
-that had not finished drawing. The cure is `await settled(pilot)` from
+machine in twenty seconds. **It is expected to be green.** A test that passes
+without it and fails with it is usually asserting on a screen that had not
+finished drawing, and the cure is `await settled(pilot)` from
 `tests/conftest.py`, which waits for the callbacks themselves instead of
-guessing at a number of pauses.
+guessing at a number of pauses. Not always: if the screen is wrong *after*
+`settled`, the order is the bug. The records table once finished one row
+scrolled whenever its cursor scroll landed before its strip column was
+measured, and a slow machine draws that screen too.
 
 Both failures that motivated it were real CI failures, in different files, that
 reproduced locally in under a second once the ordering was made deterministic.

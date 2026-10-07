@@ -1,12 +1,56 @@
 """The suite's own settings, held to what a CI log needs from them."""
 
+import asyncio
 import re
 import tomllib
 from pathlib import Path
 
+import pytest
+import textual.pilot
 from hypothesis import settings
+from textual import events
+from textual.app import App, ComposeResult
+from textual.widgets import Static
 
 PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
+
+
+class Measured(Static):
+    """Remembers the width it was last told it has."""
+
+    told = 0
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.told = event.size.width
+
+
+class Holder(App[None]):
+    def compose(self) -> ComposeResult:
+        yield Measured()
+
+
+async def test_a_pause_ends_after_a_resized_widget_has_answered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On a loaded runner the idle check can pass before the screen is laid out.
+
+    The layout `pause` then performs on its way out posts `Resize` events that
+    nothing has read, and a widget that sizes itself on a resize still has the
+    old size. That was `test_resizing_the_panel_relays_the_grid_out` on Windows.
+    Modelled here by an idle check that yields once and returns.
+    """
+
+    async def lagging(min_sleep: float = 0, max_sleep: float = 1) -> None:
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(textual.pilot, "wait_for_idle", lagging)
+    app = Holder()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        widget = app.query_one(Measured)
+        widget.styles.width = 42
+        await pilot.pause()
+        assert widget.told == 42
 
 
 def test_a_run_repeats_the_order_and_the_examples() -> None:
