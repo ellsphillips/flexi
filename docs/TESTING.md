@@ -238,6 +238,13 @@ configured pre-commit hook. Both may modify files; review the diff afterward.
 
 A failed snapshot prints its diff, so nothing needs uploading as an artefact.
 
+A run repeats. `pyproject.toml` fixes pytest-randomly's seed, so the order and
+the values `random` hands each test are the same on every machine and attempt,
+and the `dev` and `ci` Hypothesis profiles are derandomized, so each property
+tries the same examples every time. A red CI job is red again locally, at the
+same seed. To shuffle afresh, pass `--randomly-seed=default`; to search for new
+property failures, set `HYPOTHESIS_PROFILE=thorough`, which stays random.
+
 `pytest-timeout` bounds each test at 120 seconds and prints thread stacks when
 that limit is reached. The stateful service test has a 300-second limit because
 one test item exercises many database lifecycles. `faulthandler_timeout` dumps

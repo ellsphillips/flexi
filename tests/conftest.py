@@ -43,22 +43,32 @@ from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services import setup
 from tests.database import create_schema
 
-settings.register_profile("dev", max_examples=100, deadline=None)
+settings.register_profile("dev", max_examples=100, deadline=None, derandomize=True)
 """How hard Hypothesis tries by default.
 
 No deadline: under `-n auto` a worker can be descheduled mid-example, and a
 per-example time limit turns a loaded machine into a failing test. Every health
 check stays on; a test that needs one suppressed says so itself.
+
+Derandomized: each property draws from a seed its own source decides, so a run
+tries the examples the last one did, and a failure in CI fails again here. That
+also leaves out the example database, which would replay one machine's past
+failures on it and nowhere else.
 """
 
 settings.register_profile("ci", parent=settings.get_profile("dev"), max_examples=500)
 """Five times the examples, for an unattended run."""
 
 settings.register_profile(
-    "thorough", parent=settings.get_profile("dev"), max_examples=5000
+    "thorough",
+    parent=settings.get_profile("dev"),
+    max_examples=5000,
+    derandomize=False,
 )
-"""For hunting a suspected property failure: `-p no:randomly
---hypothesis-profile=thorough`."""
+"""For hunting a suspected property failure: `HYPOTHESIS_PROFILE=thorough`.
+
+Random, unlike the other two, so each hunt searches somewhere new. A failure it
+finds prints its falsifying example, to be pinned with `@example`."""
 
 PROFILES = ("dev", "ci", "thorough")
 """Checked against: `load_profile` accepts an unregistered name and silently
