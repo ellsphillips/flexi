@@ -39,7 +39,7 @@ Use `just --show RECIPE` to inspect the commands behind a task.
 | `just test [ARGS…]` | Run the test suite or selected tests. | Accepts pytest paths and options. |
 | `just test-ci [ARGS…]` | Run with CI's property-test budget. | Sets `HYPOTHESIS_PROFILE=ci`; accepts pytest arguments. |
 | `just coverage [ARGS…]` | Measure and enforce test coverage. | Uses the CI profile, records coverage, and reports uncovered lines; accepts pytest arguments. |
-| `just test-late [ARGS…]` | Exercise delayed UI callbacks. | Uses the CI profile and `FLEXI_LATE_CALLBACKS=0.05`; accepts pytest arguments. |
+| `just test-late [ARGS…]` | Exercise delayed UI callbacks. | Uses the CI profile and `FLEXI_LATE_CALLBACKS=0.05` unless one is exported; accepts pytest arguments. |
 | `just test-floors [ARGS…]` | Test minimum dependency versions on the oldest supported Python, 3.12. | Copies the current checkout, including uncommitted changes, into temporary storage; keeps floor resolution out of your lockfile and `.venv`. uv selects or downloads Python 3.12 automatically. Accepts pytest arguments. |
 | `just shots` | Regenerate interface screenshots. | Updates the tracked SVG and text files in `docs/shots/`. |
 | `just audit` | Check locked dependencies for advisories. | Uses temporary requirements and a pinned pip-audit; needs network access. |

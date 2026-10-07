@@ -93,6 +93,17 @@ def test_test_matrix_preserves_platform_python_and_timezone_coverage() -> None:
 
 
 @pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
+def test_late_callbacks_run_at_more_than_one_delay() -> None:
+    """One delay reproduces one ordering, and `just test-late`'s is among them."""
+    late = _workflow("tests.yaml")["jobs"]["late"]
+    delays = late["strategy"]["matrix"]["delay"]
+    assert len(set(delays)) > 1
+    assert "0.05" in delays
+    run = next(step for step in late["steps"] if "pytest" in step.get("run", ""))
+    assert run["env"]["FLEXI_LATE_CALLBACKS"] == "${{ matrix.delay }}"
+
+
+@pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="sdist")
 def test_windows_suite_keeps_temporary_files_off_the_system_drive() -> None:
     """Every Windows row moves `TEMP` and `TMP` before any test reads them."""
     steps: list[dict[str, Any]] = _workflow("tests.yaml")["jobs"]["suite"]["steps"]

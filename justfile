@@ -150,7 +150,8 @@ coverage *args:
 [script]
 test-late *args:
     import os, subprocess, sys
-    environment = dict(os.environ, HYPOTHESIS_PROFILE="ci", FLEXI_LATE_CALLBACKS="0.05")
+    environment = dict(os.environ, HYPOTHESIS_PROFILE="ci")
+    environment.setdefault("FLEXI_LATE_CALLBACKS", "0.05")
     raise SystemExit(subprocess.call(["uv", "run", "--locked", "pytest", *sys.argv[1:]], env=environment))
 
 # Test lowest direct dependencies on Python 3.12 in a temporary checkout copy.

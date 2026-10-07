@@ -95,7 +95,11 @@ class Tasks:
         ]
 
     def run(
-        self, *args: str, fail_at: int = 0, path: Path | None = None
+        self,
+        *args: str,
+        fail_at: int = 0,
+        path: Path | None = None,
+        exported: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = dict(os.environ)
         environment.pop("HYPOTHESIS_PROFILE", None)
@@ -103,6 +107,7 @@ class Tasks:
         environment.update(
             TASK_LOG=str(self.root / "calls.jsonl"), TASK_FAIL_AT=str(fail_at)
         )
+        environment.update(exported or {})
         if path is not None:
             environment["PATH"] = str(path)
         return subprocess.run(  # noqa: S603 - discovered just and controlled copied recipes
@@ -195,6 +200,13 @@ def test_testing_recipes_select_the_intended_budget_and_callback_delay(
     assert result.returncode == 0, result.stderr
     assert len(tasks.calls) == 1
     assert (tasks.calls[0].profile, tasks.calls[0].delay) == (profile, delay)
+
+
+def test_late_callbacks_run_at_an_exported_delay(tasks: Tasks) -> None:
+    """CI runs the late job at more than one delay, and each row reproduces here."""
+    result = tasks.run("test-late", exported={"FLEXI_LATE_CALLBACKS": "0.01"})
+    assert result.returncode == 0, result.stderr
+    assert [(call.profile, call.delay) for call in tasks.calls] == [("ci", "0.01")]
 
 
 @pytest.mark.skipif(not WORKFLOW.is_file(), reason="sdist")

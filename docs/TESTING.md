@@ -262,6 +262,8 @@ just test-late -q
 ```
 
 This uses the CI property-test profile and sets `FLEXI_LATE_CALLBACKS=0.05`.
+CI runs it at 0.01 s as well, because one delay reproduces one ordering;
+`FLEXI_LATE_CALLBACKS=0.01 just test-late -q` is that row.
 
 Textual's `pilot.pause()` returns once the process has used no CPU for a
 moment, and a process descheduled on a loaded runner uses none either. So
@@ -307,7 +309,7 @@ by pushing.
 | `tests.yaml` | the matrix | `just test-ci` on the row's interpreter and timezone |
 | `tests.yaml` | the coverage row | `just coverage` |
 | `tests.yaml` | `The declared floors still pass` | `just test-floors` |
-| `tests.yaml` | `Deferred callbacks land late` | `just test-late` |
+| `tests.yaml` | `Deferred callbacks land … s late` | `just test-late`, with `FLEXI_LATE_CALLBACKS` set to the row's delay |
 | `package.yaml` | `Wheel installs and runs` | `just package-check` |
 
 `tests/test_pipelines.py` asserts that both pipelines call the same three, and

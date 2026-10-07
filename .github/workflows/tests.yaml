@@ -162,9 +162,15 @@ jobs:
         run: uv run --frozen pytest --durations=15
 
   late:
-    name: Deferred callbacks land late
+    name: Deferred callbacks land ${{ matrix.delay }} s late
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # One delay reproduces one ordering. The records table's strip-column
+        # race showed at 0.01 s and not at 0.05 s.
+        delay: ["0.01", "0.05"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -183,5 +189,5 @@ jobs:
       - name: pytest, with the screen finishing late
         env:
           TZ: UTC
-          FLEXI_LATE_CALLBACKS: "0.05"
+          FLEXI_LATE_CALLBACKS: ${{ matrix.delay }}
         run: uv run pytest --durations=15
