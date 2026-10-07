@@ -28,7 +28,7 @@ from flexi.screens.modals import AbsenceModal, ConfirmModal, CorrectionModal
 from flexi.services.absence import PLAN_CHANGED
 from flexi.services.registry import adjust_balance, zero_balance
 from flexi.theme import colour
-from tests.conftest import sessions_on, settled
+from tests.conftest import DEFERRED, sessions_on, settled
 from tests.tui.conftest import (
     WIDE,
     AppFactory,
@@ -284,6 +284,45 @@ async def test_space_near_the_foot_of_the_table_shows_what_it_opened(
         drawn = screen_text(app)
         assert "Fri 12" in drawn, "the day stays in view"
         assert "└ expected" in drawn, "and so do the rows it opened"
+
+
+@pytest.mark.parametrize("width", [50, 59, 63, 84, 120])
+async def test_the_strip_column_fits_the_table_once_measured(
+    app_factory: AppFactory, width: int
+) -> None:
+    """The strip takes what the other columns leave, so nothing runs off the right.
+
+    At 59 columns the measured strip came out at the width the module started
+    with, the re-measure found nothing to do, and the column kept the width it
+    was declared with: twelve cells wider than the table, behind a scrollbar.
+    """
+    app = app_factory()
+    async with app.run_test(size=(width, 22)) as pilot:
+        await settled(pilot)
+        records = table(app)
+        assert records.virtual_size.width <= records.size.width
+        assert not records.show_horizontal_scrollbar
+
+
+@pytest.mark.parametrize("delay", [0, 0.005, 0.01, 0.02, 0.05])
+async def test_a_week_that_fits_opens_unscrolled_however_late_the_layout(
+    app_factory: AppFactory, delay: float
+) -> None:
+    """At 63x22 the table holds Monday to today, and it opens showing them.
+
+    The strip used to start wider than the table, and the scrollbar that brought
+    took a row. The cursor's day was scrolled into the rows that were left, and
+    when the measured strip landed and the scrollbar went, the table stayed one
+    row down. Whether the scroll ran before or after the scrollbar went was down
+    to the machine, so this holds every deferred callback for a range of delays.
+    """
+    DEFERRED.delay = delay
+    app = app_factory()
+    async with app.run_test(size=(63, 22)) as pilot:
+        await settled(pilot)
+        assert table(app).cursor_key == row_key(RowKind.DAY, TODAY)
+        assert table(app).scroll_y == 0
+        assert "Mon 08" in screen_text(app)
 
 
 async def test_expanding_does_not_move_the_cursor(app_factory: AppFactory) -> None:

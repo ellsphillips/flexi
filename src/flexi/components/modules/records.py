@@ -55,13 +55,13 @@ __all__ = (
     "totals_subtitle",
 )
 
+STRIP_WIDTH_FLOOR = 12
 COLUMNS: tuple[tuple[str, int] | str, ...] = (
     ("Day", 7),
-    ("strip", 36),
+    ("strip", STRIP_WIDTH_FLOOR),
     ("Worked", 7),
     ("±", 6),
 )
-STRIP_WIDTH_FLOOR = 12
 FIXED_COLUMNS = 7 + 7 + 6
 CELL_PADDING = 8
 """Two columns of padding on each of the four cells: DataTable's own default."""
@@ -123,7 +123,11 @@ class RecordsModule(Module):
 
     def __init__(self, **kwargs: Unpack[ModuleOptions]) -> None:
         super().__init__(id="records-module", title="Records", **kwargs)
-        self._strip_width = 24
+        # The floor until the table has been laid out and can be measured. A
+        # first guess too wide overflows the table, and the scrollbar that
+        # brings costs a row: the cursor is scrolled into view against a table
+        # one row shorter than the one that is drawn once the guess is replaced.
+        self._strip_width = STRIP_WIDTH_FLOOR
         self._anchor: date | None = None
         """The anchor the cursor was last put on, so only a moved one moves it."""
 
@@ -133,6 +137,7 @@ class RecordsModule(Module):
 
     def on_mount(self) -> None:
         self.query_one("#records-table", ExpandableTable).set_columns(*COLUMNS)
+        self._size_strip_column()
         self.rebuild()
 
     def on_resize(self) -> None:
@@ -149,14 +154,19 @@ class RecordsModule(Module):
         if width == self._strip_width:
             return
         self._strip_width = width
+        self._size_strip_column()
+        self.rebuild()
+
+    def _size_strip_column(self) -> None:
         # Sized to the strip it will hold. Bucket sizes are fixed (15 minutes
         # means something, 13.7 does not), so a strip rarely fills its budget
         # and an auto-sized column would leave the remainder as a gap.
         table = self.query_one("#records-table", ExpandableTable)
         for key, column in table.columns.items():
             if str(key.value) == "strip":
-                column.width = cell_count(self.services.ledger.window, width)
-        self.rebuild()
+                column.width = cell_count(
+                    self.services.ledger.window, self._strip_width
+                )
 
     def _available_strip_width(self) -> int:
         table = self.query_one("#records-table", ExpandableTable)
