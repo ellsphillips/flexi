@@ -437,6 +437,10 @@ class KeyStrip(Footer):
     }
     """
 
+    KEPT_ACTIONS: ClassVar[frozenset[str]] = frozenset({"clock_toggle", "help"})
+    """Shown whatever else is dropped: the key Flexi is for, and the key that
+    lists everything the strip had no room for."""
+
     bindings_ready: reactive[bool] = reactive(False, repaint=False)
     """Whether Textual has calculated the active bindings for this screen."""
 
@@ -448,8 +452,16 @@ class KeyStrip(Footer):
         # so the app's own width is the same number one refresh earlier.
         budget = self.size.width or self.app.size.width
         marker = footer_key_cost("", OVERFLOW_TEMPLATE.format(count=len(entries)))
-        shown = keys_that_fit([entry.cost for entry in entries], budget, marker)
-        for entry in entries[:shown]:
+        # The kept entries are measured first, so the ones that give way are
+        # the last of the rest; whatever is shown keeps its declared place.
+        ranked = sorted(
+            entries, key=lambda entry: entry.action not in self.KEPT_ACTIONS
+        )
+        fits = keys_that_fit([entry.cost for entry in ranked], budget, marker)
+        shown = {entry.action for entry in ranked[:fits]}
+        for entry in entries:
+            if entry.action not in shown:
+                continue
             yield BindingHint(
                 entry.key,
                 entry.display,
@@ -458,7 +470,7 @@ class KeyStrip(Footer):
                 disabled=not entry.enabled,
                 tooltip=entry.tooltip,
             ).data_bind(compact=Footer.compact)
-        if hidden := len(entries) - shown:
+        if hidden := len(entries) - fits:
             yield OverflowLabel(OVERFLOW_TEMPLATE.format(count=hidden))
 
     def on_resize(self) -> None:

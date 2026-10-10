@@ -56,7 +56,7 @@
 }
 
 /* Under 100 columns the rail leaves the calendar too few cells for a week. The
-   rail goes, the wallet becomes one line above the grid, and the legend is
+   rail goes, the wallet becomes one line under the grid, and the legend is
    reached with `?`. */
 LeaveScreen.-narrow #leave-body {
     layout: vertical;

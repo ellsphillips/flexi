@@ -25,7 +25,7 @@ from textual.timer import Timer
 
 from flexi import wallclock
 from flexi.components.chrome import AppFooter, AppHeader
-from flexi.components.common import TINY_COLUMNS, Tone, mark_width
+from flexi.components.common import TINY_COLUMNS, Tone, mark_height, mark_width
 from flexi.components.expandable import RowKind, row_ident
 from flexi.components.jumper import JumpInfo
 from flexi.components.modules.balance import BalanceModule
@@ -81,6 +81,13 @@ class DashboardScreen(Screen[None]):
     """Everything you need twice a day, on one screen."""
 
     HELP_LABEL = "Dashboard"
+
+    AUTO_FOCUS: ClassVar[str] = "#records-table"
+    """The rows have the keyboard from the start, so the arrows, space and x work.
+
+    Textual applies it only while nothing on the screen has the focus, so
+    closing a dialog leaves the keyboard where it was.
+    """
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding(CONFIG.hotkeys.today, "today", "Today", show=True),
@@ -143,7 +150,9 @@ class DashboardScreen(Screen[None]):
         # which leaves exactly one row for the rails to flow into.
         yield TimeProgress(id="time-progress")
         with Horizontal(id="dashboard-body"):
-            with VerticalScroll(id="dashboard-controls"):
+            # Not a stop of its own: it draws nothing to show it has the
+            # keyboard, and the panels inside it take the keys.
+            with VerticalScroll(id="dashboard-controls", can_focus=False):
                 yield ClockModule()
                 yield BalanceModule()
                 yield WalletModule()
@@ -160,6 +169,7 @@ class DashboardScreen(Screen[None]):
 
     def on_resize(self) -> None:
         mark_width(self, self.size.width)
+        mark_height(self, self.size.height)
         self._refresh_progress()
 
     def jump_targets(self) -> dict[str, str]:
@@ -176,15 +186,22 @@ class DashboardScreen(Screen[None]):
 
     # ---- period ----
 
-    def set_period(self, period: Period) -> None:
-        """Move the temporal view and redraw everything that depends on it."""
+    def set_period(self, period: Period, scope: Scope = Scope.PERIOD) -> None:
+        """Move the temporal view and redraw everything that depends on it.
+
+        A wider ``scope`` reads more than the period again.
+        """
         self.period = period
         self._sync_header()
-        self.refresh_modules(Scope.PERIOD)
+        self.refresh_modules(scope)
 
     def action_today(self) -> None:
-        """Return to now, keeping the width the user chose."""
-        self.set_period(self.period.go_to(wallclock.today()))
+        """Return to now, keeping the width the user chose, and read it all again.
+
+        The key that catches up at once on what another process wrote, without
+        waiting for the app's next look.
+        """
+        self.set_period(self.period.go_to(wallclock.today()), Scope.ALL)
 
     def action_shift(self, count: int) -> None:
         self.set_period(self.period.shift(count))
@@ -209,7 +226,11 @@ class DashboardScreen(Screen[None]):
     # ---- redrawing ----
 
     def refresh_modules(self, scope: Scope) -> None:
-        """Invalidate once, then redraw only the modules that care."""
+        """Invalidate once, then redraw only the modules that care.
+
+        A change to the clock starts or stops the tick, whichever process made
+        it.
+        """
         self.now = wallclock.now()
         if scope & Scope.SETTINGS:
             self.period = self.period.with_year_start(
@@ -222,6 +243,8 @@ class DashboardScreen(Screen[None]):
             module.rebuild_if(scope)
         self._shown = self._shown_minutes()
         self._refresh_progress()
+        if scope & Scope.CLOCK:
+            self._start_tick_if_open()
 
     def _refresh_progress(self) -> None:
         """The two rails under the header: today, and the shown period."""
@@ -297,7 +320,6 @@ class DashboardScreen(Screen[None]):
         if self.period.contains(was):
             self.period = self.period.go_to(self._today)
         self.refresh_modules(Scope.ALL)
-        self._start_tick_if_open()
 
     def _shown_minutes(self) -> tuple[BalanceSummary, ...]:
         """Today, the period and the balance, in the whole minutes they print.
@@ -351,6 +373,10 @@ class DashboardScreen(Screen[None]):
         receipt. That receipt is returned as well as shown: `/` is bound on the
         application, and from Leave or Insights this screen's footer sits under
         the one being read.
+
+        It acts on what the clock panel shows. When another process has
+        clocked in or out since the panel was drawn, the press catches the
+        board up and says so, and the next one acts.
         """
         clock = self._services.clock
         # A session left running overnight is drawn as closed the moment the
@@ -368,9 +394,25 @@ class DashboardScreen(Screen[None]):
             )
             self.status(*receipt)
             self.refresh_modules(Scope.CLOCK)
-            self._start_tick_if_open()
             return receipt
-        if clock.is_clocked_in():
+        running = clock.get_open_session()
+        drawn = any(panel.shows_open for panel in self.query(ClockModule))
+        if (running is not None) != drawn:
+            # `flexi clock in` in another terminal, unseen by the panel this
+            # press was aimed at: acting on the database would do the opposite
+            # of the button under it, and clock out a session just begun.
+            self.refresh_modules(Scope.ALL)
+            opened = None if running is None else clock.segment(running.id)
+            if opened is None:
+                said = "Clocked out elsewhere; press again to clock in"
+            else:
+                said = (
+                    f"Clocked in elsewhere at {clock_time(opened.start)}; "
+                    "press again to clock out"
+                )
+            self.status(said, Tone.WARN)
+            return said, Tone.WARN
+        if running is not None:
             return self._report(clock.clock_out())
         return self._report(clock.clock_in())
 
@@ -583,7 +625,6 @@ class DashboardScreen(Screen[None]):
         self.status(*receipt)
         if success:
             self.refresh_modules(scope)
-            self._start_tick_if_open()
         return receipt
 
     def status(self, message: str, tone: Tone = Tone.NEUTRAL) -> None:

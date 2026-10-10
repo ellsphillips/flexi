@@ -133,6 +133,10 @@ What to cover here, at minimum:
 - The layering test (`tests/test_layering.py`): `domain/` imports neither
   `textual` nor `sqlalchemy`; `components/` and `screens/` do not import
   `sqlalchemy`.
+- Nothing a screen draws vanishes in sixteen colours
+  (`tests/tui/test_sixteen_colours.py`): every glyph keeps an ANSI colour apart
+  from its ground once Rich has matched both, which is what `TERM=xterm` without
+  `COLORTERM` and the Linux console get.
 
 ## 4. Snapshot tests
 
@@ -159,10 +163,12 @@ Rules that keep them useful:
 - **Freeze time.** Every case runs inside `time_machine.travel` at
   `flexi.services.samples.NOW` against the seeded database, otherwise the diff is
   the clock.
-- **Pin the widths the case is about.** The three are 120×36 (wide), 84×28
-  (narrow) and 64×22 (tiny). The dashboard is pinned at all three, leave at wide
-  and narrow, insights at 120×36 and 120×44, and the rest at wide only. The
-  responsive rules in `DESIGN-SYSTEM.md` §6 only exist where they are pinned.
+- **Pin the sizes the case is about.** The four are 120×40 (wide), 84×28
+  (narrow), 63×22 (tiny, a column under `TINY_COLUMNS`) and 120×30 (short,
+  Windows Terminal's default, under `SHORT_ROWS`). The dashboard is pinned at
+  all four, leave at wide and narrow, insights at 120×40 and 120×44, and the
+  rest at wide only. The responsive rules in `DESIGN-SYSTEM.md` §6 only exist
+  where they are pinned.
 - **Regenerate, then read the diff.** `just shots` rewrites
   both the SVGs and the text; the diff is what you review before committing.
 - **A version bump is a visual change.** The header carries `v0.2.0`, so every
@@ -196,15 +202,19 @@ rsvg-convert -w 1600 docs/shots/dashboard-wide.svg -o /tmp/dashboard-wide.png
 
 The demo seeds a leave year of plausible data — some overtime, one short day, a
 week of annual leave, the year's bank holidays, a sick day, a half day and a TOIL
-day — so the shots show the interesting cases and not an empty database. It lives
-in `flexi/services/samples.py` and is what `flexi --demo` runs, which makes it
-the same data a reviewer, a snapshot test and a new user all see.
+day — so the shots show the interesting cases and not an empty database. Its
+working days follow a ten-day cycle with a long day and a short one, the rest
+either side of the contract, and the ten bank four minutes between them, so the
+balance stays within a few hours of zero all year. It lives in
+`flexi/services/samples.py` and is what `flexi --demo` runs, which makes it the
+same data a reviewer, a snapshot test and a new user all see.
 
 Everything is derived from the anchor it is handed. The snapshots pass `ANCHOR`,
 a fixed Thursday, because a committed SVG cannot move; `--demo` passes today,
 along with the wall time that day has reached, so nothing is seeded that has not
 happened yet. `--demo` builds it in a temporary directory and throws it away on
-exit.
+exit, and on macOS and Linux when its window is closed or the process is sent
+`SIGTERM`.
 
 ## 6. Running
 
@@ -228,11 +238,21 @@ configured pre-commit hook. Both may modify files; review the diff afterward.
 
 A failed snapshot prints its diff, so nothing needs uploading as an artefact.
 
+A run repeats. `pyproject.toml` fixes pytest-randomly's seed, so the order and
+the values `random` hands each test are the same on every machine and attempt,
+and the `dev` and `ci` Hypothesis profiles are derandomized, so each property
+tries the same examples every time. A red CI job is red again locally, at the
+same seed. To shuffle afresh, pass `--randomly-seed=default`; to search for new
+property failures, set `HYPOTHESIS_PROFILE=thorough`, which stays random.
+
 `pytest-timeout` bounds each test at 120 seconds and prints thread stacks when
 that limit is reached. The stateful service test has a 300-second limit because
-one test item exercises many database lifecycles. Keep timeout diagnostics under
-that same timer: a separate `faulthandler_timeout` ignores per-test limits. A
-Windows worker crashed during that extra stack dump before its test limit.
+one test item exercises many database lifecycles. `faulthandler_timeout` dumps
+every thread's stack ten seconds sooner, at 110: Windows has no SIGALRM, so
+pytest-timeout ends an overrunning test there by exiting its xdist worker, whose
+output xdist discards, and the dump has to reach stderr first.
+`tests/test_suite_settings.py` keeps it under `--timeout`. It ignores per-test
+limits, so the stateful test dumps its stacks at 110 seconds too, and runs on.
 Python's fatal-error handler remains enabled for actual interpreter faults.
 
 ## 7. Reproducing a loaded runner
@@ -242,22 +262,36 @@ just test-late -q
 ```
 
 This uses the CI property-test profile and sets `FLEXI_LATE_CALLBACKS=0.05`.
+CI runs it at 0.01 s as well, because one delay reproduces one ordering;
+`FLEXI_LATE_CALLBACKS=0.01 just test-late -q` is that row.
 
-`pilot.pause()` drains the messages queued at the moment it is called. Work that
-a *layout* schedules — `RecordsModule` measuring its strip column, the key strip
-recomposing — may or may not have landed by the time it returns, and which of
-those happens is a property of how loaded the machine is, not of the
-code. On a laptop it lands early and every test passes. On a three-core runner
-it lands a moment later, on top of whatever the test had just set up: a table the
-test emptied fills again, a ledger cache the test just invalidated refills.
+Textual's `pilot.pause()` returns once the process has used no CPU for a
+moment, and a process descheduled on a loaded runner uses none either. So
+`tests/conftest.py` keeps pausing until every message posted to the app and its
+screens has been read, any layout owed has been done, and any terminal resize
+has reached the screens: a bubbled `Input.Changed`, or the `Resize` a widget
+sizes itself from, no longer lands after the assertion.
+`tests/test_suite_settings.py` holds it to that with an idle check that passes
+at once.
+
+What a pause cannot see is work deferred with `call_after_refresh`.
+`RecordsModule` measuring its strip column, the key strip recomposing — either
+may or may not have landed by the time a pause returns, and which of those
+happens is a property of how loaded the machine is, not of the code. On a
+laptop it lands early and every test passes. On a three-core runner it lands a
+moment later, on top of whatever the test had just set up: a table the test
+emptied fills again, a ledger cache the test just invalidated refills.
 
 That variable puts every deferred callback behind a timer, which is the one thing
 `pause` cannot drain, so a loaded runner's ordering is reproducible on an idle
-machine in twenty seconds. **It is expected to be green**, and a test that passes
-without it and fails with it has not found a bug — it is asserting on a screen
-that had not finished drawing. The cure is `await settled(pilot)` from
+machine in twenty seconds. **It is expected to be green.** A test that passes
+without it and fails with it is usually asserting on a screen that had not
+finished drawing, and the cure is `await settled(pilot)` from
 `tests/conftest.py`, which waits for the callbacks themselves instead of
-guessing at a number of pauses.
+guessing at a number of pauses. Not always: if the screen is wrong *after*
+`settled`, the order is the bug. The records table once finished one row
+scrolled whenever its cursor scroll landed before its strip column was
+measured, and a slow machine draws that screen too.
 
 Both failures that motivated it were real CI failures, in different files, that
 reproduced locally in under a second once the ordering was made deterministic.
@@ -275,7 +309,7 @@ by pushing.
 | `tests.yaml` | the matrix | `just test-ci` on the row's interpreter and timezone |
 | `tests.yaml` | the coverage row | `just coverage` |
 | `tests.yaml` | `The declared floors still pass` | `just test-floors` |
-| `tests.yaml` | `Deferred callbacks land late` | `just test-late` |
+| `tests.yaml` | `Deferred callbacks land … s late` | `just test-late`, with `FLEXI_LATE_CALLBACKS` set to the row's delay |
 | `package.yaml` | `Wheel installs and runs` | `just package-check` |
 
 `tests/test_pipelines.py` asserts that both pipelines call the same three, and
@@ -327,7 +361,8 @@ and not with `TZ`, which is a POSIX idea `time.tzset` implements and Windows
 does not have. Two tests are skipped there and say so: the pty reader in
 `tests/cli/test_terminal.py`, which needs a terminal Windows has no equivalent
 of, and the pair in `tests/services/test_setup.py` that need a file `chmod`
-can genuinely deny.
+can genuinely deny. That pair skips under root as well, which reads past any
+mode, and root is who a container runs as by default.
 
 The workflow files themselves are checked by the linter that knows about them:
 

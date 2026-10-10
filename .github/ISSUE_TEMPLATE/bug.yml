@@ -15,8 +15,9 @@ body:
     attributes:
       label: What was on screen
       description: >
-        Paste the terminal text, or attach a screenshot of the window. Say
-        which screen you were on.
+        Paste the terminal text, and say which screen you were on. Your screens
+        show your hours, leave and sickness, so reproduce it with `flexi --demo`
+        where you can, or remove personal details first.
       render: text
 
   - type: input
@@ -32,6 +33,8 @@ body:
     id: size
     attributes:
       label: Terminal size
-      description: Flexi lays out differently under 100 columns and again under 64.
+      description: >
+        Flexi lays out differently under 100 columns, again under 64, and on the
+        dashboard under 38 rows.
       options:
-        - label: I have said how wide the terminal was, if the layout looks wrong
+        - label: I have said how wide and tall the terminal was, if the layout looks wrong

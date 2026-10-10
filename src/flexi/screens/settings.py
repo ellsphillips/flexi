@@ -1,14 +1,14 @@
 """Changing the five answers given at setup, and the leave for each year.
 
 The first-run form asks the same five questions of the same five widget ids, so
-parsing them lives in :func:`parse_answers` and both screens refuse in the same
-words.
+parsing them lives in :func:`parse_answers`, and both screens refuse in the same
+words and go back to the answer refused.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from datetime import date, timedelta
+from collections.abc import Callable, Mapping, Sequence
+from datetime import date, time, timedelta
 from typing import ClassVar, Unpack
 
 from textual.app import ComposeResult
@@ -27,50 +27,93 @@ from flexi.services.registry import Services
 from flexi.services.settings import (
     DEFAULT_ENTITLEMENT_DAYS,
     SettingsUpdate,
+    describe_leave_year_start,
+    parse_clock_time,
     parse_contracted_minutes,
     parse_entitlement_days,
-    parse_settings,
+    parse_working_days,
+    read_leave_year_start,
 )
 
 __all__ = (
     "ALL_REQUIRED",
     "NO_DIVISION",
+    "AnswerError",
     "SettingsScreen",
+    "answer",
     "describe_working_days",
     "parse_answers",
+    "refuse",
 )
 
 ALL_REQUIRED = "All fields are required"
 NO_DIVISION = "Select a bank holiday region"
 
 
+class AnswerError(ValueError):
+    """An answer that cannot be used, and the field it was given in."""
+
+    def __init__(self, field: Widget, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+def answer[T](node: Widget, selector: str, read: Callable[[str], T]) -> T:
+    """What was typed into one field, as ``read`` reads it.
+
+    An empty field, or one ``read`` refuses, raises :class:`AnswerError`
+    holding the field.
+    """
+    field = node.query_one(selector, Input)
+    typed = field.value.strip()
+    if not typed:
+        raise AnswerError(field, ALL_REQUIRED)
+    try:
+        return read(typed)
+    except ValueError as error:
+        raise AnswerError(field, str(error)) from error
+
+
 def parse_answers(node: Widget) -> SettingsUpdate:
     """Parse the five answers shared by setup and settings forms.
 
-    Nothing is persisted here, so both forms can validate all their other
-    fields before opening one settings transaction.
+    They are read in the order both forms ask them, so a refusal is about the
+    first answer that cannot be used. Nothing is persisted here, so both forms
+    can validate all their other fields before opening one settings
+    transaction.
 
     A ``Select`` with nothing chosen answers its ``NULL`` sentinel, not a
     string, which is why the division is checked separately from the text
     fields.
     """
-    leave_start = node.query_one("#input-leave-start", Input).value.strip()
-    working_days = node.query_one("#input-working-days", Input).value.strip()
-    hours = node.query_one("#input-hours", Input).value.strip()
-    division = node.query_one("#select-division", Select).value
-    auto_close = node.query_one("#input-auto-close", Input).value.strip()
-
-    if not all([leave_start, working_days, hours, auto_close]):
-        raise ValueError(ALL_REQUIRED)
+    leave_year_start = answer(node, "#input-leave-start", read_leave_year_start)
+    working_days = answer(node, "#input-working-days", parse_working_days)
+    contracted = answer(node, "#input-hours", parse_contracted_minutes)
+    region = node.query_one("#select-division", Select)
+    division = region.value
     if not isinstance(division, str):
-        raise ValueError(NO_DIVISION)  # noqa: TRY004 - invalid user selection
-    return parse_settings(
-        leave_year_start=leave_start,
-        working_days=working_days,
-        bank_holiday_division=division,
-        auto_close_time=auto_close,
-        contracted_minutes=parse_contracted_minutes(hours),
+        raise AnswerError(region, NO_DIVISION)
+    auto_close = answer(node, "#input-auto-close", parse_clock_time)
+    return SettingsUpdate(
+        leave_year_start=leave_year_start,
+        working_days=tuple(working_days),
+        division=Division(division),
+        auto_close=time(*auto_close),
+        contracted=timedelta(minutes=contracted),
     )
+
+
+def refuse(refusal: AnswerError) -> None:
+    """Say why an answer was refused, under its question, and go back to it.
+
+    Both forms start the row a field is on with the label that asks for it, so
+    the refusal is titled in the form's own words. Arriving from another field
+    selects what was typed, as tab does, so a correction types over it.
+    """
+    field = refusal.field
+    asked = field.query_ancestor(Horizontal).query_one(Label)
+    field.notify(str(refusal), title=str(asked.content), severity="error")
+    field.focus()
 
 
 _COLLAPSE_FROM = 3
@@ -95,6 +138,13 @@ class SettingsScreen(Screen[bool]):
     """Settings edit screen. Returns True when saved."""
 
     HELP_LABEL = "Settings"
+
+    AUTO_FOCUS: ClassVar[str] = "#input-leave-start"
+    """The first field, so a correction can be typed straight in.
+
+    Textual would otherwise focus the first focusable widget, which is the
+    scrolling body, and the keys would go nowhere.
+    """
 
     BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "back", "Back")]
 
@@ -153,8 +203,9 @@ class SettingsScreen(Screen[bool]):
         # Every field through the service's own accessor, which is where each
         # one's fallback is written down; the settings row alone does not carry
         # them.
-        month, day = self._svc.get_leave_year_start()
-        leave_start = f"{month:02d}-{day:02d}"
+        leave_start = describe_leave_year_start(
+            self._svc.get_leave_year_start(), short=True
+        )
         working = describe_working_days(self._svc.get_working_day_indices())
         hours = hm(self._svc.get_contracted())
         division = self._svc.get_division().value
@@ -268,8 +319,8 @@ class SettingsScreen(Screen[bool]):
 
         try:
             update = parse_answers(self)
-        except ValueError as error:
-            self.notify(str(error), severity="error")
+        except AnswerError as refusal:
+            refuse(refusal)
             return
 
         was, hours = self._svc.get_contracted(), update.contracted

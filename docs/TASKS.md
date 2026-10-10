@@ -1,8 +1,13 @@
 # Developer tasks
 
-Use Python 3.12–3.14, uv 0.9.26 or newer, and just 1.46 or newer.
-[Install just](https://just.systems/man/en/installation.html) with uv or your
-operating system's package manager. These tools are for working on a checkout;
+You need Git, uv 0.9.26 or newer, and just 1.46 or newer. uv downloads the
+Python this project pins (3.13) when it is needed, so you don't have to install
+Python; 3.12–3.14 are supported.
+[Install just](https://just.systems/man/en/installation.html) with
+`uv tool install "rust-just>=1.46"`, as below. Some distribution packages are
+too old: Ubuntu 24.04 has 1.21 and Debian 13 has 1.40, and they fail with
+`Unknown setting script-interpreter` or ask for `--unstable`, so check
+`just --version` before using one. These tools are for working on a checkout;
 installing and using Flexi does not require just.
 
 From the repository, start with:
@@ -27,14 +32,14 @@ Use `just --show RECIPE` to inspect the commands behind a task.
 | `just dev` | Run with Textual's development tools. | Uses `scripts/dev.py`, migrates and opens your real database. |
 | `just console` | Open Textual's development console. | Run beside `just dev` in another terminal. |
 | `just check` | Check the lockfile, style, types, and workflows. | Runs checks without applying source fixes; does not run tests or the audit. |
-| `just lint` | Check Python and justfile style. | Ruff checks, Python formatting checks, and justfile formatting checks. |
+| `just lint` | Check Python and justfile style. | Ruff checks, Python formatting checks, and justfile formatting checks with the pinned just 1.46.0 formatter, which uvx fetches once (under 2 MiB): `--fmt` is unstable, and newer releases format the justfile differently. |
 | `just types` | Check native and Windows typing. | Runs mypy in both platform views. |
-| `just fix` | Apply automated style fixes. | May change Python files and the justfile; review the diff. |
+| `just fix` | Apply automated style fixes. | May change Python files and the justfile, which it formats with the same pinned just, so the first run needs the network; review the diff. |
 | `just hooks` | Run all pre-commit hooks. | May modify files; review the diff. |
 | `just test [ARGS…]` | Run the test suite or selected tests. | Accepts pytest paths and options. |
 | `just test-ci [ARGS…]` | Run with CI's property-test budget. | Sets `HYPOTHESIS_PROFILE=ci`; accepts pytest arguments. |
 | `just coverage [ARGS…]` | Measure and enforce test coverage. | Uses the CI profile, records coverage, and reports uncovered lines; accepts pytest arguments. |
-| `just test-late [ARGS…]` | Exercise delayed UI callbacks. | Uses the CI profile and `FLEXI_LATE_CALLBACKS=0.05`; accepts pytest arguments. |
+| `just test-late [ARGS…]` | Exercise delayed UI callbacks. | Uses the CI profile and `FLEXI_LATE_CALLBACKS=0.05` unless one is exported; accepts pytest arguments. |
 | `just test-floors [ARGS…]` | Test minimum dependency versions on the oldest supported Python, 3.12. | Copies the current checkout, including uncommitted changes, into temporary storage; keeps floor resolution out of your lockfile and `.venv`. uv selects or downloads Python 3.12 automatically. Accepts pytest arguments. |
 | `just shots` | Regenerate interface screenshots. | Updates the tracked SVG and text files in `docs/shots/`. |
 | `just audit` | Check locked dependencies for advisories. | Uses temporary requirements and a pinned pip-audit; needs network access. |
@@ -49,6 +54,7 @@ Use `just --show RECIPE` to inspect the commands behind a task.
 | `just release-retry PR_NUMBER` | Retry release preparation. | Requires authenticated `gh`; dispatches the preparer on `dev`, which may commit generated changes to the release PR. |
 
 The remote recipes require the GitHub CLI; sign in with `gh auth login`.
+Without it, each of them stops and says to install it and sign in.
 `try-release` also requires the publisher and environment setup described in
 [Releasing](RELEASING.md#one-time-setup). Its `--run` argument is a GitHub Actions
 run ID, not a package version:

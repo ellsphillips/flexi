@@ -83,7 +83,7 @@ FALLBACK: Final[Mapping[str, str]] = MappingProxyType(
         "c-ink": "#0F0E0D",
         "c-surface": "#171614",
         "c-raised": "#201E1B",
-        "c-line": "#2E2B27",
+        "c-line": "#302D29",
         "c-line-soft": "#232019",
         "c-ash": "#7A736A",
         "c-paper": "#EDE9E3",

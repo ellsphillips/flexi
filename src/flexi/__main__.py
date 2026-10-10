@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import functools
 import sqlite3
-from collections.abc import Callable
+import sys
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from types import FrameType
+from typing import TYPE_CHECKING, NoReturn, Protocol
 
 import click
 
@@ -40,12 +43,16 @@ else:
 
 
 __all__ = (
+    "DEMO_NEEDS_TERMINAL",
     "LEFT_RUNNING",
     "NEEDS_TERMINAL",
     "NOT_INITIALISED",
+    "NOT_UNICODE",
     "UNREADABLE",
+    "WINDOWS_TERMINALS",
     "FlexiApplication",
     "ServiceRegistry",
+    "SignedArguments",
     "already_set_up",
     "as_of_option",
     "ask_the_questions",
@@ -74,10 +81,15 @@ __all__ = (
     "run_demo",
     "set_up_here",
     "unreadable",
+    "unwound_on_hangup",
 )
 
 
-@click.group(invoke_without_command=True)
+@click.group(
+    invoke_without_command=True,
+    # Inherited by every command's context, so `flexi leave -h` is help too.
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 # `package_name` lets Click read the version inside the flag's own callback; a
 # literal `message` would read the metadata at import, on every command.
 @click.version_option(
@@ -92,13 +104,25 @@ __all__ = (
 @click.pass_context
 def cli(ctx: click.Context, *, demo: bool = False) -> None:
     """Track flexitime from the terminal."""
-    from flexi.cli import output
-    from flexi.config import CONFIG_PROBLEM
+    from flexi.cli import output, ui
 
     output.prepare(ctx)
+    encoding = output.unencodable()
+    if encoding is not None:
+        click.secho(NOT_UNICODE.format(encoding=encoding), fg="yellow", err=True)
+        ctx.exit(1)
+    if ctx.invoked_subcommand is None and ui.interactive():
+        # Before the imports below: on a first launch they take seconds, and a
+        # terminal left blank for that long looks hung.
+        opening = (
+            "Opening the Flexi demo with sample data…" if demo else "Opening Flexi…"
+        )
+        click.secho(opening, dim=True, err=True)
 
     # Not at module scope: `flexi.config` costs pydantic, and `--version` and
     # `--help` are answered during parsing and never reach this callback.
+    from flexi.config import CONFIG_PROBLEM
+
     if CONFIG_PROBLEM:
         click.secho(CONFIG_PROBLEM, fg="yellow", err=True)
 
@@ -106,7 +130,7 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
         msg = "--demo opens the sample application; it does not take a command."
         raise click.UsageError(msg)
     if demo:
-        needs_a_terminal(ctx)
+        needs_a_terminal(ctx, DEMO_NEEDS_TERMINAL)
         run_demo(ctx)
         return
 
@@ -127,13 +151,28 @@ def cli(ctx: click.Context, *, demo: bool = False) -> None:
 
 NOT_INITIALISED = (
     "Flexi is not set up on this machine yet.\n"
-    "Run `flexi init` to choose your leave year, working days and bank holidays."
+    "Run `flexi` (or `flexi init`) to choose your leave year, working days and "
+    "bank holidays."
 )
 
 NEEDS_TERMINAL = (
     "Flexi is a full-screen application and needs a terminal.\n"
     "Try `flexi balance show`, or `flexi --help` for the rest."
 )
+
+DEMO_NEEDS_TERMINAL = (
+    "The demo is a full-screen application and needs an interactive terminal."
+)
+"""Naming no command: whoever ran `uvx flexi --demo` has no `flexi` to run."""
+
+WINDOWS_TERMINALS = "Run Flexi in Windows Terminal, PowerShell or Command Prompt."
+"""Said on Windows only, where Git Bash and an IDE's output pane are no console."""
+
+NOT_UNICODE = (
+    "Flexi draws with Unicode, but this terminal's locale uses {encoding}. "
+    "Use a UTF-8 locale, such as `LC_ALL=en_GB.UTF-8 flexi`."
+)
+"""In ASCII, which every locale can show."""
 
 UNREADABLE = (
     "The database at {path} could not be read.\n"
@@ -143,7 +182,7 @@ UNREADABLE = (
 LEFT_RUNNING = "{closed}. If you left earlier: open flexi, select it, press x, then n."
 
 
-def needs_a_terminal(ctx: click.Context) -> None:
+def needs_a_terminal(ctx: click.Context, message: str = NEEDS_TERMINAL) -> None:
     """Refuse when there is no terminal for the application to draw on.
 
     Textual reads ``sys.__stdin__`` and draws on ``sys.__stderr__``, which is
@@ -153,7 +192,9 @@ def needs_a_terminal(ctx: click.Context) -> None:
     from flexi.cli import ui
 
     if not ui.interactive():
-        click.secho(NEEDS_TERMINAL, fg="yellow", err=True)
+        if sys.platform == "win32":
+            message = f"{message}\n{WINDOWS_TERMINALS}"
+        click.secho(message, fg="yellow", err=True)
         ctx.exit(1)
 
 
@@ -212,6 +253,50 @@ def migrate() -> None:
     except OSError as error:
         message = f"Flexi could not use {database_file().parent}: {error}."
         raise click.ClickException(message) from error
+
+
+class SignedArguments(click.Command):
+    """A command whose arguments may start with a minus, as `-2w` and `-1:30` do.
+
+    Such a command has Click pass an unknown option through as an argument, so
+    a mistyped `--dryrun` would be read as a date, or as an extra argument. A
+    word only an option could be, two hyphens or a hyphen and a letter, is
+    reported as the unknown option it is, with the nearest real one.
+
+    Nor does it take a short option, which Click would find inside a word:
+    `-1h` would be `-1` and `-h`, and show help for a mistyped amount. So `-h`
+    is help here only as a word of its own.
+    """
+
+    def get_help_option_names(self, ctx: click.Context) -> list[str]:
+        names = super().get_help_option_names(ctx)
+        return [name for name in names if name.startswith("--")]
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        from difflib import get_close_matches
+
+        if ctx.resilient_parsing:
+            # Completing a line, where a refusal would end in a traceback.
+            return super().parse_args(ctx, args)
+        options: list[click.Parameter] = [
+            param for param in self.get_params(ctx) if isinstance(param, click.Option)
+        ]
+        names = [name for option in options for name in option.opts]
+        # Parsed with the options alone, so every word an argument would take
+        # is left over to be looked at. One spelled like a real option came
+        # after `--`, which says it is a word.
+        alone = click.Command(self.name, params=options, add_help_option=False)
+        _, words, _ = alone.make_parser(ctx).parse_args(args=list(args))
+        for word in words:
+            if word in names:
+                continue
+            if word in ctx.help_option_names:
+                click.echo(ctx.get_help(), color=ctx.color)
+                ctx.exit()
+            if word.startswith("--") or (word[:1] == "-" and word[1:2].isalpha()):
+                nearest = get_close_matches(word, names, n=1)
+                raise click.NoSuchOption(word, possibilities=nearest, ctx=ctx)
+        return super().parse_args(ctx, args)
 
 
 def as_of_option[ReturnT](
@@ -302,6 +387,39 @@ def holidays_refresh(services: ServiceRegistry) -> int:
     return holidays_cli.run(services)
 
 
+@contextmanager
+def unwound_on_hangup() -> Iterator[None]:
+    """Make a closed window or a `kill` unwind the blocks inside, as quitting does.
+
+    SIGHUP, which closing the window sends, and SIGTERM end the process where it
+    stands by default, and the demo's temporary database outlives it. Raised as
+    `SystemExit` instead, with the status a shell gives the signal, they unwind.
+    Windows has no SIGHUP, and ends a console's process its own way.
+
+    Only the first is raised. A window closed over zsh hangs its job up twice,
+    and a second `SystemExit` would cut Textual's teardown short, leaving its
+    input thread to hold the process open for ever.
+    """
+    if sys.platform == "win32":  # pragma: no cover - POSIX takes the branch below
+        yield
+        return
+
+    import signal
+
+    def unwind(signum: int, _frame: FrameType | None) -> NoReturn:
+        for hangup in hangups:
+            signal.signal(hangup, signal.SIG_IGN)
+        raise SystemExit(128 + signum)
+
+    hangups = (signal.SIGHUP, signal.SIGTERM)
+    previous = [signal.signal(signum, unwind) for signum in hangups]
+    try:
+        yield
+    finally:
+        for signum, handler in zip(hangups, previous, strict=True):
+            signal.signal(signum, handler)
+
+
 def run_demo(ctx: click.Context) -> None:
     """Launch against a temporary database holding the sample data.
 
@@ -317,13 +435,18 @@ def run_demo(ctx: click.Context) -> None:
     from flexi.models.database.engine import database_scope
     from flexi.services.samples import seed_demo
 
-    with tempfile.TemporaryDirectory(prefix="flexi-demo-") as directory:
+    with (
+        unwound_on_hangup(),
+        tempfile.TemporaryDirectory(prefix="flexi-demo-") as directory,
+    ):
         path = Path(directory) / "demo.db"
         with database_scope(path) as (engine, session):
             Base.metadata.create_all(engine)
             moment = wallclock.now()
             seed_demo(session, anchor=moment.date(), now=moment.time())
-        run_app(ctx, FlexiApp(db_path=path))
+        app = FlexiApp(db_path=path)
+        app.demo = True
+        run_app(ctx, app)
 
 
 @cli.command()
@@ -389,7 +512,7 @@ def erase(db_path: Path) -> None:
     taken = init_cli.reset(db_path)
     setup_service.forget(db_path)
     if taken is not None:
-        init_cli.settled(f"Erased. Snapshot kept at {taken}")
+        init_cli.settled("Erased. Snapshot kept at", taken)
 
 
 def ask_the_questions(
@@ -400,21 +523,20 @@ def ask_the_questions(
     ``then_open`` carries bare ``flexi`` on into the application once the
     questions are answered; ``flexi init`` stops and says so.
     """
-    from flexi.cli import ui
-
-    if not ui.interactive():
-        click.secho(
-            f"The database is ready at {db_path}, but setup needs answering.\n"
-            "Run `flexi init` from a terminal to finish.",
-            fg="yellow",
-            err=True,
-        )
-        ctx.exit(1)
-
+    needs_a_terminal(
+        ctx,
+        f"The database is ready at {db_path}, but setup needs answering.\n"
+        "Run `flexi init` from a terminal to finish.",
+    )
     run_app(ctx, launch(splash=True))
 
     if not set_up_here():
-        click.echo("Setup was not completed.")
+        # Naming no command: whoever ran `uvx flexi` has no `flexi` to run.
+        click.echo(
+            "Setup was not completed, so none of your answers were saved.\n"
+            f"Run Flexi again to finish it. Its database is at {db_path}.",
+            err=True,
+        )
         ctx.exit(1)
     if not then_open:
         click.secho(f"Flexi is set up. Its records are at {db_path}.", fg="green")
@@ -444,6 +566,8 @@ def clock_out(services: ServiceRegistry) -> int:
 
 
 @cli.command(
+    cls=SignedArguments,
+    # `-2w` is a date, not an unknown option `-2`.
     context_settings={"ignore_unknown_options": True},
     short_help="Book or cancel leave in one line.",
 )
@@ -468,11 +592,12 @@ def leave(
     flexi leave annual friday
     flexi leave annual monday to friday
     flexi leave sick today pm
-    flexi leave toil 12 jun
+    flexi leave toil next friday
     flexi leave cancel next monday
 
     End with am, morning, pm or afternoon for half a day. Join two dates with
-    to, until, through or `..`. The plan is shown before anything is written.
+    to, until, through or `..`. A date with no year is the next one to come.
+    The plan is shown before anything is written.
     """  # noqa: D301 - the \b is Click's, and a raw string breaks it
     from flexi.cli import leave as leave_cli
 
@@ -530,6 +655,7 @@ def balance_zero(
 
 @balance.command(
     name="adjust",
+    cls=SignedArguments,
     # `-1:30` is an amount, not an unknown option `-1`.
     context_settings={"ignore_unknown_options": True},
 )
@@ -579,12 +705,13 @@ def balance_log(services: ServiceRegistry) -> int:
 
 @balance.command(name="undo")
 @click.argument("adjustment_id", type=int)
+@click.option("--yes", is_flag=True, help="Do not ask.")
 @requires_setup()
-def balance_undo(services: ServiceRegistry, adjustment_id: int) -> int:
+def balance_undo(services: ServiceRegistry, adjustment_id: int, *, yes: bool) -> int:
     """Remove a correction by its id, as listed by `flexi balance log`."""
     from flexi.cli import balance as balance_cli
 
-    return balance_cli.undo(services, adjustment_id)
+    return balance_cli.undo(services, adjustment_id, assume_yes=yes)
 
 
 if __name__ == "__main__":

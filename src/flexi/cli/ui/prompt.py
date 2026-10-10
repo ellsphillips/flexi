@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from types import MappingProxyType
 from typing import Final
 
+import click
 from rich.console import Console
 from rich.text import Text
 
@@ -26,10 +27,12 @@ from flexi.cli.ui.menu import Menu, Option
 
 __all__ = (
     "ESCAPE_WAIT",
+    "UNANSWERED",
     "WINDOWS_PREFIXES",
     "WINDOWS_SCANCODES",
     "Surface",
     "abandon",
+    "agreed",
     "choose",
     "console",
     "interactive",
@@ -61,6 +64,28 @@ def interactive() -> bool:
     Both ends are checked: stdin for the answer, stderr for the drawing.
     """
     return sys.stdin.isatty() and sys.stderr.isatty()
+
+
+UNANSWERED: Final = "No terminal to ask on; add --yes to {doing} without asking."
+"""Said in place of a question nothing is there to answer."""
+
+
+def agreed(question: str, *, doing: str) -> bool:
+    """Ask a yes-or-no question on stderr, where Enter means no.
+
+    An answer can come down a pipe. When the input runs out before one does, as
+    a scheduler's and `< /dev/null` do, it says what to add in place of Click's
+    bare "Aborted!". At a terminal, ctrl+c still aborts.
+    """
+    try:
+        return click.confirm(question, default=False, err=True)
+    except click.Abort:
+        if sys.stdin.isatty():
+            raise
+        # The question is still open on its line.
+        click.echo(err=True)
+        click.secho(UNANSWERED.format(doing=doing), fg="yellow", err=True)
+        return False
 
 
 # Reading --------------------------------------------------------------------

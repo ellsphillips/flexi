@@ -16,6 +16,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi.constants import AbsenceType, Portion
+from flexi.domain import leaveyear
+from flexi.domain.balance import standing
+from flexi.domain.format import delta
 from flexi.models.database.db import (
     DEFAULT_CONTRACTED_MINUTES,
     AbsenceDay,
@@ -34,6 +37,9 @@ from flexi.services.samples import ANCHOR, holidays_in, seed_demo
 
 DAY_WINDOW_END = time(19, 0)
 """The right-hand edge of the punch strip; a session past it is drawn off."""
+
+FEW_HOURS = timedelta(hours=4)
+"""As far either side of zero as a plausible flexi balance runs."""
 
 ANCHORS = [
     pytest.param(ANCHOR, id="the Thursday the screenshots are taken on"),
@@ -231,6 +237,26 @@ def test_christmas_is_drawn_as_a_bank_holiday(session: Session) -> None:
 
     assert date(2026, 12, 25) in _cached_holidays(session)
     assert date(2026, 12, 25) not in _worked(session)
+
+
+@pytest.mark.parametrize("year", range(2026, 2034))
+def test_balance_stays_within_a_few_hours_all_year(session: Session, year: int) -> None:
+    """A balance tens of hours deep reads as broken arithmetic, not flexitime.
+
+    A sample life that banked 27 minutes a day stood at 80 hours by Christmas.
+    The cycle is ten days and the week seven, so the weekday a leave year opens
+    on moves its long and short days; these eight leave years open on all seven.
+    """
+    start, last = leaveyear.bounds(date(year, *samples.LEAVE_YEAR), *samples.LEAVE_YEAR)
+    seed_demo(session, anchor=last)
+    now = datetime.combine(last, samples.NOW.time(), tzinfo=UTC)
+
+    balance = timedelta()
+    for day in build_services(session).ledger.days(start, last, now=now):
+        # As the running balance draws it: the last day is still on the clock,
+        # and `standing` holds back the hours it has yet to work.
+        balance += standing((day,), last).delta
+        assert abs(balance) <= FEW_HOURS, f"{delta(balance)} on {day.date}"
 
 
 def test_half_day_works_half_a_day(session: Session) -> None:

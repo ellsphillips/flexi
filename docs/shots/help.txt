@@ -1,36 +1,40 @@
 
   flexi·     Dashboard    Leave    Insights    Settings                                          Week of 8 Jun  v0.2.0
-────────────────────────▎                                                                       ────────────────────────
-  TODAY ━━━━━━━━━━━━━━━━▎  Keyboard                                                             ━━━━━━━ 24:47 of 25:54
-                        ▎
- ╭─ Clock ──────────────▎  Dashboard                                                            ──────────────────────╮
- │ on the clock         ▎  ──────────────────────────────────────────────────────────────────    Worked   ±           │
- │ ───████████████▌───┊─▎                                                                           8:13   +0:49      │
- │ since 08:44 · go home▎   t  Today                                                                3:54   +0:12      │
- │                      ▎   [  Previous                                                             7:32   +0:08      │
- │            Depart    ▎   ]  Next                                                                 5:08    0:00      │
- ╰─────── 5:08:00 · 11/0▎   d  Day                                                                  TOIL              │
- ╭─ Balance ────────────▎   w  Week                                                                    —              │
- │    ╶╮ ╭─╮   ╭─╮╷ ╷   ▎   m  Month                                                                   —              │
- │ ╶┼╴ │ ├─┤ : │ │╰─┤   ▎   y  Year                                                                24:47   +1:09      │
- │    ╶┴╴╰─╯   ╰─╯  ╵   ▎   p  Period                                                                                 │
- │        FLEXI BALANCE ▎   g  Go to date                                                                             │
- │   18:04 banked · +2.4▎   n  Record work                                                                            │
- ╰────────── 6 Apr 26–5 ▎   N  Corrections                                                                            │
- ╭─ Wallet ─────────────▎   A  Annual leave                                                                           │
- │ ANNUAL       20.5 lef▎   S  Sickness                                                                               │
- │ ━━━━━┿━━━━━━━━━━━━━━━▎   T  TOIL day                                                                               │
- │ TOIL         +18:04  ▎   U  Unpaid leave                                                                           │
- │ ━━━━━━━━━━━━━━━━━━━━━▎   O  Other absence                                                                          │
- │ SICK         1d · 1 o▎   q  Quit                                                                                   │
- ╰────────── +1:09 this ▎  Anywhere                                                                                   │
- ╭─ Calendar ───────────▎  ──────────────────────────────────────────────────────────────────                         │
- │  ‹       June 2026   ▎                                                                                             │
- │  M   T   W   T   F   ▎   ^q  Quit                                                                                  │
- │   1   2   3   4   5  ▎   /  Clock                                                         ▄                        │
- │   8   9  10  11  12  ▎   v  Jump                                                                                   │
- │  15  16  17  18  19  ▎   ?  Help                                                                                   │
- │  22  23  24  25  26  ▎   :  Command palette                                                                        │
- │  29  30   1   2   3  ▎                                                                       ───── 24:47 of 25:54 ─╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  TODAY ━━━━━━━━━━━━━━━━▎                                                                       ━━━━━━━ 23:30 of 25:54
+                        ▎  Keyboard
+ ╭─ Clock ──────────────▎                                                                       ──────────────────────╮
+ │ on the clock         ▎  Records table                                                         Worked   ±           │
+ │ ───████████████▌───┊─▎  ──────────────────────────────────────────────────────────────────       7:33   +0:09      │
+ │ since 08:44 · go home▎                                                                           3:22   −0:20      │
+ │                      ▎   home  First                                                             7:27   +0:03      │
+ │            Depart    ▎   end  Last                                                               5:08    0:00      │
+ ╰──────── 5:08:00 · 11/▎   ⏎  Open                                                                 TOIL              │
+ ╭─ Balance ────────────▎   space  Expand                                                              —              │
+ │    ╶╮    ╶╮ ╶─╮      ▎   shift+space  Expand all                                                    —              │
+ │ ╶┼╴ │  :  │  ─┤      ▎   j  Down                                                                23:30   −0:08      │
+ │    ╶┴╴   ╶┴╴╶─╯      ▎   k  Up                                                                                     │
+ │         FLEXI BALANCE▎  Records                                                                                    │
+ │    1:13 banked · +0.2▎  ──────────────────────────────────────────────────────────────────                         │
+ ╰─────────── 6 Apr 26–5▎                                                                                             │
+ ╭─ Wallet ─────────────▎   a  Book absence                                                                           │
+ │ ANNUAL        20.5 le▎   x  Remove or void                                                                         │
+ │ ━━━━━┿━━━━━━━━━━━━━━━▎  Dashboard                                                                                  │
+ │ TOIL           +1:13 ▎  ──────────────────────────────────────────────────────────────────▂                        │
+ │ ━━━━━━━━━━━━━━━━━━━━━▎                                                                                             │
+ │ SICK          1d · 1 ▎   t  Today                                                                                  │
+ ╰─────────── −0:08 this▎   [  Previous                                                                               │
+ ╭─ Calendar ───────────▎   ]  Next                                                                                   │
+ │  ‹        June 2026  ▎   d  Day                                                                                    │
+ │  M   T   W   T   F   ▎   w  Week                                                                                   │
+ │   1   2   3   4   5  ▎   m  Month                                                                                  │
+ │   8   9  10  11  12  ▎   y  Year                                                                                   │
+ │  15  16  17  18  19  ▎   p  Period                                                                                 │
+ │  22  23  24  25  26  ▎   g  Go to date                                                                             │
+ │  29  30   1   2   3  ▎   n  Record work                                                                            │
+ │   6   7   8   9  10  ▎  Anything without a key is in the command palette — ctrl+p or :                             │
+ ╰──────────────────────▎                                                                                             │
+                                   │                                                                                  │
+                                   ╰───────────────────────────────────────────────────────────────── 23:30 of 25:54 ─╯
 
-t Today p Period n Record work q Quit / Clock v Jump ? Help f1 Dashboard f2 Leave f3 Insights f4 Settings
+space Expand a Book absence t Today p Period n Record work q Quit / Clock v Jump ? Help f1 Dashboard f2 Leave +2 more

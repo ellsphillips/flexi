@@ -18,8 +18,14 @@ __all__ = (
 PYPI_URL = "https://pypi.org/pypi/flexi/json"
 TIMEOUT_SECONDS = 5.0
 _FETCH_BUDGET = 2 * TIMEOUT_SECONDS
-UPGRADE_HINT = "Upgrade with the tool you installed it with, e.g. uv tool upgrade flexi"
-"""An example command: which of uv, pipx or pip installed Flexi is unknowable."""
+UPGRADE_HINT = (
+    "Quit Flexi, then upgrade with the tool you installed it with, "
+    "e.g. uv tool upgrade flexi"
+)
+"""An example command: which of uv, pipx or pip installed Flexi is unknowable.
+
+Quitting comes first. It is read with Flexi open, and on Windows a running copy
+holds the files the upgrade replaces, so uv reports it as failed."""
 
 
 def get_pypi_version() -> str | None:

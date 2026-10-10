@@ -391,3 +391,17 @@ def test_rail_closes_with_what_happened(
     init_cli.settled("Erased. Snapshot kept at /tmp/snap.bak")
 
     assert "Erased. Snapshot kept at /tmp/snap.bak" in capsys.readouterr().err
+
+
+def test_a_path_on_the_rail_is_never_cropped(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every other line stops at the terminal's edge; a snapshot is a way back."""
+    monkeypatch.setenv("COLUMNS", "40")
+    path = Path("/home/somebody/.local/share/flexi/backups/pre-init_db_X.bak")
+
+    init_cli.settled("Erased. Snapshot kept at", path)
+
+    shown = capsys.readouterr().err
+    assert "Erased. Snapshot kept at" in shown
+    assert str(path) in shown

@@ -43,8 +43,13 @@ $c-ink: #0F0E0D;
 $c-surface: #171614;
 $c-raised: #201E1B;
 
-/* Hairlines. Editorial layouts are ruled, not boxed. */
-$c-line: #2E2B27;
+/* Hairlines. Editorial layouts are ruled, not boxed.
+
+   `line` is kept light enough to reach a sixteen-colour terminal (`TERM=xterm`,
+   the Linux console) as bright black. At #2E2B27 Rich matched it to the black
+   `ink` becomes there, and every rule, track and empty strip drawn in it
+   vanished. `tests/tui/test_sixteen_colours.py` checks the screens for it. */
+$c-line: #302D29;
 $c-line-soft: #232019;
 $c-rule: #443F38;
 
@@ -504,6 +509,13 @@ NavBar {
     text-style: bold;
 }
 
+/* Under 100 columns the period label needs the room: at 80 the stamp cut the
+   month off "Week of 28 Sep", and after `[` or `g` nothing else names it. The
+   version says nothing about the screen, so it is the one that gives way. */
+Screen.-narrow .header-version {
+    display: none;
+}
+
 /* Two rows and not one more: the status line and the key strip. */
 AppFooter {
     dock: bottom;
@@ -707,8 +719,14 @@ DataTable > .datatable--header {
 }
 
 /* Background only: a foreground here wins over the per-cell `Text` styles, and
-   the row under the cursor would lose its punch strip and its signed delta. */
+   the row under the cursor would lose its punch strip and its signed delta.
+   Lit only while the table has the keyboard: away from it, the row under the
+   cursor is not the one the keys act on. */
 DataTable > .datatable--cursor {
+    background: $c-line-soft;
+}
+
+DataTable:focus > .datatable--cursor {
     background: $c-accent-deep;
 }
 

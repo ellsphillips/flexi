@@ -60,9 +60,11 @@ check: lint types workflow-check
 [script]
 lint:
     import subprocess
+    # just's --fmt is unstable and its output changes between releases (1.49
+    # rewrote `set x := true` to `set x`); keep this pin in step with tests.yaml.
     for command in (["uv", "run", "--locked", "ruff", "check"],
                     ["uv", "run", "--locked", "ruff", "format", "--check"],
-                    ["just", "--unstable", "--fmt", "--check"]):
+                    ["uvx", "--from", "rust-just==1.46.0", "just", "--unstable", "--fmt", "--check"]):
         result = subprocess.call(command)
         if result:
             raise SystemExit(result)
@@ -85,7 +87,8 @@ fix:
     results = [subprocess.call(command) for command in (
         ["uv", "run", "--locked", "ruff", "check", "--fix"],
         ["uv", "run", "--locked", "ruff", "format"],
-        ["just", "--unstable", "--fmt"],
+        # Pinned as in lint: releases of just format the justfile differently.
+        ["uvx", "--from", "rust-just==1.46.0", "just", "--unstable", "--fmt"],
     )]
     raise SystemExit(next((result for result in results if result), 0))
 
@@ -147,7 +150,8 @@ coverage *args:
 [script]
 test-late *args:
     import os, subprocess, sys
-    environment = dict(os.environ, HYPOTHESIS_PROFILE="ci", FLEXI_LATE_CALLBACKS="0.05")
+    environment = dict(os.environ, HYPOTHESIS_PROFILE="ci")
+    environment.setdefault("FLEXI_LATE_CALLBACKS", "0.05")
     raise SystemExit(subprocess.call(["uv", "run", "--locked", "pytest", *sys.argv[1:]], env=environment))
 
 # Test lowest direct dependencies on Python 3.12 in a temporary checkout copy.
@@ -230,12 +234,18 @@ try-release *args:
 [group('GitHub')]
 [script]
 ci branch:
-    import subprocess, sys
-    raise SystemExit(subprocess.call(["gh", "workflow", "run", "ci.yaml", "--ref", sys.argv[1]]))
+    import shutil, subprocess, sys
+    gh = shutil.which("gh")
+    if gh is None:
+        raise SystemExit("Install the GitHub CLI (gh), then sign in with gh auth login")
+    raise SystemExit(subprocess.call([gh, "workflow", "run", "ci.yaml", "--ref", sys.argv[1]]))
 
 # Retry GitHub preparation for a release PR; may commit generated changes to dev.
 [group('GitHub')]
 [script]
 release-retry pr:
-    import subprocess, sys
-    raise SystemExit(subprocess.call(["gh", "workflow", "run", "release-prepare.yaml", "--ref", "dev", "-f", f"pull_request={sys.argv[1]}"]))
+    import shutil, subprocess, sys
+    gh = shutil.which("gh")
+    if gh is None:
+        raise SystemExit("Install the GitHub CLI (gh), then sign in with gh auth login")
+    raise SystemExit(subprocess.call([gh, "workflow", "run", "release-prepare.yaml", "--ref", "dev", "-f", f"pull_request={sys.argv[1]}"]))

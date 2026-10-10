@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 import time_machine
+from textual.notifications import Notification
 from textual.pilot import Pilot
 from textual.widgets import Input, Label, Select, Static
 
@@ -16,8 +17,19 @@ from flexi.components.wordmark import Wordmark
 from flexi.models.database.engine import create_db_engine
 from flexi.screens.dashboard import DashboardScreen
 from flexi.screens.settings import ALL_REQUIRED, NO_DIVISION
-from flexi.screens.setup import GUTTER, Question, Rail, SetupScreen, form_rows
-from flexi.services.settings import SettingsService
+from flexi.screens.setup import (
+    GUTTER,
+    LEAVE_YEAR_START,
+    Question,
+    Rail,
+    SetupScreen,
+    form_rows,
+)
+from flexi.services.settings import (
+    LEAVE_YEAR_HINT,
+    SettingsService,
+    read_leave_year_start,
+)
 from flexi.theme import MARK_LIVE, TAIL, colour
 from tests.conftest import session_at
 from tests.database import create_schema
@@ -39,6 +51,11 @@ def notices(app: FlexiApp) -> list[str]:
     return [notification.message for notification in app._notifications]
 
 
+def refusals(app: FlexiApp) -> list[Notification]:
+    """The errors put in front of the user, oldest first."""
+    return [shown for shown in app._notifications if shown.severity == "error"]
+
+
 async def revealed(pilot: Pilot[None]) -> None:
     """Wait for the setup screen's reveal to finish.
 
@@ -55,7 +72,7 @@ async def revealed(pilot: Pilot[None]) -> None:
 
 async def _answer(app: FlexiApp, working_days: str) -> None:
     screen = showing(app, SetupScreen)
-    screen.query_one("#input-leave-start", Input).value = "04-06"
+    screen.query_one("#input-leave-start", Input).value = "6 Apr"
     screen.query_one("#input-entitlement", Input).value = "28"
     screen.query_one("#input-working-days", Input).value = working_days
     screen.query_one("#select-division", Select).value = "scotland"
@@ -192,6 +209,7 @@ async def test_cleared_region_is_asked_for_again(fresh_db: Path) -> None:
 
         assert NO_DIVISION in notices(app)
         showing(app, SetupScreen)
+        assert screen.focused is screen.query_one("#select-division", Select)
 
     with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
@@ -231,6 +249,64 @@ async def test_what_was_answered_is_what_was_saved(fresh_db: Path) -> None:
         assert stored.auto_close_time == "18:30"
         assert settings.get_working_day_indices() == [1, 2, 3]
         assert settings.get_active_entitlement_days(None) == 28.0
+
+
+# ---- the leave-year start ----
+
+
+def test_the_start_offered_is_6_april() -> None:
+    """Offered in words: `04-06` reads two ways, and the form would refuse it."""
+    assert read_leave_year_start(LEAVE_YEAR_START) == (4, 6)
+
+
+@pytest.mark.parametrize(
+    ("typed", "stored"),
+    [("1 April", "04-01"), ("1st Sep", "09-01"), ("30/09", "09-30")],
+)
+async def test_the_start_is_saved_month_first_however_it_is_written(
+    fresh_db: Path, typed: str, stored: str
+) -> None:
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-leave-start", Input).value = typed
+
+        screen.action_save()
+        await pilot.pause()
+        await pilot.pause()
+
+        showing(app, DashboardScreen)
+
+    with session_at(fresh_db) as session:
+        row = SettingsService(session).get_settings()
+        assert row is not None
+        assert row.leave_year_start == stored
+
+
+async def test_a_start_that_reads_two_ways_is_refused(fresh_db: Path) -> None:
+    """`01/04` was saved as 4 January, under a dashboard that dates day first."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        field = screen.query_one("#input-leave-start", Input)
+        field.value = "01/04"
+
+        screen.action_save()
+        await pilot.pause()
+
+        [refused] = refusals(app)
+        assert refused.title == "Leave year starts"
+        assert refused.message == (
+            "'01/04' could be 1 April or 4 January: type 1 Apr or 4 Jan"
+        )
+        assert screen.focused is field
+
+    with session_at(fresh_db) as session:
+        assert SettingsService(session).get_settings() is None
 
 
 async def test_hours_a_day_are_what_every_day_expects(fresh_db: Path) -> None:
@@ -285,6 +361,66 @@ async def test_hours_a_day_that_cannot_be_used_are_refused(
 
     with session_at(fresh_db) as session:
         assert SettingsService(session).get_settings() is None
+
+
+@pytest.mark.parametrize(
+    ("selector", "typed", "asked"),
+    [
+        ("#input-leave-start", "1 Apirl", "Leave year starts"),
+        ("#input-entitlement", "twenty-five", "Annual entitlement"),
+        ("#input-working-days", "whenever", "Working days"),
+        ("#input-hours", "7.30", "Hours a day"),
+        ("#input-auto-close", "half six", "Auto-close at"),
+    ],
+)
+async def test_refusal_names_the_question_and_goes_back_to_it(
+    fresh_db: Path, selector: str, typed: str, asked: str
+) -> None:
+    """The cursor stayed where enter was pressed, and the message named no question.
+
+    It goes back to the answer instead, with it selected to type over, and
+    every other answer is left as it was.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        field = screen.query_one(selector, Input)
+        field.value = typed
+        screen.query_one(Select).focus()
+        await pilot.pause()
+        answers = {each.id: each.value for each in screen.query(Input)}
+
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+
+        [refused] = refusals(app)
+        assert refused.title == asked
+        assert screen.focused is field
+        assert field.selected_text == typed
+        assert {each.id: each.value for each in screen.query(Input)} == answers
+
+    with session_at(fresh_db) as session:
+        assert SettingsService(session).get_settings() is None
+
+
+async def test_the_first_answer_refused_is_the_first_asked(fresh_db: Path) -> None:
+    """Hours a day were read before the leave year, so two typos walked backwards."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await pilot.pause()
+        await _answer(app, "Mon-Fri")
+        screen = showing(app, SetupScreen)
+        screen.query_one("#input-leave-start", Input).value = "1 Apirl"
+        screen.query_one("#input-hours", Input).value = "7.30"
+
+        screen.action_save()
+        await pilot.pause()
+
+        [refused] = refusals(app)
+        assert refused.title == "Leave year starts"
+        assert screen.focused is screen.query_one("#input-leave-start", Input)
 
 
 async def test_heading_counts_the_questions(fresh_db: Path) -> None:
@@ -359,7 +495,7 @@ async def test_note_follows_the_start_that_is_typed(fresh_db: Path) -> None:
 
 
 async def test_half_typed_start_leaves_the_note_alone(fresh_db: Path) -> None:
-    """Half a date is not an answer yet, and a note that flashes is noise."""
+    """Half a date is not an answer yet, and a year that flashes is noise."""
     with time_machine.travel(FEBRUARY, tick=False):
         app = FlexiApp(db_path=fresh_db)
         async with app.run_test(size=WIDE) as pilot:
@@ -372,6 +508,64 @@ async def test_half_typed_start_leaves_the_note_alone(fresh_db: Path) -> None:
             await pilot.pause()
 
             assert entitlement_note(app) == "days for 2026, halves allowed"
+
+
+# ---- the start, read back as it is typed ----
+
+
+def start_note(app: FlexiApp) -> str:
+    """The sentence beside the leave-year start."""
+    ask = showing(app, SetupScreen).query_one("#ask-leave-start", Question)
+    return str(ask.query_one(".note", Static).render())
+
+
+@pytest.mark.parametrize(
+    ("typed", "said"),
+    [
+        ("1 Apr", "starts 1 April"),
+        ("30 September", "starts 30 September"),
+        ("30/09", "starts 30 September"),
+        ("01/09", LEAVE_YEAR_HINT),
+        ("1 Ap", LEAVE_YEAR_HINT),
+        ("", LEAVE_YEAR_HINT),
+    ],
+)
+async def test_note_says_how_the_start_was_read(
+    fresh_db: Path, typed: str, said: str
+) -> None:
+    """`01/09` was saved as 9 January beside a note that still said 6 April.
+
+    Eighty columns wide, so the longest reading has to fit the note's column.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await revealed(pilot)
+        showing(app, SetupScreen).query_one("#input-leave-start", Input).value = typed
+        await pilot.pause()
+
+        assert start_note(app) == said
+        assert said in screen_text(app)
+
+
+async def test_note_reads_the_start_back_key_by_key(fresh_db: Path) -> None:
+    """The start offered arrives selected, so the first key types over it."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=WIDE) as pilot:
+        await revealed(pilot)
+        assert start_note(app) == "6 April, for most schemes"
+
+        await pilot.press(*"1 Se")
+        await pilot.pause()
+        assert start_note(app) == LEAVE_YEAR_HINT, "half a date says how to finish"
+
+        await pilot.press("p")
+        await pilot.pause()
+        assert start_note(app) == "starts 1 September"
+
+        field = showing(app, SetupScreen).query_one("#input-leave-start", Input)
+        field.value = LEAVE_YEAR_START
+        await pilot.pause()
+        assert start_note(app) == "6 April, for most schemes"
 
 
 async def test_wordmark_lands_and_the_questions_arrive(
@@ -426,9 +620,9 @@ async def test_any_key_cuts_the_animation_short(
         await revealed(pilot)
 
         assert questions.has_class("-arrived"), "the word stopped and let them in"
-        assert app.screen.query_one("#input-leave-start", Input).value == "04-06", (
-            "and the key that skipped it was not typed into anything"
-        )
+        assert app.screen.query_one("#input-leave-start", Input).value == (
+            LEAVE_YEAR_START
+        ), "and the key that skipped it was not typed into anything"
 
 
 async def test_quit_key_quits_during_the_animation(
@@ -826,3 +1020,36 @@ async def test_marker_steps_one_row_a_question_when_closed_up(
         entitlement = screen.query_one("#ask-entitlement", Question)
         assert rail.region.y + round(rail.marker) == entitlement.region.y
         assert " " not in "".join(glyph for glyph, _ in _rail_column(app, rail))
+
+
+# ---- a terminal eighty columns wide ----
+
+
+@pytest.mark.parametrize("size", [(80, 24), (120, 40)])
+async def test_every_note_is_drawn_whole(fresh_db: Path, size: tuple[int, int]) -> None:
+    """Eighty columns is the size a terminal opens at on macOS and Linux.
+
+    A form wider than that loses the end of every long note off the right edge,
+    mid-word.
+    """
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=size) as pilot:
+        await revealed(pilot)
+        screen = showing(app, SetupScreen)
+        assert screen.query_one("#setup").region.right <= size[0]
+
+        drawn = screen_text(app)
+        for question in screen.query(Question):
+            note = str(question.query_one(".note", Static).render())
+            assert note in drawn, f"{note!r} is cut short"
+
+
+async def test_regions_are_listed_whole_in_the_narrow_field(fresh_db: Path) -> None:
+    """The list is as wide as its field, and one column less wraps a region."""
+    app = FlexiApp(db_path=fresh_db)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await revealed(pilot)
+        showing(app, SetupScreen).query_one(Select).action_show_overlay()
+        await pilot.pause()
+
+        assert "Northern Ireland" in screen_text(app)

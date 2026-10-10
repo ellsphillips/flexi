@@ -28,6 +28,7 @@ from flexi.components.common import Gauge, Tone, mark_width
 from flexi.components.yearcalendar import YearCalendar, legend
 from flexi.config import CONFIG
 from flexi.constants import AbsenceType, Granularity, Portion, Verdict
+from flexi.context import refreshing_app
 from flexi.domain.format import days as fmt_days
 from flexi.domain.format import delta, plural, stamp
 from flexi.domain.ledger import DayLedger
@@ -41,11 +42,7 @@ from flexi.screens.modals import (
     GoToDateModal,
 )
 from flexi.services.absence import AbsencePlan, RemovalPlan
-from flexi.services.registry import (
-    Services,
-    available_toil_days,
-    invalidate_services,
-)
+from flexi.services.registry import Services, available_toil_days
 
 __all__ = (
     "PORTION_CYCLE",
@@ -424,8 +421,10 @@ class LeaveScreen(Screen[None]):
     def _after_write(
         self, message: str, *, ok: bool, warning: str | None = None
     ) -> None:
-        invalidate_services(self._services)
-        self.rebuild()
+        # Every open screen, this one included: the dashboard underneath draws
+        # the same allowances and the balance a booking can move, and nothing
+        # redraws it when this screen closes.
+        refreshing_app(self.app).refresh_open_screens(Scope.ABSENCE)
         self.status(
             warning or message, Tone.WARN if warning else (Tone.OK if ok else Tone.ERR)
         )

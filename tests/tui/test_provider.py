@@ -26,7 +26,7 @@ from flexi.screens.modals import AbsenceModal, AdjustmentModal
 from flexi.screens.setup import SetupScreen
 from tests.conftest import settled
 from tests.database import create_schema
-from tests.tui.conftest import WIDE, AppFactory, dashboard, showing
+from tests.tui.conftest import WIDE, AppFactory, dashboard, showing, status_text
 
 
 async def discovered(app: FlexiApp) -> list[DiscoveryHit]:
@@ -249,7 +249,36 @@ async def test_palette_hides_commands_for_a_hidden_screen(
         assert "Go to today" not in offered
         assert "Go to date…" not in offered
         assert not [title for title in offered if title.startswith("Book ")]
-        assert "Adjust balance…" not in offered
+
+
+@pytest.mark.parametrize("destination", ["insights", "leave", "settings"])
+async def test_adjust_balance_is_offered_from_every_screen(
+    app_factory: AppFactory, destination: str
+) -> None:
+    """First run in the README sends people to it, wherever they have got to.
+
+    It moves the balance from today and not from the period on screen, so it
+    needs no dashboard in front; it brings it there, and its status bar gives
+    the receipt.
+    """
+    app = app_factory()
+    async with app.run_test(size=WIDE) as pilot:
+        app.action_go_to(destination)
+        await pilot.pause()
+
+        await run_command(app, "Adjust balance…")
+        await pilot.pause()
+        modal = showing(app, AdjustmentModal)
+        assert app.screen_stack[-2] is dashboard(app), "opened over another screen"
+        assert app.nav == "dashboard"
+
+        modal.query_one("#adjustment-amount", Input).value = "+5:30"
+        modal.query_one("#adjustment-reason", Input).value = "Brought forward"
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.pause()
+
+        assert "Balance adjusted by +5:30" in status_text(app)
 
 
 # Searching ------------------------------------------------------------------

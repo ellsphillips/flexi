@@ -53,6 +53,7 @@ if TYPE_CHECKING:
         monochrome,
         prepare,
         tolerant,
+        unencodable,
     )
 
 _SUBMODULES: Final = (
@@ -101,6 +102,7 @@ _EXPORTS: Final = MappingProxyType(
         "monochrome": ("output", "monochrome"),
         "prepare": ("output", "prepare"),
         "tolerant": ("output", "tolerant"),
+        "unencodable": ("output", "unencodable"),
     }
 )
 
@@ -150,6 +152,7 @@ __all__ = (  # noqa: RUF022
     "monochrome",
     "prepare",
     "tolerant",
+    "unencodable",
 )
 
 

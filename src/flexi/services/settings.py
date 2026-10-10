@@ -16,7 +16,9 @@ from flexi.domain import leaveyear
 from flexi.domain.dates import (
     DAY_NAMES,
     LEAP_SENTINEL_YEAR,
+    MONTH_NAMES,
     MONTHS_IN_YEAR,
+    month_index,
     weekday_index,
 )
 from flexi.domain.format import hm
@@ -39,6 +41,7 @@ __all__ = (
     "DEFAULT_WORKING_DAYS",
     "HOURS_IN_DAY",
     "INVALID_ENTITLEMENT",
+    "LEAVE_YEAR_HINT",
     "LONGEST_MONTH",
     "MINUTES_IN_HOUR",
     "NOON",
@@ -47,6 +50,7 @@ __all__ = (
     "SettingsService",
     "SettingsUpdate",
     "WorkingDays",
+    "describe_leave_year_start",
     "duration_minutes",
     "format_clock_time",
     "format_leave_year_start",
@@ -59,6 +63,7 @@ __all__ = (
     "parse_month_day",
     "parse_settings",
     "parse_working_days",
+    "read_leave_year_start",
     "read_or",
     "readable_window",
     "resolve_settings",
@@ -588,6 +593,95 @@ def format_leave_year_start(start: LeaveYearStart) -> str:
     return f"{validated_month:02d}-{validated_day:02d}"
 
 
+LEAVE_YEAR_HINT = "a day and month, like 6 Apr"
+"""How to write a leave-year start, short enough to be a note beside the field."""
+
+_TWO_NUMBERS = re.compile(r"(\d{1,2})[/-](\d{1,2})")
+_DAY_NUMBER = re.compile(r"(\d{1,2})(?:st|nd|rd|th)?")
+
+
+def read_leave_year_start(raw: str) -> LeaveYearStart:
+    """The month and day a leave year starts on, read as a person writes it.
+
+    A month in words is read either side of the day, so `1 Apr`, `6th April`
+    and `April 6` each name one day. Two numbers are read whichever way round
+    makes a day, and refused when both ways do, as `7.30` is for hours a day:
+    `01/04` is 1 April written day first and 4 January month first, where
+    `30/09` and `09-30` can only be 30 September.
+
+    This reads what a form was answered with. The stored value is `MM-DD`, in
+    which `04-06` is 6 April, and :func:`parse_month_day` reads that.
+
+    Examples:
+        >>> read_leave_year_start("6th April")
+        (4, 6)
+        >>> read_leave_year_start("Sep 1")
+        (9, 1)
+        >>> read_leave_year_start("30/09")
+        (9, 30)
+    """
+    text = " ".join(raw.lower().split())
+    numbers = _TWO_NUMBERS.fullmatch(text)
+    if numbers is not None:
+        first, second = int(numbers[1]), int(numbers[2])
+        # Day first, as the rest of Flexi reads a slash, then month first.
+        candidates = [(second, first), (first, second)]
+    else:
+        candidates = _in_words(text)
+    # Each reading once: 04-04 is the same day either way round.
+    readings = [start for start in dict.fromkeys(candidates) if _on_calendar(start)]
+    if len(readings) > 1:
+        day_first, month_first = readings
+        msg = (
+            f"'{raw}' could be {describe_leave_year_start(day_first)} or "
+            f"{describe_leave_year_start(month_first)}: type "
+            f"{describe_leave_year_start(day_first, short=True)} or "
+            f"{describe_leave_year_start(month_first, short=True)}"
+        )
+        raise ValueError(msg)
+    if not readings:
+        msg = f"'{raw}' is not a date: type {LEAVE_YEAR_HINT}"
+        raise ValueError(msg)
+    return readings[0]
+
+
+def describe_leave_year_start(start: LeaveYearStart, *, short: bool = False) -> str:
+    """A leave-year start in words, which :func:`read_leave_year_start` reads back.
+
+    The month is named in English whatever the locale, as it is read.
+
+    Examples:
+        >>> describe_leave_year_start((4, 6))
+        '6 April'
+        >>> describe_leave_year_start((9, 30), short=True)
+        '30 Sep'
+    """
+    month, day = start
+    name = MONTH_NAMES[month - 1].title()
+    return f"{day} {name[:3] if short else name}"
+
+
+def _in_words(text: str) -> list[LeaveYearStart]:
+    """The day named by a month in words and a day either side of it, if any."""
+    match text.split():
+        case [first, second]:
+            for month_word, day_word in ((second, first), (first, second)):
+                month = month_index(month_word)
+                day = _DAY_NUMBER.fullmatch(day_word)
+                if month is not None and day is not None:
+                    return [(month, int(day[1]))]
+    return []
+
+
+def _on_calendar(start: LeaveYearStart) -> bool:
+    """Whether a month and day name a day, the 29th of February included."""
+    try:
+        date(LEAP_SENTINEL_YEAR, *start)
+    except ValueError:
+        return False
+    return True
+
+
 def format_working_days(days: WorkingDays) -> str:
     """Serialise weekday indices in canonical ascending order."""
     if not days:
@@ -645,12 +739,14 @@ def parse_settings(
     day_window_start: str | None = None,
     day_window_end: str | None = None,
 ) -> SettingsUpdate:
-    """Parse raw form or CLI values into one immutable settings update.
+    """Parse raw values into one immutable settings update.
 
-    The persistence service never accepts strings: this is the one boundary at
-    which permissive input such as ``Mon-Fri`` and ``6pm`` is read and
-    normalised. A day window is one value, so its two raw endpoints are supplied
-    together or omitted together.
+    The persistence service never accepts strings, so this reads permissive
+    input such as ``Mon-Fri`` and ``6pm``, and the leave-year start as it is
+    stored, ``MM-DD``. The forms read their answers a field at a time, and a
+    typed start with :func:`read_leave_year_start`, which refuses ``04-06``. A
+    day window is one value, so its two raw endpoints are supplied together or
+    omitted together.
     """
     if (day_window_start is None) != (day_window_end is None):
         msg = "Day window start and end must be provided together"

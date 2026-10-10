@@ -34,6 +34,7 @@ from sqlalchemy import Engine, event, select
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import ConnectionPoolEntry
+from textual.app import App
 from textual.message_pump import MessagePump
 from textual.pilot import Pilot
 
@@ -43,22 +44,32 @@ from flexi.models.database.engine import create_db_engine, get_session
 from flexi.services import setup
 from tests.database import create_schema
 
-settings.register_profile("dev", max_examples=100, deadline=None)
+settings.register_profile("dev", max_examples=100, deadline=None, derandomize=True)
 """How hard Hypothesis tries by default.
 
 No deadline: under `-n auto` a worker can be descheduled mid-example, and a
 per-example time limit turns a loaded machine into a failing test. Every health
 check stays on; a test that needs one suppressed says so itself.
+
+Derandomized: each property draws from a seed its own source decides, so a run
+tries the examples the last one did, and a failure in CI fails again here. That
+also leaves out the example database, which would replay one machine's past
+failures on it and nowhere else.
 """
 
 settings.register_profile("ci", parent=settings.get_profile("dev"), max_examples=500)
 """Five times the examples, for an unattended run."""
 
 settings.register_profile(
-    "thorough", parent=settings.get_profile("dev"), max_examples=5000
+    "thorough",
+    parent=settings.get_profile("dev"),
+    max_examples=5000,
+    derandomize=False,
 )
-"""For hunting a suspected property failure: `-p no:randomly
---hypothesis-profile=thorough`."""
+"""For hunting a suspected property failure: `HYPOTHESIS_PROFILE=thorough`.
+
+Random, unlike the other two, so each hunt searches somewhere new. A failure it
+finds prints its falsifying example, to be pinned with `@example`."""
 
 PROFILES = ("dev", "ci", "thorough")
 """Checked against: `load_profile` accepts an unregistered name and silently
@@ -108,10 +119,10 @@ LATE_CALLBACKS = "FLEXI_LATE_CALLBACKS"
 
     FLEXI_LATE_CALLBACKS=0.02 uv run pytest
 
-`Pilot.pause` drains the messages queued at the moment it is called, so whether
-a callback a layout scheduled has landed by then depends on how far the app got
-first. A timer is the one thing `pause` cannot drain, so this reproduces a
-loaded machine's ordering on an idle one.
+`Pilot.pause` waits for posted messages, not for a callback a layout deferred,
+so whether one has landed by then depends on how far the app got first. Behind
+a timer it lands as late as a loaded machine's would, so this reproduces that
+ordering on an idle one.
 """
 
 SETTLE_PASSES = 20
@@ -163,6 +174,57 @@ def _count_deferred_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(MessagePump, "call_after_refresh", counted)
 
 
+REDELIVERY_WAIT = 1 / 50
+"""How long each further pause waits, as a fixed time and not a guess at idleness.
+
+Long enough for the timer the app holds a terminal resize behind, 1/120 s.
+"""
+
+
+def _undelivered(app: App[Any]) -> bool:
+    """Whether a message posted to the app or a widget on its screens waits unread.
+
+    A layout still owed counts too: `Pilot.pause` performs it on the way out, and
+    the `Resize` events it posts are what a resized widget answers. So does a
+    terminal resize the app is still holding back before it tells the screens.
+    """
+    nodes: list[MessagePump] = [app]
+    for screen in app.screen_stack:
+        nodes.extend(screen.walk_children(with_self=True))
+    return (
+        app._resize_event is not None
+        or app.screen._layout_required
+        or any(
+            not node._message_queue.empty() or node._next_callbacks for node in nodes
+        )
+    )
+
+
+@pytest.fixture(autouse=True)
+def _pause_until_delivered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make `pilot.pause()` return once every message posted so far has been read.
+
+    Textual's pause waits until the process has used no CPU for a moment, then
+    lays the screen out. A process descheduled on a loaded runner uses no CPU
+    either, so the pause can end before a bubbled `Input.Changed` reaches the
+    screen, and the layout it ends on posts `Resize` events nothing has read yet.
+    One pause is enough on a laptop and not on a three-core runner. This pauses
+    again while anything is undelivered, so a test reads a screen that has
+    answered everything it was sent. `settled` still waits for deferred callbacks,
+    which a pause cannot see.
+    """
+    pause = Pilot.pause
+
+    async def delivered(this: Pilot[Any], delay: float | None = None) -> None:
+        await pause(this, delay)
+        for _ in range(SETTLE_PASSES):
+            if not _undelivered(this.app):
+                return
+            await pause(this, REDELIVERY_WAIT)
+
+    monkeypatch.setattr(Pilot, "pause", delivered)
+
+
 async def settled(pilot: Pilot[Any]) -> None:
     """Pump until the work a first layout deferred has actually run.
 
@@ -170,7 +232,7 @@ async def settled(pilot: Pilot[Any]) -> None:
     been laid out, so it defers the measurement, and the re-measure rebuilds the
     table from the ledger. Landing late, it overwrites what the test set up: an
     emptied table fills again, an invalidated ledger cache refills.
-    `pilot.pause()` drains the messages queued at the moment it is called, so
+    `pilot.pause()` waits for posted messages and not for deferred callbacks, so
     what has landed by then is a property of the machine. This waits for the
     callbacks themselves, so a test begins with nothing in flight.
     """

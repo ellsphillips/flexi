@@ -110,6 +110,9 @@ jobs:
       - run: uv sync --locked --dev
 
       # Exercise the developer recipes once on each OS without adding matrix jobs.
+      # The justfile's lint and fix recipes format it with this same just: keep
+      # the pins in step, as test_justfile_is_formatted_by_the_just_ci_pins
+      # checks.
       - name: Test the developer recipes
         if: matrix.python == '3.13' && matrix.tz == 'UTC'
         run: uvx --from rust-just==1.46.0 just test tests/test_tasks.py -q -n 0
@@ -159,9 +162,15 @@ jobs:
         run: uv run --frozen pytest --durations=15
 
   late:
-    name: Deferred callbacks land late
+    name: Deferred callbacks land ${{ matrix.delay }} s late
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # One delay reproduces one ordering. The records table's strip-column
+        # race showed at 0.01 s and not at 0.05 s.
+        delay: ["0.01", "0.05"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -180,5 +189,5 @@ jobs:
       - name: pytest, with the screen finishing late
         env:
           TZ: UTC
-          FLEXI_LATE_CALLBACKS: "0.05"
+          FLEXI_LATE_CALLBACKS: ${{ matrix.delay }}
         run: uv run pytest --durations=15

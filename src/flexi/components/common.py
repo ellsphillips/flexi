@@ -29,6 +29,7 @@ __all__ = (
     "MARKER",
     "MIN_GAUGE_WIDTH",
     "NARROW_COLUMNS",
+    "SHORT_ROWS",
     "TINY_COLUMNS",
     "TONE_CLASSES",
     "TRACK",
@@ -39,6 +40,7 @@ __all__ = (
     "Rule",
     "StatCard",
     "Tone",
+    "mark_height",
     "mark_width",
     "styled_track",
 )
@@ -48,6 +50,10 @@ NARROW_COLUMNS: Final = 100
 
 TINY_COLUMNS: Final = 64
 """Below this, only the records table is drawn; everything else is a jump away."""
+
+SHORT_ROWS: Final = 38
+"""Rows the dashboard needs to hold the calendar under the clock, balance and
+wallet: seven of header, rails and footer, and thirty-one of panels."""
 
 TRACK: Final = "━"
 MARKER: Final = "┿"
@@ -90,6 +96,15 @@ def mark_width(node: DOMNode, width: int) -> None:
     """
     node.set_class(width < NARROW_COLUMNS, "-narrow")
     node.set_class(width < TINY_COLUMNS, "-tiny")
+
+
+def mark_height(node: DOMNode, height: int) -> None:
+    """Put ``-short`` on a node whose terminal is short of rows.
+
+    :func:`mark_width`'s counterpart, and for the same reason the terminal's
+    height, never the widget's.
+    """
+    node.set_class(height < SHORT_ROWS, "-short")
 
 
 class Tone(StrEnum):

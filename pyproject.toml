@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "flexi"
 version = "0.2.0"
-description = "A terminal application for tracking flexitime."
+description = "A terminal application for tracking flexitime on UK schemes."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -103,8 +103,10 @@ testpaths = ["tests", "src/flexi/domain", "src/flexi/cli/ui", "src/flexi/service
 # Import developer tools without adding src or shadowing an installed flexi.
 pythonpath = ["."]
 # `importlib` import mode so the doctest paths under src/ collect against an
-# installed flexi as well as against this checkout.
-addopts = "--doctest-modules --strict-markers --strict-config --import-mode=importlib -n auto --timeout=120"
+# installed flexi as well as against this checkout. A fixed `--randomly-seed`,
+# so a run repeats: the same order and the same `random` values on every machine
+# and every attempt. `--randomly-seed=default` shuffles afresh.
+addopts = "--doctest-modules --strict-markers --strict-config --import-mode=importlib -n auto --timeout=120 --randomly-seed=0"
 # Ten seconds inside `--timeout`. Windows has no SIGALRM, so pytest-timeout ends
 # an overrunning test by exiting its whole xdist worker, and the run reports a
 # bare crash. This dump reaches the worker's stderr first: which test, and where.

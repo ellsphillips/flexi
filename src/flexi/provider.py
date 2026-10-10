@@ -17,7 +17,13 @@ from flexi.components.chrome import NAV_ITEMS
 from flexi.constants import AbsenceType, Granularity
 from flexi.context import CommandApplication, command_app
 
-__all__ = ("Command", "CommandCallback", "FlexiCommands", "commands")
+__all__ = (
+    "Command",
+    "CommandCallback",
+    "FlexiCommands",
+    "commands",
+    "on_the_dashboard",
+)
 
 
 type CommandCallback = Callable[[], object]
@@ -38,8 +44,8 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
 
     Outside :class:`FlexiCommands` so the catalogue can be inspected or adapted
     without constructing a Textual provider. The tuple is a snapshot: commands
-    that depend on a dashboard appear only while one exists and is the
-    destination in front of the user.
+    that depend on a dashboard appear only while one exists, and those drawn
+    from its period only while it is the destination in front of the user.
     """
     screen = app.dashboard()
     catalogue = [
@@ -69,11 +75,20 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
         )
         for item in NAV_ITEMS
     )
-    catalogue.append(
-        Command(
-            "Refresh bank holidays",
-            "Re-fetch the GOV.UK calendar for the configured division",
-            partial(app.refresh_holidays, force=True),
+    catalogue.extend(
+        (
+            Command(
+                "Refresh bank holidays",
+                "Re-fetch the GOV.UK calendar for the configured division",
+                partial(app.refresh_holidays, force=True),
+            ),
+            # From today, not from the period on screen, so it is offered from
+            # every screen, and it goes to the dashboard to ask.
+            Command(
+                "Adjust balance…",
+                "Bring a balance in, or correct it, from today",
+                partial(on_the_dashboard, app, screen.action_adjust_balance),
+            ),
         )
     )
 
@@ -100,11 +115,6 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
                 "Open the leave year and book on it directly",
                 partial(app.action_go_to, "leave"),
             ),
-            Command(
-                "Adjust balance…",
-                "Bring a balance in, or correct it, from today",
-                screen.action_adjust_balance,
-            ),
         )
     )
     catalogue.extend(
@@ -116,6 +126,16 @@ def commands(app: CommandApplication) -> tuple[Command, ...]:
         for kind in AbsenceType
     )
     return tuple(catalogue)
+
+
+def on_the_dashboard(app: CommandApplication, action: CommandCallback) -> None:
+    """Bring the dashboard to the front, then run one of its actions there.
+
+    A dashboard action reports on the dashboard's own status bar, which Leave,
+    Insights and Settings cover.
+    """
+    app.action_go_to("dashboard")
+    action()
 
 
 class FlexiCommands(Provider):

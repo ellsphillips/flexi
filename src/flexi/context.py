@@ -19,6 +19,7 @@ from textual.screen import Screen
 
 from flexi.constants import AbsenceType
 from flexi.domain.period import Period
+from flexi.messages import Scope
 
 if TYPE_CHECKING:
     from flexi.services.registry import Services as ServiceRegistry
@@ -39,11 +40,13 @@ __all__ = (
     "CommandDashboard",
     "FlexiApplication",
     "ModuleHost",
+    "RefreshingApplication",
     "ServiceApplication",
     "ServiceRegistry",
     "command_app",
     "flexi_app",
     "module_host",
+    "refreshing_app",
     "service_app",
 )
 
@@ -116,7 +119,18 @@ class ServiceApplication(Protocol):
 
 
 @runtime_checkable
-class FlexiApplication(ServiceApplication, CommandApplication, Protocol):
+class RefreshingApplication(Protocol):
+    """An application that redraws every open screen after a write."""
+
+    def refresh_open_screens(self, scope: Scope = Scope.ALL) -> None:
+        """Redraw every screen on the stack that depends on ``scope``."""
+        ...
+
+
+@runtime_checkable
+class FlexiApplication(
+    ServiceApplication, CommandApplication, RefreshingApplication, Protocol
+):
     """The complete application contract, composed from its narrow facets."""
 
 
@@ -148,6 +162,14 @@ def command_app[ResultT](app: TextualApp[ResultT]) -> CommandApplication:
     """Return an app that implements every command-palette operation."""
     if not isinstance(app, CommandApplication):
         message = f"{app!r} does not provide the Flexi command context"
+        raise TypeError(message)
+    return app
+
+
+def refreshing_app[ResultT](app: TextualApp[ResultT]) -> RefreshingApplication:
+    """Return an app that can redraw the screens under the one that wrote."""
+    if not isinstance(app, RefreshingApplication):
+        message = f"{app!r} does not provide the Flexi refresh context"
         raise TypeError(message)
     return app
 

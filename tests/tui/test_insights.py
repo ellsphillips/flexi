@@ -21,7 +21,7 @@ from flexi.components.chrome import AppHeader
 from flexi.components.modules.base import Module
 from flexi.components.plot import Plot
 from flexi.config import CONFIG
-from flexi.constants import DayKind, Granularity
+from flexi.constants import AbsenceType, DayKind, Granularity
 from flexi.domain.ledger import DayLedger
 from flexi.messages import Scope
 from flexi.screens.insights import BalanceHistory, InsightsScreen
@@ -30,6 +30,8 @@ from flexi.services.settings import SettingsUpdate
 from tests.tui.conftest import WIDE, AppFactory, screen_text, showing
 
 CONTRACTED = timedelta(minutes=444)
+FUTURE_MONDAY = date(2026, 6, 22)
+"""Free in the seed, and after the frozen Thursday."""
 
 
 def ledger(
@@ -140,7 +142,7 @@ async def test_every_chart_writes_its_figures(
         text = await scrolled_text(app, pilot)
         assert "best" in text
         assert "worst" in text
-        assert "taken" in text
+        assert "booked" in text
         assert "left" in text
         assert "+" in text
         assert "−" in text
@@ -470,6 +472,20 @@ async def test_running_balance_names_its_span(
         assert str(insights.query_one("#running-balance").border_subtitle).endswith(
             "this period"
         )
+
+
+async def test_leave_still_to_come_reads_as_booked(app_factory: AppFactory) -> None:
+    """Not taken: a day booked for later is counted before it has come."""
+    app = app_factory()
+    app.services.absence.book(FUTURE_MONDAY, AbsenceType.ANNUAL)
+    async with app.run_test(size=(120, 44)) as pilot:
+        await pilot.press("f3")
+        await pilot.pause()
+
+        chart = showing(app, InsightsScreen).query_one("#leave-bar", Burndown)
+        caption = str(chart.render()).splitlines()[-1]
+        assert caption.startswith("5.5 booked · 19.5 left"), caption
+        assert "taken" not in caption
 
 
 async def test_leave_panel_names_the_dashboard_year(

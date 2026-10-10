@@ -70,6 +70,8 @@ def test_context_adapters_reject_the_wrong_object() -> None:
         context.service_app(TextualApp())
     with pytest.raises(TypeError, match="Flexi command context"):
         context.command_app(TextualApp())
+    with pytest.raises(TypeError, match="Flexi refresh context"):
+        context.refreshing_app(TextualApp())
     with pytest.raises(TypeError, match="complete Flexi application context"):
         context.flexi_app(TextualApp())
 

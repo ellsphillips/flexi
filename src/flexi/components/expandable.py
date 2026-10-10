@@ -3,7 +3,8 @@
 Row keys are typed by prefix (``d-`` a day, ``s-`` a session, ``a-`` an absence,
 ``t-`` a total), so a key says what it is and no parallel bookkeeping can fall
 out of step with the table. The cursor is restored by key, not by index:
-expanding a row above it moves its index.
+expanding a row above it moves its index. When its row has gone, the cursor
+stays in the day that row was in.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import ClassVar, Unpack
 
 from rich.console import RenderableType
 from textual.binding import Binding, BindingType
+from textual.geometry import Region, Spacing
 from textual.message import Message
 from textual.widgets import DataTable
 from textual.widgets.data_table import CellDoesNotExist, RowDoesNotExist
@@ -146,11 +148,14 @@ class ExpandableTable(DataTable[RenderableType]):
         that only moves the figures must leave the scroll where the reader put
         it, and clearing the table scrolls it back to the cursor.
         """
+        # Read before the groups are replaced: a row on its way out can only be
+        # traced to its parent through the groups it was drawn from.
+        parent = self._parent_at_cursor()
         self._groups = tuple(groups)
         self._expanded &= {group.parent.key for group in self._groups}
         rows = self.visible_rows()
         if self._laid_out != self._layout(rows):
-            self._redraw()
+            self._redraw(parent)
             return
         columns = self.ordered_columns
         for row in rows:
@@ -178,17 +183,24 @@ class ExpandableTable(DataTable[RenderableType]):
                 rows.extend(group.children)
         return rows
 
-    def _redraw(self) -> None:
+    def _redraw(self, parent: str | None = None) -> None:
+        """Lay every row out again, the cursor on its row or else in its parent.
+
+        ``parent`` is the key of the group the cursor was in, from a caller that
+        has already replaced the groups it would be read from.
+        """
         remembered = self.cursor_key
         # Read before `clear()`: `DataTable.clear` resets `cursor_coordinate`
         # to (0, 0).
         was_at = self.cursor_row
+        if parent is None:
+            parent = self._parent_at_cursor()
         self.clear()
         rows = self.visible_rows()
         for row in rows:
             self.add_row(*row.cells, key=row.key)
         self._laid_out = self._layout(rows)
-        self._restore_cursor(remembered, was_at)
+        self._restore_cursor(remembered, was_at, parent)
 
     def _layout(self, rows: list[Row]) -> tuple[tuple[str, ...], tuple[int, ...]]:
         """The row keys in order, and the widths of the columns they sit under."""
@@ -197,20 +209,27 @@ class ExpandableTable(DataTable[RenderableType]):
             tuple(column.width for column in self.ordered_columns),
         )
 
-    def _restore_cursor(self, key: str | None, was_at: int = 0) -> None:
+    def _restore_cursor(
+        self, key: str | None, was_at: int = 0, parent: str | None = None
+    ) -> None:
         """Put the cursor back on the row it was on, by key.
 
-        When the remembered row has gone, falls back to ``was_at`` and then to
-        the last row. ``was_at`` is passed in because the table has been cleared
-        by the time this runs, and clearing moves the cursor home.
+        When that row has gone, the cursor stays in ``parent``, the day it was
+        in: on the row now at ``was_at`` if that is one of the day's, and on the
+        day itself if not, so `n` after `x` records on the day just voided.
+        Only when the day has gone too does it settle for ``was_at``, or the
+        last row. ``was_at`` is passed in because the table has been cleared by
+        the time this runs, and clearing moves the cursor home.
         """
-        if key is None:
+        if key is None or not self.row_count:
             return
         try:
             self.move_cursor(row=self.get_row_index(key))
         except RowDoesNotExist:
-            if self.row_count:
-                self.move_cursor(row=min(was_at, self.row_count - 1))
+            self.move_cursor(row=min(was_at, self.row_count - 1))
+            group = None if parent is None else self.group_for(parent)
+            if group is not None and self._group_at_cursor() is not group:
+                self.focus_key(group.parent.key)
 
     # --- cursor -----------------------------------------------------------
 
@@ -261,8 +280,27 @@ class ExpandableTable(DataTable[RenderableType]):
         self._redraw()
         if cursor_inside:
             self.focus_key(parent)
+        if expanded:
+            self._scroll_group_into_view(group)
         self.post_message(self.Expanded(parent, expanded=expanded))
         return expanded
+
+    def _scroll_group_into_view(self, group: RowGroup) -> None:
+        """Bring an opened group's rows on screen, its parent first if not all fit.
+
+        Opened on the last row in view, they would land below it, and the key
+        would look to have done nothing. Deferred, as the table's own cursor
+        scroll is, until the rows just added count towards the height.
+        """
+        header = self.header_height if self.show_header else 0
+        top = header + self.get_row_index(group.parent.key)
+        self.call_after_refresh(
+            self.scroll_to_region,
+            Region(0, top, 1, 1 + len(group.children)),
+            spacing=Spacing(top=header),
+            animate=False,
+            x_axis=False,
+        )
 
     def expand_all(self, *, expanded: bool | None = None) -> None:
         """Open or close every expandable row.
@@ -283,6 +321,10 @@ class ExpandableTable(DataTable[RenderableType]):
     def _group_at_cursor(self) -> RowGroup | None:
         key = self.cursor_key
         return None if key is None else self.group_for(key)
+
+    def _parent_at_cursor(self) -> str | None:
+        group = self._group_at_cursor()
+        return None if group is None else group.parent.key
 
     # --- actions ----------------------------------------------------------
 

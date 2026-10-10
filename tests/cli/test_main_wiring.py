@@ -7,12 +7,17 @@ what is checked is which database it was pointed at and whether it was opened.
 
 from __future__ import annotations
 
+import os
+import signal
 import sqlite3
+import subprocess
+import sys
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import click
 import httpx
 import pytest
 import time_machine
@@ -23,6 +28,8 @@ from flexi import wallclock
 from flexi.__main__ import LEFT_RUNNING, cli
 from flexi.cli import init as init_cli
 from flexi.cli import ui
+from flexi.cli.leave import parse_request
+from flexi.domain.dates import Preference, parse_span
 from flexi.locations import backups_directory, database_file
 from flexi.models.database.db import AbsenceDay, BankHolidayCache, BankHolidayRefresh
 from flexi.models.database.engine import create_db_engine, get_session
@@ -107,6 +114,7 @@ class _Opened:
         self.db_path = db_path
         self.show_splash = False
         self.open_settings = False
+        self.demo = False
         self.ran = False
         self.return_code: int | None = None
         self._on_run = on_run
@@ -193,6 +201,94 @@ def test_demo_database_is_removed_on_close(
 
     assert opened[0].db_path is not None
     assert not opened[0].db_path.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGHUP")
+@pytest.mark.parametrize("name", ["SIGHUP", "SIGTERM"])
+def test_demo_database_is_removed_when_the_window_closes(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    """Closing the window sends SIGHUP, and `kill` sends SIGTERM.
+
+    Either ends the process where it stands by default, leaving the sample
+    database behind. A stand-in takes that default's place here, as the default
+    would end the test run itself.
+    """
+    signum: int = getattr(signal, name)
+    caught: list[int] = []
+
+    def stand_in(received: int, _frame: object) -> None:
+        caught.append(received)
+
+    at_a_terminal(monkeypatch)
+    opened = instead_of_the_application(
+        monkeypatch, lambda _app: os.kill(os.getpid(), signum)
+    )
+    original = signal.signal(signum, stand_in)
+    try:
+        with pytest.raises(SystemExit) as ended:
+            main.run_demo(click.Context(cli))
+        restored = signal.getsignal(signum)
+    finally:
+        signal.signal(signum, original)
+
+    assert ended.value.code == 128 + signum, "the status a shell gives the signal"
+    assert opened[0].db_path is not None
+    assert not opened[0].db_path.parent.exists()
+    assert caught == []
+    assert restored is stand_in, "the handler from before the demo is put back"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGHUP")
+def test_a_second_hangup_lets_the_first_finish_unwinding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A window closed over zsh hangs the demo up twice, some 4 ms apart.
+
+    The second landed in Textual's teardown and cut it short, and the input
+    thread the teardown would have stopped kept the process running for ever.
+    The stand-in's `finally` is that teardown.
+    """
+    hangups: list[int] = [getattr(signal, name) for name in ("SIGHUP", "SIGTERM")]
+    caught: list[int] = []
+    finished: list[bool] = []
+
+    def stand_in(received: int, _frame: object) -> None:
+        caught.append(received)
+
+    def hung_up_twice(_app: _Opened) -> None:
+        try:
+            os.kill(os.getpid(), hangups[0])
+        finally:
+            for signum in hangups:
+                os.kill(os.getpid(), signum)
+            finished.append(True)
+
+    at_a_terminal(monkeypatch)
+    opened = instead_of_the_application(monkeypatch, hung_up_twice)
+    originals = [signal.signal(signum, stand_in) for signum in hangups]
+    try:
+        with pytest.raises(SystemExit) as ended:
+            main.run_demo(click.Context(cli))
+    finally:
+        for signum, original in zip(hangups, originals, strict=True):
+            signal.signal(signum, original)
+
+    assert finished == [True], "the teardown ran to its end"
+    assert ended.value.code == 128 + hangups[0]
+    assert caught == [], "nor were the later ones handed to the handler from before"
+    assert opened[0].db_path is not None
+    assert not opened[0].db_path.parent.exists()
+
+
+def test_demo_is_opened_as_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """So the application can say the records are samples, and go when it does."""
+    at_a_terminal(monkeypatch)
+    opened = instead_of_the_application(monkeypatch)
+
+    CliRunner().invoke(cli, ["--demo"])
+
+    assert [app.demo for app in opened] == [True]
 
 
 def test_demo_seeds_work_sessions(
@@ -300,6 +396,20 @@ def test_closed_setup_form_leaves_the_guard_up(
     assert "Setup was not completed" in result.output
 
 
+def test_closed_setup_form_says_nothing_was_kept_and_how_to_finish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Named by no command: a visitor who ran `uvx flexi` has no `flexi`."""
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: True)
+    instead_of_the_application(monkeypatch)
+
+    result = CliRunner().invoke(cli, [])
+
+    assert "none of your answers were saved" in result.stderr
+    assert "Run Flexi again to finish it" in result.stderr
+    assert str(database_file()) in result.stderr
+
+
 def test_set_up_machine_opens_without_a_splash(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -310,6 +420,83 @@ def test_set_up_machine_opens_without_a_splash(
 
     assert result.exit_code == 0, result.output
     assert [(app.ran, app.show_splash) for app in opened] == [(True, False)]
+
+
+@pytest.mark.parametrize(
+    ("command", "said"),
+    [([], "Opening Flexi…"), (["--demo"], "Opening the Flexi demo with sample data…")],
+    ids=["flexi", "demo"],
+)
+def test_the_application_says_it_is_opening(
+    home: Path, monkeypatch: pytest.MonkeyPatch, command: list[str], said: str
+) -> None:
+    """A first launch spends seconds importing, and a blank terminal looks hung."""
+    at_a_terminal(monkeypatch)
+    instead_of_the_application(monkeypatch)
+
+    result = CliRunner().invoke(cli, command)
+
+    assert result.exit_code == 0, result.output
+    assert said in result.stderr
+
+
+def test_a_command_says_nothing_of_opening(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    at_a_terminal(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["balance", "show"])
+
+    assert result.exit_code == 0, result.output
+    assert "Opening" not in result.output
+
+
+def test_nothing_is_said_of_opening_without_a_terminal(home: Path) -> None:
+    assert "Opening" not in CliRunner().invoke(cli, []).output
+
+
+def test_opening_is_said_before_the_slow_imports() -> None:
+    """Pydantic, SQLAlchemy and Textual are what a first launch waits on.
+
+    A fresh interpreter refuses to import them at all, so saying it late fails
+    at once and never opens the application.
+    """
+    script = """
+import sys
+
+import click
+
+import flexi.cli.ui
+
+
+class Refused:
+    def find_spec(self, name, path=None, target=None):
+        if name.partition(".")[0] in {"alembic", "pydantic", "sqlalchemy", "textual"}:
+            raise AssertionError(f"{name} was imported before anything was said")
+
+
+def said(message, *_args, **_kwargs):
+    sys.exit(0 if "Opening" in str(message) else f"{message!r} was said first")
+
+
+flexi.cli.ui.interactive = lambda: True
+click.secho = said
+sys.meta_path.insert(0, Refused())
+
+from flexi.__main__ import cli
+
+cli([], prog_name="flexi")
+"""
+    finished = subprocess.run(  # noqa: S603 - fixed interpreter and in-repository script
+        [sys.executable, "-c", script],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=60,
+        check=False,
+    )
+
+    assert finished.returncode == 0, finished.stderr
 
 
 def test_bare_flexi_without_a_terminal_refuses(
@@ -334,8 +521,49 @@ def test_demo_without_a_terminal_refuses_early(
     result = CliRunner().invoke(cli, ["--demo"])
 
     assert result.exit_code == 1
-    assert "needs a terminal" in result.output
+    assert "needs an interactive terminal" in result.output
     assert opened == []
+
+
+def test_demo_without_a_terminal_names_no_command() -> None:
+    """A visitor who ran `uvx flexi --demo` has no `flexi` to run anything with.
+
+    Nor would `flexi balance show` read the demo's records.
+    """
+    result = CliRunner().invoke(cli, ["--demo"])
+
+    assert "`flexi" not in result.output
+
+
+@pytest.mark.parametrize(
+    "message", [main.NEEDS_TERMINAL, main.DEMO_NEEDS_TERMINAL], ids=["app", "demo"]
+)
+@pytest.mark.parametrize(
+    ("platform", "pointed"), [("win32", True), ("darwin", False), ("linux", False)]
+)
+def test_only_windows_is_told_which_consoles_will_do(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    message: str,
+    platform: str,
+    pointed: bool,
+) -> None:
+    """Git Bash's mintty and an IDE's output pane are no console to draw in.
+
+    The platform is pinned, as the suite runs on all three.
+    """
+    monkeypatch.setattr("flexi.cli.ui.interactive", lambda: False)
+    monkeypatch.setattr(sys, "platform", platform)
+
+    with pytest.raises(click.exceptions.Exit) as refused:
+        main.needs_a_terminal(click.Context(cli), message)
+
+    assert refused.value.exit_code == 1
+    said = capsys.readouterr().err
+    assert said.startswith(message)
+    assert (
+        "Run Flexi in Windows Terminal, PowerShell or Command Prompt." in said
+    ) is pointed
 
 
 # what stopped the database being opened
@@ -534,6 +762,13 @@ def test_command_before_setup_is_refused(
     assert not database_file().exists(), "refusing must not leave a database behind"
 
 
+def test_the_guard_points_at_flexi_itself() -> None:
+    """The README describes `flexi init` only as a reset, so `flexi` comes first."""
+    result = CliRunner().invoke(cli, ["clock", "in"])
+
+    assert "Run `flexi` (or `flexi init`) to choose" in result.stderr
+
+
 def test_ignored_preferences_go_to_stderr(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -544,6 +779,20 @@ def test_ignored_preferences_go_to_stderr(
     assert result.exit_code == 0, result.output
     assert "config.yaml could not be used" in result.stderr
     assert "config.yaml could not be used" not in result.stdout, "not the output"
+
+
+@pytest.mark.parametrize(
+    "command", [[], ["leave"], ["balance", "adjust"]], ids=["flexi", "leave", "adjust"]
+)
+def test_h_is_help(command: list[str]) -> None:
+    """Many people type -h first, and it should not be their first error.
+
+    The two commands that let unknown options through as words included.
+    """
+    short = CliRunner().invoke(cli, [*command, "-h"])
+
+    assert short.exit_code == 0, short.output
+    assert short.output == CliRunner().invoke(cli, [*command, "--help"]).output
 
 
 def test_help_works_without_a_database() -> None:
@@ -705,6 +954,98 @@ def test_confirmation_is_asked_on_stderr(
     assert "Booking annual leave" in result.stdout, "the plan is the output"
 
 
+@pytest.mark.parametrize(
+    ("typed", "said"),
+    [
+        ("--dryrun", "No such option '--dryrun'. Did you mean '--dry-run'?"),
+        ("--yse", "No such option '--yse'. Did you mean '--yes'?"),
+        ("-y", "No such option '-y'."),
+    ],
+)
+def test_a_mistyped_option_is_not_blamed_on_the_date(
+    home: Path, typed: str, said: str
+) -> None:
+    """Unknown options are let through as words, so that `-2w` is a date."""
+    result = CliRunner().invoke(cli, ["leave", "annual", "friday", typed])
+
+    assert result.exit_code == 2
+    assert said in result.stderr
+    assert "Try 2026-06-12" not in result.output
+    assert booked_days(home) == []
+
+
+def test_completing_after_a_mistyped_option_refuses_nothing() -> None:
+    """Completion parses what it can, and a refusal there is a traceback."""
+    result = CliRunner().invoke(
+        cli,
+        prog_name="flexi",
+        env={
+            "_FLEXI_COMPLETE": "zsh_complete",
+            "COMP_WORDS": "flexi leave annual --dryrun ",
+            "COMP_CWORD": "4",
+        },
+    )
+
+    assert result.exit_code == 0, repr(result.exception)
+
+
+def test_a_word_after_a_double_dash_is_read_as_a_word(home: Path) -> None:
+    """`--` ends the options, so what follows it is the date, however spelled."""
+    result = CliRunner().invoke(cli, ["leave", "annual", "friday", "--", "--dry-run"])
+
+    assert result.exit_code == 2
+    assert "No such option" not in result.output
+    assert "Try 2026-06-12" in result.output
+
+
+def test_a_negative_offset_is_still_a_date(home: Path) -> None:
+    result = CliRunner().invoke(cli, ["leave", "annual", "-3d", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert "Fri 7 Aug" in result.output
+
+
+def test_a_date_with_an_h_in_it_is_not_a_call_for_help(home: Path) -> None:
+    """Help exits 0, which a script booking with --yes would take for booked."""
+    result = CliRunner().invoke(cli, ["leave", "sick", "-1h", "--yes"])
+
+    assert result.exit_code == 2
+    assert "Try 2026-06-12" in result.output
+    assert booked_days(home) == []
+
+
+def test_leave_with_nothing_to_answer_says_to_add_yes(home: Path) -> None:
+    """Cron and Task Scheduler give no input, and get what to add, not "Aborted!"."""
+    result = CliRunner().invoke(cli, ["leave", "annual", "friday"], input="")
+
+    assert result.exit_code == 1
+    assert "add --yes to book it without asking" in result.stderr
+    assert "Aborted!" not in result.output
+    assert booked_days(home) == []
+
+
+def test_cancelling_with_nothing_to_answer_says_to_add_yes(home: Path) -> None:
+    CliRunner().invoke(cli, ["leave", "annual", "friday", "--yes"])
+
+    result = CliRunner().invoke(cli, ["leave", "cancel", "friday"], input="")
+
+    assert result.exit_code == 1
+    assert "add --yes to cancel them without asking" in result.stderr
+    assert "Aborted!" not in result.output
+    assert booked_days(home) == [date(2026, 8, 14)]
+
+
+def test_a_piped_answer_is_read_like_a_typed_one(home: Path) -> None:
+    """`echo y | flexi leave annual friday` books, and cancels, as typing y does."""
+    booked = CliRunner().invoke(cli, ["leave", "annual", "friday"], input="y\n")
+    assert booked.exit_code == 0, booked.output
+    assert booked_days(home) == [date(2026, 8, 14)]
+
+    cancelled = CliRunner().invoke(cli, ["leave", "cancel", "friday"], input="y\n")
+    assert cancelled.exit_code == 0, cancelled.output
+    assert booked_days(home) == []
+
+
 def booked_days(db_path: Path) -> list[date]:
     engine = create_db_engine(db_path)
     session = get_session(engine)
@@ -854,6 +1195,21 @@ def test_reset_keeps_a_snapshot_then_asks_again(
     assert list(backups_directory().glob("*.bak")), "the only way back"
 
 
+def test_the_snapshot_path_is_printed_whole(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On a narrow terminal too: the snapshot holds everything that was erased."""
+    monkeypatch.setenv("COLUMNS", "40")
+    choosing(monkeypatch, init_cli.Choice.RESET)
+    monkeypatch.setattr("flexi.cli.ui.type_the_word", lambda *_a, **_k: True)
+    instead_of_the_application(monkeypatch, answering_the_questions)
+
+    result = CliRunner().invoke(cli, ["init"])
+
+    (taken,) = backups_directory().glob("pre-init*.bak")
+    assert str(taken) in result.output
+
+
 def test_reset_forgets_the_memoised_setup(
     home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -875,6 +1231,28 @@ def test_erasing_an_absent_database_takes_no_snapshot(
     main.erase(tmp_path / "absent.db")
 
     assert "Snapshot" not in capsys.readouterr().err
+
+
+def test_every_leave_example_works_all_year() -> None:
+    """A fixed date such as `12 jun` drifts into next year, and onto a weekend.
+
+    So each example names a day in the fortnight ahead, on whatever day the help
+    is read.
+    """
+    output = CliRunner().invoke(cli, ["leave", "--help"]).output
+    examples = [
+        line.split()[2:]
+        for line in output.splitlines()
+        if line.strip().startswith("flexi leave ")
+    ]
+    assert examples
+
+    for offset in range(366):
+        today = date(2026, 1, 1) + timedelta(days=offset)
+        for words in examples:
+            when = parse_request(tuple(words)).when or "today"
+            start, end = parse_span(when, reference=today, prefer=Preference.FORWARD)
+            assert today <= start <= end <= today + timedelta(days=14), (words, today)
 
 
 def test_leave_examples_are_listed_one_per_line() -> None:

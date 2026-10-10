@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from flexi import wallclock
-from flexi.domain.format import MINUS, delta, stamp
+from flexi.domain.format import MINUS, delta, printable, stamp
 from flexi.models.database.db import BalanceAdjustment
 from flexi.services.transactions import atomic, write_transaction
 
@@ -94,6 +94,10 @@ class AdjustmentService:
         )
         return list(self._session.execute(stmt).scalars())
 
+    def get(self, adjustment_id: int) -> BalanceAdjustment | None:
+        """The correction with this id, if there is one."""
+        return self._session.get(BalanceAdjustment, adjustment_id)
+
     def first_line_after(self, when: date, until: date) -> BalanceAdjustment | None:
         """The earliest row after ``when``, up to ``until``, that may be a settlement.
 
@@ -161,10 +165,18 @@ class AdjustmentService:
         )
 
     def remove(self, adjustment_id: int) -> AdjustmentResult:
-        """Undo a correction: it is one row, so it can go."""
+        """Undo a correction: it is one row, so it can go.
+
+        The message names the row, so one removed by mistake can be entered
+        again. It is written before the commit, which expires the row.
+        """
         with write_transaction(self._session):
             row = self._session.get(BalanceAdjustment, adjustment_id)
             if row is None:
                 return AdjustmentResult(False, "No such adjustment")
+            removed = (
+                f"Removed {row.id}: {delta(timedelta(minutes=row.minutes))}"
+                f" on {stamp(row.date, '%-d %b %Y')}, {printable(row.reason)}"
+            )
             self._session.delete(row)
-        return AdjustmentResult(True, "Adjustment removed")
+        return AdjustmentResult(True, removed)

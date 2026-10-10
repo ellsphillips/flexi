@@ -152,7 +152,7 @@ Configure a GitHub trusted publisher for **`flexi-test` on TestPyPI** and
 | Workflow filename | `release.yaml` | `release.yaml` |
 | Environment | `testpypi` | `pypi` |
 
-[Trusted publishing supports both indexes](https://docs.pypi.org/trusted-publishers/using-a-publisher/#publishing-to-indices-other-than-pypi)
+[Trusted publishing supports both indexes](https://docs.pypi.org/trusted-publishers/using-a-publisher/)
 with short-lived credentials. Do not store a PyPI or TestPyPI API token in
 GitHub; configure both publishers before merging the release.
 
@@ -196,32 +196,36 @@ build remains paused until the owner approves the `pypi` deployment.
 
 ## Try the staged release
 
-From a checkout after [developer setup](TASKS.md), with `gh` authenticated, run:
+From a checkout after [developer setup](TASKS.md), with the
+[GitHub CLI](https://cli.github.com/) installed and signed in through
+`gh auth login`, run:
 
 ```bash
-just try-release
+just try-release --demo
 ```
 
-If needed, sign in to GitHub once with `gh auth login`.
-
-The TestPyPI stages of `release.yaml` must already be merged into remote `main`,
-and the [one-time setup](#one-time-setup) must be complete. The command reuses a
-release run for the current remote `main` commit, or starts one on `main`. It
-can publish `flexi-test` to TestPyPI and waits for its verification without
-waiting for production approval.
+This tests the release from **remote `main`**, then opens its demo with sample
+records. The TestPyPI stages of `release.yaml` must already be merged into
+remote `main`, and the [one-time setup](#one-time-setup) must be complete. The
+command reuses a release run for the current remote `main` commit, or starts one
+on `main`. It can publish `flexi-test` to TestPyPI, the separate package
+registry used for testing, and waits for its verification without waiting for
+production approval.
 
 It downloads that run's production and test artifacts, verifies the TestPyPI
 `flexi-test` wheel's SHA256 against its test artifact, and separately installs
 that wheel and the production `flexi` CI wheel. Each installation is checked for
-version, CLI help, import origin, dependencies, and headless TUI startup in its
-own temporary environment, configuration, and data directory. Dependencies come
-from real PyPI. Temporary files are removed on exit.
+package identity, version, CLI help, import origin, dependencies, and headless
+TUI startup in its own temporary environment, configuration, and data
+directory. Dependencies come from real PyPI.
 
-Add `--demo` to launch the production `flexi` CI wheel's interactive demo after
-both checks; this needs a terminal. Use `--run RUN_ID` to select or resume an
-exact release run.
-The ID is the number at the end of a GitHub Actions run URL, not a package
-version. For example, for
+`--demo` then opens the production `flexi` CI wheel's demo, which needs a
+terminal; omit it to run only the automated checks. The temporary installations
+and sample records are removed on exit, and your real records are untouched.
+
+Use `--run RUN_ID` to select or resume an exact release run instead of current
+remote `main`. The ID is the number at the end of a GitHub Actions run URL, not
+a package version. For example, for
 [run 35583429416](https://github.com/ellsphillips/flexi/actions/runs/35583429416):
 
 ```bash
